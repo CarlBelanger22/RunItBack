@@ -1,0 +1,96 @@
+      {/* Leaders - 2 Row Layout */}
+      <div className="space-y-4">
+        {/* Upper Row: PTS, REB, AST */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {[
+            { title: 'PTS', data: leaders.points, key: 'points', label: 'Points' },
+            { title: 'REB', data: leaders.rebounds, key: 'rebounds', label: 'Rebounds' },
+            { title: 'AST', data: leaders.assists, key: 'assists', label: 'Assists' }
+          ].map(({ title, data, key, label }) => (
+            <Card key={key} className="bg-gradient-to-br from-background to-muted/20">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 p-4 pt-0">
+                {data.slice(0, 5).map((player, index) => (
+                  <div 
+                    key={player.player.id}
+                    className={`flex items-center justify-between cursor-pointer p-3 rounded-lg transition-colors ${
+                      index === 0 ? 'bg-amber-50 dark:bg-amber-950/20' : 'hover:bg-muted/30'
+                    }`}
+                    onClick={() => onNavigateToPlayer(player.player.id)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="text-sm font-medium text-muted-foreground w-4 flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate" title={player.player.name}>
+                          {player.player.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {player.team.name}
+                        </div>
+                      </div>
+                      {index === 0 && <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />}
+                    </div>
+                    <span className="text-lg font-bold ml-3 flex-shrink-0">
+                      {Math.round(key === 'points' ? player.totalStats.points / player.gamesPlayed : 
+                       key === 'rebounds' ? (player.totalStats.orb + player.totalStats.drb) / player.gamesPlayed :
+                       player.totalStats.assists / player.gamesPlayed)}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Lower Row: STL, BLK, 3PM, EFF */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {[
+            { title: 'STL', data: leaders.steals, key: 'steals', label: 'Steals' },
+            { title: 'BLK', data: leaders.blocks, key: 'blocks', label: 'Blocks' },
+            { title: '3PM', data: leaders.threes, key: 'threes', label: '3-Pointers' },
+            { title: 'EFF', data: leaders.efficiency, key: 'efficiency', label: 'Efficiency' }
+          ].map(({ title, data, key, label }) => (
+            <Card key={key} className="bg-gradient-to-br from-background to-muted/20">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-semibold">{title}</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-1 p-4 pt-0">
+                {data.slice(0, 5).map((player, index) => (
+                  <div 
+                    key={player.player.id}
+                    className={`flex items-center justify-between cursor-pointer p-3 rounded-lg transition-colors ${
+                      index === 0 ? 'bg-amber-50 dark:bg-amber-950/20' : 'hover:bg-muted/30'
+                    }`}
+                    onClick={() => onNavigateToPlayer(player.player.id)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <span className="text-sm font-medium text-muted-foreground w-4 flex-shrink-0">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate" title={player.player.name}>
+                          {player.player.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {player.team.name}
+                        </div>
+                      </div>
+                      {index === 0 && <Star className="w-4 h-4 text-amber-500 fill-amber-500 flex-shrink-0" />}
+                    </div>
+                    <span className="text-lg font-bold ml-3 flex-shrink-0">
+                      {Math.round(key === 'steals' ? player.totalStats.steals / player.gamesPlayed :
+                       key === 'blocks' ? player.totalStats.blocks / player.gamesPlayed :
+                       key === 'threes' ? player.totalStats.three_made / player.gamesPlayed :
+                       (player as any).eff)}
+                    </span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </div>
