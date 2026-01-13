@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
@@ -277,6 +277,11 @@ export function TournamentPage({
     description: '',
     players: [] as Array<{ name: string; number: string; position: string }>
   });
+  
+  // Refs for uncontrolled inputs
+  const teamNameInputRef = useRef<HTMLInputElement>(null);
+  const teamAbbreviationInputRef = useRef<HTMLInputElement>(null);
+  const teamDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Players table sorting state
   const [sortField, setSortField] = useState<string>('PPG');
@@ -578,22 +583,34 @@ export function TournamentPage({
       description: '',
       players: []
     });
+    // Clear refs
+    if (teamNameInputRef.current) teamNameInputRef.current.value = '';
+    if (teamAbbreviationInputRef.current) teamAbbreviationInputRef.current.value = '';
+    if (teamDescriptionTextareaRef.current) teamDescriptionTextareaRef.current.value = '';
   };
 
   const handleCreateTeam = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Read from refs instead of state
+    const name = teamNameInputRef.current?.value || '';
+    const abbreviation = teamAbbreviationInputRef.current?.value.toUpperCase() || '';
+    const description = teamDescriptionTextareaRef.current?.value || '';
+    
     const players = teamFormData.players.map((player, index) => ({
       id: `player-${Date.now()}-${index}`,
       name: player.name,
       number: parseInt(player.number),
-      position: player.position
+      position: player.position,
+      height: '',
+      weight: '',
+      age: 0
     }));
 
     const teamData = {
-      name: teamFormData.name,
-      abbreviation: teamFormData.abbreviation.toUpperCase() || teamFormData.name.substring(0, 3).toUpperCase(),
-      description: teamFormData.description,
+      name,
+      abbreviation: abbreviation || name.substring(0, 3).toUpperCase(),
+      description,
       players,
       currentTournamentId: tournament.id
     };
@@ -601,6 +618,11 @@ export function TournamentPage({
     onCreateTeam(teamData);
     setIsCreateTeamDialogOpen(false);
     resetTeamForm();
+    
+    // Clear refs
+    if (teamNameInputRef.current) teamNameInputRef.current.value = '';
+    if (teamAbbreviationInputRef.current) teamAbbreviationInputRef.current.value = '';
+    if (teamDescriptionTextareaRef.current) teamDescriptionTextareaRef.current.value = '';
   };
 
   const addPlayer = () => {
@@ -634,14 +656,16 @@ export function TournamentPage({
           <Badge variant="secondary">{tournamentTeams.length} Teams</Badge>
           
           {availableTeams.length > 0 && (
-            <Dialog open={isAddTeamDialogOpen} onOpenChange={setIsAddTeamDialogOpen}>
-              <DialogTrigger asChild>
-                <Button variant="outline">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Team
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="max-w-md">
+            <>
+              <Button 
+                variant="outline"
+                onClick={() => setIsAddTeamDialogOpen(true)}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add Team
+              </Button>
+              <Dialog open={isAddTeamDialogOpen} onOpenChange={setIsAddTeamDialogOpen}>
+                <DialogContent className="max-w-md">
                 <DialogHeader>
                   <DialogTitle>Add Team to Tournament</DialogTitle>
                   <DialogDescription>
@@ -676,16 +700,17 @@ export function TournamentPage({
                   ))}
                 </div>
               </DialogContent>
-            </Dialog>
+              </Dialog>
+            </>
           )}
           
+          <Button
+            onClick={() => setIsCreateTeamDialogOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Create New Team
+          </Button>
           <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Create New Team
-              </Button>
-            </DialogTrigger>
             <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Create New Team</DialogTitle>
@@ -694,36 +719,46 @@ export function TournamentPage({
                 </DialogDescription>
               </DialogHeader>
               
-              <form onSubmit={handleCreateTeam} className="space-y-4">
+              <form onSubmit={handleCreateTeam} className="space-y-4" onKeyDown={(e) => {
+                // Prevent form submission on Enter (only submit on button click)
+                if (e.key === 'Enter' && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+                  e.preventDefault();
+                }
+              }}>
                 <div className="space-y-2">
                   <Label htmlFor="teamName">Team Name</Label>
                   <Input
+                    ref={teamNameInputRef}
                     id="teamName"
-                    value={teamFormData.name}
-                    onChange={(e) => setTeamFormData(prev => ({ ...prev, name: e.target.value }))}
+                    defaultValue=""
                     placeholder="Enter team name"
                     required
+                    autoFocus
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="teamAbbreviation">Team Abbreviation</Label>
                   <Input
+                    ref={teamAbbreviationInputRef}
                     id="teamAbbreviation"
-                    value={teamFormData.abbreviation}
-                    onChange={(e) => setTeamFormData(prev => ({ ...prev, abbreviation: e.target.value.toUpperCase() }))}
+                    defaultValue=""
                     placeholder="3-letter abbreviation (e.g. LAL)"
                     maxLength={3}
                     className="uppercase"
+                    onChange={(e) => {
+                      // Auto-uppercase on change
+                      e.target.value = e.target.value.toUpperCase();
+                    }}
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="teamDescription">Description (Optional)</Label>
                   <Textarea
+                    ref={teamDescriptionTextareaRef}
                     id="teamDescription"
-                    value={teamFormData.description}
-                    onChange={(e) => setTeamFormData(prev => ({ ...prev, description: e.target.value }))}
+                    defaultValue=""
                     placeholder="Enter team description"
                     rows={2}
                   />

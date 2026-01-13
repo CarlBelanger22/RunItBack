@@ -117,15 +117,15 @@ export function Dashboard({
                 {teams.slice(0, 3).map(team => {
                   const teamLogo = getTeamLogo(team.name);
                   return (
-                    <div 
-                      key={team.id}
-                      className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onNavigateToTeam(team.id);
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
+                  <div 
+                    key={team.id}
+                    className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onNavigateToTeam(team.id);
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
                         {teamLogo ? (
                           <img 
                             src={teamLogo} 
@@ -133,18 +133,18 @@ export function Dashboard({
                             className="w-6 h-6 rounded-full object-cover flex-shrink-0"
                           />
                         ) : (
-                          <Avatar className="w-6 h-6">
-                            <AvatarFallback className="text-xs">
+                      <Avatar className="w-6 h-6">
+                        <AvatarFallback className="text-xs">
                               {team.name.substring(0, 2).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
+                        </AvatarFallback>
+                      </Avatar>
                         )}
-                        <span className="text-sm font-medium">{team.name}</span>
-                      </div>
-                      <Badge variant="outline" className="text-xs">
-                        {team.players.length} Players
-                      </Badge>
+                      <span className="text-sm font-medium">{team.name}</span>
                     </div>
+                    <Badge variant="outline" className="text-xs">
+                      {team.players.length} Players
+                    </Badge>
+                  </div>
                   );
                 })}
               </div>

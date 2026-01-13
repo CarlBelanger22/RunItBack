@@ -82,7 +82,7 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
   const [isSubstituting, setIsSubstituting] = useState(false);
   const [dialogState, setDialogState] = useState<DialogState>({ isOpen: false, type: null });
   const [awaitingRebound, setAwaitingRebound] = useState(false);
-  
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyPress = (event: KeyboardEvent) => {
@@ -247,7 +247,7 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
     if (playerPlusMinus !== 0) {
       stats.push({ value: playerPlusMinus > 0 ? `+${playerPlusMinus}` : playerPlusMinus, label: '', variant: playerPlusMinus > 0 ? 'default' : 'secondary' });
     }
-
+    
     return (
       <PlayerCard
         player={player}
@@ -434,7 +434,7 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
                       homeScore: ourScore,
                       awayScore: opponentScore,
                     });
-
+                    
                     setCurrentGame(updatedGame);
                     onGameUpdate(updatedGame);
                     
@@ -645,9 +645,9 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
                   <Button 
                     onClick={() => setAwaitingRebound(false)}
                     variant="outline"
-                  >
-                    Skip Rebound
-                  </Button>
+                >
+                  Skip Rebound
+                </Button>
                 </div>
               </CardContent>
             </Card>

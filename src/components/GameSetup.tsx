@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 import {
   Card,
   CardContent,
@@ -31,17 +31,13 @@ interface TeamSelectorProps {
   team: Team;
   onTeamChange: (team: Team) => void;
   availableTeams: Team[];
-  newPlayerName: string;
-  newPlayerNumber: string;
   newPlayerPosition: string;
   editingTeam: "home" | "away";
   positions: string[];
   onSelectExistingTeam: (teamId: string, isHome: boolean) => void;
-  onNewPlayerNameChange: (value: string, isForThisTeam: boolean) => void;
-  onNewPlayerNumberChange: (value: string, isForThisTeam: boolean) => void;
   onNewPlayerPositionChange: (value: string, isForThisTeam: boolean) => void;
   onEditingTeamChange: (team: "home" | "away") => void;
-  onAddPlayer: () => void;
+  onAddPlayer: (playerName: string, playerNumber: string, teamType: "home" | "away") => void;
   onRemovePlayer: (playerId: string, team: "home" | "away") => void;
 }
 
@@ -50,14 +46,10 @@ const TeamSelector = React.memo(({
   team,
   onTeamChange,
   availableTeams,
-  newPlayerName,
-  newPlayerNumber,
   newPlayerPosition,
   editingTeam,
   positions,
   onSelectExistingTeam,
-  onNewPlayerNameChange,
-  onNewPlayerNumberChange,
   onNewPlayerPositionChange,
   onEditingTeamChange,
   onAddPlayer,
@@ -65,6 +57,20 @@ const TeamSelector = React.memo(({
 }: TeamSelectorProps) => {
   const teamType = isHome ? "home" : "away";
   const isEditingThisTeam = editingTeam === teamType;
+  const teamNameInputRef = useRef<HTMLInputElement>(null);
+  const playerNameInputRef = useRef<HTMLInputElement>(null);
+  const playerNumberInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAddPlayer = useCallback(() => {
+    const playerName = playerNameInputRef.current?.value || '';
+    const playerNumber = playerNumberInputRef.current?.value || '';
+    if (playerName.trim() && playerNumber.trim() && newPlayerPosition) {
+      onAddPlayer(playerName, playerNumber, teamType);
+      // Clear inputs after adding
+      if (playerNameInputRef.current) playerNameInputRef.current.value = '';
+      if (playerNumberInputRef.current) playerNumberInputRef.current.value = '';
+    }
+  }, [onAddPlayer, teamType, newPlayerPosition]);
 
   return (
     <div className="space-y-4">
@@ -110,17 +116,19 @@ const TeamSelector = React.memo(({
           Team Name
         </Label>
         <Input
+          ref={teamNameInputRef}
           id={`${teamType}-team-name`}
           placeholder="Enter team name"
-          value={
-            team.id === teamType ? team.name : ""
-          }
-          onChange={(e) => {
-            onTeamChange({
-              id: teamType,
-              name: e.target.value,
-              players: team.id === teamType ? team.players : [],
-            });
+          defaultValue={team.id === teamType ? team.name : ""}
+          onBlur={(e) => {
+            const value = e.target.value;
+            if (value !== (team.id === teamType ? team.name : "")) {
+              onTeamChange({
+                id: teamType,
+                name: value,
+                players: team.id === teamType ? team.players : [],
+              });
+            }
           }}
         />
       </div>
@@ -148,20 +156,22 @@ const TeamSelector = React.memo(({
               <div className="grid grid-cols-12 gap-2">
                 <div className="col-span-5">
                   <Input
+                    ref={playerNameInputRef}
+                    key={`${teamType}-name-input-${isEditingThisTeam ? 'editing' : 'not-editing'}`}
                     placeholder="Player name"
-                    value={isEditingThisTeam ? newPlayerName : ""}
-                    onChange={(e) => onNewPlayerNameChange(e.target.value, isEditingThisTeam)}
+                    defaultValue={isEditingThisTeam ? newPlayerName : ""}
                     onFocus={() => onEditingTeamChange(teamType)}
                   />
                 </div>
                 <div className="col-span-2">
                   <Input
+                    ref={playerNumberInputRef}
+                    key={`${teamType}-number-input-${isEditingThisTeam ? 'editing' : 'not-editing'}`}
                     placeholder="No."
                     type="number"
                     min="0"
                     max="99"
-                    value={isEditingThisTeam ? newPlayerNumber : ""}
-                    onChange={(e) => onNewPlayerNumberChange(e.target.value, isEditingThisTeam)}
+                    defaultValue={isEditingThisTeam ? newPlayerNumber : ""}
                     onFocus={() => onEditingTeamChange(teamType)}
                   />
                 </div>
@@ -186,11 +196,11 @@ const TeamSelector = React.memo(({
                 <div className="col-span-2">
                   <Button
                     size="sm"
-                    onClick={onAddPlayer}
+                    onClick={handleAddPlayer}
                     disabled={
                       !isEditingThisTeam ||
-                      !newPlayerName ||
-                      !newPlayerNumber ||
+                      !playerNameInputRef.current?.value ||
+                      !playerNumberInputRef.current?.value ||
                       !newPlayerPosition
                     }
                     className="w-full"
@@ -271,8 +281,7 @@ export function GameSetup({
   const [gameDate, setGameDate] = useState(
     new Date().toISOString().split("T")[0],
   );
-  const [newPlayerName, setNewPlayerName] = useState("");
-  const [newPlayerNumber, setNewPlayerNumber] = useState("");
+  const gameDateInputRef = useRef<HTMLInputElement>(null);
   const [newPlayerPosition, setNewPlayerPosition] = useState("");
   const [editingTeam, setEditingTeam] = useState<"home" | "away">("home");
 
@@ -294,22 +303,20 @@ export function GameSetup({
     }
   }, [availableTeams]);
 
-  const addPlayer = useCallback(() => {
-    if (
-      !newPlayerName ||
-      !newPlayerNumber ||
-      !newPlayerPosition
-    )
-      return;
+  const addPlayer = useCallback((playerName: string, playerNumber: string, teamType: "home" | "away") => {
+    if (!playerName || !playerNumber || !newPlayerPosition) return;
 
     const player: Player = {
-      id: `${editingTeam}-${Date.now()}-${newPlayerNumber}`,
-      name: newPlayerName,
-      number: parseInt(newPlayerNumber),
+      id: `${teamType}-${Date.now()}-${playerNumber}`,
+      name: playerName,
+      number: parseInt(playerNumber),
       position: newPlayerPosition,
+      height: '',
+      weight: '',
+      age: 0
     };
 
-    if (editingTeam === "home") {
+    if (teamType === "home") {
       setHomeTeam((prev) => ({
         ...prev,
         players: [...prev.players, player],
@@ -321,10 +328,9 @@ export function GameSetup({
       }));
     }
 
-    setNewPlayerName("");
-    setNewPlayerNumber("");
+    // Reset position for next player
     setNewPlayerPosition("");
-  }, [editingTeam, newPlayerName, newPlayerNumber, newPlayerPosition]);
+  }, [newPlayerPosition]);
 
   const removePlayer = useCallback((
     playerId: string,
@@ -385,10 +391,16 @@ export function GameSetup({
       ? awayTeam
       : { id: "opponent", name: "Opponent", players: [] };
 
+    // Default to Summer League 2024 tournament
+    const tournamentId = homeTeam.currentTournamentId || 'tournament-summer-2024';
+    
     const game: Game = {
       id: `game-${Date.now()}`,
       homeTeam,
       awayTeam: finalAwayTeam,
+      homeTeamId: homeTeam.id,
+      awayTeamId: finalAwayTeam.id,
+      tournamentId, // Default to Summer League 2024
       date: new Date().toISOString(),
       gameStats: [],
       teamStats: {
@@ -404,6 +416,7 @@ export function GameSetup({
       awayStarters: finalAwayTeam.players.slice(0, 5).map(p => p.id),
       trackBothTeams,
       isActive: true,
+      isCompleted: false,
     };
 
     onGameStart(game);
@@ -415,18 +428,6 @@ export function GameSetup({
     (trackBothTeams
       ? awayTeam.name && awayTeam.players.length > 0
       : true), [homeTeam, awayTeam, trackBothTeams]);
-
-  const handleNewPlayerNameChange = useCallback((value: string, isForThisTeam: boolean) => {
-    if (isForThisTeam) {
-      setNewPlayerName(value);
-    }
-  }, []);
-
-  const handleNewPlayerNumberChange = useCallback((value: string, isForThisTeam: boolean) => {
-    if (isForThisTeam) {
-      setNewPlayerNumber(value);
-    }
-  }, []);
 
   const handleNewPlayerPositionChange = useCallback((value: string, isForThisTeam: boolean) => {
     if (isForThisTeam) {
@@ -445,14 +446,20 @@ export function GameSetup({
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-2">
               <Label htmlFor="game-date">Game Date</Label>
               <Input
+                ref={gameDateInputRef}
                 id="game-date"
                 type="date"
-                value={gameDate}
-                onChange={(e) => setGameDate(e.target.value)}
+                defaultValue={gameDate}
+                onBlur={(e) => {
+                  const value = e.target.value;
+                  if (value !== gameDate) {
+                    setGameDate(value);
+                  }
+                }}
               />
             </div>
 
@@ -489,14 +496,10 @@ export function GameSetup({
               team={homeTeam}
               onTeamChange={setHomeTeam}
               availableTeams={availableTeams}
-              newPlayerName={newPlayerName}
-              newPlayerNumber={newPlayerNumber}
               newPlayerPosition={newPlayerPosition}
               editingTeam={editingTeam}
               positions={positions}
               onSelectExistingTeam={selectExistingTeam}
-              onNewPlayerNameChange={handleNewPlayerNameChange}
-              onNewPlayerNumberChange={handleNewPlayerNumberChange}
               onNewPlayerPositionChange={handleNewPlayerPositionChange}
               onEditingTeamChange={setEditingTeam}
               onAddPlayer={addPlayer}
@@ -522,14 +525,10 @@ export function GameSetup({
                 team={awayTeam}
                 onTeamChange={setAwayTeam}
                 availableTeams={availableTeams}
-                newPlayerName={newPlayerName}
-                newPlayerNumber={newPlayerNumber}
                 newPlayerPosition={newPlayerPosition}
                 editingTeam={editingTeam}
                 positions={positions}
                 onSelectExistingTeam={selectExistingTeam}
-                onNewPlayerNameChange={handleNewPlayerNameChange}
-                onNewPlayerNumberChange={handleNewPlayerNumberChange}
                 onNewPlayerPositionChange={handleNewPlayerPositionChange}
                 onEditingTeamChange={setEditingTeam}
                 onAddPlayer={addPlayer}

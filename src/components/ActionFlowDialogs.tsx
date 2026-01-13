@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
@@ -289,7 +289,7 @@ TurnoverDialog.displayName = 'TurnoverDialog';
 const SubstitutionDialog = React.memo(({ ourTeam, onConfirm, onClose }: { ourTeam: Team; onConfirm: (data: any) => void; onClose: () => void; }) => {
   const [playersOut, setPlayersOut] = useState<Player[]>([]);
   const [playersIn, setPlayersIn] = useState<Player[]>([]);
-  const [gameTime, setGameTime] = useState('');
+  const gameTimeInputRef = useRef<HTMLInputElement>(null);
 
   const availableToSub = ourTeam.players.filter(p => 
     !ourTeam.players.slice(0, 5).includes(p) // Not currently on court
@@ -314,6 +314,7 @@ const SubstitutionDialog = React.memo(({ ourTeam, onConfirm, onClose }: { ourTea
   };
 
   const handleSubConfirm = () => {
+    const gameTime = gameTimeInputRef.current?.value || '';
     onConfirm({
       playersOut: playersOut.map(p => p.id),
       playersIn: playersIn.map(p => p.id),
@@ -321,7 +322,9 @@ const SubstitutionDialog = React.memo(({ ourTeam, onConfirm, onClose }: { ourTea
     });
     setPlayersOut([]);
     setPlayersIn([]);
-    setGameTime('');
+    if (gameTimeInputRef.current) {
+      gameTimeInputRef.current.value = '';
+    }
     onClose();
   };
 
@@ -410,11 +413,12 @@ const SubstitutionDialog = React.memo(({ ourTeam, onConfirm, onClose }: { ourTea
       <div className="space-y-2">
         <Label>Game Time (mm:ss)</Label>
         <Input
+          ref={gameTimeInputRef}
           type="text"
           placeholder="10:30"
-          value={gameTime}
-          onChange={(e) => setGameTime(e.target.value)}
+          defaultValue=""
           pattern="[0-9]{1,2}:[0-5][0-9]"
+          autoFocus
         />
       </div>
 
@@ -429,7 +433,7 @@ const SubstitutionDialog = React.memo(({ ourTeam, onConfirm, onClose }: { ourTea
           <Button variant="outline" onClick={onClose}>Cancel</Button>
           <Button 
             onClick={handleSubConfirm}
-            disabled={playersOut.length !== playersIn.length || playersOut.length === 0 || !gameTime}
+            disabled={playersOut.length !== playersIn.length || playersOut.length === 0 || !gameTimeInputRef.current?.value}
           >
             Confirm Substitution
           </Button>

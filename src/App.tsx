@@ -1,4 +1,17 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+
+// TypeScript declarations for requestIdleCallback (not in all type definitions)
+declare global {
+  interface Window {
+    requestIdleCallback?: (callback: (deadline: IdleDeadline) => void, options?: { timeout?: number }) => number;
+    cancelIdleCallback?: (handle: number) => void;
+  }
+}
+
+interface IdleDeadline {
+  didTimeout: boolean;
+  timeRemaining(): number;
+}
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { Dashboard } from './components/Dashboard';
@@ -7,10 +20,12 @@ import { TournamentPage } from './components/TournamentPage';
 import { TeamManager } from './components/TeamManager';
 import { TeamPage } from './components/TeamPage';
 import { PlayerPage } from './components/PlayerPage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { GameSetup } from './components/GameSetup';
 import { LiveGameEntry } from './components/LiveGameEntry';
 import { GameSummary } from './components/GameSummary';
 import { RecentGames } from './components/RecentGames';
+import { loadFromStorage, saveToStorage, isStorageAvailable } from './utils/storage';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -20,10 +35,12 @@ export interface Player {
   name: string;
   number: number;
   position: string;
+  secondaryPosition?: string; // Optional secondary position
   picture?: string;
   height: string; // Format: "6'3'' (1.91m)"
   weight: string; // Format: "185 lbs (84 kg)"
   age: number;
+  dateOfBirth?: string; // ISO date string (YYYY-MM-DD)
 }
 
 export interface Team {
@@ -843,25 +860,158 @@ const createSeedData = () => {
 };
 
 export default function App() {
-  const [darkMode, setDarkMode] = useState(false);
+  // Initialize seed data (used as fallback)
+  const seedData = createSeedData();
+  
+  // Load from localStorage on mount, fallback to seed data
+  const [games, setGames] = useState<Game[]>(() => {
+    if (!isStorageAvailable()) {
+      console.warn('localStorage not available, using seed data');
+      return seedData.games;
+    }
+    
+    const stored = loadFromStorage();
+    if (stored && stored.games.length > 0) {
+      console.log('Loaded games from localStorage:', stored.games.length);
+      return stored.games;
+    }
+    
+    console.log('No stored data found, using seed data');
+    return seedData.games;
+  });
+  
+  const [tournaments, setTournaments] = useState<Tournament[]>(() => {
+    if (!isStorageAvailable()) {
+      return seedData.tournaments;
+    }
+    
+    const stored = loadFromStorage();
+    if (stored && stored.tournaments.length > 0) {
+      return stored.tournaments;
+    }
+    
+    return seedData.tournaments;
+  });
+  
+  const [teams, setTeams] = useState<Team[]>(() => {
+    if (!isStorageAvailable()) {
+      return seedData.teams;
+    }
+    
+    const stored = loadFromStorage();
+    if (stored && stored.teams.length > 0) {
+      return stored.teams;
+    }
+    
+    return seedData.teams;
+  });
+  
+  // Load dark mode preference from storage
+  const [darkMode, setDarkMode] = useState(() => {
+    if (!isStorageAvailable()) {
+      return false;
+    }
+    
+    const stored = loadFromStorage();
+    if (stored?.preferences?.darkMode !== undefined) {
+      return stored.preferences.darkMode;
+    }
+    
+    return false;
+  });
+  
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Initialize with seed data
-  const seedData = createSeedData();
-  const [games, setGames] = useState<Game[]>(seedData.games);
-  const [tournaments, setTournaments] = useState<Tournament[]>(seedData.tournaments);
-  const [teams, setTeams] = useState<Team[]>(seedData.teams);
   
   // Navigation state
   const [navigation, setNavigation] = useState<NavigationState>({
     mainView: 'dashboard'
   });
 
+  // Apply dark mode class on mount if needed
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, []);
+
+  // Use refs to track previous values and prevent unnecessary saves
+  const prevTeamsRef = useRef(teams);
+  const prevTournamentsRef = useRef(tournaments);
+  const prevGamesRef = useRef(games);
+  const prevDarkModeRef = useRef(darkMode);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const idleCallbackRef = useRef<number | null>(null);
+
+  // Save to localStorage whenever data changes (debounced and async to avoid blocking)
+  useEffect(() => {
+    if (!isStorageAvailable()) return;
+    
+    // Clear existing timeout and idle callback
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = null;
+    }
+    if (idleCallbackRef.current !== null && 'cancelIdleCallback' in window) {
+      cancelIdleCallback(idleCallbackRef.current);
+      idleCallbackRef.current = null;
+    }
+    
+    // Move expensive JSON.stringify comparison to async/idle callback to avoid blocking input
+    const checkAndSave = () => {
+      // Check if data actually changed (this now runs asynchronously)
+      const teamsChanged = JSON.stringify(prevTeamsRef.current) !== JSON.stringify(teams);
+      const tournamentsChanged = JSON.stringify(prevTournamentsRef.current) !== JSON.stringify(tournaments);
+      const gamesChanged = JSON.stringify(prevGamesRef.current) !== JSON.stringify(games);
+      const darkModeChanged = prevDarkModeRef.current !== darkMode;
+      
+      if (!teamsChanged && !tournamentsChanged && !gamesChanged && !darkModeChanged) {
+        return; // No changes, skip save
+      }
+      
+      // Update refs
+      prevTeamsRef.current = teams;
+      prevTournamentsRef.current = tournaments;
+      prevGamesRef.current = games;
+      prevDarkModeRef.current = darkMode;
+      
+      // Debounce the actual save operation
+      saveTimeoutRef.current = setTimeout(() => {
+        saveToStorage(teams, tournaments, games, { darkMode });
+        saveTimeoutRef.current = null;
+      }, 500); // Wait 500ms after last change
+    };
+    
+    // Use requestIdleCallback if available, otherwise fallback to setTimeout
+    if ('requestIdleCallback' in window) {
+      idleCallbackRef.current = requestIdleCallback(checkAndSave, { timeout: 1000 });
+    } else {
+      // Fallback for browsers without requestIdleCallback
+      setTimeout(checkAndSave, 0);
+    }
+    
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+      if (idleCallbackRef.current !== null && 'cancelIdleCallback' in window) {
+        cancelIdleCallback(idleCallbackRef.current);
+      }
+    };
+  }, [teams, tournaments, games, darkMode]);
+
   // Toggle dark mode
   const toggleDarkMode = () => {
-    setDarkMode(!darkMode);
+    const newDarkMode = !darkMode;
+    setDarkMode(newDarkMode);
     document.documentElement.classList.toggle('dark');
+    
+    // Save preference immediately
+    if (isStorageAvailable()) {
+      saveToStorage(teams, tournaments, games, { darkMode: newDarkMode });
+    }
   };
 
   // Navigation helpers - memoized to prevent unnecessary re-renders
@@ -922,8 +1072,12 @@ export default function App() {
       .filter(s => game.awayTeam.players.some(p => p.id === s.playerId))
       .reduce((sum, s) => sum + s.points, 0);
 
-    const completedGame = {
+    // Ensure tournament ID is set (default to Summer League 2024)
+    const tournamentId = game.tournamentId || 'tournament-summer-2024';
+
+    const completedGame: Game = {
       ...game,
+      tournamentId,
       isActive: false,
       isCompleted: true,
       currentPeriod: game.currentPeriod || 4,
@@ -932,6 +1086,14 @@ export default function App() {
     };
     
     setGames(prev => [...prev, completedGame]);
+    
+    // Add game to tournament's games list
+    setTournaments(prev => prev.map(tournament => 
+      tournament.id === tournamentId
+        ? { ...tournament, games: [...tournament.games.filter(gid => gid !== completedGame.id), completedGame.id] }
+        : tournament
+    ));
+    
     setCurrentGame(null);
     setNavigation({ mainView: 'dashboard' });
   }, []);
@@ -958,20 +1120,21 @@ export default function App() {
 
   // Team management functions - memoized
   const handleCreateTeam = useCallback((teamData: Omit<Team, 'id'>) => {
+    // Default to Summer League 2024 tournament if not specified
     const team: Team = {
       ...teamData,
-      id: `team-${Date.now()}`
+      id: `team-${Date.now()}`,
+      currentTournamentId: teamData.currentTournamentId || 'tournament-summer-2024'
     };
     setTeams(prev => [...prev, team]);
     
-    // If the team was created for a specific tournament, add it to that tournament
-    if (team.currentTournamentId) {
-      setTournaments(prev => prev.map(tournament => 
-        tournament.id === team.currentTournamentId 
-          ? { ...tournament, teams: [...tournament.teams, team.id] }
-          : tournament
-      ));
-    }
+    // Add team to the tournament (default to Summer League 2024)
+    const tournamentId = team.currentTournamentId || 'tournament-summer-2024';
+    setTournaments(prev => prev.map(tournament => 
+      tournament.id === tournamentId 
+        ? { ...tournament, teams: [...tournament.teams.filter(tid => tid !== team.id), team.id] }
+        : tournament
+    ));
   }, []);
 
   const handleAddTeamToTournament = useCallback((teamId: string, tournamentId: string) => {
@@ -1034,6 +1197,8 @@ export default function App() {
   const getTeam = useCallback((id: string) => teams.find(t => t.id === id), [teams]);
   const getPlayer = useCallback((id: string) => {
     for (const team of teams) {
+      // Defensive check: ensure team.players exists and is an array
+      if (!team.players || !Array.isArray(team.players)) continue;
       const player = team.players.find(p => p.id === id);
       if (player) return { player, team };
     }
@@ -1331,23 +1496,26 @@ export default function App() {
         )}
 
         {navigation.mainView === 'teams' && navigation.teamId && !navigation.playerId && currentTeam && (
-          <TeamPage
-            team={currentTeam}
-            games={games}
-            tournaments={tournaments}
-            activeTab={navigation.teamTab || 'overview'}
-            onTabChange={(tab) => navigateTo({ teamTab: tab })}
-            onBack={() => {
-              if (navigation.previousView) {
-                setNavigation(navigation.previousView);
-              } else {
-                navigateTo({ mainView: 'teams', teamId: undefined, teamTab: undefined });
-              }
-            }}
-            onNavigateToPlayer={navigateToPlayer}
-            onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
-            onNavigateToTournament={navigateToTournament}
-          />
+          <ErrorBoundary>
+            <TeamPage
+              team={currentTeam}
+              games={games}
+              tournaments={tournaments}
+              activeTab={navigation.teamTab || 'overview'}
+              onTabChange={(tab) => navigateTo({ teamTab: tab })}
+              onBack={() => {
+                if (navigation.previousView) {
+                  setNavigation(navigation.previousView);
+                } else {
+                  navigateTo({ mainView: 'teams', teamId: undefined, teamTab: undefined });
+                }
+              }}
+              onNavigateToPlayer={navigateToPlayer}
+              onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
+              onNavigateToTournament={navigateToTournament}
+              onUpdateTeam={handleUpdateTeam}
+            />
+          </ErrorBoundary>
         )}
 
         {navigation.mainView === 'teams' && navigation.teamId && !navigation.playerId && !currentTeam && (
@@ -1355,18 +1523,21 @@ export default function App() {
         )}
 
         {navigation.playerId && currentPlayerData && (
-          <PlayerPage
-            player={currentPlayerData.player}
-            team={currentPlayerData.team}
-            games={games}
-            tournaments={tournaments}
-            activeTab={navigation.playerTab || 'overview'}
-            onTabChange={(tab) => navigateTo({ playerTab: tab })}
-            onBack={() => navigateTo({ playerId: undefined, playerTab: undefined })}
-            onNavigateToTeam={navigateToTeam}
-            onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
-            onNavigateToTournament={navigateToTournament}
-          />
+          <ErrorBoundary>
+            <PlayerPage
+              player={currentPlayerData.player}
+              team={currentPlayerData.team}
+              games={games}
+              tournaments={tournaments}
+              activeTab={navigation.playerTab || 'overview'}
+              onTabChange={(tab) => navigateTo({ playerTab: tab })}
+              onBack={() => navigateTo({ playerId: undefined, playerTab: undefined })}
+              onNavigateToTeam={navigateToTeam}
+              onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
+              onNavigateToTournament={navigateToTournament}
+              onUpdateTeam={handleUpdateTeam}
+            />
+          </ErrorBoundary>
         )}
 
         {navigation.playerId && !currentPlayerData && (

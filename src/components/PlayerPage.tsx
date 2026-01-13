@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Avatar, AvatarFallback } from './ui/avatar';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Player, Team, Game, GameStats, Tournament } from '../App';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
+import { PlayerForm } from './forms/PlayerForm';
+import { ErrorBoundary } from './ErrorBoundary';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { 
   ArrowLeft,
@@ -24,7 +27,8 @@ import {
   Star,
   Medal,
   Crown,
-  Filter
+  Filter,
+  Edit
 } from 'lucide-react';
 
 interface PlayerPageProps {
@@ -38,6 +42,7 @@ interface PlayerPageProps {
   onNavigateToTeam: (teamId: string) => void;
   onNavigateToGame: (gameId: string) => void;
   onNavigateToTournament: (tournamentId: string) => void;
+  onUpdateTeam: (team: Team) => void;
 }
 
 export function PlayerPage({ 
@@ -50,17 +55,85 @@ export function PlayerPage({
   onBack,
   onNavigateToTeam,
   onNavigateToGame,
-  onNavigateToTournament
+  onNavigateToTournament,
+  onUpdateTeam
 }: PlayerPageProps) {
   const [selectedTournament, setSelectedTournament] = useState<string>('all');
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  
+  const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+  
+  const isNumberTaken = useCallback((number: string, teamId: string) => {
+    // Check if number is taken by another player (not the current player)
+    if (!number || !team?.players) return false;
+    return team.players.some(p => p.id !== player.id && p.number === parseInt(number));
+  }, [team?.players, player?.id]);
+  
+  const handleUpdatePlayer = useCallback((data: { 
+    name: string; 
+    number: string; 
+    position: string;
+    secondaryPosition?: string;
+    height: string;
+    weight: string;
+    dateOfBirth?: string;
+  }) => {
+    if (!player || !team) return;
+    
+    // Calculate age from date of birth if provided
+    let age = player.age || 0; // Keep existing age if no date of birth provided
+    if (data.dateOfBirth) {
+      const birthDate = new Date(data.dateOfBirth);
+      const today = new Date();
+      age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+    }
+    
+    const updatedPlayer: Player = {
+      ...player,
+      name: data.name,
+      number: parseInt(data.number),
+      position: data.position,
+      secondaryPosition: data.secondaryPosition || undefined,
+      height: data.height || '',
+      weight: data.weight || '',
+      age: age,
+      dateOfBirth: data.dateOfBirth || undefined
+    };
+    
+    const updatedTeam = {
+      ...team,
+      players: (team.players || []).map(p => p.id === player.id ? updatedPlayer : p)
+    };
+    
+    onUpdateTeam(updatedTeam);
+    setIsEditDialogOpen(false);
+  }, [player, team, onUpdateTeam]);
   
   // Get player games and stats
-  const playerGames = games.filter(game => 
-    game.gameStats.some(stat => stat.playerId === player.id)
-  );
+  if (!player || !team || !games) {
+    return <div>Loading...</div>;
+  }
+  
+  // Defensive checks for required properties
+  if (!player.name || !player.id || !team.id || !team.players) {
+    return <div>Invalid player or team data</div>;
+  }
+  
+  const playerGames = games.filter(game => {
+    // Defensive check: ensure gameStats exists and is an array
+    if (!game.gameStats || !Array.isArray(game.gameStats)) return false;
+    return game.gameStats.some(stat => stat.playerId === player.id);
+  });
   
   const playerGameStats = playerGames.map(game => {
-    const stats = game.gameStats.find(stat => stat.playerId === player.id);
+    // Defensive check: ensure gameStats exists before finding
+    const stats = game.gameStats && Array.isArray(game.gameStats) 
+      ? game.gameStats.find(stat => stat.playerId === player.id)
+      : null;
     return {
       game,
       stats: stats || MetricsCalculator.getEmptyStats(player.id)
@@ -172,7 +245,7 @@ export function PlayerPage({
           <div className="flex items-center gap-6">
             <Avatar className="w-24 h-24">
               <AvatarFallback className="text-2xl">
-                {player.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
+                {player.name ? player.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??'}
               </AvatarFallback>
             </Avatar>
             <div className="flex-1">
@@ -321,6 +394,7 @@ export function PlayerPage({
             {recentGames.map(({ game, stats }) => {
               const isHome = game.homeTeamId === team.id;
               const opponent = isHome ? game.awayTeam : game.homeTeam;
+              if (!opponent || !opponent.name) return null;
               const gameAdvanced = MetricsCalculator.calculateAdvancedMetrics(stats);
               
               return (
@@ -398,6 +472,7 @@ export function PlayerPage({
               {playerGameStats.slice().reverse().map(({ game, stats }) => {
                 const isHome = game.homeTeamId === team.id;
                 const opponent = isHome ? game.awayTeam : game.homeTeam;
+                if (!opponent || !opponent.name) return null;
                 const gameAdvanced = MetricsCalculator.calculateAdvancedMetrics(stats);
                 const tournament = game.tournamentId ? tournaments.find(t => t.id === game.tournamentId) : null;
                 
@@ -874,24 +949,63 @@ export function PlayerPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        <div className="flex items-center gap-3">
-          <Avatar className="w-12 h-12">
-            <AvatarFallback>
-              {player.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
-          <div>
-            <h1 className="text-2xl font-bold">{player.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              #{player.number} • {player.position} • {team.name}
-            </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+          <div className="flex items-center gap-3">
+            <Avatar className="w-12 h-12">
+              <AvatarFallback>
+                {player.name ? player.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??'}
+              </AvatarFallback>
+            </Avatar>
+            <div>
+              <h1 className="text-2xl font-bold">{player.name}</h1>
+              <p className="text-sm text-muted-foreground">
+                #{player.number} • {player.position} • {team.name}
+              </p>
+            </div>
           </div>
         </div>
+        
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={() => setIsEditDialogOpen(true)}
+        >
+          <Edit className="w-4 h-4 mr-2" />
+          Edit Player
+        </Button>
+        <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+          <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Player Details</DialogTitle>
+              <DialogDescription>
+                Update player information and details.
+              </DialogDescription>
+            </DialogHeader>
+            <ErrorBoundary>
+              <PlayerForm
+                initialData={{
+                  name: player.name || '',
+                  number: String(player.number || ''),
+                  position: player.position || '',
+                  secondaryPosition: player.secondaryPosition || '',
+                  height: player.height || '',
+                  weight: player.weight || '',
+                  dateOfBirth: player.dateOfBirth || ''
+                }}
+                selectedTeam={team}
+                positions={positions}
+                isNumberTaken={isNumberTaken}
+                onSubmit={handleUpdatePlayer}
+                onCancel={() => setIsEditDialogOpen(false)}
+              />
+            </ErrorBoundary>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Tabs */}

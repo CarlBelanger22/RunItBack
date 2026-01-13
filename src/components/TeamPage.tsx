@@ -1,13 +1,15 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Avatar, AvatarFallback } from './ui/avatar';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Team, Game, Player, GameStats, Tournament } from '../App';
 import { MetricsCalculator } from './MetricsCalculator';
 import { PlayerCard } from './PlayerCard';
+import { PlayerForm } from './forms/PlayerForm';
 import { 
   ArrowLeft,
   Users, 
@@ -21,7 +23,8 @@ import {
   Medal,
   Crown,
   Star,
-  MapPin
+  MapPin,
+  Plus
 } from 'lucide-react';
 
 interface TeamPageProps {
@@ -34,6 +37,7 @@ interface TeamPageProps {
   onNavigateToPlayer: (playerId: string) => void;
   onNavigateToGame: (gameId: string) => void;
   onNavigateToTournament: (tournamentId: string) => void;
+  onUpdateTeam: (team: Team) => void;
 }
 
 export function TeamPage({ 
@@ -45,8 +49,70 @@ export function TeamPage({
   onBack,
   onNavigateToPlayer,
   onNavigateToGame,
-  onNavigateToTournament
+  onNavigateToTournament,
+  onUpdateTeam
 }: TeamPageProps) {
+  // Early return if team is not available
+  if (!team) {
+    return <div>Team not found</div>;
+  }
+  
+  // Defensive check for required properties
+  if (!team.id || !team.name || !Array.isArray(team.players)) {
+    return <div>Invalid team data</div>;
+  }
+  
+  // Player creation dialog state
+  const [isAddPlayerDialogOpen, setIsAddPlayerDialogOpen] = useState(false);
+  
+  const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+  
+  const isNumberTaken = useCallback((number: string, teamId: string) => {
+    if (!team.players || !Array.isArray(team.players)) return false;
+    return team.players.some(player => player.number === parseInt(number));
+  }, [team.players]);
+  
+  const handleAddPlayer = useCallback((data: { 
+    name: string; 
+    number: string; 
+    position: string;
+    secondaryPosition?: string;
+    height: string;
+    weight: string;
+    dateOfBirth?: string;
+  }) => {
+    // Calculate age from date of birth if provided
+    let age = 0;
+    if (data.dateOfBirth) {
+      const birthDate = new Date(data.dateOfBirth);
+      const today = new Date();
+      age = today.getFullYear() - birthDate.getFullYear();
+      const monthDiff = today.getMonth() - birthDate.getMonth();
+      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+        age--;
+      }
+    }
+    
+    const newPlayer: Player = {
+      id: `player-${Date.now()}`,
+      name: data.name,
+      number: parseInt(data.number),
+      position: data.position,
+      secondaryPosition: data.secondaryPosition,
+      height: data.height || '',
+      weight: data.weight || '',
+      age: age,
+      dateOfBirth: data.dateOfBirth
+    };
+    
+    const updatedTeam = {
+      ...team,
+      players: [...(team.players || []), newPlayer]
+    };
+    
+    onUpdateTeam(updatedTeam);
+    setIsAddPlayerDialogOpen(false);
+  }, [team, onUpdateTeam]);
   
   // Get team games
   const teamGames = games.filter(game => 
@@ -355,38 +421,80 @@ export function TeamPage({
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium">Team Roster</h3>
-        <Badge variant="secondary">{team.players.length} Players</Badge>
+        <div className="flex items-center gap-3">
+          <Badge variant="secondary">{team.players.length} Players</Badge>
+          <Button 
+            size="sm"
+            onClick={() => setIsAddPlayerDialogOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Player
+          </Button>
+          <Dialog open={isAddPlayerDialogOpen} onOpenChange={setIsAddPlayerDialogOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Add Player to {team.name}</DialogTitle>
+                <DialogDescription>
+                  Add a new player to the team roster.
+                </DialogDescription>
+              </DialogHeader>
+              <PlayerForm
+                selectedTeam={team}
+                positions={positions}
+                isNumberTaken={isNumberTaken}
+                onSubmit={handleAddPlayer}
+                onCancel={() => setIsAddPlayerDialogOpen(false)}
+              />
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
       
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {team.players.map(player => {
-          // Get player stats for this team
-          const playerGameStats = teamGames.flatMap(game => 
-            game.gameStats.filter(stat => stat.playerId === player.id)
-          );
-          
-          const gamesPlayed = playerGameStats.length;
-          const avgPoints = gamesPlayed > 0 ? 
-            playerGameStats.reduce((sum, stat) => sum + stat.points, 0) / gamesPlayed : 0;
-          const avgRebounds = gamesPlayed > 0 ? 
-            playerGameStats.reduce((sum, stat) => sum + stat.orb + stat.drb, 0) / gamesPlayed : 0;
-          const avgAssists = gamesPlayed > 0 ? 
-            playerGameStats.reduce((sum, stat) => sum + stat.assists, 0) / gamesPlayed : 0;
-          
-          return (
-            <PlayerCard 
-              key={player.id} 
-              player={player}
-              onClick={() => onNavigateToPlayer(player.id)}
-              stats={[
-                { label: ' PPG', value: avgPoints.toFixed(1) },
-                { label: ' RPG', value: avgRebounds.toFixed(1) },
-                { label: ' APG', value: avgAssists.toFixed(1) }
-              ]}
-            />
-          );
-        })}
-      </div>
+      {team.players.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Users className="h-16 w-16 text-muted-foreground mb-4" />
+            <h3 className="text-lg font-medium mb-2">No players yet</h3>
+            <p className="text-sm text-muted-foreground mb-4 text-center">
+              Start building your roster by adding players to the team.
+            </p>
+            <Button onClick={() => setIsAddPlayerDialogOpen(true)}>
+              <Plus className="h-4 w-4 mr-2" />
+              Add First Player
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {team.players.map(player => {
+            // Get player stats for this team
+            const playerGameStats = teamGames.flatMap(game => 
+              game.gameStats.filter(stat => stat.playerId === player.id)
+            );
+            
+            const gamesPlayed = playerGameStats.length;
+            const avgPoints = gamesPlayed > 0 ? 
+              playerGameStats.reduce((sum, stat) => sum + stat.points, 0) / gamesPlayed : 0;
+            const avgRebounds = gamesPlayed > 0 ? 
+              playerGameStats.reduce((sum, stat) => sum + stat.orb + stat.drb, 0) / gamesPlayed : 0;
+            const avgAssists = gamesPlayed > 0 ? 
+              playerGameStats.reduce((sum, stat) => sum + stat.assists, 0) / gamesPlayed : 0;
+            
+            return (
+              <PlayerCard 
+                key={player.id} 
+                player={player}
+                onClick={() => onNavigateToPlayer(player.id)}
+                stats={[
+                  { label: ' PPG', value: avgPoints.toFixed(1) },
+                  { label: ' RPG', value: avgRebounds.toFixed(1) },
+                  { label: ' APG', value: avgAssists.toFixed(1) }
+                ]}
+              />
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 
