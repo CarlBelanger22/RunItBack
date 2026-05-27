@@ -45,6 +45,17 @@ interface PlayerPageProps {
   onUpdateTeam: (team: Team) => void;
 }
 
+export const formatPlayerPositionLabel = (primaryPosition: string, secondaryPosition?: string): string => {
+  const primary = primaryPosition?.trim() || '';
+  const secondary = secondaryPosition?.trim();
+
+  if (!secondary || secondary === primary) {
+    return primary;
+  }
+
+  return `[${primary}/${secondary}]`;
+};
+
 export function PlayerPage({ 
   player, 
   team,
@@ -189,6 +200,7 @@ export function PlayerPage({
   const currentTournament = team.currentTournamentId 
     ? tournaments.find(t => t.id === team.currentTournamentId)
     : null;
+  const displayPosition = formatPlayerPositionLabel(player.position, player.secondaryPosition);
   
   // Get stats by tournament
   const getStatsByTournament = () => {
@@ -255,7 +267,7 @@ export function PlayerPage({
               <h2 className="text-2xl font-bold">{player.name}</h2>
               <div className="flex items-center gap-4 mt-2 text-muted-foreground">
                 <span>#{player.number}</span>
-                <span>{player.position}</span>
+                <span>{displayPosition}</span>
                 {player.height && (
                   <span className="flex items-center gap-1">
                     <Ruler className="w-3 h-3" />
@@ -967,7 +979,7 @@ export function PlayerPage({
             <div>
               <h1 className="text-2xl font-bold">{player.name}</h1>
               <p className="text-sm text-muted-foreground">
-                #{player.number} • {player.position} • {team.name}
+                #{player.number} • {displayPosition} • {team.name}
               </p>
             </div>
           </div>

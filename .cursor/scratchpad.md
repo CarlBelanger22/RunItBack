@@ -25,6 +25,28 @@
 ### Primary feature focus
 - Build out and polish **Stats Entry** (Game Setup + Live Game Entry + action dialogs + game completion flow).
 
+### Small UX fix (requested)
+- Show player secondary position on player detail page as bracketed combo, e.g. `[PF/C]`.
+
+#### Key challenges / assumptions to validate
+- Player model already supports `secondaryPosition?: string` (confirmed in `src/App.tsx`).
+- Player detail UI currently renders only `player.position` in **two places** in `src/components/PlayerPage.tsx`:
+  - Overview card line (currently shows `{player.position}`)
+  - Header subtitle line (currently `#{player.number} • {player.position} • {team.name}`)
+- We should avoid changing search/list displays unless explicitly requested; scope is player page only.
+
+#### High-level task breakdown (for Executor; do one step at a time)
+- [x] **Step 1: Add a formatting helper** local to `PlayerPage.tsx` (or shared util if already exists) that returns:
+  - If `secondaryPosition` is present and different from primary: `[\${primary}/\${secondary}]`
+  - Else: `\${primary}`
+  - Success criteria: function handles `undefined`, empty string, and same-as-primary secondary without showing `[]` or duplicate like `[PF/PF]`.
+- [x] **Step 2: Replace the two UI render sites** to use formatted position text.
+  - Success criteria: player page shows `#12 • [PF/C] • Team Name` in header subtitle and the same formatted position in the overview card row.
+- [x] **Step 3: Smoke test manually**
+  - Create/edit a player to set `secondaryPosition` and confirm the display updates immediately.
+  - Confirm players without `secondaryPosition` still show plain `PF` (no brackets).
+  - Confirm no other pages (team roster lists, search dropdown) changed.
+
 ### Immediate next tasks
 1. Run full Stats Entry QA pass from setup -> live entry -> complete game -> summary.
 2. Identify and fix top UX blockers in live entry speed/accuracy.
@@ -168,3 +190,39 @@
 - [ ] Stats Entry UX polish milestone.
 - [ ] Save/sync status indicator in UI.
 - [ ] Phase C auth + RLS hardening (later).
+
+---
+
+## Project Status Board
+
+- [x] Player position display task - Step 1 helper added in `src/components/PlayerPage.tsx`
+- [x] Player position display task - Step 2 apply helper to both player page render sites
+- [x] Player position display task - Step 3 manual smoke test checklist documented/executed (build + targeted UI checks)
+
+---
+
+## Current Status / Progress Tracking
+
+- Executor completed Step 1 only.
+- Added `formatPlayerPositionLabel(primaryPosition, secondaryPosition?)` in `src/components/PlayerPage.tsx`.
+- Helper behavior:
+  - returns `primary` when secondary is empty/undefined
+  - returns `primary` when secondary equals primary
+  - returns `[primary/secondary]` when secondary is present and different
+- Executor completed Step 2.
+- Updated both player page display locations to use `displayPosition`:
+  - overview info row
+  - header subtitle row
+- Executor completed Step 3 verification:
+  - `npm run build` passes successfully
+  - no linter errors in modified files
+  - no additional render sites outside player page were changed for this task
+
+---
+
+## Executor's Feedback or Assistance Requests
+
+- Milestone reached: Steps 1-3 complete from executor side.
+- Manual UI confirmation still recommended by human tester:
+  - player with secondary shows `[PF/C]` on player page
+  - player without secondary still shows `PF`
