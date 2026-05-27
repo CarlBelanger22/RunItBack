@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import type { Team, Tournament, Game, Player } from '../App';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
@@ -8,6 +9,8 @@ export interface LoadedAppData {
   tournaments: Tournament[];
   games: Game[];
   darkMode: boolean;
+  /** True when legacy height/weight values were normalized on load. */
+  playerMeasurementsMigrationPending?: boolean;
 }
 
 interface DbTeam {
@@ -252,9 +255,11 @@ export async function loadAppDataFromSupabase(
     playersByTeam.set(row.team_id, list);
   }
 
-  const teams: Team[] = teamRows.map((row) =>
+  const teamsRaw: Team[] = teamRows.map((row) =>
     dbTeamToTeam(row, playersByTeam.get(row.id) ?? [])
   );
+  const { teams, changed: playerMeasurementsMigrationPending } =
+    migrateTeamsPlayerMeasurements(teamsRaw);
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
   const games: Game[] = [];
@@ -293,6 +298,7 @@ export async function loadAppDataFromSupabase(
     tournaments,
     games,
     darkMode: prefsRes.data?.dark_mode ?? false,
+    playerMeasurementsMigrationPending,
   };
 }
 

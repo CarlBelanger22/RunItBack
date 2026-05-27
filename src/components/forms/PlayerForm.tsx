@@ -4,6 +4,7 @@ import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Team } from '../../App';
+import { normalizeHeightCmInput, normalizeWeightKgInput } from '../../lib/playerMeasurements';
 
 interface PlayerFormProps {
   initialData?: {
@@ -91,8 +92,8 @@ export const PlayerForm = React.memo(({
         number, 
         position,
         secondaryPosition: secondaryPosition === NONE_POSITION ? undefined : secondaryPosition,
-        height: height || '',
-        weight: weight || '',
+        height: normalizeHeightCmInput(height),
+        weight: normalizeWeightKgInput(weight),
         dateOfBirth: dateOfBirth || undefined
       });
     }
@@ -189,22 +190,28 @@ export const PlayerForm = React.memo(({
 
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="playerHeight">Height (Optional)</Label>
+          <Label htmlFor="playerHeight">Height (cm, optional)</Label>
           <Input
             ref={heightRef}
             id="playerHeight"
+            type="number"
+            inputMode="decimal"
+            step="any"
             defaultValue={initialData?.height || ''}
-            placeholder="e.g., 6'3&quot; (1.91m)"
+            placeholder="e.g., 191"
           />
         </div>
         
         <div className="space-y-2">
-          <Label htmlFor="playerWeight">Weight (Optional)</Label>
+          <Label htmlFor="playerWeight">Weight (kg, optional)</Label>
           <Input
             ref={weightRef}
             id="playerWeight"
+            type="number"
+            inputMode="decimal"
+            step="any"
             defaultValue={initialData?.weight || ''}
-            placeholder="e.g., 185 lbs (84 kg)"
+            placeholder="e.g., 88"
           />
         </div>
       </div>

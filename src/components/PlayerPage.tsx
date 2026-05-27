@@ -10,6 +10,7 @@ import { Player, Team, Game, GameStats, Tournament } from '../App';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
+import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { 
@@ -53,7 +54,7 @@ export const formatPlayerPositionLabel = (primaryPosition: string, secondaryPosi
     return primary;
   }
 
-  return `[${primary}/${secondary}]`;
+  return `${primary}/${secondary}`;
 };
 
 export function PlayerPage({ 
@@ -201,6 +202,9 @@ export function PlayerPage({
     ? tournaments.find(t => t.id === team.currentTournamentId)
     : null;
   const displayPosition = formatPlayerPositionLabel(player.position, player.secondaryPosition);
+  const displayHeight = player.height ? formatHeightForDisplay(player.height) : '';
+  const displayWeight = player.weight ? formatWeightForDisplay(player.weight) : '';
+  const displayAge = Number(player.age);
   
   // Get stats by tournament
   const getStatsByTournament = () => {
@@ -268,19 +272,19 @@ export function PlayerPage({
               <div className="flex items-center gap-4 mt-2 text-muted-foreground">
                 <span>#{player.number}</span>
                 <span>{displayPosition}</span>
-                {player.height && (
+                {displayHeight && (
                   <span className="flex items-center gap-1">
                     <Ruler className="w-3 h-3" />
-                    {player.height}
+                    {displayHeight}
                   </span>
                 )}
-                {player.weight && (
+                {displayWeight && (
                   <span className="flex items-center gap-1">
                     <Weight className="w-3 h-3" />
-                    {player.weight}
+                    {displayWeight}
                   </span>
                 )}
-                {player.age && <span>{player.age} years old</span>}
+                {Number.isFinite(displayAge) && displayAge > 0 && <span>{displayAge} years old</span>}
               </div>
               <div className="flex items-center gap-3 mt-3">
                 <Badge 

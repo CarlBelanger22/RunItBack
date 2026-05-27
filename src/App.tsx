@@ -17,6 +17,7 @@ import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { isSupabaseConfigured } from './lib/supabase';
 import { loadAppDataFromSupabase, saveAppDataToSupabase } from './api/supabaseData';
+import { PLAYER_MEASUREMENTS_MIGRATION_KEY } from './lib/playerMeasurements';
 import { AppRoutes } from './routing/AppRoutes';
 import { gamePath, paths, playerPath, teamPath } from './routing/paths';
 
@@ -30,8 +31,8 @@ export interface Player {
   position: string;
   secondaryPosition?: string; // Optional secondary position
   picture?: string;
-  height: string; // Format: "6'3'' (1.91m)"
-  weight: string; // Format: "185 lbs (84 kg)"
+  height: string; // cm (numeric string); profile shows ft/in + cm
+  weight: string; // kg (numeric string); profile shows kg only
   age: number;
   dateOfBirth?: string; // ISO date string (YYYY-MM-DD)
 }
@@ -888,6 +889,24 @@ export default function App() {
         prevGamesRef.current = data.games;
         prevDarkModeRef.current = data.darkMode;
         setDataLoadError(null);
+
+        if (
+          data.playerMeasurementsMigrationPending &&
+          !localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)
+        ) {
+          localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
+          saveAppDataToSupabase(
+            data.teams,
+            data.tournaments,
+            data.games,
+            data.darkMode
+          ).catch((err: Error) => {
+            console.error('Player measurements migration save failed:', err);
+            setSaveError(err.message);
+          });
+        } else if (!localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)) {
+          localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
+        }
       })
       .catch((err: Error) => {
         if (cancelled) return;
