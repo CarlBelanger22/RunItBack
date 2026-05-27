@@ -15,7 +15,6 @@ interface IdleDeadline {
 }
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
-import { loadFromStorage, saveToStorage, isStorageAvailable } from './utils/storage';
 import { isSupabaseConfigured } from './lib/supabase';
 import { loadAppDataFromSupabase, saveAppDataToSupabase } from './api/supabaseData';
 import { AppRoutes } from './routing/AppRoutes';
@@ -832,54 +831,12 @@ const createSeedData = () => {
 };
 
 export default function App() {
-  const seedData = createSeedData();
-  const useSupabase = isSupabaseConfigured;
+  const [games, setGames] = useState<Game[]>([]);
+  const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [darkMode, setDarkMode] = useState(false);
 
-  const loadInitialFromLocal = () => {
-    if (!isStorageAvailable()) {
-      return {
-        teams: seedData.teams,
-        tournaments: seedData.tournaments,
-        games: seedData.games,
-        darkMode: false,
-      };
-    }
-    const stored = loadFromStorage();
-    if (stored && (stored.teams.length > 0 || stored.games.length > 0)) {
-      return {
-        teams: stored.teams,
-        tournaments: stored.tournaments,
-        games: stored.games,
-        darkMode: stored.preferences?.darkMode ?? false,
-      };
-    }
-    return {
-      teams: seedData.teams,
-      tournaments: seedData.tournaments,
-      games: seedData.games,
-      darkMode: false,
-    };
-  };
-
-  const initialLocal = loadInitialFromLocal();
-
-  const [games, setGames] = useState<Game[]>(() =>
-    useSupabase ? [] : initialLocal.games
-  );
-
-  const [tournaments, setTournaments] = useState<Tournament[]>(() =>
-    useSupabase ? [] : initialLocal.tournaments
-  );
-
-  const [teams, setTeams] = useState<Team[]>(() =>
-    useSupabase ? [] : initialLocal.teams
-  );
-
-  const [darkMode, setDarkMode] = useState(() =>
-    useSupabase ? false : initialLocal.darkMode
-  );
-
-  const [isDataLoading, setIsDataLoading] = useState(useSupabase);
+  const [isDataLoading, setIsDataLoading] = useState(true);
   const [dataLoadError, setDataLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const skipSaveRef = useRef(true);
@@ -904,8 +861,11 @@ export default function App() {
 
   // Load from Supabase on mount
   useEffect(() => {
-    if (!useSupabase) {
-      skipSaveRef.current = false;
+    if (!isSupabaseConfigured) {
+      setDataLoadError(
+        'Supabase is required but not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.'
+      );
+      setIsDataLoading(false);
       return;
     }
 
@@ -931,17 +891,8 @@ export default function App() {
       })
       .catch((err: Error) => {
         if (cancelled) return;
-        console.error('Supabase load failed, falling back to localStorage:', err);
+        console.error('Supabase load failed:', err);
         setDataLoadError(err.message);
-        const fallback = loadInitialFromLocal();
-        setTeams(fallback.teams);
-        setTournaments(fallback.tournaments);
-        setGames(fallback.games);
-        setDarkMode(fallback.darkMode);
-        prevTeamsRef.current = fallback.teams;
-        prevTournamentsRef.current = fallback.tournaments;
-        prevGamesRef.current = fallback.games;
-        prevDarkModeRef.current = fallback.darkMode;
       })
       .finally(() => {
         if (!cancelled) {
@@ -953,7 +904,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [useSupabase]);
+  }, []);
 
   // Use refs to track previous values and prevent unnecessary saves
   const prevTeamsRef = useRef(teams);
@@ -966,7 +917,7 @@ export default function App() {
   // Persist data (Supabase or localStorage) when state changes
   useEffect(() => {
     if (skipSaveRef.current) return;
-    if (useSupabase && isDataLoading) return;
+    if (isDataLoading) return;
 
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
@@ -1000,16 +951,12 @@ export default function App() {
           : games;
 
       saveTimeoutRef.current = setTimeout(() => {
-        if (useSupabase) {
-          saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
-            .then(() => setSaveError(null))
-            .catch((err: Error) => {
-              console.error('Supabase save failed:', err);
-              setSaveError(err.message);
-            });
-        } else if (isStorageAvailable()) {
-          saveToStorage(teams, tournaments, gamesToSave, { darkMode });
-        }
+        saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
+          .then(() => setSaveError(null))
+          .catch((err: Error) => {
+            console.error('Supabase save failed:', err);
+            setSaveError(err.message);
+          });
         saveTimeoutRef.current = null;
       }, 500);
     };
@@ -1026,7 +973,7 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, useSupabase, isDataLoading]);
+  }, [teams, tournaments, games, darkMode, isDataLoading]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
@@ -1041,13 +988,9 @@ export default function App() {
         ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
         : games;
 
-    if (useSupabase) {
-      saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
-        setSaveError(err.message)
-      );
-    } else if (isStorageAvailable()) {
-      saveToStorage(teams, tournaments, gamesToSave, { darkMode: newDarkMode });
-    }
+    saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
+      setSaveError(err.message)
+    );
   };
 
   const handleGameStart = useCallback((game: Game) => {
