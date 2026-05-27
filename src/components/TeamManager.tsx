@@ -14,9 +14,17 @@ interface TeamManagerProps {
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
   onBack: () => void;
+  onNavigateToTeam: (teamId: string) => void;
 }
 
-export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, onBack }: TeamManagerProps) {
+export function TeamManager({
+  teams,
+  onCreateTeam,
+  onUpdateTeam,
+  onDeleteTeam,
+  onBack,
+  onNavigateToTeam,
+}: TeamManagerProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
@@ -216,7 +224,11 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {teams.map((team) => (
-            <Card key={team.id} className="hover:shadow-lg transition-shadow">
+            <Card
+              key={team.id}
+              className="hover:shadow-lg transition-shadow cursor-pointer"
+              onClick={() => onNavigateToTeam(team.id)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between">
                   <div className="space-y-1">
@@ -226,11 +238,14 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
                       {team.players.length} {team.players.length === 1 ? 'Player' : 'Players'}
                     </CardDescription>
                   </div>
-                  <div className="flex space-x-1">
+                  <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleEditTeam(team)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditTeam(team);
+                      }}
                       className="h-8 w-8 p-0"
                     >
                       <Edit className="h-3 w-3" />
@@ -238,7 +253,10 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => onDeleteTeam(team.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteTeam(team.id);
+                      }}
                       className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -248,7 +266,6 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
               </CardHeader>
               
               <CardContent className="space-y-4">
-                {/* Players List */}
                 {team.players.length > 0 ? (
                   <div className="space-y-2 max-h-40 overflow-y-auto">
                     {team.players.map((player) => (
@@ -265,7 +282,10 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemovePlayer(team, player.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleRemovePlayer(team, player.id);
+                          }}
                           className="h-6 w-6 p-0 text-destructive hover:text-destructive"
                         >
                           <Trash2 className="h-3 w-3" />
@@ -283,7 +303,8 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
                   variant="outline"
                   size="sm"
                   className="w-full"
-                  onClick={() => {
+                  onClick={(e) => {
+                    e.stopPropagation();
                     setSelectedTeam(team);
                     setIsPlayerDialogOpen(true);
                   }}
