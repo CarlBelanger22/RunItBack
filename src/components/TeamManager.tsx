@@ -3,9 +3,6 @@ import { TeamForm } from './forms/TeamForm';
 import { PlayerForm } from './forms/PlayerForm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Team, Player } from '../App';
@@ -18,62 +15,6 @@ interface TeamManagerProps {
   onDeleteTeam: (teamId: string) => void;
   onBack: () => void;
 }
-
-interface TeamFormProps {
-  teamForm: { name: string };
-  setTeamForm: React.Dispatch<React.SetStateAction<{ name: string }>>;
-  editingTeam: Team | null;
-  onSubmit: (e: React.FormEvent) => void;
-  onCancel: () => void;
-}
-
-
-const TeamForm = React.memo(({ teamForm, setTeamForm, editingTeam, onSubmit, onCancel }: TeamFormProps) => {
-  const inputRef = React.useRef<HTMLInputElement>(null);
-  
-  const handleNameChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setTeamForm(prev => ({ ...prev, name: value }));
-  }, [setTeamForm]);
-
-  return (
-    <form onSubmit={onSubmit} className="space-y-4" onKeyDown={(e) => {
-      // Prevent form submission on Enter (only submit on button click)
-      if (e.key === 'Enter' && e.target instanceof HTMLInputElement) {
-        e.preventDefault();
-      }
-    }}>
-      <div className="space-y-2">
-        <Label htmlFor="teamName">Team Name</Label>
-        <Input
-          ref={inputRef}
-          id="teamName"
-          value={teamForm.name}
-          onChange={handleNameChange}
-          placeholder="Enter team name"
-          required
-          autoFocus
-        />
-      </div>
-
-    <div className="flex justify-end space-x-2 pt-4">
-      <Button 
-        type="button" 
-        variant="outline" 
-        onClick={onCancel}
-      >
-        Cancel
-      </Button>
-      <Button type="submit">
-        {editingTeam ? 'Update Team' : 'Create Team'}
-      </Button>
-    </div>
-  </form>
-  );
-});
-
-TeamForm.displayName = 'TeamForm';
-
 
 export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, onBack }: TeamManagerProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -207,11 +148,10 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
               </DialogDescription>
             </DialogHeader>
             <TeamForm
-              teamForm={teamForm}
-              setTeamForm={setTeamForm}
-              editingTeam={editingTeam}
+              initialName=""
               onSubmit={handleTeamSubmit}
               onCancel={handleTeamFormCancel}
+              isEditing={false}
             />
           </DialogContent>
         </Dialog>
@@ -228,11 +168,10 @@ export function TeamManager({ teams, onCreateTeam, onUpdateTeam, onDeleteTeam, o
               </DialogDescription>
             </DialogHeader>
             <TeamForm
-              teamForm={teamForm}
-              setTeamForm={setTeamForm}
-              editingTeam={editingTeam}
+              initialName={editingTeam.name}
               onSubmit={handleTeamSubmit}
               onCancel={handleTeamFormCancel}
+              isEditing
             />
           </DialogContent>
         </Dialog>
