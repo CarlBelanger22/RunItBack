@@ -34,7 +34,7 @@ interface TeamPageProps {
   activeTab: 'overview' | 'roster' | 'stats' | 'games';
   onTabChange: (tab: 'overview' | 'roster' | 'stats' | 'games') => void;
   onBack: () => void;
-  onNavigateToPlayer: (playerId: string) => void;
+  onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   onNavigateToGame: (gameId: string) => void;
   onNavigateToTournament: (tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
@@ -334,7 +334,7 @@ export function TeamPage({
           { title: 'Steals Leader', player: leaders.steals, stat: 'steals', icon: TrendingUp },
           { title: 'Blocks Leader', player: leaders.blocks, stat: 'blocks', icon: Crown }
         ].map(({ title, player, stat, icon: Icon }) => (
-          <Card key={title} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => player && onNavigateToPlayer(player.player.id)}>
+          <Card key={title} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => player && onNavigateToPlayer(player.player.id, team.id)}>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm flex items-center gap-2">
                 <Icon className="w-4 h-4" />
@@ -484,7 +484,7 @@ export function TeamPage({
               <PlayerCard 
                 key={player.id} 
                 player={player}
-                onClick={() => onNavigateToPlayer(player.id)}
+                onClick={() => onNavigateToPlayer(player.id, team.id)}
                 stats={[
                   { label: ' PPG', value: avgPoints.toFixed(1) },
                   { label: ' RPG', value: avgRebounds.toFixed(1) },

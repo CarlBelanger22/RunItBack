@@ -39,7 +39,7 @@ interface TournamentPageProps {
   onTabChange: (tab: 'home' | 'teams' | 'standings' | 'players' | 'games') => void;
   onBack: () => void;
   onNavigateToTeam: (teamId: string) => void;
-  onNavigateToPlayer: (playerId: string) => void;
+  onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   onNavigateToGame: (gameId: string) => void;
   onCreateTeam: (teamData: Omit<Team, 'id'>) => void;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
@@ -448,7 +448,7 @@ export function TournamentPage({
                       index === 2 ? 'bg-orange-50 dark:bg-orange-950/20' :
                       'hover:bg-muted/30'
                     }`}
-                    onClick={() => onNavigateToPlayer(player.player.id)}
+                    onClick={() => onNavigateToPlayer(player.player.id, player.team.id)}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-xs font-medium text-muted-foreground w-3 flex-shrink-0">
@@ -497,7 +497,7 @@ export function TournamentPage({
                       index === 2 ? 'bg-orange-50 dark:bg-orange-950/20' :
                       'hover:bg-muted/30'
                     }`}
-                    onClick={() => onNavigateToPlayer(player.player.id)}
+                    onClick={() => onNavigateToPlayer(player.player.id, player.team.id)}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-xs font-medium text-muted-foreground w-3 flex-shrink-0">
@@ -546,7 +546,7 @@ export function TournamentPage({
                       index === 2 ? 'bg-orange-50 dark:bg-orange-950/20' :
                       'hover:bg-muted/30'
                     }`}
-                    onClick={() => onNavigateToPlayer(player.player.id)}
+                    onClick={() => onNavigateToPlayer(player.player.id, player.team.id)}
                   >
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className="text-xs font-medium text-muted-foreground w-3 flex-shrink-0">
@@ -1473,7 +1473,7 @@ export function TournamentPage({
                         <TableCell className="text-center">{index + 1}</TableCell>
                         <TableCell 
                           className={`font-medium cursor-pointer hover:text-primary ${sortField === 'Player' ? 'bg-muted/50' : ''}`}
-                          onClick={() => onNavigateToPlayer(playerData.player.id)}
+                          onClick={() => onNavigateToPlayer(playerData.player.id, playerData.team.id)}
                         >
                           {playerData.player.name}
                         </TableCell>

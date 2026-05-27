@@ -29,14 +29,15 @@ interface ZoneData {
 export function PlayerShotChart({ player, team, games, selectedTournament }: PlayerShotChartProps) {
   // Get all shots by the player
   const getPlayerShots = (): Shot[] => {
-    const playerGames = games.filter(game => 
-      game.gameStats.some(stat => stat.playerId === player.id) &&
+    const playerGames = games.filter(game =>
+      Array.isArray(game.gameStats) &&
+      game.gameStats.some((stat) => stat.playerId === player.id) &&
       (selectedTournament === 'all' || game.tournamentId === selectedTournament)
     );
 
     const allShots: Shot[] = [];
     playerGames.forEach(game => {
-      const playerShots = game.shots.filter(shot => shot.playerId === player.id);
+      const playerShots = (game.shots ?? []).filter((shot) => shot.playerId === player.id);
       allShots.push(...playerShots);
     });
 

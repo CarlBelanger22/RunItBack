@@ -26,6 +26,8 @@ import { LiveGameEntry } from './components/LiveGameEntry';
 import { GameSummary } from './components/GameSummary';
 import { RecentGames } from './components/RecentGames';
 import { loadFromStorage, saveToStorage, isStorageAvailable } from './utils/storage';
+import { isSupabaseConfigured } from './lib/supabase';
+import { loadAppDataFromSupabase, saveAppDataToSupabase } from './api/supabaseData';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -860,67 +862,61 @@ const createSeedData = () => {
 };
 
 export default function App() {
-  // Initialize seed data (used as fallback)
   const seedData = createSeedData();
-  
-  // Load from localStorage on mount, fallback to seed data
-  const [games, setGames] = useState<Game[]>(() => {
+  const useSupabase = isSupabaseConfigured;
+
+  const loadInitialFromLocal = () => {
     if (!isStorageAvailable()) {
-      console.warn('localStorage not available, using seed data');
-      return seedData.games;
+      return {
+        teams: seedData.teams,
+        tournaments: seedData.tournaments,
+        games: seedData.games,
+        darkMode: false,
+      };
     }
-    
     const stored = loadFromStorage();
-    if (stored && stored.games.length > 0) {
-      console.log('Loaded games from localStorage:', stored.games.length);
-      return stored.games;
+    if (stored && (stored.teams.length > 0 || stored.games.length > 0)) {
+      return {
+        teams: stored.teams,
+        tournaments: stored.tournaments,
+        games: stored.games,
+        darkMode: stored.preferences?.darkMode ?? false,
+      };
     }
-    
-    console.log('No stored data found, using seed data');
-    return seedData.games;
-  });
-  
-  const [tournaments, setTournaments] = useState<Tournament[]>(() => {
-    if (!isStorageAvailable()) {
-      return seedData.tournaments;
-    }
-    
-    const stored = loadFromStorage();
-    if (stored && stored.tournaments.length > 0) {
-      return stored.tournaments;
-    }
-    
-    return seedData.tournaments;
-  });
-  
-  const [teams, setTeams] = useState<Team[]>(() => {
-    if (!isStorageAvailable()) {
-      return seedData.teams;
-    }
-    
-    const stored = loadFromStorage();
-    if (stored && stored.teams.length > 0) {
-      return stored.teams;
-    }
-    
-    return seedData.teams;
-  });
-  
-  // Load dark mode preference from storage
-  const [darkMode, setDarkMode] = useState(() => {
-    if (!isStorageAvailable()) {
-      return false;
-    }
-    
-    const stored = loadFromStorage();
-    if (stored?.preferences?.darkMode !== undefined) {
-      return stored.preferences.darkMode;
-    }
-    
-    return false;
-  });
-  
+    return {
+      teams: seedData.teams,
+      tournaments: seedData.tournaments,
+      games: seedData.games,
+      darkMode: false,
+    };
+  };
+
+  const initialLocal = loadInitialFromLocal();
+
+  const [games, setGames] = useState<Game[]>(() =>
+    useSupabase ? [] : initialLocal.games
+  );
+
+  const [tournaments, setTournaments] = useState<Tournament[]>(() =>
+    useSupabase ? [] : initialLocal.tournaments
+  );
+
+  const [teams, setTeams] = useState<Team[]>(() =>
+    useSupabase ? [] : initialLocal.teams
+  );
+
+  const [darkMode, setDarkMode] = useState(() =>
+    useSupabase ? false : initialLocal.darkMode
+  );
+
+  const [isDataLoading, setIsDataLoading] = useState(useSupabase);
+  const [dataLoadError, setDataLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const skipSaveRef = useRef(true);
+
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
+  const currentGameRef = useRef<Game | null>(null);
+  currentGameRef.current = currentGame;
   const [searchQuery, setSearchQuery] = useState('');
   
   // Navigation state
@@ -928,14 +924,66 @@ export default function App() {
     mainView: 'dashboard'
   });
 
-  // Apply dark mode class on mount if needed
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add('dark');
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, []);
+  }, [darkMode]);
+
+  // Load from Supabase on mount
+  useEffect(() => {
+    if (!useSupabase) {
+      skipSaveRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+
+    loadAppDataFromSupabase()
+      .then((data) => {
+        if (cancelled) return;
+        console.log('Loaded from Supabase:', {
+          teams: data.teams.length,
+          tournaments: data.tournaments.length,
+          games: data.games.length,
+        });
+        setTeams(data.teams);
+        setTournaments(data.tournaments);
+        setGames(data.games);
+        setDarkMode(data.darkMode);
+        prevTeamsRef.current = data.teams;
+        prevTournamentsRef.current = data.tournaments;
+        prevGamesRef.current = data.games;
+        prevDarkModeRef.current = data.darkMode;
+        setDataLoadError(null);
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        console.error('Supabase load failed, falling back to localStorage:', err);
+        setDataLoadError(err.message);
+        const fallback = loadInitialFromLocal();
+        setTeams(fallback.teams);
+        setTournaments(fallback.tournaments);
+        setGames(fallback.games);
+        setDarkMode(fallback.darkMode);
+        prevTeamsRef.current = fallback.teams;
+        prevTournamentsRef.current = fallback.tournaments;
+        prevGamesRef.current = fallback.games;
+        prevDarkModeRef.current = fallback.darkMode;
+      })
+      .finally(() => {
+        if (!cancelled) {
+          skipSaveRef.current = false;
+          setIsDataLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [useSupabase]);
 
   // Use refs to track previous values and prevent unnecessary saves
   const prevTeamsRef = useRef(teams);
@@ -945,11 +993,11 @@ export default function App() {
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const idleCallbackRef = useRef<number | null>(null);
 
-  // Save to localStorage whenever data changes (debounced and async to avoid blocking)
+  // Persist data (Supabase or localStorage) when state changes
   useEffect(() => {
-    if (!isStorageAvailable()) return;
-    
-    // Clear existing timeout and idle callback
+    if (skipSaveRef.current) return;
+    if (useSupabase && isDataLoading) return;
+
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
       saveTimeoutRef.current = null;
@@ -958,59 +1006,77 @@ export default function App() {
       cancelIdleCallback(idleCallbackRef.current);
       idleCallbackRef.current = null;
     }
-    
-    // Move expensive JSON.stringify comparison to async/idle callback to avoid blocking input
+
     const checkAndSave = () => {
-      // Check if data actually changed (this now runs asynchronously)
       const teamsChanged = JSON.stringify(prevTeamsRef.current) !== JSON.stringify(teams);
-      const tournamentsChanged = JSON.stringify(prevTournamentsRef.current) !== JSON.stringify(tournaments);
+      const tournamentsChanged =
+        JSON.stringify(prevTournamentsRef.current) !== JSON.stringify(tournaments);
       const gamesChanged = JSON.stringify(prevGamesRef.current) !== JSON.stringify(games);
       const darkModeChanged = prevDarkModeRef.current !== darkMode;
-      
+
       if (!teamsChanged && !tournamentsChanged && !gamesChanged && !darkModeChanged) {
-        return; // No changes, skip save
+        return;
       }
-      
-      // Update refs
+
       prevTeamsRef.current = teams;
       prevTournamentsRef.current = tournaments;
       prevGamesRef.current = games;
       prevDarkModeRef.current = darkMode;
-      
-      // Debounce the actual save operation
+
+      const activeGame = currentGameRef.current;
+      const gamesToSave =
+        activeGame?.isActive
+          ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
+          : games;
+
       saveTimeoutRef.current = setTimeout(() => {
-        saveToStorage(teams, tournaments, games, { darkMode });
+        if (useSupabase) {
+          saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
+            .then(() => setSaveError(null))
+            .catch((err: Error) => {
+              console.error('Supabase save failed:', err);
+              setSaveError(err.message);
+            });
+        } else if (isStorageAvailable()) {
+          saveToStorage(teams, tournaments, gamesToSave, { darkMode });
+        }
         saveTimeoutRef.current = null;
-      }, 500); // Wait 500ms after last change
+      }, 500);
     };
-    
-    // Use requestIdleCallback if available, otherwise fallback to setTimeout
+
     if ('requestIdleCallback' in window) {
       idleCallbackRef.current = requestIdleCallback(checkAndSave, { timeout: 1000 });
     } else {
-      // Fallback for browsers without requestIdleCallback
       setTimeout(checkAndSave, 0);
     }
-    
+
     return () => {
-      if (saveTimeoutRef.current) {
-        clearTimeout(saveTimeoutRef.current);
-      }
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
       if (idleCallbackRef.current !== null && 'cancelIdleCallback' in window) {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode]);
+  }, [teams, tournaments, games, darkMode, useSupabase, isDataLoading]);
 
-  // Toggle dark mode
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
     setDarkMode(newDarkMode);
     document.documentElement.classList.toggle('dark');
-    
-    // Save preference immediately
-    if (isStorageAvailable()) {
-      saveToStorage(teams, tournaments, games, { darkMode: newDarkMode });
+
+    if (skipSaveRef.current) return;
+
+    const activeGame = currentGameRef.current;
+    const gamesToSave =
+      activeGame?.isActive
+        ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
+        : games;
+
+    if (useSupabase) {
+      saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
+        setSaveError(err.message)
+      );
+    } else if (isStorageAvailable()) {
+      saveToStorage(teams, tournaments, gamesToSave, { darkMode: newDarkMode });
     }
   };
 
@@ -1040,22 +1106,39 @@ export default function App() {
     }));
   }, []);
 
-  const navigateToPlayer = useCallback((playerId: string, tab: PlayerTab = 'overview') => {
-    setNavigation(prev => ({
-      mainView: 'teams', // Set to teams view to show PlayerPage
+  const navigateToPlayer = useCallback((playerId: string, teamIdHint?: string, tab: PlayerTab = 'overview') => {
+    let teamId = teamIdHint;
+    if (!teamId) {
+      for (const team of teams) {
+        if (team.players?.some((p) => p.id === playerId)) {
+          teamId = team.id;
+          break;
+        }
+      }
+    }
+
+    setNavigation((prev) => ({
+      mainView: 'teams',
       playerId,
       playerTab: tab,
-      // Keep current context if navigating from tournament
-      teamId: prev.teamId,
+      teamId,
       tournamentId: prev.tournamentId,
       tournamentTab: prev.tournamentTab,
-      previousView: prev.tournamentId ? {
-        mainView: 'tournaments',
-        tournamentId: prev.tournamentId,
-        tournamentTab: prev.tournamentTab || 'players'
-      } : prev.previousView
+      previousView: prev.tournamentId
+        ? {
+            mainView: 'tournaments',
+            tournamentId: prev.tournamentId,
+            tournamentTab: prev.tournamentTab || 'players',
+          }
+        : prev.teamId
+          ? {
+              mainView: 'teams',
+              teamId: prev.teamId,
+              teamTab: prev.teamTab || 'roster',
+            }
+          : prev.previousView,
     }));
-  }, []);
+  }, [teams]);
 
   const handleGameStart = useCallback((game: Game) => {
     setCurrentGame(game);
@@ -1267,8 +1350,29 @@ export default function App() {
     };
   }, [searchQuery, teams, games]);
 
+  if (isDataLoading) {
+    return (
+      <div className={`min-h-screen bg-background text-foreground flex items-center justify-center ${darkMode ? 'dark' : ''}`}>
+        <p className="text-muted-foreground">Loading league data…</p>
+      </div>
+    );
+  }
+
   return (
     <div className={`min-h-screen bg-background text-foreground ${darkMode ? 'dark' : ''}`}>
+      {!isSupabaseConfigured && import.meta.env.PROD && (
+        <div className="bg-amber-500/15 text-amber-900 dark:text-amber-200 text-sm text-center py-2 px-4">
+          Cloud database not connected (missing env vars in this deploy). Data is from this browser only.
+          Redeploy on Vercel after adding VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.
+        </div>
+      )}
+      {(dataLoadError || saveError) && (
+        <div className="bg-destructive/10 text-destructive text-sm text-center py-2 px-4">
+          {dataLoadError
+            ? `Could not load from cloud (${dataLoadError}). Showing local backup.`
+            : `Could not save to cloud: ${saveError}`}
+        </div>
+      )}
       {/* Header */}
       <header className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-6 py-4">
@@ -1484,7 +1588,7 @@ export default function App() {
           <div>Tournament not found</div>
         )}
 
-        {navigation.mainView === 'teams' && !navigation.teamId && (
+        {navigation.mainView === 'teams' && !navigation.teamId && !navigation.playerId && (
           <TeamManager 
             teams={teams}
             onCreateTeam={handleCreateTeam}
@@ -1531,7 +1635,17 @@ export default function App() {
               tournaments={tournaments}
               activeTab={navigation.playerTab || 'overview'}
               onTabChange={(tab) => navigateTo({ playerTab: tab })}
-              onBack={() => navigateTo({ playerId: undefined, playerTab: undefined })}
+              onBack={() => {
+                if (navigation.previousView) {
+                  setNavigation({
+                    ...navigation.previousView,
+                    playerId: undefined,
+                    playerTab: undefined,
+                  });
+                } else {
+                  navigateTo({ playerId: undefined, playerTab: undefined });
+                }
+              }}
               onNavigateToTeam={navigateToTeam}
               onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
               onNavigateToTournament={navigateToTournament}

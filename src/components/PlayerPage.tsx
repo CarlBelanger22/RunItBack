@@ -179,7 +179,10 @@ export function PlayerPage({
   
   // Calculate advanced metrics
   const { totals, averages, gamesPlayed } = calculateSeasonStats();
-  const advanced = MetricsCalculator.calculateAdvancedMetrics(totals, gamesPlayed);
+  const advanced = MetricsCalculator.calculateAdvancedMetrics(
+    totals,
+    Math.max(gamesPlayed, 1)
+  );
   const recentGames = getRecentPerformance();
   
   // Get current tournament

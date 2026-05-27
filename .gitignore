@@ -38,4 +38,7 @@ lerna-debug.log*
 # Cursor
 .cursor/
 
+# Local data backups (may contain league data)
+backups/*.json
+
 

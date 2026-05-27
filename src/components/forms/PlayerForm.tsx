@@ -54,10 +54,11 @@ export const PlayerForm = React.memo(({
   };
   
   const [position, setPosition] = useState<string>(getValidInitialPosition());
+  const NONE_POSITION = 'none';
   const [secondaryPosition, setSecondaryPosition] = useState<string>(
-    initialData?.secondaryPosition && validPositions.includes(initialData.secondaryPosition) 
-      ? initialData.secondaryPosition 
-      : ''
+    initialData?.secondaryPosition && validPositions.includes(initialData.secondaryPosition)
+      ? initialData.secondaryPosition
+      : NONE_POSITION
   );
 
   const handlePositionChange = useCallback((value: string) => {
@@ -89,7 +90,7 @@ export const PlayerForm = React.memo(({
         name, 
         number, 
         position,
-        secondaryPosition: secondaryPosition || undefined,
+        secondaryPosition: secondaryPosition === NONE_POSITION ? undefined : secondaryPosition,
         height: height || '',
         weight: weight || '',
         dateOfBirth: dateOfBirth || undefined
@@ -165,7 +166,7 @@ export const PlayerForm = React.memo(({
               <SelectValue placeholder="Select secondary position" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">None</SelectItem>
+              <SelectItem value={NONE_POSITION}>None</SelectItem>
               {validPositions.map(pos => (
                 <SelectItem key={pos} value={pos}>
                   {pos}

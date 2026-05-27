@@ -20,7 +20,7 @@ The application appears to be a professional-grade basketball statistics system 
 - **UI Library**: Custom components built on Radix UI primitives
 - **Styling**: Tailwind CSS with custom design system
 - **State Management**: React hooks with local state (no external state management)
-- **Data Persistence**: Currently in-memory only (no backend/database)
+- **Data Persistence**: localStorage in browser; Supabase Postgres provisioned (import + app wiring in progress)
 
 ### Core Data Models
 The application has well-defined TypeScript interfaces for:
@@ -1720,3 +1720,369 @@ After fixes:
 
 **Testing Status**: ✅ Build successful, no TypeScript errors
 **Next Step**: Manual testing required to verify focus works correctly in all input fields
+
+---
+
+## Background and Motivation — Supabase & Data Migration (Designer, May 2026)
+
+**Status: Designer plan APPROVED — awaiting Human prerequisites, then Executor IMP-1…IMP-4**
+
+**Goal:** One-time import of **all** existing browser data (`localStorage` key `runitback-data`) into Supabase, preserving full fidelity: rosters, tournaments, standings, every game’s player stats (`gameStats`), team stats (`teamStats`), shots, play-by-play (`events`), lineup stints, starters, scores, preferences.
+
+**User context:**
+- Supabase project: `https://nwdxuozhfonshvwvjcax.supabase.co`
+- Publishable key in `.env.local` (gitignored) — connection tested OK (`leagues` row exists)
+- Schema created in SQL Editor (tables visible in Table Editor)
+- App still reads/writes **localStorage only** — import does not switch the live app yet
+
+**Success criteria (Designer):**
+- [ ] Human completes prerequisites below (export backup, confirm schema)
+- [ ] Executor implements idempotent import script + docs
+- [ ] After import: row counts in Supabase match local counts (teams, players, tournaments, games)
+- [ ] Spot-check: one completed game has non-empty `game_stats`, `team_stats`, `shots`, `events` JSON in `games` table
+- [ ] Human verifies in Supabase Table Editor before clearing localStorage or wiring App to Supabase
+
+### Human action required BEFORE Executor starts (summary)
+
+| Step | You do | Why |
+|------|--------|-----|
+| **A** | Confirm 8 tables in Supabase Table Editor | Import needs target tables |
+| **B** | Export `runitback-data` JSON backup (see below) | Executor script reads this file; we never touch your browser from Node |
+| **C** | `.env.local` has URL + publishable key | Already done |
+| **D** | Reply **“Executor, proceed”** with backup file path | Unblocks implementation |
+
+**You do NOT need:** Google auth, secret key, Docker, or to stop using the app until after import is verified (but avoid heavy edits during import to prevent drift).
+
+### Stats fidelity — everything preserved in `games` JSONB
+
+| Data | Source field | DB column | Fields included |
+|------|--------------|-----------|-----------------|
+| Per-player box score | `Game.gameStats[]` | `game_stats` | `playerId`, `points`, `fg_made/attempted`, `three_made/attempted`, `ft_made/attempted`, `orb`, `drb`, `assists`, `steals`, `blocks`, `turnovers`, `fouls`, `tech_fouls`, `unsportsmanlike_fouls`, `fouls_drawn`, `blocks_received`, `plus_minus`, `minutes_played` |
+| Team totals / advanced | `Game.teamStats` | `team_stats` | Full `TeamStats` per side: period points, FG/3PT/2PT/FT, rebounds, assists, steals, blocks, turnovers, fouls, points off TO, paint, 2nd chance, fast break, bench, biggest lead/run |
+| Shot chart | `Game.shots[]` | `shots` | Location, made/miss, 3PT, assists/blocks, period, gameTime, etc. |
+| Play-by-play | `Game.events[]` | `events` | All `GameEvent` rows with scores after each event |
+| Lineups / +/- | `Game.lineupStints[]` | `lineup_stints` | Full stint objects |
+| Starters | `homeStarters`, `awayStarters` | `home_starters`, `away_starters` | Player ID arrays |
+| Score | `finalScore` | `final_score_home`, `final_score_away` | Integers |
+| Tournament W-L | `Tournament.standings` | `tournaments.standings` | JSON array |
+| Dark mode | `preferences.darkMode` | `app_preferences.dark_mode` | Boolean |
+
+**Season / career stats on Player & Team pages** are calculated from `games.game_stats` in the app — importing games is sufficient; no extra tables.
+
+---
+
+## Key Challenges and Analysis — localStorage → Supabase
+
+### Source shape (`src/utils/storage.ts`)
+
+```typescript
+// localStorage key: 'runitback-data'
+{
+  version: "1.0.0",
+  teams: Team[],           // each Team has nested players[]
+  tournaments: Tournament[],
+  games: Game[],           // full nested Game documents
+  preferences?: { darkMode?: boolean }
+}
+```
+
+### Target shape (Postgres — created in Supabase SQL Editor)
+
+| App concept | Supabase table / column | Notes |
+|-------------|-------------------------|--------|
+| League (new) | `leagues` | Single row `league-default` for now; all rows scoped here |
+| `Team` | `teams` + `players` | **Normalize** roster: one row per player with `team_id` FK |
+| `Tournament` | `tournaments` | `standings` → `standings` JSONB |
+| `Tournament.teams[]` | `tournament_teams` | Junction rows |
+| `Tournament.games[]` | *(derived)* | Game IDs live on `games.tournament_id`; no separate table |
+| `Game` | `games` | Scalar columns + JSONB blobs for heavy nested data |
+| `Game.gameStats` | `games.game_stats` | JSONB — **all per-player box score stats** |
+| `Game.teamStats` | `games.team_stats` | JSONB `{ home, away }` — **team totals / advanced** |
+| `Game.shots` | `games.shots` | JSONB |
+| `Game.events` | `games.events` | JSONB — play-by-play |
+| `Game.lineupStints` | `games.lineup_stints` | JSONB |
+| `Game.homeStarters` / `awayStarters` | `home_starters` / `away_starters` | JSONB string arrays |
+| `Game.finalScore` | `final_score_home` / `final_score_away` | Nullable integers |
+| `Game.homeTeam` / `awayTeam` (embedded) | **Not stored** | Use `home_team_id` / `away_team_id` only; app re-hydrates teams on load (Phase B) |
+| `preferences.darkMode` | `app_preferences` | One row per `league_id` |
+
+### What is preserved without loss
+
+- **Player stats in games:** `game_stats` JSONB = full `GameStats[]` (points, FGA, rebounds, fouls, plus/minus, etc.)
+- **Team stats in games:** `team_stats` JSONB = `{ home: TeamStats, away: TeamStats }`
+- **Shots, events, lineups:** stored as JSONB arrays/objects identical to app types
+- **Tournament standings:** `tournaments.standings` JSONB
+
+### What is NOT in localStorage (no import needed)
+
+- Auth users / `league_members` (empty until Google auth phase)
+- Aggregated season stats on `PlayerPage` — **computed at runtime** from `games.game_stats`; no separate import
+
+### Risks
+
+1. **Duplicate import** — re-running must upsert on `id`, not insert duplicates.
+2. **Orphan FKs** — games reference `home_team_id` / `away_team_id`; import order: `leagues` → `teams` → `players` → `tournaments` → `tournament_teams` → `games` → `app_preferences`.
+3. **Missing teams on old games** — if a game references a team id not in `teams[]`, script logs warning and skips game or uses embedded `homeTeam.id` after upserting teams from game snapshot (Executor decision: upsert teams from `game.homeTeam` / `game.awayTeam` if missing).
+4. **Row size** — very large `events` arrays are fine for a typical league; if import fails with payload error, split or compress (unlikely for v1).
+5. **Dual write** — until App loads from Supabase, localStorage can **overwrite** cloud on refresh if user keeps using app; Human should avoid editing data until import verified OR Executor adds `importCompleted` flag (optional v2).
+
+---
+
+## Human Prerequisites (REQUIRED before Executor runs import)
+
+**You must do these first:**
+
+### A. Confirm Supabase schema exists
+In **Table Editor**, confirm these tables exist: `leagues`, `teams`, `players`, `tournaments`, `tournament_teams`, `games`, `app_preferences`.
+
+If any are missing, re-run the SQL from `supabase/migrations/001_initial_schema.sql` (Executor will restore this file in repo if absent).
+
+### B. Export a backup of your browser data (do not skip)
+1. Open the app at `http://localhost:3000` in the browser where you’ve been using RunItBack.
+2. Open DevTools → **Console**.
+3. Paste and run:
+
+```javascript
+copy(localStorage.getItem('runitback-data') || '{}')
+```
+
+4. Paste clipboard into a file: `backups/runitback-data-YYYY-MM-DD.json` (create `backups/` folder).
+5. If `copy()` fails, run:
+
+```javascript
+JSON.stringify(JSON.parse(localStorage.getItem('runitback-data') || '{}'), null, 2)
+```
+
+and save the printed output manually.
+
+**If the result is `{}` or only seed data:** import will still load seed-equivalent data from that export; say so when approving Executor.
+
+### C. Confirm `.env.local` (already done)
+```
+VITE_SUPABASE_URL=https://nwdxuozhfonshvwvjcax.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+```
+
+### D. You do NOT need (for v1 import)
+- Google auth
+- `sb_secret_` / service role key (dev RLS policies allow publishable key writes)
+- Docker
+
+### E. After import (Human verification — before deleting local data)
+In Supabase **Table Editor**, check approximate counts vs your JSON file:
+- `teams` ≈ `teams.length`
+- `players` ≈ sum of all `team.players.length`
+- `tournaments` ≈ `tournaments.length`
+- `games` ≈ `games.length`
+Open one `games` row → `game_stats` / `events` should be populated JSON arrays.
+
+Reply **“Executor, proceed”** after A + B are done.
+
+---
+
+## High-level Task Breakdown — Data Import (Executor only)
+
+### Task IMP-1: Restore schema artifact in repo
+- **File:** `supabase/migrations/001_initial_schema.sql` (same SQL already run in dashboard)
+- **Success:** File exists in git for teammates / re-deploy
+
+### Task IMP-2: Add import script (Node, one-time)
+- **File:** `scripts/import-localstorage-to-supabase.ts`
+- **Input:** Path to exported JSON (`--file backups/runitback-data-....json`) OR read from stdin
+- **Env:** Load `VITE_SUPABASE_URL` + `VITE_SUPABASE_PUBLISHABLE_KEY` from `.env.local` (use `dotenv` or manual parse)
+- **Logic:**
+  1. Parse & validate `StoredData` shape
+  2. `upsert` `leagues` (`league-default`)
+  3. For each team: `upsert` `teams`, then each `players`
+  4. For each tournament: `upsert` `tournaments`, then `tournament_teams` from `tournament.teams`
+  5. For each game: map to `games` row (see mapping table below), `upsert` on `id`
+  6. `upsert` `app_preferences` if `preferences.darkMode` defined
+- **Flags:** `--dry-run` (log counts only), `--league-id league-default` (default)
+- **Idempotent:** use `.upsert(..., { onConflict: 'id' })` everywhere
+- **Logging:** print counts + any skipped rows + errors
+- **Success:** `npm run import:local` completes with no errors on Human’s JSON file
+
+### Task IMP-3: Add npm script
+- **package.json:** `"import:local": "npx tsx scripts/import-localstorage-to-supabase.ts"`
+- **devDependency:** `tsx` (if not present)
+- **Success:** Human can run `npm run import:local -- --file backups/runitback-data-....json`
+
+### Task IMP-4: Document in `docs/DATA_MIGRATION.md`
+- Prerequisites, export steps, run command, verification checklist, “do not clear localStorage yet”
+
+### Task IMP-5: Optional in-app import (defer unless Human asks)
+- Dashboard button “Upload backup JSON” — lower priority than CLI; same mapping function shared in `src/utils/migrateToSupabase.ts`
+
+### Task IMP-6: Human verification gate
+- Executor stops and asks Human to verify Table Editor counts before any App.tsx Supabase load work (Phase B — separate plan)
+
+---
+
+## Game row mapping (Executor reference)
+
+```typescript
+// Game (App.tsx) → games table
+{
+  id: game.id,
+  league_id: 'league-default',
+  tournament_id: game.tournamentId ?? null,
+  home_team_id: game.homeTeamId || game.homeTeam.id,
+  away_team_id: game.awayTeamId || game.awayTeam.id,
+  date: game.date, // ISO date string → DATE
+  current_period: game.currentPeriod,
+  current_game_time: game.currentGameTime,
+  track_both_teams: game.trackBothTeams,
+  is_active: game.isActive,
+  is_completed: game.isCompleted,
+  final_score_home: game.finalScore?.home ?? null,
+  final_score_away: game.finalScore?.away ?? null,
+  home_starters: game.homeStarters,
+  away_starters: game.awayStarters,
+  game_stats: game.gameStats,
+  team_stats: game.teamStats,
+  shots: game.shots,
+  events: game.events,
+  lineup_stints: game.lineupStints,
+}
+```
+
+**Order constraint:** Upsert teams referenced by games before inserting games. If `game.homeTeam` has players not in global `teams[]`, upsert that team snapshot first.
+
+---
+
+## Project Status Board — Supabase migration
+
+- [x] **Human:** Export `runitback-data` JSON backup (`backups/runitback-data-2026-05-26.json`)
+- [x] **Human:** Confirm all tables exist in Supabase
+- [x] **Executor:** IMP-1 Restore `001_initial_schema.sql`
+- [x] **Executor:** IMP-2 Import script + dry-run
+- [x] **Executor:** Live import run — teams: 5, players: 34, tournaments: 2, games: 6 (0 skipped)
+- [ ] **Human:** Verify counts + sample game JSON in Supabase Table Editor (spot-check)
+- [x] **Executor:** Phase B — `src/api/supabaseData.ts` + App load/save from Supabase
+- [ ] **Human:** Restart dev server, confirm console shows "Loaded from Supabase: …" and edits sync across browsers
+- [ ] **Paused — do last:** Phase C (Google auth + RLS) — **after public hosting on a URL** (Human decision, May 2026)
+- [ ] **Next when ready:** Phase D — Deploy frontend (Vercel/Netlify/etc.) + env vars; then Phase C before sharing URL widely
+
+---
+
+## Executor's Feedback or Assistance Requests
+
+- **Import complete (May 26, 2026):** `npm run import:local` succeeded.
+- **Phase B complete (May 26, 2026):** App loads/saves via Supabase when `.env.local` is set. See `src/api/supabaseData.ts`.
+- **Human:** Restart `npm run dev`, check browser console for `Loaded from Supabase`, test edit on two devices/browsers.
+- **Paused:** Phase C (Google auth + RLS) until app is hosted on a public URL — Human will do auth last.
+- **Suggested order:** (1) deploy site to URL, (2) smoke-test Supabase sync in production, (3) Phase C before inviting teammates to the public URL.
+- **Until Phase C:** Dev RLS policies allow anyone with the URL + anon key to read/write — fine for private testing; **do not share the production URL publicly** until auth is on.
+- **Security:** Publishable key in `.env.local` is sufficient for import while dev RLS policies are open; tighten before public launch.
+
+---
+
+## Lessons (Supabase)
+
+- Supabase publishable key (`sb_publishable_...`) substitutes for legacy `anon` JWT in `@supabase/supabase-js`.
+- Never commit `.env.local` or `sb_secret_` keys.
+- Player/team **season** stats are derived from `games.game_stats`; importing games is sufficient for all stat views.
+- Import script should be **idempotent** (`upsert`) so Human can re-run safely after fixing data.
+
+---
+
+## Background and Motivation — Production Deployment (Designer, May 2026)
+
+**Human goal:** Put RunItBack on a real URL so teammates can use it (not only `localhost`). Phase C (Google auth) stays **last**, after hosting.
+
+**Human questions answered:**
+- **Do I need to buy a domain?** **No.** Vercel/Netlify give a free HTTPS URL (e.g. `runitback.vercel.app`). Custom domain is optional later (~$10–15/year).
+- **What am I deploying?** Only the **frontend** (static files from `npm run build`). **Supabase is already hosted** — same database for local and production.
+- **What does it cost?** **$0** to start (Vercel hobby + Supabase free tier + free subdomain).
+
+---
+
+## Key Challenges and Analysis — Deployment
+
+### Architecture (production)
+
+```text
+User phone/laptop browser
+        ↓ HTTPS
+Vercel CDN (static HTML/JS/CSS from `build/`)
+        ↓ API calls (publishable key)
+Supabase (Postgres) — already live
+```
+
+### Build facts (this repo)
+
+| Item | Value |
+|------|--------|
+| Build command | `npm run build` |
+| Output folder | `build` (see `vite.config.ts` `outDir`) |
+| Env vars (required) | `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` |
+| React Router | **Not used** — navigation is in-app state → no SPA rewrite rules needed for v1 |
+| Secrets in repo | Never commit `.env.local` |
+
+### Security before Phase C
+
+- Publishable key will be visible in the built JS (normal for Supabase client apps).
+- Dev RLS policies = **anyone with the site URL can read/write** your league data.
+- **Treat production URL like a private link** until Google auth + RLS.
+- Do not post URL on public social media before Phase C.
+
+### Domain vs hosting URL
+
+| | Free host subdomain | Custom domain |
+|--|---------------------|---------------|
+| Example | `xxx.vercel.app` | `runitback.com` |
+| Cost | $0 | Domain registrar yearly fee |
+| When | **Now** | Optional, any time |
+| Code changes | None | DNS + Vercel domain settings only |
+
+---
+
+## High-level Task Breakdown — Deploy (Human + Executor)
+
+### Phase DEP-0: Human prerequisites
+- **Success:** Repo on GitHub; Supabase env values copied from `.env.local`
+- **Doc:** `docs/DEPLOYMENT.md` (step-by-step for Human)
+
+### Phase DEP-1: Human — Vercel setup (no code)
+1. vercel.com → sign in with GitHub
+2. Import `RunItBack` repo
+3. Framework: Vite; Output Directory: **`build`**
+4. Add env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`
+5. Deploy → note production URL
+- **Success:** Live URL loads app; console shows `Loaded from Supabase`
+
+### Phase DEP-2: Human — production smoke test
+- [ ] Dashboard shows tournaments/teams/games
+- [ ] Edit a team name → refresh → persists
+- [ ] Second device/browser sees same data
+- **Success:** Confirms production uses same Supabase project as local
+
+### Phase DEP-3: Executor (optional, on request)
+- Run local `npm run build` before Human deploys (catch build errors)
+- Add `vercel.json` only if routing issues appear (unlikely)
+- Update scratchpad with production URL once Human confirms
+- **Success:** Build passes in CI/Vercel logs
+
+### Phase DEP-4: Later (out of scope for DEP-1)
+- Custom domain (Human buys + Vercel Domains UI)
+- Phase C auth + RLS before wide public launch
+- “Saving…” indicator, offline queue (separate features)
+
+---
+
+## Project Status Board — Deployment
+
+- [ ] **Human:** Push repo to GitHub (if not already)
+- [ ] **Human:** Complete DEP-1 in Vercel (see `docs/DEPLOYMENT.md`)
+- [ ] **Human:** DEP-2 smoke test on live URL
+- [ ] **Human:** Share URL only with trusted testers until Phase C
+- [ ] **Executor (optional):** Verify build + assist if Vercel build fails
+- [x] **Designer:** Deployment guide written (`docs/DEPLOYMENT.md`)
+
+---
+
+## Executor's Feedback or Assistance Requests
+
+- **Designer complete** for deployment plan (May 2026).
+- **Human next:** Follow `docs/DEPLOYMENT.md` Steps 1–7; reply with production URL or any Vercel error message for Executor help.
+- **No domain purchase required** for first launch.
