@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 // TypeScript declarations for requestIdleCallback (not in all type definitions)
 declare global {
@@ -14,20 +15,11 @@ interface IdleDeadline {
 }
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
-import { Dashboard } from './components/Dashboard';
-import { TournamentManager } from './components/TournamentManager';
-import { TournamentPage } from './components/TournamentPage';
-import { TeamManager } from './components/TeamManager';
-import { TeamPage } from './components/TeamPage';
-import { PlayerPage } from './components/PlayerPage';
-import { ErrorBoundary } from './components/ErrorBoundary';
-import { GameSetup } from './components/GameSetup';
-import { LiveGameEntry } from './components/LiveGameEntry';
-import { GameSummary } from './components/GameSummary';
-import { RecentGames } from './components/RecentGames';
 import { loadFromStorage, saveToStorage, isStorageAvailable } from './utils/storage';
 import { isSupabaseConfigured } from './lib/supabase';
 import { loadAppDataFromSupabase, saveAppDataToSupabase } from './api/supabaseData';
+import { AppRoutes } from './routing/AppRoutes';
+import { gamePath, paths, playerPath, teamPath } from './routing/paths';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -228,28 +220,6 @@ export interface Game {
   finalScore?: {
     home: number;
     away: number;
-  };
-}
-
-// Navigation types
-type MainView = 'dashboard' | 'tournaments' | 'teams' | 'recent-games' | 'game-setup' | 'live-game' | 'game-summary';
-type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games';
-type TeamTab = 'overview' | 'roster' | 'stats' | 'games';
-type PlayerTab = 'overview' | 'gamelog' | 'stats' | 'advanced';
-
-interface NavigationState {
-  mainView: MainView;
-  tournamentId?: string;
-  tournamentTab?: TournamentTab;
-  teamId?: string;
-  teamTab?: TeamTab;
-  playerId?: string;
-  playerTab?: PlayerTab;
-  gameId?: string;
-  previousView?: {
-    mainView: MainView;
-    tournamentId?: string;
-    tournamentTab?: TournamentTab;
   };
 }
 
@@ -918,11 +888,11 @@ export default function App() {
   const currentGameRef = useRef<Game | null>(null);
   currentGameRef.current = currentGame;
   const [searchQuery, setSearchQuery] = useState('');
-  
-  // Navigation state
-  const [navigation, setNavigation] = useState<NavigationState>({
-    mainView: 'dashboard'
-  });
+  const navigate = useNavigate();
+  const location = useLocation();
+  const isDashboard = location.pathname === paths.home;
+  const isStatsEntry =
+    location.pathname.startsWith(paths.statsEntry) || location.pathname.startsWith('/live');
 
   useEffect(() => {
     if (darkMode) {
@@ -1080,69 +1050,8 @@ export default function App() {
     }
   };
 
-  // Navigation helpers - memoized to prevent unnecessary re-renders
-  const navigateTo = useCallback((newState: Partial<NavigationState>) => {
-    setNavigation(prev => ({ ...prev, ...newState }));
-  }, []);
-
-  const navigateToTournament = useCallback((tournamentId: string, tab: TournamentTab = 'home') => {
-    setNavigation({
-      mainView: 'tournaments',
-      tournamentId,
-      tournamentTab: tab
-    });
-  }, []);
-
-  const navigateToTeam = useCallback((teamId: string, tab: TeamTab = 'overview', fromTournament?: { tournamentId: string; tournamentTab: TournamentTab }) => {
-    setNavigation(prev => ({
-      mainView: 'teams',
-      teamId,
-      teamTab: tab,
-      previousView: fromTournament ? {
-        mainView: 'tournaments',
-        tournamentId: fromTournament.tournamentId,
-        tournamentTab: fromTournament.tournamentTab
-      } : undefined
-    }));
-  }, []);
-
-  const navigateToPlayer = useCallback((playerId: string, teamIdHint?: string, tab: PlayerTab = 'overview') => {
-    let teamId = teamIdHint;
-    if (!teamId) {
-      for (const team of teams) {
-        if (team.players?.some((p) => p.id === playerId)) {
-          teamId = team.id;
-          break;
-        }
-      }
-    }
-
-    setNavigation((prev) => ({
-      mainView: 'teams',
-      playerId,
-      playerTab: tab,
-      teamId,
-      tournamentId: prev.tournamentId,
-      tournamentTab: prev.tournamentTab,
-      previousView: prev.tournamentId
-        ? {
-            mainView: 'tournaments',
-            tournamentId: prev.tournamentId,
-            tournamentTab: prev.tournamentTab || 'players',
-          }
-        : prev.teamId
-          ? {
-              mainView: 'teams',
-              teamId: prev.teamId,
-              teamTab: prev.teamTab || 'roster',
-            }
-          : prev.previousView,
-    }));
-  }, [teams]);
-
   const handleGameStart = useCallback((game: Game) => {
     setCurrentGame(game);
-    setNavigation({ mainView: 'live-game' });
   }, []);
 
   const handleGameComplete = useCallback((game: Game) => {
@@ -1178,8 +1087,8 @@ export default function App() {
     ));
     
     setCurrentGame(null);
-    setNavigation({ mainView: 'dashboard' });
-  }, []);
+    navigate(paths.home);
+  }, [navigate]);
 
   // Tournament management functions - memoized
   const handleCreateTournament = useCallback((tournamentData: Omit<Tournament, 'id'>) => {
@@ -1275,41 +1184,6 @@ export default function App() {
     })));
   }, []);
 
-  // Get data helpers - memoized
-  const getTournament = useCallback((id: string) => tournaments.find(t => t.id === id), [tournaments]);
-  const getTeam = useCallback((id: string) => teams.find(t => t.id === id), [teams]);
-  const getPlayer = useCallback((id: string) => {
-    for (const team of teams) {
-      // Defensive check: ensure team.players exists and is an array
-      if (!team.players || !Array.isArray(team.players)) continue;
-      const player = team.players.find(p => p.id === id);
-      if (player) return { player, team };
-    }
-    return null;
-  }, [teams]);
-  const getGame = useCallback((id: string) => games.find(g => g.id === id), [games]);
-
-  // Memoize current tournament, team, player, and game to prevent unnecessary lookups
-  const currentTournament = useMemo(() => 
-    navigation.tournamentId ? getTournament(navigation.tournamentId) : null,
-    [navigation.tournamentId, getTournament]
-  );
-
-  const currentTeam = useMemo(() => 
-    navigation.teamId ? getTeam(navigation.teamId) : null,
-    [navigation.teamId, getTeam]
-  );
-
-  const currentPlayerData = useMemo(() => 
-    navigation.playerId ? getPlayer(navigation.playerId) : null,
-    [navigation.playerId, getPlayer]
-  );
-
-  const currentGameData = useMemo(() => 
-    navigation.gameId ? getGame(navigation.gameId) : null,
-    [navigation.gameId, getGame]
-  );
-
   // Search functionality
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return { teams: [], players: [], games: [] };
@@ -1386,17 +1260,17 @@ export default function App() {
             {/* Center: Toggle Navigation */}
             <div className="absolute left-1/2 transform -translate-x-1/2 flex items-center gap-1 bg-muted rounded-lg p-1">
               <Button
-                variant={navigation.mainView === 'dashboard' ? 'default' : 'ghost'}
+                variant={isDashboard ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => navigateTo({ mainView: 'dashboard' })}
+                onClick={() => navigate(paths.home)}
                 className="rounded-md"
               >
                 Main
               </Button>
               <Button
-                variant={navigation.mainView === 'game-setup' || navigation.mainView === 'live-game' ? 'default' : 'ghost'}
+                variant={isStatsEntry ? 'default' : 'ghost'}
                 size="sm"
-                onClick={() => navigateTo({ mainView: 'game-setup' })}
+                onClick={() => navigate(paths.statsEntry)}
                 className="rounded-md"
               >
                 Stats Entry
@@ -1429,7 +1303,7 @@ export default function App() {
       </header>
       
       {/* Search Bar - Below Header (Only on Dashboard) */}
-      {navigation.mainView === 'dashboard' && (
+      {isDashboard && (
       <div className="bg-background sticky top-[73px] z-40">
         <div className="container mx-auto px-6 py-3 flex justify-center">
           <div className="relative w-full max-w-md">
@@ -1453,7 +1327,7 @@ export default function App() {
                       <button
                         key={team.id}
                         onClick={() => {
-                          navigateToTeam(team.id);
+                          navigate(teamPath(team));
                           setSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
@@ -1476,7 +1350,7 @@ export default function App() {
                       <button
                         key={player.id}
                         onClick={() => {
-                          navigateToPlayer(player.id);
+                          navigate(playerPath(player));
                           setSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted"
@@ -1500,7 +1374,7 @@ export default function App() {
                       <button
                         key={game.id}
                         onClick={() => {
-                          navigateTo({ mainView: 'game-summary', gameId: game.id });
+                          navigate(gamePath(game.id));
                           setSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted"
@@ -1531,173 +1405,22 @@ export default function App() {
 
       {/* Main Content */}
       <main className="container mx-auto px-6 py-6">
-        {navigation.mainView === 'dashboard' && (
-          <Dashboard 
-            tournaments={tournaments}
-            teams={teams}
-            recentGames={games.slice().reverse().slice(0, 10)}
-            onNavigateToTournaments={() => navigateTo({ mainView: 'tournaments' })}
-            onNavigateToTeams={() => navigateTo({ mainView: 'teams' })}
-            onNavigateToGameSummary={(game) => navigateTo({ mainView: 'game-summary', gameId: game.id })}
-            onStartNewGame={() => navigateTo({ mainView: 'game-setup' })}
-            onNavigateToTournament={navigateToTournament}
-            onNavigateToTeam={navigateToTeam}
-            onNavigateToRecentGames={() => navigateTo({ mainView: 'recent-games' })}
-          />
-        )}
-
-        {navigation.mainView === 'recent-games' && (
-          <RecentGames
-            games={games.slice().reverse()}
-            onBack={() => navigateTo({ mainView: 'dashboard' })}
-            onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
-          />
-        )}
-
-        {navigation.mainView === 'tournaments' && !navigation.tournamentId && (
-          <TournamentManager 
-            tournaments={tournaments}
-            teams={teams}
-            onCreateTournament={handleCreateTournament}
-            onUpdateTournament={handleUpdateTournament}
-            onDeleteTournament={handleDeleteTournament}
-            onBack={() => navigateTo({ mainView: 'dashboard' })}
-            onNavigateToTournament={navigateToTournament}
-          />
-        )}
-
-        {navigation.mainView === 'tournaments' && navigation.tournamentId && currentTournament && (
-          <TournamentPage
-            tournament={currentTournament}
-            teams={teams}
-            games={games}
-            activeTab={navigation.tournamentTab || 'home'}
-            onTabChange={(tab) => navigateTo({ tournamentTab: tab })}
-            onBack={() => navigateTo({ mainView: 'tournaments', tournamentId: undefined, tournamentTab: undefined })}
-            onNavigateToTeam={(teamId) => navigateToTeam(teamId, 'overview', { tournamentId: currentTournament.id, tournamentTab: navigation.tournamentTab || 'home' })}
-            onNavigateToPlayer={navigateToPlayer}
-            onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
-            onCreateTeam={handleCreateTeam}
-            onAddTeamToTournament={handleAddTeamToTournament}
-            onUpdateTeam={handleUpdateTeam}
-            onDeleteTeam={handleDeleteTeam}
-          />
-        )}
-
-        {navigation.mainView === 'tournaments' && navigation.tournamentId && !currentTournament && (
-          <div>Tournament not found</div>
-        )}
-
-        {navigation.mainView === 'teams' && !navigation.teamId && !navigation.playerId && (
-          <TeamManager 
-            teams={teams}
-            onCreateTeam={handleCreateTeam}
-            onUpdateTeam={handleUpdateTeam}
-            onDeleteTeam={handleDeleteTeam}
-            onBack={() => navigateTo({ mainView: 'dashboard' })}
-            onNavigateToTeam={navigateToTeam}
-          />
-        )}
-
-        {navigation.mainView === 'teams' && navigation.teamId && !navigation.playerId && currentTeam && (
-          <ErrorBoundary>
-            <TeamPage
-              team={currentTeam}
-              games={games}
-              tournaments={tournaments}
-              activeTab={navigation.teamTab || 'overview'}
-              onTabChange={(tab) => navigateTo({ teamTab: tab })}
-              onBack={() => {
-                if (navigation.previousView) {
-                  setNavigation(navigation.previousView);
-                } else {
-                  navigateTo({ mainView: 'teams', teamId: undefined, teamTab: undefined });
-                }
-              }}
-              onNavigateToPlayer={navigateToPlayer}
-              onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
-              onNavigateToTournament={navigateToTournament}
-              onUpdateTeam={handleUpdateTeam}
-            />
-          </ErrorBoundary>
-        )}
-
-        {navigation.mainView === 'teams' && navigation.teamId && !navigation.playerId && !currentTeam && (
-          <div>Team not found</div>
-        )}
-
-        {navigation.playerId && currentPlayerData && (
-          <ErrorBoundary>
-            <PlayerPage
-              player={currentPlayerData.player}
-              team={currentPlayerData.team}
-              games={games}
-              tournaments={tournaments}
-              activeTab={navigation.playerTab || 'overview'}
-              onTabChange={(tab) => navigateTo({ playerTab: tab })}
-              onBack={() => {
-                if (navigation.previousView) {
-                  setNavigation({
-                    ...navigation.previousView,
-                    playerId: undefined,
-                    playerTab: undefined,
-                  });
-                } else {
-                  navigateTo({ playerId: undefined, playerTab: undefined });
-                }
-              }}
-              onNavigateToTeam={navigateToTeam}
-              onNavigateToGame={(gameId) => navigateTo({ mainView: 'game-summary', gameId })}
-              onNavigateToTournament={navigateToTournament}
-              onUpdateTeam={handleUpdateTeam}
-            />
-          </ErrorBoundary>
-        )}
-
-        {navigation.playerId && !currentPlayerData && (
-          <div>Player not found</div>
-        )}
-
-        {navigation.mainView === 'game-setup' && (
-          <div className="space-y-4">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => navigateTo({ mainView: 'dashboard' })}
-            >
-              ← Back to Dashboard
-            </Button>
-            <GameSetup onGameStart={handleGameStart} availableTeams={teams} />
-          </div>
-        )}
-
-        {navigation.mainView === 'live-game' && currentGame && (
-          <div className="space-y-4">
-            <Button 
-              variant="ghost" 
-              size="sm" 
-              onClick={() => navigateTo({ mainView: 'dashboard' })}
-            >
-              ← Back to Dashboard
-            </Button>
-            <LiveGameEntry 
-              game={currentGame} 
-              onGameUpdate={setCurrentGame}
-              onGameComplete={handleGameComplete}
-            />
-          </div>
-        )}
-
-        {navigation.mainView === 'game-summary' && navigation.gameId && currentGameData && (
-          <GameSummary 
-            game={currentGameData}
-            onBack={() => navigateTo({ mainView: 'dashboard', gameId: undefined })}
-          />
-        )}
-
-        {navigation.mainView === 'game-summary' && navigation.gameId && !currentGameData && (
-          <div>Game not found</div>
-        )}
+        <AppRoutes
+          teams={teams}
+          tournaments={tournaments}
+          games={games}
+          currentGame={currentGame}
+          setCurrentGame={setCurrentGame}
+          onCreateTournament={handleCreateTournament}
+          onUpdateTournament={handleUpdateTournament}
+          onDeleteTournament={handleDeleteTournament}
+          onCreateTeam={handleCreateTeam}
+          onUpdateTeam={handleUpdateTeam}
+          onDeleteTeam={handleDeleteTeam}
+          onAddTeamToTournament={handleAddTeamToTournament}
+          onGameStart={handleGameStart}
+          onGameComplete={handleGameComplete}
+        />
       </main>
     </div>
   );

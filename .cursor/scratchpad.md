@@ -2086,3 +2086,167 @@ Supabase (Postgres) — already live
 - **Designer complete** for deployment plan (May 2026).
 - **Human next:** Follow `docs/DEPLOYMENT.md` Steps 1–7; reply with production URL or any Vercel error message for Executor help.
 - **No domain purchase required** for first launch.
+
+---
+
+## Background and Motivation — URL-based Navigation (Designer, May 2026)
+
+**Human request:** Make browser URL reflect app location, e.g. `/tournaments/ivp2026` instead of one static URL.
+
+### Feasibility
+
+- Yes, fully possible in React/Vite.
+- Recommended for shareable links, back/forward support, refresh persistence, and future SEO.
+- Requires replacing current in-memory navigation state in `App.tsx` with route-based state.
+
+### Assumptions to challenge
+
+1. **Assumption:** "Just change URL strings."
+   - Reality: navigation is currently state-driven (`navigation.mainView`, `tournamentId`, etc.). URL sync requires structural changes.
+2. **Assumption:** "No hosting changes needed."
+   - Mostly true, but production may need SPA rewrite fallback (`/* -> /index.html`) depending on host behavior.
+3. **Assumption:** "IDs are good URLs."
+   - Better: support slug + id fallback (e.g. `/tournaments/ivp-2026--tournament-123`) to avoid broken links after renames.
+
+### Recommended design (simple + safe)
+
+1. Add `react-router-dom`.
+2. Define route map:
+   - `/` dashboard
+   - `/tournaments`
+   - `/tournaments/:tournamentSlug`
+   - `/teams`
+   - `/teams/:teamSlug`
+   - `/players/:playerSlug`
+   - `/games/:gameId`
+   - `/stats-entry` and `/live/:gameId` (optional)
+3. Keep current components (`TournamentPage`, `TeamPage`, `PlayerPage`) but pass data from route params.
+4. Add slug utility and canonical redirect if slug mismatches.
+5. Keep old internal navigation temporarily (compat mode) while migrating one page at a time.
+
+### Success criteria
+
+- Opening `/tournaments/ivp-2026` loads IVP 2026 directly.
+- Refresh on any deep link works (no host 404).
+- Browser back/forward behaves correctly.
+- Existing create/edit flows remain stable.
+
+### Risks
+
+- Route collisions if slug strategy is weak.
+- "Not found" edge cases during async Supabase loading.
+- Navigation regressions if migration is done all-at-once.
+
+### Proposed implementation phases
+
+- **R1 (low risk):** Add router + route scaffolding, keep dashboard as `/`.
+- **R2:** Tournament routes + links.
+- **R3:** Team/player/game routes.
+- **R4:** Remove legacy `navigation` state.
+- **R5:** Host fallback verification for deep links.
+
+### Route contract (Designer-final draft)
+
+**Chosen defaults (recommended):**
+- URL format: **slug + stable id** (canonical)
+- Tabs: **query param** (`?tab=...`)
+
+#### Canonical path scheme
+
+1. **Dashboard**
+   - `/`
+
+2. **Tournaments**
+   - List: `/tournaments`
+   - Detail: `/tournaments/:slug--:id`
+   - Tabs via query:
+     - Home: `/tournaments/:slug--:id?tab=home`
+     - Teams: `/tournaments/:slug--:id?tab=teams`
+     - Standings: `/tournaments/:slug--:id?tab=standings`
+     - Players: `/tournaments/:slug--:id?tab=players`
+     - Games: `/tournaments/:slug--:id?tab=games`
+
+3. **Teams**
+   - List: `/teams`
+   - Detail: `/teams/:slug--:id`
+   - Tabs:
+     - `/teams/:slug--:id?tab=overview`
+     - `/teams/:slug--:id?tab=roster`
+     - `/teams/:slug--:id?tab=stats`
+     - `/teams/:slug--:id?tab=games`
+
+4. **Players**
+   - Detail: `/players/:slug--:id`
+   - Tabs:
+     - `/players/:slug--:id?tab=overview`
+     - `/players/:slug--:id?tab=gamelog`
+     - `/players/:slug--:id?tab=stats`
+     - `/players/:slug--:id?tab=advanced`
+
+5. **Recent games**
+   - `/games`
+
+6. **Game summary**
+   - `/games/:id`
+
+7. **Stats entry flow**
+   - Setup: `/stats-entry`
+   - Live tracking: `/live/:id`
+
+8. **Fallback**
+   - Unknown path -> NotFound component with “Go to dashboard” link
+
+#### Canonicalization and redirects
+
+- If slug mismatches the current entity name but `id` exists:
+  - soft-redirect to canonical slug for that id
+  - preserve query params (`tab`, future filters)
+- If id missing/invalid:
+  - show NotFound (no silent fallback to wrong entity)
+
+#### Query param contracts
+
+- Allowed `tab` values are strict per page; invalid values fallback to page default.
+- Future-safe params reserved:
+  - tournaments players table: `sort`, `order`
+  - global search: `q`
+
+#### Slug rules
+
+- Lowercase
+- spaces and punctuation -> `-`
+- remove duplicate dashes
+- trim dash prefix/suffix
+- slug generation from display name; ID remains source of truth
+
+### Open decisions before Executor starts (required)
+
+1. Legacy redirects:
+   - **Deferred** (recommended) — canonical routes only for v1; no `/t/:id` aliases yet.
+2. NotFound copy:
+   - basketball-specific wording in `NotFound.tsx` ✅
+
+### Project Status Board — URL routing
+
+- [x] **Human:** Confirm URL format choice (A or B) -> **B (slug + id)**
+- [x] **Designer:** Finalize route contract + fallback behavior
+- [x] **Executor:** R1–R5 implemented (`react-router-dom`, `AppRoutes`, `vercel.json` rewrites)
+- [ ] **Human:** `git push` + verify deep links on production
+- [ ] **Human:** Manual test checklist below
+
+### Executor implementation notes (May 2026)
+
+- Added: `src/routing/{slugs,paths,tabs}.ts`, `src/routing/AppRoutes.tsx`, `src/components/NotFound.tsx`, `vercel.json`
+- `App.tsx` uses URL navigation; legacy `navigation` state removed
+- Canonical slug redirect when name changes but id matches
+- Tabs via `?tab=...`
+
+### Human manual test checklist
+
+- [ ] `/` dashboard
+- [ ] Open tournament → URL like `/tournaments/ivp-2026--<id>`
+- [ ] Switch Player Stats tab → `?tab=players`
+- [ ] Refresh deep link still works
+- [ ] Click player → `/players/<slug>--<id>`
+- [ ] Browser Back returns to tournament
+- [ ] Invalid path shows Not Found + link home
