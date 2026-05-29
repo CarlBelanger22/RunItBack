@@ -2,17 +2,39 @@ import React, { useState } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
-import { ArrowLeft, Calendar, Filter } from 'lucide-react';
+import { ArrowLeft, Calendar, Filter, Play, Trash2 } from 'lucide-react';
 import { Game } from '../App';
+import {
+  canDeleteIncompleteGame,
+  isGameInProgress,
+  isOrphanedIncompleteGame,
+} from '../utils/activeGame';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 interface RecentGamesProps {
   games: Game[];
   onBack: () => void;
   onNavigateToGame: (gameId: string) => void;
+  onDeleteActiveGame?: (gameId: string) => void;
 }
 
-export function RecentGames({ games, onBack, onNavigateToGame }: RecentGamesProps) {
+export function RecentGames({
+  games,
+  onBack,
+  onNavigateToGame,
+  onDeleteActiveGame,
+}: RecentGamesProps) {
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   
   // Team logo mapping
   const getTeamLogo = (teamName: string) => {
@@ -33,7 +55,9 @@ export function RecentGames({ games, onBack, onNavigateToGame }: RecentGamesProp
   // Filter games based on status
   const filteredGames = sortedGames.filter(game => {
     if (filterStatus === 'completed') return game.isCompleted;
-    if (filterStatus === 'ongoing') return !game.isCompleted;
+    if (filterStatus === 'ongoing') {
+      return isGameInProgress(game) || isOrphanedIncompleteGame(game);
+    }
     return true;
   });
 
@@ -100,6 +124,9 @@ export function RecentGames({ games, onBack, onNavigateToGame }: RecentGamesProp
           filteredGames.map((game) => {
             const homeTeamLogo = getTeamLogo(game.homeTeam.name);
             const awayTeamLogo = getTeamLogo(game.awayTeam.name);
+            const inProgress = isGameInProgress(game);
+            const orphaned = isOrphanedIncompleteGame(game);
+            const showIncompleteActions = canDeleteIncompleteGame(game);
             return (
               <Card 
                 key={game.id} 
@@ -134,8 +161,10 @@ export function RecentGames({ games, onBack, onNavigateToGame }: RecentGamesProp
                               <div className="text-muted-foreground">-</div>
                               <div className="text-2xl font-bold">{game.finalScore.away}</div>
                             </>
-                          ) : (
+                          ) : inProgress ? (
                             <Badge variant="outline">Live</Badge>
+                          ) : (
+                            <Badge variant="secondary">Incomplete</Badge>
                           )}
                         </div>
                         
@@ -175,6 +204,34 @@ export function RecentGames({ games, onBack, onNavigateToGame }: RecentGamesProp
                           </>
                         )}
                       </div>
+
+                      {showIncompleteActions && (
+                        <div
+                          className="flex flex-wrap gap-2 mt-4 justify-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {inProgress && (
+                            <Button
+                              size="sm"
+                              onClick={() => onNavigateToGame(game.id)}
+                            >
+                              <Play className="w-4 h-4 mr-1" />
+                              Resume
+                            </Button>
+                          )}
+                          {onDeleteActiveGame && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setDeleteTargetId(game.id)}
+                            >
+                              <Trash2 className="w-4 h-4 mr-1" />
+                              Delete
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
@@ -183,6 +240,36 @@ export function RecentGames({ games, onBack, onNavigateToGame }: RecentGamesProp
           })
         )}
       </div>
+
+      <AlertDialog
+        open={deleteTargetId !== null}
+        onOpenChange={(open) => !open && setDeleteTargetId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this game?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the in-progress game and all stats recorded so far.
+              Setup-created teams and their players are removed. Players you added to an
+              existing team during setup are removed too. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTargetId && onDeleteActiveGame) {
+                  onDeleteActiveGame(deleteTargetId);
+                }
+                setDeleteTargetId(null);
+              }}
+            >
+              Delete game
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

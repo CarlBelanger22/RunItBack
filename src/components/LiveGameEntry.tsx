@@ -3,6 +3,16 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { ScrollArea } from './ui/scroll-area';
 import { Separator } from './ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -39,6 +49,7 @@ interface LiveGameEntryProps {
   game: Game;
   onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void;
+  onDeleteGame: () => void;
 }
 
 type ActionType = 'shot' | 'free_throw' | 'foul' | 'turnover' | 'rebound' | 'substitution';
@@ -63,7 +74,7 @@ interface CourtPosition {
   y: number;
 }
 
-export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEntryProps) {
+export function LiveGameEntry({ game, onGameUpdate, onGameComplete, onDeleteGame }: LiveGameEntryProps) {
   // Game state
   const [currentGame, setCurrentGame] = useState<Game>(game);
   const [actionState, setActionState] = useState<ActionState>({
@@ -78,6 +89,7 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
   const [showZones, setShowZones] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<string>('all');
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [undoStack, setUndoStack] = useState<GameEvent[]>([]);
   const [isSubstituting, setIsSubstituting] = useState(false);
   const [dialogState, setDialogState] = useState<DialogState>({ isOpen: false, type: null });
@@ -494,6 +506,16 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
               <SkipForward className="w-4 h-4 mr-1" />
               End Period
             </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-1" />
+              Delete game
+            </Button>
             
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Save className="w-3 h-3" />
@@ -770,6 +792,33 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete }: LiveGameEn
           </Card>
         </div>
       </div>
+
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this game?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove this game and all stats recorded so far.
+              Teams you created during setup for this game will be removed, including
+              every player on those teams. Players you added to an existing team during
+              setup will also be removed. Saved teams you picked from your roster are
+              kept. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setDeleteDialogOpen(false);
+                onDeleteGame();
+              }}
+            >
+              Delete game
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Action Flow Dialogs */}
       <ActionFlowDialogs

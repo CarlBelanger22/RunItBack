@@ -16,10 +16,23 @@ interface IdleDeadline {
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { isSupabaseConfigured } from './lib/supabase';
-import { loadAppDataFromSupabase, saveAppDataToSupabase } from './api/supabaseData';
+import {
+  deleteGamesFromSupabase,
+  deletePlayersFromSupabase,
+  deleteTeamsFromSupabase,
+  loadAppDataFromSupabase,
+  saveAppDataToSupabase,
+} from './api/supabaseData';
 import { PLAYER_MEASUREMENTS_MIGRATION_KEY } from './lib/playerMeasurements';
 import { AppRoutes } from './routing/AppRoutes';
-import { gamePath, paths, playerPath, teamPath } from './routing/paths';
+import { gamePath, liveGamePath, paths, playerPath, teamPath } from './routing/paths';
+import {
+  dedupeActiveGames,
+  getActiveGame,
+  isOrphanedIncompleteGame,
+  resolveSetupPlayersToRemove,
+  resolveTeamsToDeleteWithGame,
+} from './utils/activeGame';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -221,6 +234,15 @@ export interface Game {
     home: number;
     away: number;
   };
+  /** Team IDs created via \"Create new team\" in game setup for this session. */
+  setupCreatedTeamIds?: string[];
+  /** Players added to existing teams during setup (removed if game is deleted). */
+  setupRosterChanges?: SetupRosterChange[];
+}
+
+export interface SetupRosterChange {
+  teamId: string;
+  addedPlayerIds: string[];
 }
 
 // Utility function to generate realistic shot positions based on stats
@@ -882,13 +904,40 @@ export default function App() {
         });
         setTeams(data.teams);
         setTournaments(data.tournaments);
-        setGames(data.games);
+        const { games: dedupedGames, active, changed } = dedupeActiveGames(data.games);
+        const orphanIds = dedupedGames
+          .filter(isOrphanedIncompleteGame)
+          .map((g) => g.id);
+        const cleanedGames = dedupedGames.filter((g) => !orphanIds.includes(g.id));
+        setGames(cleanedGames);
         setDarkMode(data.darkMode);
         prevTeamsRef.current = data.teams;
         prevTournamentsRef.current = data.tournaments;
-        prevGamesRef.current = data.games;
+        prevGamesRef.current = cleanedGames;
         prevDarkModeRef.current = data.darkMode;
         setDataLoadError(null);
+
+        if (active) {
+          setCurrentGame(active);
+        }
+
+        if (changed || orphanIds.length > 0) {
+          saveAppDataToSupabase(
+            data.teams,
+            data.tournaments,
+            cleanedGames,
+            data.darkMode
+          ).catch((err: Error) => {
+            console.error('Active game dedupe save failed:', err);
+            setSaveError(err.message);
+          });
+        }
+
+        if (orphanIds.length > 0) {
+          deleteGamesFromSupabase(orphanIds).catch((err: Error) => {
+            console.error('Orphan game cleanup failed:', err);
+          });
+        }
 
         if (
           data.playerMeasurementsMigrationPending &&
@@ -1012,8 +1061,110 @@ export default function App() {
     );
   };
 
-  const handleGameStart = useCallback((game: Game) => {
+  const handleGameStart = useCallback(
+    (game: Game): boolean => {
+      const existing = getActiveGame(games, currentGame);
+      if (existing && existing.id !== game.id) {
+        return false;
+      }
+
+      const deactivated = games.map((g) =>
+        g.isActive && !g.isCompleted && g.id !== game.id
+          ? { ...g, isActive: false }
+          : g
+      );
+
+      setGames([...deactivated.filter((g) => g.id !== game.id), game]);
+      setCurrentGame(game);
+      return true;
+    },
+    [games, currentGame]
+  );
+
+  const handleDeleteActiveGame = useCallback(
+    (gameId: string) => {
+      const game =
+        (currentGame?.id === gameId ? currentGame : null) ??
+        games.find((g) => g.id === gameId) ??
+        null;
+
+      const teamIdsToDelete = game ? resolveTeamsToDeleteWithGame(game) : [];
+      const rosterRollbacks = game
+        ? resolveSetupPlayersToRemove(game, teamIdsToDelete, teams)
+        : [];
+      const playerIdsToRemove = rosterRollbacks.flatMap((r) => r.addedPlayerIds);
+
+      const nextGames = games.filter((g) => g.id !== gameId);
+      let nextTeams = teams.filter((t) => !teamIdsToDelete.includes(t.id));
+      for (const { teamId, addedPlayerIds } of rosterRollbacks) {
+        const removeSet = new Set(addedPlayerIds);
+        nextTeams = nextTeams.map((t) =>
+          t.id === teamId
+            ? { ...t, players: t.players.filter((p) => !removeSet.has(p.id)) }
+            : t
+        );
+      }
+      const nextTournaments = tournaments.map((t) => ({
+        ...t,
+        teams: t.teams.filter((id) => !teamIdsToDelete.includes(id)),
+        games: t.games.filter((id) => id !== gameId),
+      }));
+
+      skipSaveRef.current = true;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      setGames(nextGames);
+      setCurrentGame((prev) => (prev?.id === gameId ? null : prev));
+      setTournaments(nextTournaments);
+      setTeams(nextTeams);
+
+      const finishDeleteSave = () => {
+        prevTeamsRef.current = nextTeams;
+        prevTournamentsRef.current = nextTournaments;
+        prevGamesRef.current = nextGames;
+        prevDarkModeRef.current = darkMode;
+        skipSaveRef.current = false;
+      };
+
+      if (isSupabaseConfigured) {
+        void (async () => {
+          try {
+            await deleteGamesFromSupabase([gameId]);
+            if (teamIdsToDelete.length > 0) {
+              await deleteTeamsFromSupabase(teamIdsToDelete);
+            }
+            if (playerIdsToRemove.length > 0) {
+              await deletePlayersFromSupabase(playerIdsToRemove);
+            }
+            await saveAppDataToSupabase(
+              nextTeams,
+              nextTournaments,
+              nextGames,
+              darkMode
+            );
+            setSaveError(null);
+          } catch (err) {
+            console.error('Delete game/teams/players from Supabase failed:', err);
+            setSaveError(err instanceof Error ? err.message : String(err));
+          } finally {
+            finishDeleteSave();
+          }
+        })();
+      } else {
+        finishDeleteSave();
+      }
+    },
+    [games, currentGame, teams, tournaments, darkMode]
+  );
+
+  const handleGameUpdate = useCallback((game: Game) => {
     setCurrentGame(game);
+    if (game.isActive) {
+      setGames((prev) => [...prev.filter((g) => g.id !== game.id), game]);
+    }
   }, []);
 
   const handleGameComplete = useCallback((game: Game) => {
@@ -1039,7 +1190,10 @@ export default function App() {
       finalScore: { home: homeScore, away: awayScore }
     };
     
-    setGames(prev => [...prev, completedGame]);
+    setGames((prev) => [
+      ...prev.filter((g) => g.id !== completedGame.id),
+      completedGame,
+    ]);
     
     // Add game to tournament's games list
     setTournaments(prev => prev.map(tournament => 
@@ -1073,22 +1227,26 @@ export default function App() {
   }, []);
 
   // Team management functions - memoized
-  const handleCreateTeam = useCallback((teamData: Omit<Team, 'id'>) => {
-    // Default to Summer League 2024 tournament if not specified
+  const handleCreateTeam = useCallback((teamData: Omit<Team, 'id'>): Team => {
     const team: Team = {
       ...teamData,
       id: `team-${Date.now()}`,
-      currentTournamentId: teamData.currentTournamentId || 'tournament-summer-2024'
+      currentTournamentId: teamData.currentTournamentId || 'tournament-summer-2024',
     };
-    setTeams(prev => [...prev, team]);
-    
-    // Add team to the tournament (default to Summer League 2024)
+    setTeams((prev) => [...prev, team]);
+
     const tournamentId = team.currentTournamentId || 'tournament-summer-2024';
-    setTournaments(prev => prev.map(tournament => 
-      tournament.id === tournamentId 
-        ? { ...tournament, teams: [...tournament.teams.filter(tid => tid !== team.id), team.id] }
-        : tournament
-    ));
+    setTournaments((prev) =>
+      prev.map((tournament) =>
+        tournament.id === tournamentId
+          ? {
+              ...tournament,
+              teams: [...tournament.teams.filter((tid) => tid !== team.id), team.id],
+            }
+          : tournament
+      )
+    );
+    return team;
   }, []);
 
   const handleAddTeamToTournament = useCallback((teamId: string, tournamentId: string) => {
@@ -1241,10 +1399,15 @@ export default function App() {
             
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
-              {currentGame && (
-                <div className="text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-400 px-3 py-1 rounded-full">
-                  Live: {currentGame.homeTeam.abbreviation} vs {currentGame.awayTeam.abbreviation}
-                </div>
+              {currentGame && currentGame.isActive && !currentGame.isCompleted && (
+                <button
+                  type="button"
+                  onClick={() => navigate(liveGamePath(currentGame.id))}
+                  className="text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-400 px-3 py-1 rounded-full hover:bg-green-200 dark:hover:bg-green-900/40 transition-colors cursor-pointer"
+                >
+                  Live: {currentGame.homeTeam.abbreviation} vs{' '}
+                  {currentGame.awayTeam.abbreviation}
+                </button>
               )}
               
               <Button
@@ -1381,7 +1544,9 @@ export default function App() {
           onDeleteTeam={handleDeleteTeam}
           onAddTeamToTournament={handleAddTeamToTournament}
           onGameStart={handleGameStart}
+          onGameUpdate={handleGameUpdate}
           onGameComplete={handleGameComplete}
+          onDeleteActiveGame={handleDeleteActiveGame}
         />
       </main>
     </div>

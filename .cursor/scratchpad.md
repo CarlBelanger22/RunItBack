@@ -144,11 +144,351 @@
   - Confirm players without `secondaryPosition` still show plain `PF` (no brackets).
   - Confirm no other pages (team roster lists, search dropdown) changed.
 
+### Stats Entry Revamp — Step 1: Game Setup (LOCKED SPEC — Designer)
+
+**Status:** ✅ Complete (user QA signed off 2026-05-29).
+
+#### Product decisions (confirmed)
+| Topic | Decision |
+|-------|----------|
+| Tracked team | Always **Home** / **Your team** (left column) |
+| Single-team mode labels | UI: **Your team** / **Opponent** (internal model may still use `homeTeam` / `awayTeam`) |
+| Toggle default | **Track both teams individually = ON** |
+| Opponent (single-team) | One **text field** for opponent name (required, trimmed non-empty) |
+| Team dropdown | Teams **registered in selected tournament only** |
+| Dropdown UX | One select per side: existing teams + **Create new team**; no parallel “or create new” path |
+| Existing team | Show roster; user may **add players** if someone is missing |
+| Create new team | Show team name + add-player form (Name, No., Position) |
+| New team persist | **Save team + players to DB on Start Game**; link team to selected tournament |
+| Players on existing team | Additions during setup **update DB** (via team update), not game-only |
+| Same team both sides | **Allowed** (scrimmage / internal) |
+| Min roster | **5 players** on each side that requires a roster (Your team always; Away also when both-team mode) |
+| Positions | PG, SG, SF, PF, C only; **no secondary** in setup |
+| Jersey numbers | **No duplicates** on the same team |
+| Abbreviation | **Auto-generate** 3-letter uppercase from team name for new teams |
+| Game date | User-selected date is **source of truth** on `Game.date` (supports past games) |
+| Tournament | **Required** picker on setup; drives team list filter |
+| Layout (single-team) | Two columns: full **Your team** card \| **Opponent** card with name field only (not dimmed placeholder) |
+
+#### Persistence model (cross-cutting — applies to full stats-entry revamp)
+
+Clarifies user note: *team/player changes → DB; game stats → DB at end of entry.*
+
+| When | What gets persisted |
+|------|---------------------|
+| **During setup** (add player to existing team) | Update `Team` (+ players) in app state → debounced **Supabase save** (same as rest of app) |
+| **Start Game** | New teams: `onCreateTeam` + register in tournament; active `Game` row/snapshot with metadata, rosters, `isActive: true`, empty stats/events |
+| **During live entry** | Events/stats held in game state; optional debounced save of **in-progress** game for crash recovery (implementation detail; does not replace finalize) |
+| **End Game (finalize)** | Full game payload: `gameStats`, `teamStats`, `events`, `shots`, `lineupStints`, `isCompleted`, `finalScore`, tournament `games` link |
+
+**Reconciliation (Q5 vs “on completion”):** New teams are created in DB at **Start Game** so live entry uses real team/player IDs. **Completed game stats** are the authoritative write at **finalize**.
+
+**In-progress / unfinished games (confirmed 2026-05-29):**
+- If the user never finishes, the game stays **`isActive: true`** in DB (debounced saves during live entry).
+- User must be able to **resume** later (reload `/live/:id` or explicit “Resume game” entry point).
+- Not abandoned/orphan from a product perspective — only **finalize** marks completed and links full stats to tournament history.
+- **Executor note:** Step 1 creates the active game shell; **minimal resume wiring** is required when touching start/live routes (see task **1.9**). Full live-entry rework remains later.
+
+#### UI state machine (per side: Home / Away)
+
+```
+teamSelectionMode: 'none' | 'existing' | 'create_new'
+
+Dropdown:
+  [ Select team ▼ ]
+    - {each tournament team}
+    - ➕ Create new team
+
+existing  → roster list + "Add player" row (Name, No., Pos)
+create_new → Team name input + "Add player" row
+none      → prompt to select
+```
+
+**Away when `trackBothTeams === false`:** No dropdown/roster; single **Opponent name** input only.
+
+#### Start Game validation (enable button)
+
+- Tournament selected
+- Game date set (valid date input)
+- **Your team (home):** resolved (existing or create_new with name) and **≥ 5 players**
+- **Both teams ON:** Away same rules as home (≥ 5 players)
+- **Both teams OFF:** Opponent name non-empty
+- No duplicate jersey numbers on a given side’s roster
+- (Optional warning only) Same team selected home and away — allowed, no block
+
+#### Data written to `Game` on start (Step 1 scope)
+
+- `date` = selected game date (not `new Date()` at click time)
+- `tournamentId` = selected tournament
+- `trackBothTeams`
+- `homeTeam` / `awayTeam` snapshots (DB ids for persisted teams; opponent stub for single-team mode with user name + generated abbreviation)
+- `homeStarters` / `awayStarters`: first 5 player ids per side when roster ≥ 5 (starters picker deferred)
+- `isActive: true`, `isCompleted: false`, empty stats arrays
+
+#### Executor task breakdown (Step 1 only — do one at a time)
+
+- [x] **1.1** Add tournament selector to `GameSetup`; pass `tournaments` + filter teams by `tournament.teams`
+- [x] **1.2** Refactor team side UI to dropdown state machine (`existing` \| `create_new`); remove redundant “or create new” split layout
+- [x] **1.3** Single-team mode: Opponent name field; labels Your team / Opponent; remove dimmed placeholder card
+- [x] **1.4** Wire setup callbacks: `onCreateTeam`, `onUpdateTeam` from `App.tsx` into `GameSetup` route
+- [x] **1.5** Persist new team on Start Game; persist added players to existing teams on add
+- [x] **1.6** Validation: min 5 players, duplicate jersey block, opponent name required, date on `Game.date`
+- [x] **1.7** Abbreviation auto-generate (`src/utils/teamAbbreviation.ts`); opponent stub has abbreviation
+- [x] **1.8** Manual QA gate for Step 1 (user verified)
+- [x] **1.9** Resume: restore `currentGame` on load; `/live/:id` hydrates from `games`; `handleGameUpdate` keeps `games` in sync during live play
+
+#### Step 1 manual QA gate
+
+- Pick tournament → only its teams appear in dropdowns
+- Existing team → roster shows; add 6th player → appears in DB team after save
+- Create new team → add 5 players → Start → team exists under Teams/tournament; live route loads
+- Single-team mode → opponent name “Lakers” → game shows Lakers as away name, 5+ home players
+- Past game date → `/games/:id` and lists show that date
+- Cannot start with &lt; 5 players or duplicate jersey # on same team
+- Start game, record one event, leave site, return → resume same game at `/live/:id`
+
+#### Defaults locked for Executor (no further user input required)
+
+| Topic | Default |
+|-------|---------|
+| Opponent (single-team) | **Not** a DB team — name + generated abbreviation on game snapshot only |
+| Players added in setup | `height`/`weight` empty string, `age` 0 (same as today) |
+| Game `date` field | Store selected calendar date as ISO date string (`YYYY-MM-DD`) |
+| Tournament dropdown default | First tournament in list (alphabetical by name) unless only one |
+| Multiple active games | **One** active game at a time; starting a new game prompts to resume or abandon existing (abandon = keep `isActive` in DB but clear session — defer strict abandon UI to Step 2 if needed; MVP: restore most recent `isActive` on load) |
+| Resume entry points | Header live badge (existing) + auto-restore `currentGame` on app load from newest `isActive` game |
+
+#### Out of scope for Step 1
+
+- Live entry UI rework, end-game finalize, save-status chip, starters UI, post-game edits
+- Strict “abandon game” dialog / multiple concurrent active games
+
+---
+
+### Stats Entry — Step 1.5: Active session governance (Designer — LOCKED)
+
+**Triggered by QA feedback:** cannot resume from Stats Entry; can start a second active game; need delete in live session.
+
+#### Root cause analysis (why Step 1.9 feels broken)
+
+| Symptom | Cause in current code |
+|--------|------------------------|
+| “Can’t resume in Stats Entry” | `/stats-entry` always renders full `GameSetup` with no resume UI. Header “Live” badge is **not clickable** (no `navigate` to `/live/:id`). |
+| “Can start a second active game” | `handleGameStart` never checks for an existing `isActive` game; old active games stay `isActive: true` in `games` when a new one starts. |
+| “Resume after refresh unclear” | `currentGame` restores on load, but user must know URL `/live/:gameId` — not discoverable from Stats Entry tab. |
+| Possible data issue | If multiple `isActive` rows exist in Supabase, app picks “newest by date” on load but does not prevent creating more. |
+
+**Conclusion:** Persistence plumbing exists; **product rules + entry-point UX** were not enforced. Step 1.5 fixes that.
+
+#### Product rules (confirmed from user request)
+
+1. **At most one active game** globally (`isActive === true && !isCompleted`).
+2. **Cannot start a new game** while an active game exists — must **resume** or **delete** the current one first.
+3. **Resume must be obvious** from Stats Entry (not only deep URL or silent header text).
+4. **Delete game** available **during live session** — removes in-progress game from app + database (hard delete, not “completed”).
+5. ~~Teams/players created during that game’s setup **remain** in DB~~ → **Updated in Step 1.6** (see below).
+
+#### Stats Entry page states
+
+```
+/stats-entry
+  ├─ NO active game     → show GameSetup (current)
+  └─ HAS active game    → show ActiveGameBanner (blocks setup)
+        - Title: "Game in progress"
+        - Meta: date, tournament, Your team vs Opponent
+        - [Resume game]  → navigate /live/:activeGameId
+        - Helper text: "Finish or delete this game before starting another"
+        (GameSetup hidden or fully disabled — prefer hidden to avoid confusion)
+```
+
+#### Live session (`/live/:id`)
+
+- Top bar adds **Delete game** (destructive, secondary).
+- Confirm dialog: “Delete this game and all stats recorded so far? This cannot be undone.”
+- On confirm: remove game from `games`, clear `currentGame`, persist to Supabase, navigate to `/stats-entry`.
+
+#### Header (global)
+
+- “Live: ABC vs XYZ” badge becomes **clickable** → same as Resume (`/live/:id`).
+- Optional: show badge on Stats Entry tab when active (already shows when `currentGame` set).
+
+#### App-level logic (`App.tsx`)
+
+- **`getActiveGame(games, currentGame?)`**: return the single active game; prefer `currentGame` if it matches; else newest `isActive` by `date` then `id`.
+- **`handleGameStart`**: if `getActiveGame()` exists and id ≠ new game id → **abort** (toast or inline error); do not add second active.
+- **`handleDeleteActiveGame(gameId)`**: filter out game, `setCurrentGame(null)`, trigger save.
+- **On load**: if multiple actives in DB, keep newest active, set others `isActive: false` on next save (cleanup helper) — prevents legacy duplicates.
+- **Fix `handleGameComplete`**: replace game in array by id (avoid duplicate completed + active rows).
+
+#### Executor task breakdown (Step 1.5 — one at a time)
+
+- [x] **1.5.1** Add `getActiveGame` helper + active-game cleanup on load (dedupe actives) — `src/utils/activeGame.ts`
+- [x] **1.5.2** Guard `handleGameStart` — reject second active game
+- [x] **1.5.3** `ActiveGameBanner` on `/stats-entry` when active exists; hide `GameSetup`
+- [x] **1.5.4** Clickable header Live badge → `liveGamePath(activeGame.id)`
+- [x] **1.5.5** `handleDeleteActiveGame` in App + wire to `LiveGameEntry` with confirm dialog
+- [x] **1.5.6** QA: cannot start second game; resume from Stats Entry + header; delete removes game and returns to setup (user verified)
+
+#### Step 1.5 manual QA gate
+
+- Start game → leave → open **Stats Entry** → see in-progress banner, **no** new setup form.
+- **Resume** opens same `/live/:id` with prior score/events.
+- **Start game** disabled/blocked while active exists.
+- **Delete** from live screen → game gone from DB/lists; can start fresh game on setup.
+- Header Live pill click → resumes live game.
+
+#### Open question for user (optional — default if no answer)
+
+- **Delete copy:** OK to permanently discard all events/stats for that session? **Default: Yes** (hard delete).
+
+---
+
+### Stats Entry — Step 1.6: Delete setup-added players on existing teams (Designer — LOCKED)
+
+**Triggered by QA (2026-05-29):** User added **Dobby tan** (#25) to existing **City Warriors** during setup, started live game, deleted game. **Team preserved** (Step 1.5 fix works). **Player still in DB** on team roster — bug.
+
+#### Expected behavior (user-confirmed)
+
+| Setup action | On delete game |
+|--------------|----------------|
+| Pick **existing** team (e.g. City Warriors) | Team **kept** |
+| Add **new player(s)** during setup only | Those player(s) **removed** from DB |
+| **Create new team** during setup | Team + all its players **removed** |
+
+#### Root cause analysis (why Dobby remained)
+
+| Likely cause | Explanation |
+|--------------|-------------|
+| **A. Empty roster baseline → safe default** | `addedPlayersFromBaseline()` returns `[]` if no snapshot when team was selected. Then `setupRosterChanges` is **never stored** on the game → delete has nothing to remove. |
+| **B. Metadata lost before delete** | `setupRosterChanges` lives on `Game` and in `team_stats.__meta` in Supabase. Delete uses `games.find(id)` **before** `currentGame`; stale row may lack meta. Live saves may overwrite game without meta if field was dropped. |
+| **C. Player delete not run** | `deletePlayersFromSupabase()` only runs when `setupRosterChanges` has IDs. If empty, roster rollback skipped → player remains. |
+| **D. Save re-upserts player** | Less likely: after delete, debounced save could theoretically re-upsert if state out of sync (verify in Executor). |
+
+**Distinguishing ID formats (important):**
+
+- Catalog players: `player-1`, `player-17`, … (import/seed) → **never** auto-delete on game delete.
+- Setup-added on existing team: `home-player-{timestamp}-{jersey}` or `away-player-…` → **should** delete on game delete.
+
+#### Product rules (locked)
+
+1. Deleting a game **must not** delete existing catalog teams (`team-warriors`, etc.).
+2. Deleting a game **must** remove players added during **this game’s setup** to an existing team.
+3. Removal is **hard delete** from `players` table + update team roster in app/DB.
+4. Use **primary** source: `game.setupRosterChanges` persisted at **Start game** (before DB sync).
+5. Use **fallback** if metadata missing: any player on game snapshot whose id matches `^(home|away)-player-\d+-\d+$` on a non-deleted team.
+
+#### Technical design (Executor)
+
+**1. At Start game (`GameSetup`)**
+
+- Compute `setupRosterChanges` **before** `resolveTeamForGame` / `onUpdateTeam` (already done).
+- **Also** store `setupRosterBaselines` on game optional audit: `{ [teamId]: playerId[] }` at selection time.
+- Require baseline: if `existing` mode and baseline missing for team id, set baseline from `teams` prop at start (last resort).
+
+**2. Persist on game**
+
+- Keep `setupRosterChanges` on `Game` + `team_stats.__meta` (current).
+- Ensure debounced save after start includes meta (verify).
+
+**3. On delete (`handleDeleteActiveGame`)**
+
+- Resolve game: **prefer `currentGame`** if id matches, else `games.find` (richer metadata).
+- `playerIdsToRemove` = from `setupRosterChanges` OR fallback `inferSetupAddedPlayerIdsFromGameSnapshot(game)`.
+- Order: delete **game** row → delete **players** → update **teams** in state (strip players) → save teams (no deleted player rows re-upserted).
+- Do **not** call `deleteTeamsFromSupabase` except for `setupCreatedTeamIds` (unchanged from 1.5).
+
+**4. One-time cleanup**
+
+- Script or manual: remove orphan `home-player-*` / `away-player-*` rows on catalog teams with 0 games (optional admin tool later).
+
+#### Executor tasks (Step 1.6)
+
+- [x] **1.6.1** Add `inferSetupAddedPlayerIdsFromGameSnapshot(game)` fallback in `activeGame.ts`
+- [x] **1.6.2** Delete handler: prefer `currentGame`; merge primary + fallback player IDs
+- [x] **1.6.3** GameSetup: seed baseline from DB catalog ids when snapshot missing (`addedPlayersFromBaseline` + `teams` prop)
+- [x] **1.6.4** After player removal, explicit `saveAppDataToSupabase` with computed state
+- [x] **1.6.5** Manual QA: City Warriors + 1 setup player → delete game → player gone, team + catalog players remain (user verified)
+- [x] **1.6.6** Deleted orphan Dobby tan from Supabase (if present)
+
+#### Step 1.6 manual QA gate
+
+- Existing team + add 1 player → start → delete → **only** new player removed from team page.
+- Existing team, no adds → delete → roster unchanged.
+- Create new team + players → delete → team and players gone.
+- Catalog `player-*` ids never removed when deleting a game.
+
+---
+
 ### Immediate next tasks
-1. Run full Stats Entry QA pass from setup -> live entry -> complete game -> summary.
-2. Identify and fix top UX blockers in live entry speed/accuracy.
-3. Add clear save/sync feedback in UI (`Saving...`, `Saved`, `Save failed`).
-4. Keep route-level behavior stable while touching stats entry paths.
+1. **Step 1 complete** — Game Setup, active session governance, and delete cleanup all QA-passed.
+2. **Step 2 (next):** Live entry + finalize flow (end game, summary, persistence integrity).
+3. Save/sync status indicator (Step 2 or later).
+4. Phase C auth + RLS hardening (later).
+
+### Designer workflow proposal: complete stats-entry flow (start to finish)
+
+#### Goal
+- Make live game stat entry fast, reliable, and recoverable under real courtside pressure.
+
+#### Assumptions to challenge
+- Assumption: one stat keeper can keep up with every event using the current 3-pane layout.
+  - Skeptic view: cognitive load is too high without quick-action presets and clearer state feedback.
+- Assumption: in-memory `currentGame` is sufficient during live entry.
+  - Skeptic view: refresh/navigation loss will happen in real use; resume must be first-class.
+- Assumption: all events should have equal UI weight.
+  - Skeptic view: 80/20 actions (made/missed 2, made/missed 3, FT, TO, foul, rebound, sub) need priority lanes.
+
+#### End-to-end user workflow (target behavior)
+1. **Pre-game setup (`/stats-entry`)**
+   - Choose tournament, home team, opponent mode (tracked team only vs both teams).
+   - Confirm rosters, jersey numbers, and starters.
+   - Optional quick presets: period length, overtime rules, foul tracking mode.
+   - Start game -> create active game record and navigate to `/live/:id`.
+   - Success criteria: setup completed in under 60 seconds for a known roster.
+2. **Live entry session (`/live/:id`)**
+   - Persistent top status strip: period, clock, score, possession, foul counts, save state.
+   - Primary action rail (one-tap common actions): +2, +3, FT make/miss, TO, foul, rebound, substitution.
+   - Context dialogs only when needed (assist, block, shot location, foul type, sub pairings).
+   - Immediate optimistic update to scoreboard + play-by-play + player/team totals.
+   - Undo always available for last action chain.
+   - Success criteria: common event recorded in <= 2 taps and <= 2 seconds.
+3. **In-game resilience**
+   - Auto-save every meaningful state change with visible status transitions:
+     `Saving...` -> `Saved` or `Save failed (retrying...)`.
+   - Recovery path: reload `/live/:id` restores active game session from persisted data.
+   - Conflict guard: if stale client state detected, notify and offer reload.
+   - Success criteria: refresh does not lose active game context.
+4. **End game and finalize**
+   - End period flow supports Q1-Q4/OT progression; explicit "Finalize game" action after game end.
+   - Finalize confirms score, marks `isCompleted`, persists final payload, clears active session.
+   - Redirect to `/games/:id` summary, with links back to tournament and recent games.
+   - Success criteria: final game appears in history and tournament views immediately.
+5. **Post-game corrections**
+   - Lightweight correction mode from summary page:
+     - edit/remove recent events
+     - auto-recompute box score and team totals
+   - Audit trail retained in events log.
+   - Success criteria: common correction can be completed without replaying full game.
+
+#### Product decisions still open (post Step 1)
+- Device priority: phone-first, tablet-first, or laptop-first layout optimization.
+- Must-have recovery: full resume on reload now vs defer.
+- Correction depth: only last-N events editable vs full event timeline editing.
+- ~~Abandoned-game orphan teams~~ → resolved: in-progress games persist + resume (task 1.9).
+
+#### Recommended phased execution (small milestones)
+- Phase 1: finalize + persistence integrity (end-game action, summary visibility, tournament linkage).
+- Phase 2: save-state UX + resume-on-refresh for `/live/:id`.
+- Phase 3: fast action rail and dialog reduction for top 80/20 events.
+- Phase 4: post-game correction tools.
+- Phase 5: polish (keyboard shortcuts, mobile ergonomics, visual density tuning).
+
+#### Validation plan (manual acceptance)
+- Start a new game from setup with existing teams and with ad-hoc opponent.
+- Record a representative quarter (shots, rebounds, fouls, substitutions, turnovers).
+- Refresh mid-game and confirm session restore.
+- Finalize game and verify `/games/:id` plus tournament game list.
+- Perform one post-game correction and verify derived stats update consistently.
 
 ### Manual test gate (required after each milestone)
 - Setup new game works from `/stats-entry`.
@@ -283,8 +623,10 @@
 - [x] Supabase connected and app persistence wired.
 - [x] Production deploy live and functioning.
 - [x] URL routing migration complete.
-- [ ] Stats Entry comprehensive QA pass.
-- [ ] Stats Entry UX polish milestone.
+- [x] Stats Entry Step 1: Game Setup revamp (1.1–1.9, QA complete).
+- [x] Stats Entry Step 1.5: Active session (resume, single active, delete game, QA complete).
+- [x] Stats Entry Step 1.6: Delete setup-added players on existing teams (QA complete).
+- [ ] Stats Entry live entry + finalize (Steps 2+).
 - [ ] Save/sync status indicator in UI.
 - [ ] Phase C auth + RLS hardening (later).
 
@@ -300,7 +642,8 @@
 
 ## Current Status / Progress Tracking
 
-- Executor completed Step 1 only.
+- **Step 1 complete (2026-05-29):** Game Setup (1.1–1.9), active session (1.5), delete cleanup (1.6) — all executor tasks and manual QA passed.
+- Next: Step 2 — live entry finalize + persistence integrity.
 - Added `formatPlayerPositionLabel(primaryPosition, secondaryPosition?)` in `src/components/PlayerPage.tsx`.
 - Helper behavior:
   - returns `primary` when secondary is empty/undefined

@@ -1,3 +1,4 @@
+import { useEffect, useMemo } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -9,8 +10,10 @@ import { TeamManager } from '../components/TeamManager';
 import { TeamPage } from '../components/TeamPage';
 import { PlayerPage } from '../components/PlayerPage';
 import { RecentGames } from '../components/RecentGames';
+import { ActiveGameBanner } from '../components/ActiveGameBanner';
 import { GameSetup } from '../components/GameSetup';
 import { LiveGameEntry } from '../components/LiveGameEntry';
+import { getActiveGame } from '../utils/activeGame';
 import { GameSummary } from '../components/GameSummary';
 import type { Game, Team, Tournament, Player } from '../App';
 import { parseSlugId, slugify } from './slugs';
@@ -33,12 +36,14 @@ export interface AppRoutesProps {
   onCreateTournament: (data: Omit<Tournament, 'id'>) => void;
   onUpdateTournament: (tournament: Tournament) => void;
   onDeleteTournament: (tournamentId: string) => void;
-  onCreateTeam: (data: Omit<Team, 'id'>) => void;
+  onCreateTeam: (data: Omit<Team, 'id'>) => Team;
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
-  onGameStart: (game: Game) => void;
+  onGameStart: (game: Game) => boolean;
+  onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void;
+  onDeleteActiveGame: (gameId: string) => void;
 }
 
 function findPlayer(teams: Team[], playerId: string): { player: Player; team: Team } | null {
@@ -241,11 +246,32 @@ function GameSummaryRoute({ games }: Pick<AppRoutesProps, 'games'>) {
   );
 }
 
-function LiveGameRoute({ currentGame, setCurrentGame, onGameComplete }: AppRoutesProps) {
+function LiveGameRoute({
+  games,
+  currentGame,
+  setCurrentGame,
+  onGameUpdate,
+  onGameComplete,
+  onDeleteActiveGame,
+}: AppRoutesProps) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
 
-  if (!currentGame || currentGame.id !== gameId) {
+  const persistedActive =
+    gameId != null
+      ? games.find((g) => g.id === gameId && g.isActive && !g.isCompleted)
+      : undefined;
+
+  const liveGame =
+    currentGame?.id === gameId ? currentGame : persistedActive;
+
+  useEffect(() => {
+    if (persistedActive && currentGame?.id !== gameId) {
+      setCurrentGame(persistedActive);
+    }
+  }, [persistedActive, currentGame?.id, gameId, setCurrentGame]);
+
+  if (!gameId || !liveGame) {
     return (
       <div className="space-y-4">
         <p className="text-muted-foreground">Live game session not found or expired.</p>
@@ -262,9 +288,13 @@ function LiveGameRoute({ currentGame, setCurrentGame, onGameComplete }: AppRoute
         ← Back to Dashboard
       </Button>
       <LiveGameEntry
-        game={currentGame}
-        onGameUpdate={setCurrentGame}
+        game={liveGame}
+        onGameUpdate={onGameUpdate}
         onGameComplete={onGameComplete}
+        onDeleteGame={() => {
+          onDeleteActiveGame(liveGame.id);
+          navigate(paths.statsEntry);
+        }}
       />
     </div>
   );
@@ -288,7 +318,13 @@ export function AppRoutes(props: AppRoutesProps) {
     onAddTeamToTournament,
     onGameStart,
     onGameComplete,
+    onDeleteActiveGame,
   } = props;
+
+  const activeGame = useMemo(
+    () => getActiveGame(games, currentGame),
+    [games, currentGame]
+  );
 
   const navigateToTournament = (tournamentId: string, tab: TournamentTab = 'home') => {
     const tournament = tournaments.find((t) => t.id === tournamentId);
@@ -306,9 +342,12 @@ export function AppRoutes(props: AppRoutesProps) {
     if (target !== current) navigate(target);
   };
 
-  const handleGameStart = (game: Game) => {
-    onGameStart(game);
-    navigate(liveGamePath(game.id));
+  const handleGameStart = (game: Game): boolean => {
+    const started = onGameStart(game);
+    if (started) {
+      navigate(liveGamePath(game.id));
+    }
+    return started;
   };
 
   return (
@@ -372,7 +411,16 @@ export function AppRoutes(props: AppRoutesProps) {
           <RecentGames
             games={games.slice().reverse()}
             onBack={() => navigate(paths.home)}
-            onNavigateToGame={(gameId) => navigate(gamePath(gameId))}
+            onNavigateToGame={(gameId) => {
+              const game = games.find((g) => g.id === gameId);
+              if (game?.isActive && !game.isCompleted) {
+                setCurrentGame(game);
+                navigate(liveGamePath(gameId));
+              } else {
+                navigate(gamePath(gameId));
+              }
+            }}
+            onDeleteActiveGame={onDeleteActiveGame}
           />
         }
       />
@@ -386,7 +434,21 @@ export function AppRoutes(props: AppRoutesProps) {
             <Button variant="ghost" size="sm" onClick={() => navigate(paths.home)}>
               ← Back to Dashboard
             </Button>
-            <GameSetup onGameStart={handleGameStart} availableTeams={teams} />
+            {activeGame ? (
+              <ActiveGameBanner
+                game={activeGame}
+                tournament={tournaments.find((t) => t.id === activeGame.tournamentId)}
+                onResume={() => navigate(liveGamePath(activeGame.id))}
+              />
+            ) : (
+              <GameSetup
+                tournaments={tournaments}
+                teams={teams}
+                onGameStart={handleGameStart}
+                onCreateTeam={onCreateTeam}
+                onUpdateTeam={onUpdateTeam}
+              />
+            )}
           </div>
         }
       />

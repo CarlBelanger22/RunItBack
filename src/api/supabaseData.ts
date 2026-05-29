@@ -131,6 +131,48 @@ function playerToDbRow(player: Player, teamId: string): DbPlayer {
   };
 }
 
+const TEAM_STATS_META_KEY = '__meta' as const;
+
+type GameSetupMeta = {
+  setupCreatedTeamIds?: string[];
+  setupRosterChanges?: Game['setupRosterChanges'];
+};
+
+type PersistedTeamStats = Game['teamStats'] & {
+  [TEAM_STATS_META_KEY]?: GameSetupMeta;
+};
+
+function serializeTeamStats(game: Game): PersistedTeamStats {
+  const payload: PersistedTeamStats = {
+    home: game.teamStats.home,
+    away: game.teamStats.away,
+  };
+  const hasMeta =
+    (game.setupCreatedTeamIds?.length ?? 0) > 0 ||
+    (game.setupRosterChanges?.length ?? 0) > 0;
+  if (hasMeta) {
+    payload[TEAM_STATS_META_KEY] = {
+      setupCreatedTeamIds: game.setupCreatedTeamIds,
+      setupRosterChanges: game.setupRosterChanges,
+    };
+  }
+  return payload;
+}
+
+function parseTeamStats(row: DbGame['team_stats']): {
+  teamStats: Game['teamStats'];
+  setupCreatedTeamIds?: string[];
+  setupRosterChanges?: Game['setupRosterChanges'];
+} {
+  const raw = row as PersistedTeamStats;
+  const meta = raw[TEAM_STATS_META_KEY];
+  return {
+    teamStats: { home: raw.home, away: raw.away },
+    setupCreatedTeamIds: meta?.setupCreatedTeamIds,
+    setupRosterChanges: meta?.setupRosterChanges,
+  };
+}
+
 function gameToDbRow(game: Game, leagueId: string): DbGame {
   const homeId = game.homeTeamId || game.homeTeam?.id;
   const awayId = game.awayTeamId || game.awayTeam?.id;
@@ -155,7 +197,7 @@ function gameToDbRow(game: Game, leagueId: string): DbGame {
     home_starters: game.homeStarters ?? [],
     away_starters: game.awayStarters ?? [],
     game_stats: game.gameStats ?? [],
-    team_stats: game.teamStats ?? { home: {} as Game['teamStats']['home'], away: {} as Game['teamStats']['away'] },
+    team_stats: serializeTeamStats(game),
     shots: game.shots ?? [],
     events: game.events ?? [],
     lineup_stints: game.lineupStints ?? [],
@@ -169,6 +211,10 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     throw new Error(`Game ${row.id} references missing team(s)`);
   }
 
+  const { teamStats, setupCreatedTeamIds, setupRosterChanges } = parseTeamStats(
+    row.team_stats
+  );
+
   return {
     id: row.id,
     homeTeam,
@@ -178,7 +224,9 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     tournamentId: row.tournament_id ?? undefined,
     date: row.date,
     gameStats: row.game_stats ?? [],
-    teamStats: row.team_stats,
+    teamStats,
+    setupCreatedTeamIds,
+    setupRosterChanges,
     shots: row.shots ?? [],
     events: row.events ?? [],
     lineupStints: row.lineup_stints ?? [],
@@ -300,6 +348,26 @@ export async function loadAppDataFromSupabase(
     darkMode: prefsRes.data?.dark_mode ?? false,
     playerMeasurementsMigrationPending,
   };
+}
+
+/** Permanently remove game rows from Supabase (e.g. discarded in-progress sessions). */
+export async function deleteGamesFromSupabase(gameIds: string[]): Promise<void> {
+  if (!supabase || gameIds.length === 0) return;
+  const { error } = await supabase.from('games').delete().in('id', gameIds);
+  if (error) throw new Error(`games delete: ${error.message}`);
+}
+
+/** Removes teams (players cascade). Call after deleting games that reference them. */
+export async function deleteTeamsFromSupabase(teamIds: string[]): Promise<void> {
+  if (!supabase || teamIds.length === 0) return;
+  const { error } = await supabase.from('teams').delete().in('id', teamIds);
+  if (error) throw new Error(`teams delete: ${error.message}`);
+}
+
+export async function deletePlayersFromSupabase(playerIds: string[]): Promise<void> {
+  if (!supabase || playerIds.length === 0) return;
+  const { error } = await supabase.from('players').delete().in('id', playerIds);
+  if (error) throw new Error(`players delete: ${error.message}`);
 }
 
 export async function saveAppDataToSupabase(
