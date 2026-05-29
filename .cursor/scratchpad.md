@@ -23,7 +23,8 @@
 ## 2) Active Plan (Now)
 
 ### Primary feature focus
-- Build out and polish **Stats Entry** (Game Setup + Live Game Entry + action dialogs + game completion flow).
+- **Box score import (Sunig 2025)** — historical games from PDF → Supabase (pilot: NTU vs SUTD, 2025-09-19).
+- Stats Entry Step 2 (finalize) paused until import pilot verified.
 
 ### Small UX fix (requested)
 - Show player secondary position on player detail page as bracketed combo, e.g. `[PF/C]`.
@@ -420,12 +421,224 @@ none      → prompt to select
 ---
 
 ### Immediate next tasks
-1. **Step 1 complete** — Game Setup, active session governance, and delete cleanup all QA-passed.
-2. **Step 2 (next):** Live entry + finalize flow (end game, summary, persistence integrity).
-3. Save/sync status indicator (Step 2 or later).
-4. Phase C auth + RLS hardening (later).
+1. **Executor B2.x** — Game summary / box score display fixes (QA feedback on Sunig Game 1).
+2. Re-import Game 1 JSON after B2.5.
+3. Stats Entry Step 2 — after Sunig Game 1 signed off.
+4. Save/sync status indicator (later).
 
-### Designer workflow proposal: complete stats-entry flow (start to finish)
+---
+
+### Box Score Import — Sunig 2025 (Designer — LOCKED for Game 1)
+
+**User request (2026-05-29):** Import historical games one at a time from PDF box scores. Pilot game: `Importingboxscores/sunig 2025/NTU_vs_SUTD_BoxScore_2025-09-19.pdf`.
+
+#### Scope for Game 1
+
+| Entity | Action |
+|--------|--------|
+| **Tournament** | Create **Sunig 2025** (`tournament-sunig-2025`) |
+| **Team NTU** | Create **Nanyang Technological University** — abbrev **NTU** |
+| **Team SUTD** | Create **Singapore University of Technology and Design** — abbrev **SUTD** (4 letters) |
+| **NTU roster** | Create **15 players** (full season roster); **12 played** this game (stats from box score) |
+| **SUTD roster** | **Empty for now** — no individual lines on this PDF; final score only (37) |
+| **Game** | Completed game **2025-09-19**, **NTU 96 – SUTD 37** |
+
+#### Product decisions (confirmed)
+
+- **Home team:** NTU (tracked team / primary roster).
+- **Away team:** SUTD (DB team exists; no player `gameStats` this game).
+- **`trackBothTeams`:** `false` — only NTU player lines imported (matches PDF).
+- **Players not in box score** (#0, #4, #14): create on roster with **zero game stats** for this game (available for future imports).
+- **Height/weight:** store as normalized **cm / kg** strings where provided; blank otherwise.
+- **Positions:** split `SG/SF` → `position: SG`, `secondaryPosition: SF` (first token primary).
+- **IDs:** stable deterministic ids for cross-game reuse:
+  - Tournament: `tournament-sunig-2025`
+  - Teams: `team-sunig-ntu`, `team-sunig-sutd`
+  - Players: `player-sunig-ntu-{jersey}` (e.g. `player-sunig-ntu-22`)
+  - Game: `game-sunig-2025-09-19-ntu-sutd`
+- **Import path:** CLI script (like `import-localstorage`) with `--dry-run` + Supabase upsert; source JSON co-located with PDF.
+- **Abbreviation length:** allow **3–5 uppercase letters** in UI + generator (DB already `text`, no migration).
+
+#### Box score → `GameStats` mapping
+
+| PDF column | App field |
+|------------|-----------|
+| MIN (`24:00`) | `minutes_played` (integer minutes) |
+| PTS | `points` |
+| FG `7-12` | `fg_made`, `fg_attempted` |
+| 3PT `1-2` | `three_made`, `three_attempted` |
+| FT `2-2` | `ft_made`, `ft_attempted` |
+| REB / DRB / ORB | implied total; use `drb`, `orb` separately |
+| AST, BLK, STL, TO | `assists`, `blocks`, `steals`, `turnovers` |
+| FLS | `fouls` |
+| FD | `fouls_drawn` |
+| +/- | `plus_minus` |
+| (missing) | `tech_fouls`, `unsportsmanlike_fouls`, `blocks_received` → `0` |
+
+#### NTU full roster (create all 15)
+
+| # | Name | Pos | Height | Weight | In box score? |
+|---|------|-----|--------|--------|---------------|
+| 8 | Chengshan Tan | SG / SF | — | — | ✅ |
+| 33 | Hanqing Ming | SF / PF | — | — | ✅ |
+| 10 | Jeremy Chew | SG / SF | 183 | — | ✅ |
+| 22 | Carl Belanger | C / PF | 191 | 88 | ✅ |
+| 6 | Daniel Delin | SF / SG | — | — | ✅ |
+| 12 | Yuanyang Tan | C | — | — | ✅ |
+| 13 | Cliff Louis | PF | — | — | ✅ |
+| 45 | Sunzhe Lew | PF / SF | — | — | ✅ |
+| 21 | Kovan Toh | C | 191 | — | ✅ |
+| 20 | Minghui Pan | PG / SG | 185 | — | ✅ |
+| 15 | Darren Ng | PG / SF | — | — | ✅ |
+| 1 | Jingjie Lim | PG | — | — | ✅ |
+| 14 | Khaimun Ng | PF / C | 188 | — | ❌ roster only |
+| 4 | Louis Ho | PG | — | — | ❌ roster only |
+| 0 | Shawn Lee | SG / PG | — | — | ❌ roster only |
+
+#### Game 1 player stats (from PDF — NTU only)
+
+| # | MIN | PTS | FG | 3PT | FT | REB | DRB | ORB | AST | BLK | STL | TO | PF | FD | +/- |
+|---|-----|-----|----|----|-----|-----|-----|-----|-----|-----|-----|----|----|----|-----|
+| 8 | 24 | 17 | 7-12 | 1-2 | 2-2 | 4 | 3 | 1 | 2 | 0 | 1 | 1 | 0 | 2 | +34 |
+| 33 | 22 | 12 | 4-8 | 4-6 | 0-0 | 3 | 3 | 0 | 1 | 0 | 1 | 0 | 2 | 0 | +31 |
+| 10 | 8 | 11 | 4-6 | 3-5 | 0-0 | 5 | 4 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | +11 |
+| 22 | 20 | 10 | 4-7 | 0-0 | 2-2 | 5 | 4 | 1 | 1 | 0 | 0 | 1 | 0 | 1 | +29 |
+| 6 | 16 | 9 | 3-5 | 1-1 | 2-2 | 2 | 2 | 0 | 1 | 0 | 2 | 1 | 1 | 1 | +23 |
+| 12 | 11 | 7 | 3-4 | 0-0 | 1-1 | 3 | 3 | 0 | 0 | 0 | 0 | 0 | 1 | 1 | +15 |
+| 13 | 18 | 7 | 3-3 | 0-0 | 1-1 | 2 | 2 | 0 | 0 | 0 | 0 | 0 | 0 | 1 | +26 |
+| 45 | 15 | 6 | 2-4 | 2-4 | 0-0 | 4 | 3 | 1 | 1 | 0 | 1 | 0 | 0 | 0 | +21 |
+| 21 | 13 | 6 | 3-5 | 0-0 | 0-0 | 3 | 2 | 1 | 0 | 0 | 0 | 1 | 1 | 0 | +18 |
+| 20 | 20 | 5 | 2-4 | 0-0 | 1-2 | 4 | 3 | 1 | 4 | 0 | 1 | 0 | 0 | 2 | +29 |
+| 15 | 16 | 4 | 1-1 | 0-0 | 2-2 | 3 | 2 | 1 | 3 | 0 | 1 | 1 | 0 | 1 | +23 |
+| 1 | 17 | 2 | 1-2 | 0-0 | 0-0 | 5 | 4 | 1 | 4 | 0 | 1 | 1 | 2 | 1 | +24 |
+
+**NTU team line (PDF):** 96 PTS, FG 37-61, 3PT 11-18, FT 11-12, REB 43 (DRB 35, ORB 8), AST 17, BLK 0, STL 9, TO 6, PF 7, FD 10 → use for `teamStats.home`.
+
+**SUTD:** `teamStats.away.total_points = 37`; all other away fields **`null`** (not recorded). UI shows **No stats recorded** for null optional fields.
+
+**NTU optional advanced fields** (paint, bench, etc.): **`null`** in JSON — not on PDF.
+
+**Not imported:** `events[]`, `shots[]`, `lineupStints[]` (empty arrays). Optional: synthetic shots later — out of scope.
+
+#### Key challenges / assumptions to validate
+
+- **Assumption:** NTU is home. Score header `SUTD 37 - 96 NTU` is away–home ordering. **Default locked: NTU home.** User can correct before Executor runs if wrong.
+- **Assumption:** Re-import is idempotent (same ids → upsert overwrites). Script must not duplicate tournament/teams on re-run.
+- **Risk:** Existing catalog teams with conflicting abbrev — use unique ids (`team-sunig-*`), not generic names.
+- **Risk:** UI still caps abbreviation at 3 chars — **must fix before import** or SUTD save fails in app UI later.
+
+#### Prerequisite: Team abbreviation 3–5 characters
+
+| File | Change |
+|------|--------|
+| `src/utils/teamAbbreviation.ts` | Allow generated/suggested abbrev up to 5 chars; collision suffix within 5 |
+| `src/components/forms/TeamForm.tsx` | `maxLength={5}`, validate 3–5 on submit |
+| `src/components/TournamentPage.tsx` | Same for team create dialog |
+| `src/App.tsx` | Update comment on `Team.abbreviation` |
+
+No DB migration required (`abbreviation text`).
+
+#### Executor task breakdown (one at a time)
+
+- [x] **B0.1** Abbreviation 3–5 chars in UI + generator
+- [x] **B1.1** Add `Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json`
+- [x] **B1.2** Add `scripts/import-boxscore.ts` + `npm run import:boxscore`
+- [x] **B1.3** Dry-run verified (2 teams, 15 players, 12 game stat rows)
+- [x] **B1.4** Import run against Supabase — success
+- [x] **B1.5** Manual QA — user feedback received (2026-05-29); display fixes required before sign-off
+
+#### Game 1 display fixes — QA feedback (Designer — LOCKED 2026-05-29)
+
+User verified import is **almost good**; five display/data rules below. Applies to **Sunig Game 1** and **all future imported/live games**.
+
+##### Root cause analysis
+
+| # | Symptom | Cause in code |
+|---|---------|----------------|
+| 1 | Team TOTALS row shows +/- | `BoxScore.tsx` `getTeamTotals()` sums player `plus_minus`; TEAM row renders badge (PDF has no team +/-) |
+| 2 | SUTD shows **0** not **37** | `GameSummary.tsx` scores = sum of `gameStats` only; SUTD has no players/stats. Ignores `finalScore` / `teamStats.away.total_points` |
+| 3 | Paint/bench/TO pts shown; DRB = 0 | `TeamStats.tsx` **fabricates** advanced stats (lines 56–61: `pointsInPaint`, `benchPoints`, etc.) and uses broken `stat.rebounds` (field doesn't exist on `GameStats`). Ignores imported `game.teamStats.home.drb` (35 in JSON) |
+| 4 | Player Performance chart includes DNP players | Chart maps **full roster** (`homeTeam.players`); roster includes #0/#4/#14 with 0 MIN |
+| 5 | Leaders at bottom; no tie support | `BoxScore.tsx` Quick Stats at bottom uses `.reduce()` → single winner only |
+
+##### Product rules (confirmed)
+
+1. **Team TOTALS +/-:** blank / em dash (`—`), never sum player +/- (matches PDF).
+2. **Opponent score-only teams (SUTD pattern):** When a side has **no player `gameStats`** but **`teamStats[side].total_points`** or **`finalScore`** exists → show that score everywhere (header, comparison charts, lists). Permanent pattern: user will **never** have SUTD player/box-score detail — only final points.
+3. **Optional team advanced stats:** Fields **not on the box score** (points in paint, bench points, fast break points, points off turnovers, second chance points, biggest lead, biggest run) must **not** show fabricated numbers. Display **`No stats recorded`** when not provided.
+   - **Box-score team line stats** (FG, 3PT, FT, REB, DRB, ORB, AST, STL, BLK, TO, PF, FD) **are** recorded when on PDF or in import JSON → show actual values (including legitimate `0` for BLK).
+   - **SUTD away team:** only **37 PTS** is recorded; all other away team detail → **`No stats recorded`**.
+4. **Player Performance chart:** exclude players with **`minutes_played === 0`** (DNP / not in box score). Global rule for all games.
+5. **Game leaders:** move **Leading Scorer, Most Assists, Most Rebounds, …** **above** the box score table (in `GameSummary` or top of Box Score tab). **Include all tied players** (e.g. `"Name A, Name B (12pts)"`).
+
+##### Data model tweak (import JSON + `TeamStats` type)
+
+Optional advanced team fields use **`null` = not recorded** vs **`0` = recorded zero**:
+
+```typescript
+// Display-only convention in teamStats JSON:
+points_in_paint: number | null  // null → "No stats recorded"
+```
+
+- Update `game-2025-09-19-ntu-sutd.json`:
+  - **home:** keep box-score line values; set optional advanced fields to `null`
+  - **away:** `total_points: 37`; all other numeric fields `null` (not `0`)
+- Add `opponentStatsLevel?: 'full' | 'score_only'` on `Game` optional meta **OR** infer: `score_only` when side has zero `gameStats` rows for that team but `total_points > 0`.
+
+##### Technical design (Executor)
+
+**New shared util** `src/utils/gameScore.ts` (or `gameDisplay.ts`):
+
+- `resolveSideScore(game, 'home' | 'away')` — player sum → `teamStats.total_points` → `finalScore`
+- `hasPlayerBoxScore(game, teamId)` — any `gameStats` for that team's players
+- `getPlayersWhoPlayed(game, team)` — filter `minutes_played > 0` OR has row in `gameStats` with any counting stat
+- `getGameLeaders(game, statKey)` — returns `{ value, players: Player[] }` with **all ties**
+- `formatOptionalTeamStat(value: number | null | undefined)` → number string or `"No stats recorded"`
+- `getTeamStatDisplay(game, side, field)` — prefers `game.teamStats[side]`; never estimates
+
+**Files to change:**
+
+| File | Changes |
+|------|---------|
+| `src/utils/gameDisplay.ts` | New helpers (above) |
+| `src/components/GameSummary.tsx` | Use `resolveSideScore`; add **Game Leaders** row above tabs |
+| `src/components/BoxScore.tsx` | TEAM row +/- → `—`; filter DNP from tables; remove bottom Quick Stats (moved up); use `teamStats` for totals when present |
+| `src/components/TeamStats.tsx` | Remove estimation block (lines 56–61); use `game.teamStats` + null semantics; DRB from `teamStats.drb` or sum player `drb`; filter chart to played players only; SUTD away panel shows 37 PTS + "No stats recorded" for rest |
+| `src/App.tsx` | Optional: `TeamStats` fields `number \| null` for optional advanced stats |
+| `Importingboxscores/.../game-2025-09-19-ntu-sutd.json` | `null` for unrecorded optional fields; away = score only |
+| Re-run `npm run import:boxscore` | After JSON + type updates |
+
+##### Executor task breakdown (B2 — one at a time)
+
+- [x] **B2.1** Add `gameDisplay.ts` helpers (score resolve, leaders w/ ties, optional stat formatting)
+- [x] **B2.2** Fix `GameSummary` header scores (SUTD 37) + leaders section above tabs
+- [x] **B2.3** Fix `BoxScore`: team +/- blank; DNP filter; remove duplicate leaders
+- [x] **B2.4** Fix `TeamStats`: remove fake estimates; use `teamStats` + null; DRB fix; chart filter; SUTD score-only UI
+- [x] **B2.5** Update import JSON + re-import; verify all 5 QA items (build + import OK; **awaiting user manual QA**)
+
+##### B2 manual QA gate
+
+- Game header: **NTU 96 – SUTD 37**
+- Box score TEAM row: **no +/-** value
+- NTU team stats: **DRB 35**; paint/bench/fast break → **No stats recorded**
+- SUTD: **37 points** visible; other team stats → **No stats recorded**
+- Player Performance chart: **12 players** only (not 15)
+- Leaders above box score; ties show multiple names if applicable
+- Carl 10 PTS / Chengshan 17 PTS unchanged
+
+#### Out of scope (Game 1)
+
+- SUTD player roster or stats
+- Play-by-play, shot charts, quarter splits (PDF has no quarter lines)
+- Automating PDF parsing (Game 1 is hand-transcribed JSON; future games may repeat pattern)
+
+#### Future games (Designer note)
+
+- Reuse same ids for NTU players across Sunig box scores.
+- Add SUTD players when a PDF includes them.
+- Consider promoting JSON schema + import script to generic `npm run import:boxscore -- --file ...`.
+
+---
 
 #### Goal
 - Make live game stat entry fast, reliable, and recoverable under real courtside pressure.
@@ -626,6 +839,8 @@ none      → prompt to select
 - [x] Stats Entry Step 1: Game Setup revamp (1.1–1.9, QA complete).
 - [x] Stats Entry Step 1.5: Active session (resume, single active, delete game, QA complete).
 - [x] Stats Entry Step 1.6: Delete setup-added players on existing teams (QA complete).
+- [x] Sunig Game 1 display fixes (B2.1–B2.5 code + re-import done; user QA pending).
+- [ ] Team abbreviation 3–5 chars (prerequisite for SUTD).
 - [ ] Stats Entry live entry + finalize (Steps 2+).
 - [ ] Save/sync status indicator in UI.
 - [ ] Phase C auth + RLS hardening (later).
@@ -642,8 +857,8 @@ none      → prompt to select
 
 ## Current Status / Progress Tracking
 
-- **Step 1 complete (2026-05-29):** Game Setup (1.1–1.9), active session (1.5), delete cleanup (1.6) — all executor tasks and manual QA passed.
-- Next: Step 2 — live entry finalize + persistence integrity.
+- **Step 1 complete (2026-05-29):** Game Setup, active session, delete cleanup — QA passed.
+- **Active work:** Sunig Game 1 **B2 display fixes implemented** (2026-05-29). `npm run build` passes; JSON re-imported. **Awaiting user B2 manual QA** before Designer sign-off.
 - Added `formatPlayerPositionLabel(primaryPosition, secondaryPosition?)` in `src/components/PlayerPage.tsx`.
 - Helper behavior:
   - returns `primary` when secondary is empty/undefined
@@ -662,6 +877,14 @@ none      → prompt to select
 
 ## Executor's Feedback or Assistance Requests
 
+- **Sunig Game 1 B2 (2026-05-29):** All B2.1–B2.5 tasks implemented. Key changes:
+  - `src/utils/gameDisplay.ts` — score resolution, score-only team detection, leaders with ties, optional stat formatting
+  - `src/components/GameLeadersSection.tsx` — leaders above tabs in Game Summary
+  - `GameSummary`, `BoxScore`, `TeamStats` updated per QA spec
+  - JSON nulls for unrecorded stats; re-import completed successfully
+  - `npm run build` passes
+  - **Please run B2 manual QA gate** (scratchpad B2 section) on game `game-sunig-2025-09-19-ntu-sutd` and confirm before Designer sign-off.
+- **Sunig 2025 import:** B1.4 complete. User should hard-refresh and confirm B1.5 checklist. Re-import is idempotent: `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json"`.
 - Milestone reached: Player measurements (cm/kg input + profile display) implemented.
 - Rounding: cm -> feet/inches uses **nearest inch** (confirmed).
 - Form validation: numeric cm/kg only, **no hard min/max** (confirmed).

@@ -15,7 +15,7 @@ import { GameSetup } from '../components/GameSetup';
 import { LiveGameEntry } from '../components/LiveGameEntry';
 import { getActiveGame } from '../utils/activeGame';
 import { GameSummary } from '../components/GameSummary';
-import type { Game, Team, Tournament, Player } from '../App';
+import type { Game, Team, Tournament, Player, CreateTeamOptions } from '../App';
 import { parseSlugId, slugify } from './slugs';
 import {
   gamePath,
@@ -36,7 +36,7 @@ export interface AppRoutesProps {
   onCreateTournament: (data: Omit<Tournament, 'id'>) => void;
   onUpdateTournament: (tournament: Tournament) => void;
   onDeleteTournament: (tournamentId: string) => void;
-  onCreateTeam: (data: Omit<Team, 'id'>) => Team;
+  onCreateTeam: (data: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
@@ -392,6 +392,7 @@ export function AppRoutes(props: AppRoutesProps) {
         element={
           <TeamManager
             teams={teams}
+            tournaments={tournaments}
             onCreateTeam={onCreateTeam}
             onUpdateTeam={onUpdateTeam}
             onDeleteTeam={onDeleteTeam}

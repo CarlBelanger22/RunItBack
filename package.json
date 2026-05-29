@@ -57,6 +57,7 @@
       "scripts": {
             "dev": "vite",
             "build": "vite build",
-            "import:local": "tsx scripts/import-localstorage-to-supabase.ts"
+            "import:local": "tsx scripts/import-localstorage-to-supabase.ts",
+            "import:boxscore": "tsx scripts/import-boxscore.ts"
       }
 }

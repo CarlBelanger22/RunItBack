@@ -743,8 +743,8 @@ export function TournamentPage({
                     ref={teamAbbreviationInputRef}
                     id="teamAbbreviation"
                     defaultValue=""
-                    placeholder="3-letter abbreviation (e.g. LAL)"
-                    maxLength={3}
+                    placeholder="3–5 letter abbreviation (e.g. LAL, SUTD)"
+                    maxLength={5}
                     className="uppercase"
                     onChange={(e) => {
                       // Auto-uppercase on change

@@ -1,116 +1,138 @@
 import React from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
-import { Progress } from './ui/progress';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Game } from '../App';
+import { MetricsCalculator } from './MetricsCalculator';
+import {
+  getOptionalAdvancedStatValue,
+  getPersistedTeamStats,
+  getPlayerFirstName,
+  getPlayersWhoPlayed,
+  hasAwayTeamContent,
+  isScoreOnlyTeam,
+  resolveSideScore,
+  resolveTeamTotals,
+  teamHasPlayerBoxScore,
+  type TeamSide,
+  type OptionalAdvancedTeamStatKey,
+} from '../utils/gameDisplay';
+import { NoStatRecorded, OptionalStatBadge, OptionalStatText } from './StatDisplay';
 import { BarChart3, TrendingUp, Users, Award, Target, Activity } from 'lucide-react';
 
 interface TeamStatsProps {
   game: Game;
 }
 
-export function TeamStats({ game }: TeamStatsProps) {
-  
-  // Calculate team statistics
-  const calculateTeamStats = (teamType: 'home' | 'away') => {
-    const team = teamType === 'home' ? game.homeTeam : game.awayTeam;
-    const teamStats = team.players.map(player => {
-      return game.gameStats.find(s => s.playerId === player.id) || {
-        playerId: player.id,
-        points: 0, fg_made: 0, fg_attempted: 0, three_made: 0, three_attempted: 0,
-        ft_made: 0, ft_attempted: 0, rebounds: 0, assists: 0, steals: 0,
-        blocks: 0, turnovers: 0, fouls: 0, minutes: 0
-      };
-    });
+interface TeamDisplayStats {
+  points: number;
+  fg_made: number;
+  fg_attempted: number;
+  three_made: number;
+  three_attempted: number;
+  ft_made: number;
+  ft_attempted: number;
+  rebounds: number;
+  drb: number;
+  assists: number;
+  steals: number;
+  blocks: number;
+  turnovers: number;
+  fouls: number;
+  assistToTurnoverRatio: number;
+  effectiveFieldGoalPercentage: number;
+  trueShootingPercentage: number;
+  scoreOnly: boolean;
+}
 
-    const totals = teamStats.reduce((acc, stat) => ({
-      points: acc.points + stat.points,
-      fg_made: acc.fg_made + stat.fg_made,
-      fg_attempted: acc.fg_attempted + stat.fg_attempted,
-      three_made: acc.three_made + stat.three_made,
-      three_attempted: acc.three_attempted + stat.three_attempted,
-      ft_made: acc.ft_made + stat.ft_made,
-      ft_attempted: acc.ft_attempted + stat.ft_attempted,
-      rebounds: acc.rebounds + stat.rebounds,
-      assists: acc.assists + stat.assists,
-      steals: acc.steals + stat.steals,
-      blocks: acc.blocks + stat.blocks,
-      turnovers: acc.turnovers + stat.turnovers,
-      fouls: acc.fouls + stat.fouls,
-      minutes: acc.minutes + stat.minutes
-    }), {
-      points: 0, fg_made: 0, fg_attempted: 0, three_made: 0, three_attempted: 0,
-      ft_made: 0, ft_attempted: 0, rebounds: 0, assists: 0, steals: 0,
-      blocks: 0, turnovers: 0, fouls: 0, minutes: 0
-    });
+function buildTeamDisplayStats(game: Game, side: TeamSide): TeamDisplayStats {
+  const totals = resolveTeamTotals(game, side);
+  const team = side === 'home' ? game.homeTeam : game.awayTeam;
+  const fromPlayers = teamHasPlayerBoxScore(game, team);
 
-    // Advanced metrics
-    const assistToTurnoverRatio = totals.turnovers > 0 ? totals.assists / totals.turnovers : totals.assists;
-    const effectiveFieldGoalPercentage = totals.fg_attempted > 0 ? 
-      ((totals.fg_made + (0.5 * totals.three_made)) / totals.fg_attempted) * 100 : 0;
-    const trueShootingPercentage = (totals.fg_attempted + (0.44 * totals.ft_attempted)) > 0 ?
-      (totals.points / (2 * (totals.fg_attempted + (0.44 * totals.ft_attempted)))) * 100 : 0;
+  const rebounds = totals.scoreOnly
+    ? 0
+    : fromPlayers
+      ? totals.orb + totals.drb
+      : getPersistedTeamStats(game, side)?.total_rebounds ?? totals.orb + totals.drb;
+  const drb = totals.drb;
 
-    // Estimated advanced stats (simplified versions)
-    const pointsOffTurnovers = Math.round(totals.steals * 1.2); // Estimate
-    const secondChancePoints = Math.round(totals.rebounds * 0.3); // Estimate
-    const fastBreakPoints = Math.round(totals.assists * 0.4); // Estimate
-    const pointsInPaint = Math.round((totals.fg_made - totals.three_made) * 0.6 * 2); // Estimate
-    const benchPoints = Math.round(totals.points * 0.25); // Estimate
+  const assistToTurnoverRatio =
+    totals.turnovers > 0 ? totals.assists / totals.turnovers : totals.assists;
+  const effectiveFieldGoalPercentage =
+    totals.fg_attempted > 0
+      ? ((totals.fg_made + 0.5 * totals.three_made) / totals.fg_attempted) * 100
+      : 0;
+  const trueShootingPercentage =
+    totals.fg_attempted + 0.44 * totals.ft_attempted > 0
+      ? (totals.points / (2 * (totals.fg_attempted + 0.44 * totals.ft_attempted))) * 100
+      : 0;
 
-    return {
-      ...totals,
-      assistToTurnoverRatio,
-      effectiveFieldGoalPercentage,
-      trueShootingPercentage,
-      pointsOffTurnovers,
-      secondChancePoints,
-      fastBreakPoints,
-      pointsInPaint,
-      benchPoints,
-      teamStats
-    };
+  return {
+    points: resolveSideScore(game, side),
+    fg_made: totals.fg_made,
+    fg_attempted: totals.fg_attempted,
+    three_made: totals.three_made,
+    three_attempted: totals.three_attempted,
+    ft_made: totals.ft_made,
+    ft_attempted: totals.ft_attempted,
+    rebounds,
+    drb,
+    assists: totals.assists,
+    steals: totals.steals,
+    blocks: totals.blocks,
+    turnovers: totals.turnovers,
+    fouls: totals.fouls,
+    assistToTurnoverRatio,
+    effectiveFieldGoalPercentage,
+    trueShootingPercentage,
+    scoreOnly: totals.scoreOnly,
   };
+}
 
-  const homeStats = calculateTeamStats('home');
-  const awayStats = calculateTeamStats('away');
+export function TeamStats({ game }: TeamStatsProps) {
+  const homeStats = buildTeamDisplayStats(game, 'home');
+  const awayStats = buildTeamDisplayStats(game, 'away');
 
-  // Prepare data for charts
   const comparisonData = [
     { category: 'Points', home: homeStats.points, away: awayStats.points },
-    { category: 'FG%', home: homeStats.fg_attempted > 0 ? (homeStats.fg_made / homeStats.fg_attempted * 100) : 0, away: awayStats.fg_attempted > 0 ? (awayStats.fg_made / awayStats.fg_attempted * 100) : 0 },
+    {
+      category: 'FG%',
+      home: homeStats.fg_attempted > 0 ? (homeStats.fg_made / homeStats.fg_attempted) * 100 : 0,
+      away: awayStats.fg_attempted > 0 ? (awayStats.fg_made / awayStats.fg_attempted) * 100 : 0,
+    },
     { category: 'Rebounds', home: homeStats.rebounds, away: awayStats.rebounds },
     { category: 'Assists', home: homeStats.assists, away: awayStats.assists },
     { category: 'Steals', home: homeStats.steals, away: awayStats.steals },
     { category: 'Blocks', home: homeStats.blocks, away: awayStats.blocks },
-    { category: 'Turnovers', home: homeStats.turnovers, away: awayStats.turnovers }
+    { category: 'Turnovers', home: homeStats.turnovers, away: awayStats.turnovers },
   ];
 
-  const homeDistribution = [
-    { name: '2PT', value: (homeStats.fg_made - homeStats.three_made) * 2, color: '#3b82f6' },
-    { name: '3PT', value: homeStats.three_made * 3, color: '#8b5cf6' },
-    { name: 'FT', value: homeStats.ft_made, color: '#10b981' }
+  const buildDistribution = (stats: TeamDisplayStats) => [
+    { name: '2PT', value: (stats.fg_made - stats.three_made) * 2, color: '#3b82f6' },
+    { name: '3PT', value: stats.three_made * 3, color: '#8b5cf6' },
+    { name: 'FT', value: stats.ft_made, color: '#10b981' },
   ];
 
-  const awayDistribution = [
-    { name: '2PT', value: (awayStats.fg_made - awayStats.three_made) * 2, color: '#f59e0b' },
-    { name: '3PT', value: awayStats.three_made * 3, color: '#ef4444' },
-    { name: 'FT', value: awayStats.ft_made, color: '#06b6d4' }
-  ];
+  const homeDistribution = buildDistribution(homeStats);
+  const awayDistribution = buildDistribution(awayStats);
 
-  const StatCard = ({ title, value, subtitle, icon: Icon, color = "primary" }: { 
-    title: string; 
-    value: string | number; 
-    subtitle?: string; 
-    icon: any; 
-    color?: string;
+  const StatCard = ({
+    title,
+    value,
+    subtitle,
+    icon: Icon,
+  }: {
+    title: string;
+    value: string | number;
+    subtitle?: string;
+    icon: React.ComponentType<{ className?: string }>;
   }) => (
     <Card className="p-4">
       <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg bg-${color}/10`}>
-          <Icon className={`w-5 h-5 text-${color}`} />
+        <div className="p-2 rounded-lg bg-primary/10">
+          <Icon className="w-5 h-5 text-primary" />
         </div>
         <div className="flex-1">
           <div className="font-semibold text-lg">{value}</div>
@@ -121,383 +143,265 @@ export function TeamStats({ game }: TeamStatsProps) {
     </Card>
   );
 
-  const TeamComparison = () => (
-    <div className="space-y-6">
-      {/* Head-to-Head Comparison */}
-      <Card className="shadow-lg rounded-2xl">
-        <CardHeader>
-          <CardTitle>Team Comparison</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={comparisonData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="category" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="home" fill="#3b82f6" name={game.homeTeam.name} />
-                <Bar dataKey="away" fill="#f59e0b" name={game.awayTeam.name} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
+  const AdvancedStatRow = ({
+    label,
+    side,
+    statKey,
+    numericValue,
+    numericSuffix = '',
+    decimals,
+  }: {
+    label: string;
+    side: TeamSide;
+    statKey?: OptionalAdvancedTeamStatKey;
+    numericValue?: number;
+    numericSuffix?: string;
+    decimals?: number;
+  }) => {
+    const scoreOnly = isScoreOnlyTeam(game, side);
+    const persisted = getPersistedTeamStats(game, side);
 
-      {/* Scoring Distribution */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="shadow-lg rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-center">{game.homeTeam.name} Scoring</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={homeDistribution}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    dataKey="value"
-                  >
-                    {homeDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-4">
-              {homeDistribution.map((item) => (
-                <div key={item.name} className="text-center">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <div 
-                      className="w-3 h-3 rounded-full" 
-                      style={{ backgroundColor: item.color }}
-                    ></div>
-                    <span className="text-sm font-medium">{item.name}</span>
-                  </div>
-                  <div className="text-lg font-bold">{item.value}</div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+    if (statKey != null) {
+      const value = getOptionalAdvancedStatValue(persisted, statKey, scoreOnly);
+      return (
+        <div className="flex justify-between">
+          <span className="text-sm">{label}</span>
+          <OptionalStatBadge value={value} />
+        </div>
+      );
+    }
 
-        <Card className="shadow-lg rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-center">{game.awayTeam.name} Scoring</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={awayDistribution}
-                    cx="50%"
-                    cy="50%"
-                    outerRadius={80}
-                    dataKey="value"
-                  >
-                    {awayDistribution.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-4">
-              {awayDistribution.map((item) => (
-                <div key={item.name} className="text-center">
-                  <div className="flex items-center justify-center gap-2 mb-1">
-                    <div 
-                      className="w-3 h-3 rounded-full" 
-                      style={{ backgroundColor: item.color }}
-                    ></div>
-                    <span className="text-sm font-medium">{item.name}</span>
-                  </div>
-                  <div className="text-lg font-bold">{item.value}</div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+    if (scoreOnly) {
+      return (
+        <div className="flex justify-between">
+          <span className="text-sm">{label}</span>
+          <OptionalStatBadge value={null} />
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex justify-between">
+        <span className="text-sm">{label}</span>
+        <Badge variant="outline">
+          <OptionalStatText
+            value={numericValue ?? null}
+            suffix={numericSuffix}
+            decimals={decimals}
+          />
+        </Badge>
       </div>
-    </div>
-  );
+    );
+  };
 
-  const HomeTeamStats = () => (
-    <div className="space-y-6">
-      {/* Key Metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard
-          title="Total Points"
-          value={homeStats.points}
-          icon={Target}
-          color="blue"
-        />
-        <StatCard
-          title="Field Goal %"
-          value={`${homeStats.fg_attempted > 0 ? ((homeStats.fg_made / homeStats.fg_attempted) * 100).toFixed(1) : '0.0'}%`}
-          subtitle={`${homeStats.fg_made}/${homeStats.fg_attempted}`}
-          icon={TrendingUp}
-          color="green"
-        />
-        <StatCard
-          title="Assist/TO Ratio"
-          value={homeStats.assistToTurnoverRatio.toFixed(1)}
-          subtitle={`${homeStats.assists} AST / ${homeStats.turnovers} TO`}
-          icon={Activity}
-          color="purple"
-        />
-        <StatCard
-          title="True Shooting %"
-          value={`${homeStats.trueShootingPercentage.toFixed(1)}%`}
-          subtitle="Efficiency"
-          icon={Award}
-          color="orange"
-        />
-      </div>
+  const TeamDetailView = ({
+    side,
+    stats,
+    teamName,
+  }: {
+    side: TeamSide;
+    stats: TeamDisplayStats;
+    teamName: string;
+  }) => {
+    const team = side === 'home' ? game.homeTeam : game.awayTeam;
+    const playedPlayers = getPlayersWhoPlayed(game, team);
+    const chartData = playedPlayers.map((player) => {
+      const stat =
+        game.gameStats.find((s) => s.playerId === player.id) ??
+        MetricsCalculator.getEmptyStats(player.id);
+      return {
+        name: getPlayerFirstName(player.name),
+        fullName: player.name,
+        points: stat.points,
+        rebounds: stat.orb + stat.drb,
+        assists: stat.assists,
+      };
+    });
 
-      {/* Advanced Team Stats */}
-      <Card className="shadow-lg rounded-2xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <BarChart3 className="w-5 h-5" />
-            Advanced Team Statistics
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Offense</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm">Points in Paint</span>
-                  <Badge variant="outline">{homeStats.pointsInPaint}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Fast Break Points</span>
-                  <Badge variant="outline">{homeStats.fastBreakPoints}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Second Chance Points</span>
-                  <Badge variant="outline">{homeStats.secondChancePoints}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Bench Points</span>
-                  <Badge variant="outline">{homeStats.benchPoints}</Badge>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Defense</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm">Points off Turnovers</span>
-                  <Badge variant="outline">{homeStats.pointsOffTurnovers}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Steals</span>
-                  <Badge variant="outline">{homeStats.steals}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Blocks</span>
-                  <Badge variant="outline">{homeStats.blocks}</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">Defensive Rebounds</span>
-                  <Badge variant="outline">{Math.round(homeStats.rebounds * 0.7)}</Badge>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Shooting</h4>
-              <div className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-sm">Effective FG%</span>
-                  <Badge variant="outline">{homeStats.effectiveFieldGoalPercentage.toFixed(1)}%</Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">3P Percentage</span>
-                  <Badge variant="outline">
-                    {homeStats.three_attempted > 0 ? ((homeStats.three_made / homeStats.three_attempted) * 100).toFixed(1) : '0.0'}%
-                  </Badge>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm">FT Percentage</span>
-                  <Badge variant="outline">
-                    {homeStats.ft_attempted > 0 ? ((homeStats.ft_made / homeStats.ft_attempted) * 100).toFixed(1) : '0.0'}%
-                  </Badge>
-                </div>
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Player Performance Chart */}
-      <Card className="shadow-lg rounded-2xl">
-        <CardHeader>
-          <CardTitle>Player Performance</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart 
-                data={homeStats.teamStats.map((stat, index) => ({
-                  name: game.homeTeam.players[index]?.name || `Player ${index + 1}`,
-                  points: stat.points,
-                  rebounds: stat.rebounds,
-                  assists: stat.assists
-                }))}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="points" fill="#3b82f6" />
-                <Bar dataKey="rebounds" fill="#10b981" />
-                <Bar dataKey="assists" fill="#f59e0b" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  const AwayTeamStats = () => (
-    <div className="space-y-6">
-      {game.awayTeam.players.length === 0 ? (
+    if (stats.scoreOnly) {
+      return (
         <Card className="shadow-lg rounded-2xl">
           <CardContent className="py-12 text-center">
             <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-            <h3 className="font-medium mb-2">No Away Team Data</h3>
+            <h3 className="font-medium mb-2">{teamName}</h3>
+            <div className="text-4xl font-bold text-primary mb-4">{stats.points}</div>
             <p className="text-sm text-muted-foreground">
-              Only home team statistics are being tracked in this game.
+              No detailed stats recorded for this team.
             </p>
           </CardContent>
         </Card>
-      ) : (
-        <>
-          {/* Key Metrics */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <StatCard
-              title="Total Points"
-              value={awayStats.points}
-              icon={Target}
-              color="blue"
-            />
-            <StatCard
-              title="Field Goal %"
-              value={`${awayStats.fg_attempted > 0 ? ((awayStats.fg_made / awayStats.fg_attempted) * 100).toFixed(1) : '0.0'}%`}
-              subtitle={`${awayStats.fg_made}/${awayStats.fg_attempted}`}
-              icon={TrendingUp}
-              color="green"
-            />
-            <StatCard
-              title="Assist/TO Ratio"
-              value={awayStats.assistToTurnoverRatio.toFixed(1)}
-              subtitle={`${awayStats.assists} AST / ${awayStats.turnovers} TO`}
-              icon={Activity}
-              color="purple"
-            />
-            <StatCard
-              title="True Shooting %"
-              value={`${awayStats.trueShootingPercentage.toFixed(1)}%`}
-              subtitle="Efficiency"
-              icon={Award}
-              color="orange"
-            />
-          </div>
+      );
+    }
 
-          {/* Advanced Team Stats */}
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <StatCard title="Total Points" value={stats.points} icon={Target} />
+          <StatCard
+            title="Field Goal %"
+            value={`${stats.fg_attempted > 0 ? ((stats.fg_made / stats.fg_attempted) * 100).toFixed(1) : '0.0'}%`}
+            subtitle={`${stats.fg_made}/${stats.fg_attempted}`}
+            icon={TrendingUp}
+          />
+          <StatCard
+            title="Assist/TO Ratio"
+            value={stats.assistToTurnoverRatio.toFixed(1)}
+            subtitle={`${stats.assists} AST / ${stats.turnovers} TO`}
+            icon={Activity}
+          />
+          <StatCard
+            title="True Shooting %"
+            value={`${stats.trueShootingPercentage.toFixed(1)}%`}
+            subtitle="Efficiency"
+            icon={Award}
+          />
+        </div>
+
+        <Card className="shadow-lg rounded-2xl">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="w-5 h-5" />
+              Advanced Team Statistics
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+              <div className="space-y-4">
+                <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Offense</h4>
+                <div className="space-y-3">
+                  <AdvancedStatRow side={side} label="Points in Paint" statKey="points_in_paint" />
+                  <AdvancedStatRow side={side} label="Fast Break Points" statKey="fastbreak_points" />
+                  <AdvancedStatRow side={side} label="Second Chance Points" statKey="second_chance_points" />
+                  <AdvancedStatRow side={side} label="Bench Points" statKey="bench_points" />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Defense</h4>
+                <div className="space-y-3">
+                  <AdvancedStatRow side={side} label="Points off Turnovers" statKey="points_off_turnovers" />
+                  <AdvancedStatRow side={side} label="Steals" numericValue={stats.steals} />
+                  <AdvancedStatRow side={side} label="Blocks" numericValue={stats.blocks} />
+                  <AdvancedStatRow side={side} label="Defensive Rebounds" numericValue={stats.drb} />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Shooting</h4>
+                <div className="space-y-3">
+                  <AdvancedStatRow
+                    side={side}
+                    label="Effective FG%"
+                    numericValue={Number(stats.effectiveFieldGoalPercentage.toFixed(1))}
+                    numericSuffix="%"
+                  />
+                  <AdvancedStatRow
+                    side={side}
+                    label="3P Percentage"
+                    numericValue={
+                      stats.three_attempted > 0
+                        ? Number(((stats.three_made / stats.three_attempted) * 100).toFixed(1))
+                        : 0
+                    }
+                    numericSuffix="%"
+                  />
+                  <AdvancedStatRow
+                    side={side}
+                    label="FT Percentage"
+                    numericValue={
+                      stats.ft_attempted > 0
+                        ? Number(((stats.ft_made / stats.ft_attempted) * 100).toFixed(1))
+                        : 0
+                    }
+                    numericSuffix="%"
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {chartData.length > 0 && (
           <Card className="shadow-lg rounded-2xl">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <BarChart3 className="w-5 h-5" />
-                Advanced Team Statistics
-              </CardTitle>
+              <CardTitle>Player Performance</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-                <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Offense</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Points in Paint</span>
-                      <Badge variant="outline">{awayStats.pointsInPaint}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Fast Break Points</span>
-                      <Badge variant="outline">{awayStats.fastBreakPoints}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Second Chance Points</span>
-                      <Badge variant="outline">{awayStats.secondChancePoints}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Bench Points</span>
-                      <Badge variant="outline">{awayStats.benchPoints}</Badge>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Defense</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Points off Turnovers</span>
-                      <Badge variant="outline">{awayStats.pointsOffTurnovers}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Steals</span>
-                      <Badge variant="outline">{awayStats.steals}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Blocks</span>
-                      <Badge variant="outline">{awayStats.blocks}</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">Defensive Rebounds</span>
-                      <Badge variant="outline">{Math.round(awayStats.rebounds * 0.7)}</Badge>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Shooting</h4>
-                  <div className="space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-sm">Effective FG%</span>
-                      <Badge variant="outline">{awayStats.effectiveFieldGoalPercentage.toFixed(1)}%</Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">3P Percentage</span>
-                      <Badge variant="outline">
-                        {awayStats.three_attempted > 0 ? ((awayStats.three_made / awayStats.three_attempted) * 100).toFixed(1) : '0.0'}%
-                      </Badge>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-sm">FT Percentage</span>
-                      <Badge variant="outline">
-                        {awayStats.ft_attempted > 0 ? ((awayStats.ft_made / awayStats.ft_attempted) * 100).toFixed(1) : '0.0'}%
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
+              <div className="h-64">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chartData} margin={{ bottom: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" interval={0} tick={{ fontSize: 11 }} />
+                    <YAxis />
+                    <Tooltip
+                      labelFormatter={(_, payload) =>
+                        (payload?.[0]?.payload as { fullName?: string })?.fullName ??
+                        String(payload?.[0]?.payload?.name ?? '')
+                      }
+                    />
+                    <Bar dataKey="points" fill="#3b82f6" />
+                    <Bar dataKey="rebounds" fill="#10b981" />
+                    <Bar dataKey="assists" fill="#f59e0b" />
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             </CardContent>
           </Card>
-        </>
-      )}
-    </div>
+        )}
+      </div>
+    );
+  };
+
+  const ScoringPie = ({
+    teamName,
+    distribution,
+    scoreOnly,
+    points,
+  }: {
+    teamName: string;
+    distribution: { name: string; value: number; color: string }[];
+    scoreOnly: boolean;
+    points: number;
+  }) => (
+    <Card className="shadow-lg rounded-2xl">
+      <CardHeader>
+        <CardTitle className="text-center">{teamName} Scoring</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {scoreOnly ? (
+          <div className="py-8 text-center">
+            <div className="text-3xl font-bold mb-2">{points}</div>
+            <NoStatRecorded />
+          </div>
+        ) : (
+          <>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie data={distribution} cx="50%" cy="50%" outerRadius={80} dataKey="value">
+                    {distribution.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-4">
+              {distribution.map((item) => (
+                <div key={item.name} className="text-center">
+                  <div className="flex items-center justify-center gap-2 mb-1">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
+                    <span className="text-sm font-medium">{item.name}</span>
+                  </div>
+                  <div className="text-lg font-bold">{item.value}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 
   return (
@@ -506,21 +410,56 @@ export function TeamStats({ game }: TeamStatsProps) {
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="comparison">Team Comparison</TabsTrigger>
           <TabsTrigger value="home">{game.homeTeam.name}</TabsTrigger>
-          <TabsTrigger value="away" disabled={game.awayTeam.players.length === 0}>
+          <TabsTrigger value="away" disabled={!hasAwayTeamContent(game)}>
             {game.awayTeam.name}
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="comparison">
-          <TeamComparison />
+          <div className="space-y-6">
+            <Card className="shadow-lg rounded-2xl">
+              <CardHeader>
+                <CardTitle>Team Comparison</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={comparisonData}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="category" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="home" fill="#3b82f6" name={game.homeTeam.name} />
+                      <Bar dataKey="away" fill="#f59e0b" name={game.awayTeam.name} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <ScoringPie
+                teamName={game.homeTeam.name}
+                distribution={homeDistribution}
+                scoreOnly={homeStats.scoreOnly}
+                points={homeStats.points}
+              />
+              <ScoringPie
+                teamName={game.awayTeam.name}
+                distribution={awayDistribution}
+                scoreOnly={awayStats.scoreOnly}
+                points={awayStats.points}
+              />
+            </div>
+          </div>
         </TabsContent>
 
         <TabsContent value="home">
-          <HomeTeamStats />
+          <TeamDetailView side="home" stats={homeStats} teamName={game.homeTeam.name} />
         </TabsContent>
 
         <TabsContent value="away">
-          <AwayTeamStats />
+          <TeamDetailView side="away" stats={awayStats} teamName={game.awayTeam.name} />
         </TabsContent>
       </Tabs>
     </div>

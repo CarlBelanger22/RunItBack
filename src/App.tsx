@@ -33,6 +33,7 @@ import {
   resolveSetupPlayersToRemove,
   resolveTeamsToDeleteWithGame,
 } from './utils/activeGame';
+import { generateTeamAbbreviation } from './utils/teamAbbreviation';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -50,10 +51,14 @@ export interface Player {
   dateOfBirth?: string; // ISO date string (YYYY-MM-DD)
 }
 
+export interface CreateTeamOptions {
+  tournamentIds?: string[];
+}
+
 export interface Team {
   id: string;
   name: string;
-  abbreviation: string; // 3-letter team abbreviation (must be uppercase)
+  abbreviation: string; // 3–5 letter team abbreviation (uppercase)
   icon?: string;
   description?: string;
   players: Player[];
@@ -159,14 +164,14 @@ export interface TeamStats {
   blocks: number;
   turnovers: number;
   fouls: number;
-  // Advanced team metrics
-  points_off_turnovers: number;
-  points_in_paint: number;
-  second_chance_points: number;
-  fastbreak_points: number;
-  bench_points: number;
-  biggest_lead: number;
-  biggest_scoring_run: number;
+  // Advanced team metrics (null = not recorded on source box score)
+  points_off_turnovers: number | null;
+  points_in_paint: number | null;
+  second_chance_points: number | null;
+  fastbreak_points: number | null;
+  bench_points: number | null;
+  biggest_lead: number | null;
+  biggest_scoring_run: number | null;
 }
 
 // Event types for comprehensive tracking
@@ -1227,27 +1232,43 @@ export default function App() {
   }, []);
 
   // Team management functions - memoized
-  const handleCreateTeam = useCallback((teamData: Omit<Team, 'id'>): Team => {
-    const team: Team = {
-      ...teamData,
-      id: `team-${Date.now()}`,
-      currentTournamentId: teamData.currentTournamentId || 'tournament-summer-2024',
-    };
-    setTeams((prev) => [...prev, team]);
+  const handleCreateTeam = useCallback(
+    (teamData: Omit<Team, 'id'>, options?: CreateTeamOptions): Team => {
+      const taken = teams.map((t) => t.abbreviation);
+      const tournamentIds =
+        options?.tournamentIds ??
+        (teamData.currentTournamentId ? [teamData.currentTournamentId] : []);
 
-    const tournamentId = team.currentTournamentId || 'tournament-summer-2024';
-    setTournaments((prev) =>
-      prev.map((tournament) =>
-        tournament.id === tournamentId
-          ? {
-              ...tournament,
-              teams: [...tournament.teams.filter((tid) => tid !== team.id), team.id],
-            }
-          : tournament
-      )
-    );
-    return team;
-  }, []);
+      const team: Team = {
+        ...teamData,
+        id: `team-${Date.now()}`,
+        abbreviation:
+          teamData.abbreviation?.trim().toUpperCase() ||
+          generateTeamAbbreviation(teamData.name, taken),
+        currentTournamentId: tournamentIds[0] ?? teamData.currentTournamentId,
+      };
+      setTeams((prev) => [...prev, team]);
+
+      if (tournamentIds.length > 0) {
+        const idSet = new Set(tournamentIds);
+        setTournaments((prev) =>
+          prev.map((tournament) =>
+            idSet.has(tournament.id)
+              ? {
+                  ...tournament,
+                  teams: [
+                    ...tournament.teams.filter((tid) => tid !== team.id),
+                    team.id,
+                  ],
+                }
+              : tournament
+          )
+        );
+      }
+      return team;
+    },
+    [teams]
+  );
 
   const handleAddTeamToTournament = useCallback((teamId: string, tournamentId: string) => {
     // Add team to tournament

@@ -5,12 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
-import { Team, Player } from '../App';
+import { Team, Player, Tournament, CreateTeamOptions } from '../App';
+import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
 import { Plus, Users, ArrowLeft, Trash2, Edit, UserPlus } from 'lucide-react';
 
 interface TeamManagerProps {
   teams: Team[];
-  onCreateTeam: (team: Omit<Team, 'id'>) => void;
+  tournaments: Tournament[];
+  onCreateTeam: (team: Omit<Team, 'id'>, options?: CreateTeamOptions) => void;
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
   onBack: () => void;
@@ -19,6 +21,7 @@ interface TeamManagerProps {
 
 export function TeamManager({
   teams,
+  tournaments,
   onCreateTeam,
   onUpdateTeam,
   onDeleteTeam,
@@ -29,24 +32,44 @@ export function TeamManager({
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [isPlayerDialogOpen, setIsPlayerDialogOpen] = useState(false);
+  const [createFormKey, setCreateFormKey] = useState(0);
 
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
 
-  const handleTeamSubmit = useCallback((name: string) => {
-    if (editingTeam) {
-      onUpdateTeam({
-        ...editingTeam,
-        name
-      });
-      setEditingTeam(null);
-    } else {
-      onCreateTeam({
-        name,
-        players: []
-      });
-      setIsCreateDialogOpen(false);
-    }
-  }, [editingTeam, onUpdateTeam, onCreateTeam]);
+  const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
+
+  const handleTeamSubmit = useCallback(
+    ({ name, abbreviation, tournamentIds }: { name: string; abbreviation: string; tournamentIds: string[] }) => {
+      const resolvedAbbrev =
+        abbreviation.trim().toUpperCase() ||
+        generateTeamAbbreviation(
+          name,
+          editingTeam
+            ? takenAbbreviations.filter((a) => a !== editingTeam.abbreviation)
+            : takenAbbreviations
+        );
+
+      if (editingTeam) {
+        onUpdateTeam({
+          ...editingTeam,
+          name,
+          abbreviation: resolvedAbbrev,
+        });
+        setEditingTeam(null);
+      } else {
+        onCreateTeam(
+          {
+            name,
+            abbreviation: resolvedAbbrev,
+            players: [],
+          },
+          { tournamentIds }
+        );
+        setIsCreateDialogOpen(false);
+      }
+    },
+    [editingTeam, onUpdateTeam, onCreateTeam, takenAbbreviations]
+  );
 
   const handlePlayerSubmit = useCallback((data: { 
     name: string; 
@@ -142,7 +165,10 @@ export function TeamManager({
         </div>
         
         <Button
-          onClick={() => setIsCreateDialogOpen(true)}
+          onClick={() => {
+            setCreateFormKey((k) => k + 1);
+            setIsCreateDialogOpen(true);
+          }}
         >
           <Plus className="h-4 w-4 mr-2" />
           New Team
@@ -156,7 +182,10 @@ export function TeamManager({
               </DialogDescription>
             </DialogHeader>
             <TeamForm
+              key={createFormKey}
               initialName=""
+              takenAbbreviations={takenAbbreviations}
+              tournaments={tournaments}
               onSubmit={handleTeamSubmit}
               onCancel={handleTeamFormCancel}
               isEditing={false}
@@ -177,6 +206,10 @@ export function TeamManager({
             </DialogHeader>
             <TeamForm
               initialName={editingTeam.name}
+              initialAbbreviation={editingTeam.abbreviation}
+              takenAbbreviations={takenAbbreviations.filter(
+                (a) => a !== editingTeam.abbreviation
+              )}
               onSubmit={handleTeamSubmit}
               onCancel={handleTeamFormCancel}
               isEditing
@@ -215,7 +248,12 @@ export function TeamManager({
                 Create your first team and start building your roster.
               </p>
             </div>
-            <Button onClick={() => setIsCreateDialogOpen(true)}>
+            <Button
+              onClick={() => {
+                setCreateFormKey((k) => k + 1);
+                setIsCreateDialogOpen(true);
+              }}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Create First Team
             </Button>

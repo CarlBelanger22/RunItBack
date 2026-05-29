@@ -8,6 +8,8 @@ import { ArrowLeft, Calendar, Clock } from 'lucide-react';
 import { BoxScore } from './BoxScore';
 import { ShotChart } from './ShotChart';
 import { TeamStats } from './TeamStats';
+import { GameLeadersSection } from './GameLeadersSection';
+import { resolveSideScore } from '../utils/gameDisplay';
 
 interface GameSummaryProps {
   game: Game;
@@ -15,14 +17,8 @@ interface GameSummaryProps {
 }
 
 export function GameSummary({ game, onBack }: GameSummaryProps) {
-  // Calculate team scores
-  const homeScore = game.gameStats
-    .filter(stat => game.homeTeam.players.some(player => player.id === stat.playerId))
-    .reduce((sum, stat) => sum + stat.points, 0);
-    
-  const awayScore = game.gameStats
-    .filter(stat => game.awayTeam.players.some(player => player.id === stat.playerId))
-    .reduce((sum, stat) => sum + stat.points, 0);
+  const homeScore = resolveSideScore(game, 'home');
+  const awayScore = resolveSideScore(game, 'away');
 
   const gameDate = new Date(game.date);
   const isRecent = Date.now() - gameDate.getTime() < 7 * 24 * 60 * 60 * 1000; // Within 7 days
@@ -115,6 +111,8 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
           </div>
         </CardContent>
       </Card>
+
+      <GameLeadersSection game={game} />
 
       {/* Game Details Tabs */}
       <Tabs defaultValue="team-stats" className="space-y-6">

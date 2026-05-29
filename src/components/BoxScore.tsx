@@ -4,11 +4,24 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
-import { Separator } from './ui/separator';
-import { Game, GameStats, TeamStats } from '../App';
+import { Game, GameStats } from '../App';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerIdentity } from './PlayerIdentity';
-import { TrendingUp, Users, Calculator, Download, Trophy, Target, Activity } from 'lucide-react';
+import {
+  NoStatRecorded,
+  OptionalStatTableCell,
+  StatTooltipHead,
+} from './StatDisplay';
+import {
+  getPlayerPaintAndFastbreakPoints,
+  hasAwayTeamContent,
+  isScoreOnlyTeam,
+  playerPlayedInGame,
+  resolveSideScore,
+  resolveTeamTotals,
+  type ResolvedTeamTotals,
+} from '../utils/gameDisplay';
+import { TrendingUp, Users, Calculator, Download, Target } from 'lucide-react';
 
 interface BoxScoreProps {
   game: Game;
@@ -23,7 +36,7 @@ interface PlayerBoxScore extends GameStats {
 
 export function BoxScore({ game }: BoxScoreProps) {
   const [selectedTeam, setSelectedTeam] = useState<'home' | 'away'>('home');
-  const [view, setView] = useState<'traditional' | 'advanced' | 'team'>('traditional');
+  const [view, setView] = useState<'traditional' | 'advanced'>('traditional');
 
   const getPlayerBoxScore = (playerId: string): GameStats => {
     const stats = game.gameStats.find(s => s.playerId === playerId);
@@ -33,7 +46,9 @@ export function BoxScore({ game }: BoxScoreProps) {
   const getTeamBoxScore = (teamType: 'home' | 'away'): PlayerBoxScore[] => {
     const team = teamType === 'home' ? game.homeTeam : game.awayTeam;
     
-    return team.players.map(player => {
+    return team.players
+      .filter((player) => playerPlayedInGame(game, player.id))
+      .map(player => {
       const stats = getPlayerBoxScore(player.id);
       const advanced = MetricsCalculator.calculateAdvancedMetrics(stats);
       
@@ -47,32 +62,13 @@ export function BoxScore({ game }: BoxScoreProps) {
     });
   };
 
-  const getTeamTotals = (teamType: 'home' | 'away') => {
-    const boxScore = getTeamBoxScore(teamType);
-    
-    return boxScore.reduce((totals, player) => ({
-      points: totals.points + player.points,
-      fg_made: totals.fg_made + player.fg_made,
-      fg_attempted: totals.fg_attempted + player.fg_attempted,
-      three_made: totals.three_made + player.three_made,
-      three_attempted: totals.three_attempted + player.three_attempted,
-      ft_made: totals.ft_made + player.ft_made,
-      ft_attempted: totals.ft_attempted + player.ft_attempted,
-      orb: totals.orb + player.orb,
-      drb: totals.drb + player.drb,
-      assists: totals.assists + player.assists,
-      steals: totals.steals + player.steals,
-      blocks: totals.blocks + player.blocks,
-      turnovers: totals.turnovers + player.turnovers,
-      fouls: totals.fouls + player.fouls,
-      tech_fouls: totals.tech_fouls + player.tech_fouls,
-      unsportsmanlike_fouls: totals.unsportsmanlike_fouls + player.unsportsmanlike_fouls,
-      fouls_drawn: totals.fouls_drawn + player.fouls_drawn,
-      blocks_received: totals.blocks_received + player.blocks_received,
-      plus_minus: totals.plus_minus + player.plus_minus,
-      minutes_played: totals.minutes_played + player.minutes_played,
-    }), MetricsCalculator.getEmptyStats('team-total'));
-  };
+  const homeBoxScore = getTeamBoxScore('home');
+  const awayBoxScore = getTeamBoxScore('away');
+  const homeTotals = resolveTeamTotals(game, 'home');
+  const awayTotals = resolveTeamTotals(game, 'away');
+  const homeScore = resolveSideScore(game, 'home');
+  const awayScore = resolveSideScore(game, 'away');
+  const awayScoreOnly = isScoreOnlyTeam(game, 'away');
 
   const formatPercentage = (value: number) => {
     return value > 0 ? `${value.toFixed(1)}%` : '0.0%';
@@ -88,18 +84,21 @@ export function BoxScore({ game }: BoxScoreProps) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const homeBoxScore = getTeamBoxScore('home');
-  const awayBoxScore = getTeamBoxScore('away');
-  const homeTotals = getTeamTotals('home');
-  const awayTotals = getTeamTotals('away');
-
-  const TraditionalStatsTable = ({ players, teamName }: { players: PlayerBoxScore[], teamName: string }) => (
+  const TraditionalStatsTable = ({
+    players,
+    teamName,
+    totals,
+  }: {
+    players: PlayerBoxScore[];
+    teamName: string;
+    totals: ResolvedTeamTotals;
+  }) => (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-medium">{teamName}</h3>
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="font-mono">
-            {players.reduce((sum, p) => sum + p.points, 0)} PTS
+            {totals.points} PTS
           </Badge>
           <Button size="sm" variant="ghost">
             <Download className="w-4 h-4" />
@@ -112,23 +111,23 @@ export function BoxScore({ game }: BoxScoreProps) {
           <TableHeader>
             <TableRow className="text-xs">
               <TableHead className="w-32">Player</TableHead>
-              <TableHead className="text-center w-16">Min</TableHead>
-              <TableHead className="text-center w-12">PTS</TableHead>
-              <TableHead className="text-center w-20">FG</TableHead>
-              <TableHead className="text-center w-16">FG%</TableHead>
-              <TableHead className="text-center w-20">3P</TableHead>
-              <TableHead className="text-center w-16">3P%</TableHead>
-              <TableHead className="text-center w-20">FT</TableHead>
-              <TableHead className="text-center w-16">FT%</TableHead>
-              <TableHead className="text-center w-12">ORB</TableHead>
-              <TableHead className="text-center w-12">DRB</TableHead>
-              <TableHead className="text-center w-12">REB</TableHead>
-              <TableHead className="text-center w-12">AST</TableHead>
-              <TableHead className="text-center w-12">STL</TableHead>
-              <TableHead className="text-center w-12">BLK</TableHead>
-              <TableHead className="text-center w-12">TO</TableHead>
-              <TableHead className="text-center w-12">PF</TableHead>
-              <TableHead className="text-center w-12">+/-</TableHead>
+              <StatTooltipHead label="Min" tooltip="Minutes Played" className="text-center w-16" />
+              <StatTooltipHead label="PTS" tooltip="Points" className="text-center w-12" />
+              <StatTooltipHead label="FG" tooltip="Field Goals Made/Attempted" className="text-center w-20" />
+              <StatTooltipHead label="FG%" tooltip="Field Goal Percentage" className="text-center w-16" />
+              <StatTooltipHead label="3P" tooltip="Three-Pointers Made/Attempted" className="text-center w-20" />
+              <StatTooltipHead label="3P%" tooltip="Three-Point Percentage" className="text-center w-16" />
+              <StatTooltipHead label="FT" tooltip="Free Throws Made/Attempted" className="text-center w-20" />
+              <StatTooltipHead label="FT%" tooltip="Free Throw Percentage" className="text-center w-16" />
+              <StatTooltipHead label="ORB" tooltip="Offensive Rebounds" className="text-center w-12" />
+              <StatTooltipHead label="DRB" tooltip="Defensive Rebounds" className="text-center w-12" />
+              <StatTooltipHead label="REB" tooltip="Total Rebounds" className="text-center w-12" />
+              <StatTooltipHead label="AST" tooltip="Assists" className="text-center w-12" />
+              <StatTooltipHead label="STL" tooltip="Steals" className="text-center w-12" />
+              <StatTooltipHead label="BLK" tooltip="Blocks" className="text-center w-12" />
+              <StatTooltipHead label="TO" tooltip="Turnovers" className="text-center w-12" />
+              <StatTooltipHead label="PF" tooltip="Personal Fouls" className="text-center w-12" />
+              <StatTooltipHead label="+/-" tooltip="Plus/Minus (not recorded for team totals)" className="text-center w-12" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -170,32 +169,30 @@ export function BoxScore({ game }: BoxScoreProps) {
             {/* Totals Row */}
             <TableRow className="font-medium bg-muted/50 text-sm border-t-2">
               <TableCell>TEAM TOTALS</TableCell>
-              <TableCell className="text-center font-mono">{formatTime(homeTotals.minutes_played)}</TableCell>
-              <TableCell className="text-center font-mono font-bold">{homeTotals.points}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.fg_made}/{homeTotals.fg_attempted}</TableCell>
+              <TableCell className="text-center font-mono">{formatTime(totals.minutes_played)}</TableCell>
+              <TableCell className="text-center font-mono font-bold">{totals.points}</TableCell>
+              <TableCell className="text-center font-mono">{totals.fg_made}/{totals.fg_attempted}</TableCell>
               <TableCell className="text-center font-mono">
-                {formatPercentage(homeTotals.fg_attempted > 0 ? (homeTotals.fg_made / homeTotals.fg_attempted) * 100 : 0)}
+                {formatPercentage(totals.fg_attempted > 0 ? (totals.fg_made / totals.fg_attempted) * 100 : 0)}
               </TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.three_made}/{homeTotals.three_attempted}</TableCell>
+              <TableCell className="text-center font-mono">{totals.three_made}/{totals.three_attempted}</TableCell>
               <TableCell className="text-center font-mono">
-                {formatPercentage(homeTotals.three_attempted > 0 ? (homeTotals.three_made / homeTotals.three_attempted) * 100 : 0)}
+                {formatPercentage(totals.three_attempted > 0 ? (totals.three_made / totals.three_attempted) * 100 : 0)}
               </TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.ft_made}/{homeTotals.ft_attempted}</TableCell>
+              <TableCell className="text-center font-mono">{totals.ft_made}/{totals.ft_attempted}</TableCell>
               <TableCell className="text-center font-mono">
-                {formatPercentage(homeTotals.ft_attempted > 0 ? (homeTotals.ft_made / homeTotals.ft_attempted) * 100 : 0)}
+                {formatPercentage(totals.ft_attempted > 0 ? (totals.ft_made / totals.ft_attempted) * 100 : 0)}
               </TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.orb}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.drb}</TableCell>
-              <TableCell className="text-center font-mono font-bold">{homeTotals.orb + homeTotals.drb}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.assists}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.steals}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.blocks}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.turnovers}</TableCell>
-              <TableCell className="text-center font-mono">{homeTotals.fouls}</TableCell>
+              <TableCell className="text-center font-mono">{totals.orb}</TableCell>
+              <TableCell className="text-center font-mono">{totals.drb}</TableCell>
+              <TableCell className="text-center font-mono font-bold">{totals.orb + totals.drb}</TableCell>
+              <TableCell className="text-center font-mono">{totals.assists}</TableCell>
+              <TableCell className="text-center font-mono">{totals.steals}</TableCell>
+              <TableCell className="text-center font-mono">{totals.blocks}</TableCell>
+              <TableCell className="text-center font-mono">{totals.turnovers}</TableCell>
+              <TableCell className="text-center font-mono">{totals.fouls}</TableCell>
               <TableCell className="text-center font-mono">
-                <Badge variant={homeTotals.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
-                  {homeTotals.plus_minus >= 0 ? '+' : ''}{homeTotals.plus_minus}
-                </Badge>
+                <NoStatRecorded />
               </TableCell>
             </TableRow>
           </TableBody>
@@ -216,20 +213,27 @@ export function BoxScore({ game }: BoxScoreProps) {
           <TableHeader>
             <TableRow className="text-xs">
               <TableHead className="w-32">Player</TableHead>
-              <TableHead className="text-center w-16">Min</TableHead>
-              <TableHead className="text-center w-16">EFF</TableHead>
-              <TableHead className="text-center w-16">GmSc</TableHead>
-
-              <TableHead className="text-center w-16">2P%</TableHead>
-              <TableHead className="text-center w-20">2P</TableHead>
-              <TableHead className="text-center w-16">FD</TableHead>
-              <TableHead className="text-center w-16">BR</TableHead>
-              <TableHead className="text-center w-16">TF</TableHead>
-              <TableHead className="text-center w-16">UF</TableHead>
+              <StatTooltipHead label="Min" tooltip="Minutes Played" className="text-center w-16" />
+              <StatTooltipHead label="EFF" tooltip="Efficiency Rating" className="text-center w-16" />
+              <StatTooltipHead label="GmSc" tooltip="Game Score" className="text-center w-16" />
+              <StatTooltipHead label="2P%" tooltip="Two-Point Percentage" className="text-center w-16" />
+              <StatTooltipHead label="2P" tooltip="Two-Pointers Made/Attempted" className="text-center w-20" />
+              <StatTooltipHead label="Paint" tooltip="Points in Paint" className="text-center w-16" />
+              <StatTooltipHead label="FB" tooltip="Fast Break Points" className="text-center w-16" />
+              <StatTooltipHead label="FD" tooltip="Fouls Drawn" className="text-center w-16" />
+              <StatTooltipHead label="BA" tooltip="Blocks Against" className="text-center w-16" />
+              <StatTooltipHead label="TF" tooltip="Technical Fouls" className="text-center w-16" />
+              <StatTooltipHead label="UF" tooltip="Unsportsmanlike Fouls" className="text-center w-16" />
             </TableRow>
           </TableHeader>
           <TableBody>
-            {players.map((player) => (
+            {players.map((player) => {
+              const { paintPoints, fastbreakPoints } = getPlayerPaintAndFastbreakPoints(
+                game,
+                player.playerId
+              );
+
+              return (
               <TableRow key={player.playerId} className="text-sm">
                 <TableCell className="font-medium">
                   <PlayerIdentity
@@ -251,119 +255,19 @@ export function BoxScore({ game }: BoxScoreProps) {
                     {formatStat(player.advanced.gameScore)}
                   </Badge>
                 </TableCell>
-
                 <TableCell className="text-center font-mono">{formatPercentage(player.advanced.twoPointPercentage)}</TableCell>
                 <TableCell className="text-center font-mono">{player.advanced.twoPointMade}/{player.advanced.twoPointAttempted}</TableCell>
+                <OptionalStatTableCell value={paintPoints} />
+                <OptionalStatTableCell value={fastbreakPoints} />
                 <TableCell className="text-center font-mono">{player.fouls_drawn}</TableCell>
                 <TableCell className="text-center font-mono">{player.blocks_received}</TableCell>
                 <TableCell className="text-center font-mono">{player.tech_fouls}</TableCell>
                 <TableCell className="text-center font-mono">{player.unsportsmanlike_fouls}</TableCell>
               </TableRow>
-            ))}
+            );
+            })}
           </TableBody>
         </Table>
-      </div>
-    </div>
-  );
-
-  const TeamStatsView = () => (
-    <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Home Team Stats */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="w-4 h-4" />
-              {game.homeTeam.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {game.teamStats?.home && (
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-muted-foreground">Points Off Turnovers</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.points_off_turnovers}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Points in Paint</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.points_in_paint}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Second Chance Points</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.second_chance_points}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Fastbreak Points</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.fastbreak_points}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Bench Points</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.bench_points}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Biggest Lead</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.biggest_lead}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Biggest Run</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.biggest_scoring_run}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Team Rebounds</div>
-                  <div className="font-bold text-lg">{game.teamStats.home.team_rebounds}</div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Away Team Stats */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Trophy className="w-4 h-4" />
-              {game.awayTeam.name}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {game.teamStats?.away && (
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <div className="text-muted-foreground">Points Off Turnovers</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.points_off_turnovers}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Points in Paint</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.points_in_paint}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Second Chance Points</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.second_chance_points}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Fastbreak Points</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.fastbreak_points}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Bench Points</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.bench_points}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Biggest Lead</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.biggest_lead}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Biggest Run</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.biggest_scoring_run}</div>
-                </div>
-                <div>
-                  <div className="text-muted-foreground">Team Rebounds</div>
-                  <div className="font-bold text-lg">{game.teamStats.away.team_rebounds}</div>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
@@ -382,14 +286,14 @@ export function BoxScore({ game }: BoxScoreProps) {
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
               <h3 className="font-medium text-lg">{game.homeTeam.name}</h3>
-              <div className="text-3xl font-bold text-primary mt-2">{homeTotals.points}</div>
+              <div className="text-3xl font-bold text-primary mt-2">{homeScore}</div>
             </div>
             <div className="flex items-center justify-center">
               <div className="text-muted-foreground">vs</div>
             </div>
             <div>
               <h3 className="font-medium text-lg">{game.awayTeam.name}</h3>
-              <div className="text-3xl font-bold text-primary mt-2">{awayTotals.points}</div>
+              <div className="text-3xl font-bold text-primary mt-2">{awayScore}</div>
             </div>
           </div>
         </CardContent>
@@ -413,26 +317,15 @@ export function BoxScore({ game }: BoxScoreProps) {
           <TrendingUp className="w-4 h-4 mr-2" />
           Advanced
         </Button>
-        <Button 
-          variant={view === 'team' ? 'default' : 'outline'} 
-          size="sm" 
-          onClick={() => setView('team')}
-        >
-          <Activity className="w-4 h-4 mr-2" />
-          Team Stats
-        </Button>
       </div>
 
-      {view === 'team' ? (
-        <TeamStatsView />
-      ) : (
-        <Tabs value={selectedTeam} onValueChange={(value) => setSelectedTeam(value as 'home' | 'away')} className="space-y-6">
+      <Tabs value={selectedTeam} onValueChange={(value) => setSelectedTeam(value as 'home' | 'away')} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2">
             <TabsTrigger value="home" className="flex items-center gap-2">
               <Users className="w-4 h-4" />
               {game.homeTeam.name}
             </TabsTrigger>
-            <TabsTrigger value="away" disabled={game.awayTeam.players.length === 0} className="flex items-center gap-2">
+            <TabsTrigger value="away" disabled={!hasAwayTeamContent(game)} className="flex items-center gap-2">
               <Users className="w-4 h-4" />
               {game.awayTeam.name}
             </TabsTrigger>
@@ -442,7 +335,11 @@ export function BoxScore({ game }: BoxScoreProps) {
             <Card className="shadow-lg rounded-2xl">
               <CardContent className="p-6">
                 {view === 'traditional' ? (
-                  <TraditionalStatsTable players={homeBoxScore} teamName={game.homeTeam.name} />
+                  <TraditionalStatsTable
+                    players={homeBoxScore}
+                    teamName={game.homeTeam.name}
+                    totals={homeTotals}
+                  />
                 ) : (
                   <AdvancedStatsTable players={homeBoxScore} teamName={game.homeTeam.name} />
                 )}
@@ -453,8 +350,20 @@ export function BoxScore({ game }: BoxScoreProps) {
           <TabsContent value="away">
             <Card className="shadow-lg rounded-2xl">
               <CardContent className="p-6">
-                {view === 'traditional' ? (
-                  <TraditionalStatsTable players={awayBoxScore} teamName={game.awayTeam.name} />
+                {awayScoreOnly ? (
+                  <div className="text-center py-12">
+                    <h3 className="font-medium text-lg mb-2">{game.awayTeam.name}</h3>
+                    <div className="text-4xl font-bold text-primary mb-4">{awayScore}</div>
+                    <p className="text-sm text-muted-foreground">
+                      No player box score recorded for this team.
+                    </p>
+                  </div>
+                ) : view === 'traditional' ? (
+                  <TraditionalStatsTable
+                    players={awayBoxScore}
+                    teamName={game.awayTeam.name}
+                    totals={awayTotals}
+                  />
                 ) : (
                   <AdvancedStatsTable players={awayBoxScore} teamName={game.awayTeam.name} />
                 )}
@@ -462,66 +371,6 @@ export function BoxScore({ game }: BoxScoreProps) {
             </Card>
           </TabsContent>
         </Tabs>
-      )}
-
-      {/* Quick Stats Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="p-4 text-center">
-          <div className="text-sm text-muted-foreground">Leading Scorer</div>
-          <div className="font-medium">
-            {homeBoxScore.length > 0 && 
-              (() => {
-                const topScorer = [...homeBoxScore, ...awayBoxScore].reduce((max, player) => 
-                  player.points > max.points ? player : max
-                );
-                return `${topScorer.name} (${topScorer.points}pts)`;
-              })()
-            }
-          </div>
-        </Card>
-        
-        <Card className="p-4 text-center">
-          <div className="text-sm text-muted-foreground">Most Assists</div>
-          <div className="font-medium">
-            {homeBoxScore.length > 0 && 
-              (() => {
-                const topAssists = [...homeBoxScore, ...awayBoxScore].reduce((max, player) => 
-                  player.assists > max.assists ? player : max
-                );
-                return `${topAssists.name} (${topAssists.assists})`;
-              })()
-            }
-          </div>
-        </Card>
-        
-        <Card className="p-4 text-center">
-          <div className="text-sm text-muted-foreground">Most Rebounds</div>
-          <div className="font-medium">
-            {homeBoxScore.length > 0 && 
-              (() => {
-                const topRebounds = [...homeBoxScore, ...awayBoxScore].reduce((max, player) => 
-                  player.advanced.totalRebounds > max.advanced.totalRebounds ? player : max
-                );
-                return `${topRebounds.name} (${topRebounds.advanced.totalRebounds})`;
-              })()
-            }
-          </div>
-        </Card>
-        
-        <Card className="p-4 text-center">
-          <div className="text-sm text-muted-foreground">Best Efficiency</div>
-          <div className="font-medium">
-            {homeBoxScore.length > 0 && 
-              (() => {
-                const topEff = [...homeBoxScore, ...awayBoxScore].reduce((max, player) => 
-                  player.advanced.efficiency > max.advanced.efficiency ? player : max
-                );
-                return `${topEff.name} (${topEff.advanced.efficiency.toFixed(0)})`;
-              })()
-            }
-          </div>
-        </Card>
-      </div>
     </div>
   );
 }
