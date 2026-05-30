@@ -120,11 +120,11 @@ export function Dashboard({
         </DashboardStatCard>
       </div>
 
-      <Card
-        className="shadow-md rounded-2xl cursor-pointer hover:shadow-lg transition-shadow"
-        onClick={onNavigateToRecentGames}
-      >
-        <CardHeader className="pb-2">
+      <Card className="shadow-md rounded-2xl">
+        <CardHeader
+          className="pb-2 cursor-pointer rounded-t-2xl transition-colors hover:bg-muted/40"
+          onClick={onNavigateToRecentGames}
+        >
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2 text-base font-semibold">
               <Calendar className="h-5 w-5 text-primary" />
@@ -140,7 +140,7 @@ export function Dashboard({
             {recentGames.length === 1 ? 'game' : 'games'} completed
           </p>
         </CardHeader>
-        <CardContent className="space-y-3" onClick={(e) => e.stopPropagation()}>
+        <CardContent className="space-y-3">
           {previewGames.length > 0 ? (
             previewGames.map((game) => (
               <DashboardGamePreview

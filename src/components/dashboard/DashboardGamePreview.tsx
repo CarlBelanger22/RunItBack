@@ -27,7 +27,7 @@ export function DashboardGamePreview({
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left rounded-xl border bg-card p-4 hover:bg-muted/40 transition-colors"
+      className="w-full text-left rounded-xl border bg-card p-4 cursor-pointer transition-all hover:bg-muted/40 hover:shadow-md active:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
     >
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0 text-xs text-muted-foreground leading-snug">

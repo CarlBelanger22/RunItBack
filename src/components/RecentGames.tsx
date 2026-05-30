@@ -133,7 +133,7 @@ export function RecentGames({
             return (
               <Card 
                 key={game.id} 
-                className="shadow-lg rounded-2xl cursor-pointer hover:shadow-xl transition-shadow"
+                className="shadow-lg rounded-2xl cursor-pointer transition-all hover:bg-muted/40 hover:shadow-xl"
                 onClick={() => onNavigateToGame(game.id)}
               >
                 <CardContent className="p-6">
