@@ -45,6 +45,7 @@
     "awayTeamId": "team-sunig-sutd",
     "tournamentId": "tournament-sunig-2025",
     "date": "2025-09-19",
+    "startTime": "20:40",
     "currentPeriod": 4,
     "currentGameTime": "00:00",
     "trackBothTeams": false,
@@ -52,11 +53,11 @@
     "isCompleted": true,
     "finalScore": { "home": 96, "away": 37 },
     "homeStarters": [
+      "player-sunig-ntu-1",
       "player-sunig-ntu-8",
       "player-sunig-ntu-33",
-      "player-sunig-ntu-22",
       "player-sunig-ntu-13",
-      "player-sunig-ntu-1"
+      "player-sunig-ntu-22"
     ],
     "awayStarters": [],
     "gameStats": [

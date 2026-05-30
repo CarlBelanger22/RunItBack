@@ -139,6 +139,7 @@ const TEAM_STATS_META_KEY = '__meta' as const;
 type GameSetupMeta = {
   setupCreatedTeamIds?: string[];
   setupRosterChanges?: Game['setupRosterChanges'];
+  startTime?: string;
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -152,11 +153,13 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
   };
   const hasMeta =
     (game.setupCreatedTeamIds?.length ?? 0) > 0 ||
-    (game.setupRosterChanges?.length ?? 0) > 0;
+    (game.setupRosterChanges?.length ?? 0) > 0 ||
+    Boolean(game.startTime);
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
       setupCreatedTeamIds: game.setupCreatedTeamIds,
       setupRosterChanges: game.setupRosterChanges,
+      startTime: game.startTime,
     };
   }
   return payload;
@@ -166,6 +169,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   teamStats: Game['teamStats'];
   setupCreatedTeamIds?: string[];
   setupRosterChanges?: Game['setupRosterChanges'];
+  startTime?: string;
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -173,6 +177,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
     teamStats: { home: raw.home, away: raw.away },
     setupCreatedTeamIds: meta?.setupCreatedTeamIds,
     setupRosterChanges: meta?.setupRosterChanges,
+    startTime: meta?.startTime,
   };
 }
 
@@ -214,9 +219,8 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     throw new Error(`Game ${row.id} references missing team(s)`);
   }
 
-  const { teamStats, setupCreatedTeamIds, setupRosterChanges } = parseTeamStats(
-    row.team_stats
-  );
+  const { teamStats, setupCreatedTeamIds, setupRosterChanges, startTime } =
+    parseTeamStats(row.team_stats);
 
   return {
     id: row.id,
@@ -226,6 +230,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     awayTeamId: row.away_team_id,
     tournamentId: row.tournament_id ?? undefined,
     date: row.date,
+    startTime,
     gameStats: row.game_stats ?? [],
     teamStats,
     setupCreatedTeamIds,

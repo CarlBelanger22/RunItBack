@@ -1,9 +1,10 @@
 /**
- * Import a structured box score JSON bundle → Supabase
+ * Import a structured box score JSON bundle ? Supabase
  *
  * Usage:
  *   npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json"
  *   npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json" --dry-run
+ *   npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json" --stats-only
  */
 
 import { readFileSync } from 'fs';
@@ -47,6 +48,7 @@ interface GameRow {
   awayTeamId: string;
   tournamentId: string;
   date: string;
+  startTime?: string;
   currentPeriod: number;
   currentGameTime: string;
   trackBothTeams: boolean;
@@ -86,17 +88,25 @@ function loadEnvLocal(): Record<string, string> {
   return env;
 }
 
-function parseArgs(): { file: string; dryRun: boolean; leagueId: string } {
+function parseArgs(): {
+  file: string;
+  dryRun: boolean;
+  leagueId: string;
+  statsOnly: boolean;
+} {
   const args = process.argv.slice(2);
   let file = '';
   let dryRun = false;
   let leagueId = DEFAULT_LEAGUE_ID;
+  let statsOnly = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--file' && args[i + 1]) {
       file = args[++i];
     } else if (args[i] === '--dry-run') {
       dryRun = true;
+    } else if (args[i] === '--stats-only') {
+      statsOnly = true;
     } else if (args[i] === '--league-id' && args[i + 1]) {
       leagueId = args[++i];
     }
@@ -104,12 +114,12 @@ function parseArgs(): { file: string; dryRun: boolean; leagueId: string } {
 
   if (!file) {
     console.error(
-      'Usage: npm run import:boxscore -- --file path/to/game.json [--dry-run] [--league-id league-default]'
+      'Usage: npm run import:boxscore -- --file path/to/game.json [--dry-run] [--stats-only] [--league-id league-default]'
     );
     process.exit(1);
   }
 
-  return { file: resolve(process.cwd(), file), dryRun, leagueId };
+  return { file: resolve(process.cwd(), file), dryRun, leagueId, statsOnly };
 }
 
 async function upsertBatch<T extends Record<string, unknown>>(
@@ -121,7 +131,7 @@ async function upsertBatch<T extends Record<string, unknown>>(
 ): Promise<void> {
   if (rows.length === 0) return;
   if (dryRun) {
-    console.log(`  [dry-run] would upsert ${rows.length} row(s) → ${table}`);
+    console.log(`  [dry-run] would upsert ${rows.length} row(s) ? ${table}`);
     return;
   }
 
@@ -135,8 +145,106 @@ async function upsertBatch<T extends Record<string, unknown>>(
   }
 }
 
+interface ExistingPlayerRow {
+  id: string;
+  height: string | null;
+  weight: string | null;
+  picture: string | null;
+  date_of_birth: string | null;
+}
+
+interface ExistingTeamRow {
+  id: string;
+  icon: string | null;
+  description: string | null;
+}
+
+function hasText(value: string | null | undefined): boolean {
+  return Boolean(value?.trim());
+}
+
+function mergePlayerRow(
+  incoming: {
+    id: string;
+    team_id: string;
+    name: string;
+    number: number;
+    position: string;
+    secondary_position: string | null;
+    picture: string | null;
+    height: string;
+    weight: string;
+    age: number;
+    date_of_birth: string | null;
+  },
+  existing: ExistingPlayerRow | undefined
+) {
+  if (!existing) return incoming;
+
+  return {
+    ...incoming,
+    height: hasText(incoming.height) ? incoming.height : (existing.height ?? ''),
+    weight: hasText(incoming.weight) ? incoming.weight : (existing.weight ?? ''),
+    picture: incoming.picture ?? existing.picture ?? null,
+    date_of_birth: incoming.date_of_birth ?? existing.date_of_birth ?? null,
+  };
+}
+
+async function loadExistingPlayers(
+  supabase: SupabaseClient,
+  playerIds: string[]
+): Promise<Map<string, ExistingPlayerRow>> {
+  const map = new Map<string, ExistingPlayerRow>();
+  if (playerIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('players')
+    .select('id, height, weight, picture, date_of_birth')
+    .in('id', playerIds);
+
+  if (error) throw new Error(`players fetch failed: ${error.message}`);
+  for (const row of data ?? []) {
+    map.set(row.id, row as ExistingPlayerRow);
+  }
+  return map;
+}
+
+async function loadExistingTeams(
+  supabase: SupabaseClient,
+  teamIds: string[]
+): Promise<Map<string, ExistingTeamRow>> {
+  const map = new Map<string, ExistingTeamRow>();
+  if (teamIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('teams')
+    .select('id, icon, description')
+    .in('id', teamIds);
+
+  if (error) throw new Error(`teams fetch failed: ${error.message}`);
+  for (const row of data ?? []) {
+    map.set(row.id, row as ExistingTeamRow);
+  }
+  return map;
+}
+
+async function loadExistingTeamIds(
+  supabase: SupabaseClient,
+  teamIds: string[]
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (teamIds.length === 0) return ids;
+
+  const { data, error } = await supabase.from('teams').select('id').in('id', teamIds);
+  if (error) throw new Error(`teams fetch failed: ${error.message}`);
+  for (const row of data ?? []) {
+    ids.add(row.id as string);
+  }
+  return ids;
+}
+
 async function main() {
-  const { file, dryRun, leagueId } = parseArgs();
+  const { file, dryRun, leagueId, statsOnly } = parseArgs();
   const env = loadEnvLocal();
   const url = env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key =
@@ -168,12 +276,12 @@ async function main() {
     league_id: leagueId,
     name: team.name,
     abbreviation: team.abbreviation,
-    icon: null,
-    description: null,
+    icon: null as string | null,
+    description: null as string | null,
     current_tournament_id: team.currentTournamentId ?? bundle.tournament.id,
   }));
 
-  const playerRows = bundle.teams.flatMap((team) =>
+  const playerRowsRaw = bundle.teams.flatMap((team) =>
     (team.players ?? []).map((player) => ({
       id: player.id,
       team_id: team.id,
@@ -181,11 +289,11 @@ async function main() {
       number: player.number,
       position: player.position,
       secondary_position: player.secondaryPosition ?? null,
-      picture: null,
+      picture: null as string | null,
       height: player.height ?? '',
       weight: player.weight ?? '',
       age: player.age ?? 0,
-      date_of_birth: null,
+      date_of_birth: null as string | null,
     }))
   );
 
@@ -205,6 +313,18 @@ async function main() {
     team_id: teamId,
   }));
 
+  const teamStatsPayload = bundle.game.startTime
+    ? {
+        ...(bundle.game.teamStats as Record<string, unknown>),
+        __meta: {
+          ...(((bundle.game.teamStats as Record<string, unknown>).__meta as
+            | Record<string, unknown>
+            | undefined) ?? {}),
+          startTime: bundle.game.startTime,
+        },
+      }
+    : bundle.game.teamStats;
+
   const gameRow = {
     id: bundle.game.id,
     league_id: leagueId,
@@ -222,7 +342,7 @@ async function main() {
     home_starters: bundle.game.homeStarters,
     away_starters: bundle.game.awayStarters,
     game_stats: bundle.game.gameStats,
-    team_stats: bundle.game.teamStats,
+    team_stats: teamStatsPayload,
     shots: bundle.game.shots,
     events: bundle.game.events,
     lineup_stints: bundle.game.lineupStints,
@@ -233,11 +353,12 @@ async function main() {
     league: leagueId,
     tournament: bundle.tournament.name,
     teams: teamRows.length,
-    players: playerRows.length,
+    players: playerRowsRaw.length,
     tournament_teams: tournamentTeamRows.length,
     game: gameRow.id,
-    score: `${homeTeam.abbreviation} ${bundle.game.finalScore.home} – ${awayTeam.abbreviation} ${bundle.game.finalScore.away}`,
+    score: `${homeTeam.abbreviation} ${bundle.game.finalScore.home} � ${awayTeam.abbreviation} ${bundle.game.finalScore.away}`,
     game_stats_rows: bundle.game.gameStats.length,
+    stats_only: statsOnly,
     dry_run: dryRun,
   };
 
@@ -245,15 +366,69 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
 
   if (dryRun) {
-    console.log('\nDry run complete — no writes performed.');
+    console.log('\nDry run complete � no writes performed.');
     return;
   }
 
   const supabase = createClient(url, key);
 
+  const teamIds = teamRows.map((t) => t.id);
+  const existingTeamIds = statsOnly
+    ? await loadExistingTeamIds(supabase, teamIds)
+    : new Set<string>();
+
+  let mergedTeamRows = teamRows;
+  let playerRows = playerRowsRaw;
+
+  if (statsOnly) {
+    mergedTeamRows = teamRows.filter((row) => !existingTeamIds.has(row.id));
+    playerRows = [];
+    console.log(
+      `\nStats-only mode: skipping players; upserting ${
+        mergedTeamRows.length
+      } new team(s): ${mergedTeamRows.map((t) => t.id).join(', ') || '(none)'}`
+    );
+  } else {
+    const playerIds = playerRowsRaw.map((p) => p.id);
+    const [existingPlayers, existingTeams] = await Promise.all([
+      loadExistingPlayers(supabase, playerIds),
+      loadExistingTeams(supabase, teamIds),
+    ]);
+
+    playerRows = playerRowsRaw.map((row) =>
+      mergePlayerRow(row, existingPlayers.get(row.id))
+    );
+
+    mergedTeamRows = teamRows.map((row) => {
+      const existing = existingTeams.get(row.id);
+      if (!existing) return row;
+      return {
+        ...row,
+        icon: row.icon ?? existing.icon ?? null,
+        description: row.description ?? existing.description ?? null,
+      };
+    });
+
+    let preservedProfileFields = 0;
+    for (const raw of playerRowsRaw) {
+      const existing = existingPlayers.get(raw.id);
+      const merged = playerRows.find((p) => p.id === raw.id);
+      if (!existing || !merged) continue;
+      if (!hasText(raw.height) && hasText(merged.height)) preservedProfileFields++;
+      if (!hasText(raw.weight) && hasText(merged.weight)) preservedProfileFields++;
+    }
+    if (preservedProfileFields > 0) {
+      console.log(
+        `\nPreserved ${preservedProfileFields} existing height/weight value(s) (JSON had blanks).`
+      );
+    }
+  }
+
   await upsertBatch(supabase, 'leagues', [{ id: leagueId, name: 'My League' }], 'id', false);
-  await upsertBatch(supabase, 'teams', teamRows, 'id', false);
-  await upsertBatch(supabase, 'players', playerRows, 'id', false);
+  await upsertBatch(supabase, 'teams', mergedTeamRows, 'id', false);
+  if (!statsOnly) {
+    await upsertBatch(supabase, 'players', playerRows, 'id', false);
+  }
   await upsertBatch(supabase, 'tournaments', [tournamentRow], 'id', false);
   await upsertBatch(
     supabase,

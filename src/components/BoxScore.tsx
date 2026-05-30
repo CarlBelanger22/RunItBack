@@ -21,6 +21,10 @@ import {
   resolveTeamTotals,
   type ResolvedTeamTotals,
 } from '../utils/gameDisplay';
+import {
+  orderBoxScorePlayers,
+  type OrderedBoxScoreRow,
+} from '../utils/boxScoreOrder';
 import { TrendingUp, Users, Calculator, Download, Target } from 'lucide-react';
 
 interface BoxScoreProps {
@@ -45,25 +49,34 @@ export function BoxScore({ game }: BoxScoreProps) {
 
   const getTeamBoxScore = (teamType: 'home' | 'away'): PlayerBoxScore[] => {
     const team = teamType === 'home' ? game.homeTeam : game.awayTeam;
-    
+
     return team.players
       .filter((player) => playerPlayedInGame(game, player.id))
-      .map(player => {
-      const stats = getPlayerBoxScore(player.id);
-      const advanced = MetricsCalculator.calculateAdvancedMetrics(stats);
-      
-      return {
-        ...stats,
-        name: player.name,
-        number: player.number,
-        position: player.position,
-        advanced
-      };
-    });
+      .map((player) => {
+        const stats = getPlayerBoxScore(player.id);
+        const advanced = MetricsCalculator.calculateAdvancedMetrics(stats);
+
+        return {
+          ...stats,
+          name: player.name,
+          number: player.number,
+          position: player.position,
+          advanced,
+        };
+      });
   };
 
-  const homeBoxScore = getTeamBoxScore('home');
-  const awayBoxScore = getTeamBoxScore('away');
+  const getOrderedTeamBoxScore = (
+    teamType: 'home' | 'away'
+  ): OrderedBoxScoreRow<PlayerBoxScore>[] => {
+    const players = getTeamBoxScore(teamType);
+    const starterIds =
+      teamType === 'home' ? game.homeStarters : game.awayStarters;
+    return orderBoxScorePlayers(players, starterIds ?? []);
+  };
+
+  const homeBoxScore = getOrderedTeamBoxScore('home');
+  const awayBoxScore = getOrderedTeamBoxScore('away');
   const homeTotals = resolveTeamTotals(game, 'home');
   const awayTotals = resolveTeamTotals(game, 'away');
   const homeScore = resolveSideScore(game, 'home');
@@ -85,11 +98,11 @@ export function BoxScore({ game }: BoxScoreProps) {
   };
 
   const TraditionalStatsTable = ({
-    players,
+    rows,
     teamName,
     totals,
   }: {
-    players: PlayerBoxScore[];
+    rows: OrderedBoxScoreRow<PlayerBoxScore>[];
     teamName: string;
     totals: ResolvedTeamTotals;
   }) => (
@@ -110,7 +123,7 @@ export function BoxScore({ game }: BoxScoreProps) {
         <Table>
           <TableHeader>
             <TableRow className="text-xs">
-              <TableHead className="w-32">Player</TableHead>
+              <TableHead className="w-32">Starters</TableHead>
               <StatTooltipHead label="Min" tooltip="Minutes Played" className="text-center w-16" />
               <StatTooltipHead label="PTS" tooltip="Points" className="text-center w-12" />
               <StatTooltipHead label="FG" tooltip="Field Goals Made/Attempted" className="text-center w-20" />
@@ -131,7 +144,22 @@ export function BoxScore({ game }: BoxScoreProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {players.map((player) => (
+            {rows.map((row, index) => {
+              if (row.kind === 'divider') {
+                return (
+                  <TableRow key={`bench-divider-${index}`} className="bg-muted/30">
+                    <TableCell
+                      colSpan={18}
+                      className="py-1.5 text-xs font-medium text-muted-foreground"
+                    >
+                      Bench
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+
+              const player = row.player!;
+              return (
               <TableRow key={player.playerId} className="text-sm">
                 <TableCell className="font-medium">
                   <PlayerIdentity
@@ -164,7 +192,8 @@ export function BoxScore({ game }: BoxScoreProps) {
                   </Badge>
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
             
             {/* Totals Row */}
             <TableRow className="font-medium bg-muted/50 text-sm border-t-2">
@@ -201,7 +230,13 @@ export function BoxScore({ game }: BoxScoreProps) {
     </div>
   );
 
-  const AdvancedStatsTable = ({ players, teamName }: { players: PlayerBoxScore[], teamName: string }) => (
+  const AdvancedStatsTable = ({
+    rows,
+    teamName,
+  }: {
+    rows: OrderedBoxScoreRow<PlayerBoxScore>[];
+    teamName: string;
+  }) => (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h3 className="font-medium">{teamName} - Advanced Metrics</h3>
@@ -212,7 +247,7 @@ export function BoxScore({ game }: BoxScoreProps) {
         <Table>
           <TableHeader>
             <TableRow className="text-xs">
-              <TableHead className="w-32">Player</TableHead>
+              <TableHead className="w-32">Starters</TableHead>
               <StatTooltipHead label="Min" tooltip="Minutes Played" className="text-center w-16" />
               <StatTooltipHead label="EFF" tooltip="Efficiency Rating" className="text-center w-16" />
               <StatTooltipHead label="GmSc" tooltip="Game Score" className="text-center w-16" />
@@ -227,7 +262,21 @@ export function BoxScore({ game }: BoxScoreProps) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {players.map((player) => {
+            {rows.map((row, index) => {
+              if (row.kind === 'divider') {
+                return (
+                  <TableRow key={`bench-divider-adv-${index}`} className="bg-muted/30">
+                    <TableCell
+                      colSpan={12}
+                      className="py-1.5 text-xs font-medium text-muted-foreground"
+                    >
+                      Bench
+                    </TableCell>
+                  </TableRow>
+                );
+              }
+
+              const player = row.player!;
               const { paintPoints, fastbreakPoints } = getPlayerPaintAndFastbreakPoints(
                 game,
                 player.playerId
@@ -264,7 +313,7 @@ export function BoxScore({ game }: BoxScoreProps) {
                 <TableCell className="text-center font-mono">{player.tech_fouls}</TableCell>
                 <TableCell className="text-center font-mono">{player.unsportsmanlike_fouls}</TableCell>
               </TableRow>
-            );
+              );
             })}
           </TableBody>
         </Table>
@@ -336,12 +385,12 @@ export function BoxScore({ game }: BoxScoreProps) {
               <CardContent className="p-6">
                 {view === 'traditional' ? (
                   <TraditionalStatsTable
-                    players={homeBoxScore}
+                    rows={homeBoxScore}
                     teamName={game.homeTeam.name}
                     totals={homeTotals}
                   />
                 ) : (
-                  <AdvancedStatsTable players={homeBoxScore} teamName={game.homeTeam.name} />
+                  <AdvancedStatsTable rows={homeBoxScore} teamName={game.homeTeam.name} />
                 )}
               </CardContent>
             </Card>
@@ -360,12 +409,12 @@ export function BoxScore({ game }: BoxScoreProps) {
                   </div>
                 ) : view === 'traditional' ? (
                   <TraditionalStatsTable
-                    players={awayBoxScore}
+                    rows={awayBoxScore}
                     teamName={game.awayTeam.name}
                     totals={awayTotals}
                   />
                 ) : (
-                  <AdvancedStatsTable players={awayBoxScore} teamName={game.awayTeam.name} />
+                  <AdvancedStatsTable rows={awayBoxScore} teamName={game.awayTeam.name} />
                 )}
               </CardContent>
             </Card>

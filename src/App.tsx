@@ -222,6 +222,8 @@ export interface Game {
   awayTeamId: string; // For easier lookups
   tournamentId?: string; // Optional tournament association
   date: string;
+  /** Scheduled tip-off in 24h HH:MM (e.g. "20:40"). */
+  startTime?: string;
   gameStats: GameStats[];
   teamStats: {
     home: TeamStats;

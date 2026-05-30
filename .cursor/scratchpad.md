@@ -71,7 +71,252 @@ Import source of truth (`game-2025-09-19-ntu-sutd.json`) is correct: `homeTeamId
 
 ---
 
-### **P1 — Team page: Player Stats table + tournament filter (Designer, 2026-05-30)**
+### **B3 — Box score: starters + bench divider + minutes sort (Designer, 2026-05-30)**
+
+User request: Box score table should show **starting 5 first** (in provided order), then a **visual divider**, then **bench players sorted by minutes (most → least)**.
+
+#### Confirmed starter lineups (NTU home)
+
+| Game | PG | SG | SF | PF | C |
+|------|----|----|----|----|---|
+| **vs SUTD** (2025-09-19) | Jingjie #1 | Chengshan #8 | Hanqing #33 | Cliff #13 | Carl #22 |
+| **vs SIT** (2025-09-22) | Minghui #20 | Chengshan #8 | Hanqing #33 | Khaimun #14 | Carl #22 |
+
+**Player IDs for JSON `homeStarters` (array order = display order):**
+
+| Game | `homeStarters` |
+|------|----------------|
+| SUTD | `["player-sunig-ntu-1", "player-sunig-ntu-8", "player-sunig-ntu-33", "player-sunig-ntu-13", "player-sunig-ntu-22"]` |
+| SIT | `["player-sunig-ntu-20", "player-sunig-ntu-8", "player-sunig-ntu-33", "player-sunig-ntu-14", "player-sunig-ntu-22"]` |
+
+Note: Game 1 JSON currently has **wrong** starter order (`#8, #33, #22, #13, #1`) — Executor must fix + re-import.
+
+#### Current behavior (problem)
+
+`BoxScore.tsx` → `getTeamBoxScore()` iterates `team.players` roster order, filters who played. **No starter/bench split, no sort.**
+
+`game.homeStarters` / `game.awayStarters` exist on `Game` and in DB but are **unused** by box score UI.
+
+#### Product decisions (Designer)
+
+1. **Source of truth:** `homeStarters` / `awayStarters` on the game (player id arrays). **Array order = starter row order** (PG→SG→SF→PF→C as user lists them).
+2. **Starters section:** Up to 5 ids from the appropriate starters array. Only include ids that **actually played** (`minutes_played > 0`). Preserve starters-array order (do not re-sort starters by minutes).
+3. **Bench section:** All other players on that team who played, sorted by **`minutes_played` descending**.
+4. **Divider:** One table row between starters and bench when **both sections are non-empty** — muted background, single cell spanning all columns, label **"Bench"** (left-aligned). Same in Traditional and Advanced tables.
+5. **Fallback when starters array is empty** (legacy / opponent score-only): treat **all players who played as bench**, sort by minutes desc, **no divider** (no fake starters).
+6. **Scope:** `BoxScore.tsx` only for this task. Do not change TeamPage roster or tournament player stats tables.
+7. **Future games:** User provides starters at import time (or via live Game Setup). Document in import JSON template.
+
+#### Recommended architecture
+
+**A. Util** — `src/utils/boxScoreOrder.ts` (or add to `gameDisplay.ts`)
+
+```ts
+export type OrderedBoxScoreSection = 'starters' | 'bench' | 'divider';
+
+export interface OrderedBoxScoreRow<T> {
+  kind: OrderedBoxScoreSection;
+  player?: T;
+}
+
+export function orderBoxScorePlayers<T extends { playerId: string; minutes_played: number }>(
+  players: T[],
+  starterIds: string[]
+): OrderedBoxScoreRow<T>[]
+```
+
+Algorithm:
+1. Build `Map` playerId → row from `players`.
+2. Walk `starterIds` in order → push `{ kind: 'starters', player }` if in map.
+3. Remaining players → sort by `minutes_played` desc → push `{ kind: 'bench', player }`.
+4. If starters.length > 0 && bench.length > 0, insert `{ kind: 'divider' }` between (or emit divider before first bench row in render loop).
+
+**B. `BoxScore.tsx`**
+
+- Pass `game.homeStarters` / `game.awayStarters` into ordering util based on selected team side.
+- Replace flat `players.map` with loop over ordered rows; render divider row for `kind === 'divider'`.
+- Apply to **both** `TraditionalStatsTable` and `AdvancedStatsTable`.
+
+**C. Data fix (Executor)**
+
+- Update `game-2025-09-19-ntu-sutd.json` `homeStarters` to correct ids/order (table above).
+- Update `game-2025-09-22-ntu-sit.json` `homeStarters` (currently `[]`).
+- Re-import both games (import script now preserves player height/weight — safe).
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **B3.1 — Add `orderBoxScorePlayers` util**
+- [x] **B3.2 — Wire `BoxScore.tsx`** (traditional + advanced, divider row)
+- [x] **B3.3 — Fix starter arrays in both Sunig JSON files**
+- [x] **B3.4 — Re-import both games** to Supabase
+- [ ] **B3.5 — Manual QA:** SUTD + SIT starter order and bench minutes sort
+
+#### Success criteria
+
+- **SUTD:** Rows 1–5 = Jingjie, Chengshan, Hanqing, Cliff, Carl (who played); divider; bench = remaining NTU players by minutes (e.g. Jeremy, Darren, …).
+- **SIT:** Rows 1–5 = Minghui, Chengshan, Hanqing, Khaimun, Carl; divider; bench by minutes (Jingjie, Darren, Jeremy, Sunzhe, Cliff).
+- Advanced tab matches Traditional order.
+- Games with `homeStarters: []` still render (minutes-only sort, no divider).
+
+---
+
+### **B4 — Sunig 2025 Game 3: NTU vs NUS (Designer, 2026-05-30)**
+
+**Source:** `Importingboxscores/sunig 2025/NUS_vs_NTU_BoxScore_2025-09-26.pdf`  
+**Target JSON:** `Importingboxscores/sunig 2025/game-2025-09-26-ntu-nus.json`  
+**User constraint:** **Stats only** — do not modify player profile data (height, weight, name, position, etc.) in Supabase. Game 2 import taught us full-bundle re-import is risky even with merge.
+
+#### PDF summary (verified)
+
+| Field | Value |
+|-------|--------|
+| Date | **September 26, 2025** |
+| Header score | **NUS 39 — NTU 70** (NTU win) |
+| NTU players in PDF | **12** who played |
+| NUS player lines | **None** (score-only opponent, like SUTD/SIT) |
+| NTU team line | 70 pts · 32/82 FG · 1/20 3PT · 5/12 FT · 40 REB (14 ORB / 26 DRB) · 22 AST · 2 BLK · 17 STL · 9 TO · 22 PF |
+
+Player points sum to **70** ✓. Top scorers: Carl **17**, Cheng Shan **16**, Daniel **10**.
+
+**NTU played (12):** #22, #8, #6, #20, #33, #1, #21, #0, #10, #15, #4, #13  
+**NTU did not play (0 GP):** #45 Sunzhe, #12 Yuanyang, #14 Khaimun (no `gameStats` row)
+
+#### Proposed data model
+
+| Entity | Proposed value |
+|--------|----------------|
+| Game id | `game-sunig-2025-09-26-ntu-nus` |
+| Date | `2025-09-26` |
+| Home / Away | **Assumed:** NTU home, NUS away → `finalScore: { home: 70, away: 39 }` (header format matches Games 1–2: away listed first) |
+| New team | `team-sunig-nus` — **National University of Singapore**, abbrev **NUS**, `players: []` |
+| NTU in bundle | **Stub only** — `id`, `name`, `abbreviation`, **`players: []`** (no roster payload) |
+| `trackBothTeams` | `false` |
+| `gameStats` | 12 NTU rows; decimal minutes (e.g. `27:39` → `27.65`) |
+| `teamStats` | NTU full TEAM line; NUS `total_points: 39` only |
+| `tournament.teamIds` | Add `team-sunig-nus` to existing four |
+
+#### Import strategy change (required for user constraint)
+
+**Problem:** Current `import-boxscore.ts` always upserts `players` from bundle. Even empty `players: []` avoids NTU player writes, but Game 2 still sent 15 player rows and overwrote profiles until merge fix.
+
+**Proposed `--stats-only` flag:**
+
+| Table | Behavior in `--stats-only` |
+|-------|----------------------------|
+| `games` | Upsert game row (stats, scores, starters) |
+| `tournament_teams` | Upsert junction rows |
+| `tournaments` | Upsert tournament metadata (idempotent) |
+| `teams` | Upsert **only teams that do not exist** in DB (creates NUS shell); **skip** existing NTU/SUTD/SIT |
+| `players` | **Skip entirely** |
+
+Usage: `npm run import:boxscore -- --file "...game-2025-09-26-ntu-nus.json" --stats-only`
+
+#### High-level task breakdown (Executor)
+
+- [ ] **B4.0 — Add `--stats-only` to import script** (skip players; new teams only)
+- [ ] **B4.1 — User confirms** home/away, NUS name, starters (see questions)
+- [ ] **B4.2 — Author stats-only JSON** (stub teams, 12 `gameStats`, team totals, starters)
+- [ ] **B4.3 — Dry-run + import with `--stats-only`**
+- [ ] **B4.4 — Manual QA:** score 70–39, 12 NTU lines, box score order, **player profiles unchanged**
+
+#### Success criteria
+
+- Game live as **NTU 70, NUS 39** with correct pairing.
+- All 12 NTU stat lines match PDF; minutes show as MM:SS.
+- **No changes** to existing NTU player height/weight/name in Supabase (verify before/after query).
+- NUS appears in tournament as score-only opponent.
+
+#### Open questions (need answers before Executor B4.2)
+
+1. **Home/Away:** Confirm **NTU home, NUS away** (`70` home / `39` away)?
+2. **NUS full name:** **National University of Singapore** — correct?
+3. **Starters** for this game (PG/SG/SF/PF/C order, like Games 1–2)? PDF does not list them.
+4. **`--stats-only` import:** OK with this approach so we never touch player rows?
+
+---
+
+**Source:** `Importingboxscores/sunig 2025/NTU_vs_SIT_BoxScore_2025-09-23.pdf`  
+**Target JSON:** `Importingboxscores/sunig 2025/game-2025-09-22-ntu-sit.json`  
+**Import:** `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-22-ntu-sit.json"`
+
+#### PDF summary (verified)
+
+| Field | Value |
+|-------|--------|
+| Header score | **SIT 70 — NTU 85** (NTU win) |
+| Header date | **September 22, 2025** |
+| Filename date | **September 23, 2025** |
+| NTU players in PDF | 10 who played (#8, #20, #22, #15, #14, #1, #33, #45, #10, #13) |
+| SIT player lines | **None** (same pattern as SUTD game) |
+| NTU team line | 85 pts, 36-79 FG, 3-17 3PT, 10-19 FT, 44 REB (17 ORB / 27 DRB), 28 AST, 2 BLK, 6 STL, 10 TO, 19 PF |
+
+Player points sum to **85** ✓. Cheng Shan (#8) led with **36 pts**.
+
+#### Proposed data model (mirrors Game 1)
+
+| Entity | Proposed value |
+|--------|----------------|
+| Game id | `game-sunig-2025-09-22-ntu-sit` |
+| Tournament | `tournament-sunig-2025` (existing) |
+| Home team | `team-sunig-ntu` (**assumed** — confirm) |
+| Away team | `team-sunig-sit` (**new**) |
+| Final score | `{ home: 85, away: 70 }` |
+| `trackBothTeams` | `false` |
+| NTU roster in bundle | Full 15-player roster from Game 1 JSON (unchanged metadata) |
+| SIT roster | `players: []` |
+| SIT team row | `{ id: team-sunig-sit, name: "Singapore Institute of Technology", abbreviation: "SIT" }` |
+| `tournament.teamIds` | `["team-sunig-ntu", "team-sunig-sutd", "team-sunig-sit"]` |
+| `gameStats` | 10 NTU player rows only |
+| `teamStats.home` | NTU totals from PDF TEAM line |
+| `teamStats.away` | SIT: `total_points: 70` only; other fields `null` (like SUTD) |
+
+#### NTU player stat mapping (PDF → JSON)
+
+Reuse existing `player-sunig-ntu-*` ids. Minutes: **decimal minutes** (`38:05` → `38.0833333333`). Never round to whole minutes.
+
+| # | PDF name | player id | PTS | Notes |
+|---|----------|-----------|-----|-------|
+| 8 | Cheng Shan | player-sunig-ntu-8 | 36 | 38 min |
+| 20 | Minghui | player-sunig-ntu-20 | 15 | |
+| 22 | Carl | player-sunig-ntu-22 | 10 | |
+| 15 | Darren | player-sunig-ntu-15 | 7 | |
+| 14 | Khaimun | player-sunig-ntu-14 | 6 | |
+| 1 | Jing Jie | player-sunig-ntu-1 | 5 | |
+| 33 | Han Qing | player-sunig-ntu-33 | 2 | |
+| 45 | Sunzhe | player-sunig-ntu-45 | 2 | |
+| 10 | Jeremy | player-sunig-ntu-10 | 2 | |
+| 13 | Cliff | player-sunig-ntu-13 | 0 | |
+
+Did not play (0 GP this game): #6, #12, #21, #4, #0 — remain on roster, no `gameStats` row.
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **B2.1 — Confirm open questions with user**
+- [x] **B2.2 — Author `game-2025-09-22-ntu-sit.json`**
+- [x] **B2.3 — Dry-run import** (10 game_stats, NTU 85 – SIT 70)
+- [x] **B2.4 — Run import** to Supabase
+- [ ] **B2.5 — Manual QA:** Dashboard, game summary, NTU player minutes (38:05), Team Stats Sunig filter
+
+#### Product decisions (confirmed 2026-05-30)
+
+1. Date: **2025-09-22**
+2. NTU home, SIT away
+3. SIT = Singapore Institute of Technology, score-only
+4. **Starters not required** — empty arrays (optional field for live games only)
+5. **Minutes:** decimal (`minutes + seconds/60`), stored in JSON/DB as-is; app renders MM:SS on player pages
+
+#### Success criteria
+
+- Game appears in app as **NTU 85, SIT 70** with correct team pairing everywhere.
+- NTU player totals match PDF; team totals match PDF TEAM line.
+- Re-import is idempotent (upsert, no duplicates).
+- Existing Game 1 (NTU vs SUTD) unchanged.
+
+#### Open questions — all resolved (2026-05-30)
+
+See **Product decisions** above.
+
+---
 
 User request: On **Team → Team Stats** tab, add a **Player Stats** list below the existing **Team Statistics** card — same table as **Tournament → Player Stats**, but:
 - Only players on **this team**
@@ -1125,6 +1370,9 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 - [x] Team delete persistence — user QA complete (2026-05-30).
 - [x] Team roster list view + sortable columns — done.
 - [ ] **D6 / release:** commit + push local UI fixes (pending user request).
+- [ ] **B4 Sunig Game 3: NTU vs NUS** (Designer plan — awaiting user answers).
+- [ ] **B3.5 Manual QA** — box score starters/bench (Executor done B3.1–B3.4; user verify).
+- [x] **B2 Sunig Game 2: NTU vs SIT import** (JSON + Supabase import done; B2.5 QA pending).
 - [ ] **P1 Team Stats player table + tournament filter** (T1–T4 done; T5 user QA).
 - [ ] Stats Entry live entry + finalize (Steps 2+) — **paused** (user decision 2026-05-30).
 - [ ] Save/sync status indicator in UI.
@@ -1134,6 +1382,8 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 ## Project Status Board
 
+- [x] B4 Game 3 (NUS vs NTU, 2025-09-26) — JSON created, stats-only import complete, player profiles verified unchanged
+- [ ] B4.5 User QA — confirm score NUS 39 / NTU 70, box score starter/bench order on game page
 - [x] Player position display task - Step 1 helper added in `src/components/PlayerPage.tsx`
 - [x] Player position display task - Step 2 apply helper to both player page render sites
 - [x] Player position display task - Step 3 manual smoke test checklist documented/executed (build + targeted UI checks)
@@ -1145,7 +1395,9 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 - **P0 Latest Games (2026-05-30):** **Complete** — G1–G5 signed off.
 - **Dashboard D + Sunig B2 + team delete QA (2026-05-30):** User confirmed all optional QA complete.
 - **Stats Entry Step 2+:** Paused by user (2026-05-30).
-- **P1 (2026-05-30):** T1–T4 implemented. Team Stats tab: tournament dropdown, filtered team summary, full player stats table. **TeamPage crash fixed** (null-safe `games`, `gameStats`, `teamStats`). `npm run build` passes. **Awaiting T5 user QA.**
+- **B4 Game 3 NUS vs NTU (2026-05-29):** JSON at `Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json`. NUS home (39), NTU away (70). NTU away starters: Jingjie #1, Chengshan #8, Daniel #6, Cliff #13, Carl #22. Imported with `--stats-only` — created `team-sunig-nus` only; 12 NTU stat lines (70 pts); all 15 NTU player profiles unchanged. **Awaiting B4.5 user QA.**
+- **B3 Box score order (2026-05-30):** B3.1–B3.4 complete. `boxScoreOrder.ts`, BoxScore starters/bench/divider, JSON starters fixed, both games re-imported (height/weight preserved). **Awaiting B3.5 user QA.**
+- **B2 Sunig NTU vs SIT:** Import complete. Import script fixed to preserve player height/weight on re-import.
 - **Active / release:** Local changes not yet committed since `487b516` — commit + push when ready (D6).
 - **Step 1 complete (2026-05-29):** Game Setup, active session, delete cleanup — QA passed.
 - Added `formatPlayerPositionLabel(primaryPosition, secondaryPosition?)` in `src/components/PlayerPage.tsx`.
@@ -1169,6 +1421,7 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 - **Release (2026-05-30):** All feature QA signed off. **Only remaining housekeeping:** git commit + push of local changes (dashboard, scores, roster, team delete, PlayerPage opponent names). User to request when ready.
 - **Stats Entry Step 2+:** Paused — do not start until user unpause.
 - **P1 Team Player Stats (2026-05-30):** T1–T4 shipped. **Fixed TeamPage crash** (`Cannot read properties of undefined (reading 'filter')`) — guarded `games`, `gameStats`, and `teamStats` in TeamPage + `playerSeasonStats.ts`. Please hard-refresh and QA NTU Team Stats: Sunig filter, player table matches tournament tab, sort works.
+- **Sunig 2025 import:** B4 Game 3 imported stats-only. For future games always use `--stats-only` flag. Re-import idempotent: `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json" --stats-only`.
 - **Sunig 2025 import:** B1.4 complete. User should hard-refresh and confirm B1.5 checklist. Re-import is idempotent: `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json"`.
 - Milestone reached: Player measurements (cm/kg input + profile display) implemented.
 - Rounding: cm -> feet/inches uses **nearest inch** (confirmed).

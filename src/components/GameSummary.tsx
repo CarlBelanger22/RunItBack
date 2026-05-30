@@ -63,10 +63,12 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
                 <Calendar className="h-4 w-4" />
                 {gameDate.toLocaleDateString()}
               </div>
-              <div className="flex items-center gap-1">
-                <Clock className="h-4 w-4" />
-                {gameDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </div>
+              {game.startTime && (
+                <div className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  {game.startTime}
+                </div>
+              )}
             </div>
           </div>
         </CardHeader>
