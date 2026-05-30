@@ -22,6 +22,159 @@
 
 ## 2) Active Plan (Now)
 
+### **P0 — Latest Games preview: wrong scores + diagonal layout (Designer, 2026-05-30)**
+
+User report: Dashboard “Latest Games” cards show **scores on the wrong team** (e.g. Sunig: SUTD left with 96, NTU right with 37; correct is **NTU 96**, **SUTD 37**). Same class of error on Summer League cards. Team names also look **diagonally misaligned** (one side high, one low).
+
+#### Root cause analysis (Designer)
+
+**1) Score logic is side-indexed, not team-indexed (primary bug)**
+
+`resolveSideScore(game, 'home' | 'away')` in `src/utils/gameDisplay.ts` resolves by **slot** (`home` / `away`), not by **team id**:
+
+1. Sum `gameStats` for players on `getTeamForSide(game, side).players`
+2. Else `teamStats[side].total_points`
+3. Else `finalScore[side]`
+
+`team_stats` JSON stores `home` / `away` **buckets** that were written when the game was imported/saved. If `home_team_id` in Postgres ever disagrees with those buckets (or buckets were written for NTU-on-home but the row later shows SUTD as `homeTeam`), step 2 returns **96 for the `home` slot** while the **displayed** `homeTeam` is SUTD (0 players → step 1 = 0). Result: **SUTD label + 96**.
+
+Import source of truth (`game-2025-09-19-ntu-sutd.json`) is correct: `homeTeamId: team-sunig-ntu`, `finalScore: { home: 96, away: 37 }`. Bug is in **resolution/display**, not necessarily import — unless Supabase row has swapped `home_team_id` (Executor must verify one row).
+
+**2) Layout separates names from scores (UX amplifier)**
+
+`DashboardGamePreview` uses a 3-column grid: **team name | centered `homeScore - awayScore` | team name**. Scores sit in the middle column, so users visually pair the **left number** with the **left name** even when logic is slot-based. Long names (SUTD) + `items-center` + asymmetric flex (`name→avatar` vs `avatar→name`) create a **diagonal** look.
+
+**3) Inconsistent matchup layout elsewhere**
+
+- `RecentGames.tsx`: home left, uses `finalScore.home` / `finalScore.away` directly (same slot bug).
+- `GameSummary.tsx`: **away left**, home right (opposite horizontal order from dashboard).
+
+#### Product decisions (confirmed by user intent)
+
+- **Left team’s score must be under/next to that team’s name** — no floating center score strip.
+- **NTU 96, SUTD 37** for Sunig card (team-accurate, not slot-accurate).
+- Fix should apply to **all games**, not only Sunig.
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **G1 — Add `resolveTeamScore(game, teamId)` in `gameDisplay.ts`**
+- [x] **G2 — Redesign `DashboardGamePreview` layout**
+- [x] **G3 — Align Recent Games + Game Summary (home left, team-id scores)**
+- [x] **G4 — Data integrity check:** Supabase row `game-sunig-2025-09-19-ntu-sutd` matches import (no DB repair needed).
+- [x] **G5 — Manual QA gate** (user confirmed 2026-05-30)
+
+#### Success criteria (Designer sign-off)
+
+- No card pairs a team name with another team’s score.
+- No diagonal name alignment on standard desktop width.
+- Sunig game: **Nanyang Technological University — 96**, **SUTD — 37**.
+
+---
+
+### **P1 — Team page: Player Stats table + tournament filter (Designer, 2026-05-30)**
+
+User request: On **Team → Team Stats** tab, add a **Player Stats** list below the existing **Team Statistics** card — same table as **Tournament → Player Stats**, but:
+- Only players on **this team**
+- **Tournament filter** (team may play in multiple tournaments; stats should scope to selected tournament or all)
+
+#### Current state (verified in code)
+
+| Location | Behavior |
+|----------|----------|
+| `TeamPage.tsx` `StatsTab` | Single card: per-game **averages** of `game.teamStats` across **all** `teamGames` (no tournament filter). |
+| `TeamPage.tsx` `RosterTab` | Simpler roster table (PPG/RPG/APG/FG%/3P%/FT%, height/weight) from **all** team games — different from tournament table. |
+| `TournamentPage.tsx` `PlayersTab` | Full sortable table (~25 cols): GP, MPG, PPG, RPG, APG, SPG, BPG, FG%, FGM, FGA, 3P%, …, EFF. Aggregates `game.gameStats` across `tournamentGames`. Includes **Team** column. ~400 lines inline — not shared. |
+
+#### Product decisions (proposed — confirm on Executor start)
+
+1. **Filter applies to whole Team Stats tab** — one tournament selector drives **both** the Team Statistics summary **and** the Player Stats table (avoids contradictory numbers).
+2. **Filter options:**
+   - `All tournaments` — every completed game for this team (any `tournamentId` or none).
+   - One option per tournament where the team has **≥1 game** in `teamGames` **or** `tournament.teams` includes `team.id` (union, deduped by tournament id).
+3. **Default selection:** `team.currentTournamentId` if that tournament is in the list; otherwise `All tournaments`.
+4. **Player Stats table columns:** Match tournament table **except omit Team column** (always this team). Keep sortable headers, sticky header, horizontal scroll, row click → player page.
+5. **Players shown:** All players on `team.players` roster (include 0-GP rows with zeros, same as tournament tab).
+6. **Games included in aggregation:** Completed games only (`isCompleted`), where `homeTeamId` or `awayTeamId` === `team.id`, and tournament filter matches (`game.tournamentId` or “all”).
+7. **Do not change Roster tab** in this task — roster stays roster-centric; Team Stats tab is the tournament-scoped analytics view.
+
+#### Key challenges
+
+- **Duplication risk:** Tournament `PlayersTab` is large; copying into `TeamPage` creates two maintenance burdens.
+- **Team stats source:** Top card uses `game.teamStats` (team-level box score lines); player table uses `game.gameStats` (player lines). Both must filter the **same game set**.
+- **Optional advanced team stats:** `points_in_paint` etc. may be `null` on imports — existing `.toFixed(1)` on Team Stats card may show `NaN` for Sunig; optional small fix when touching `calculateTeamStats` (use `-` or `0` guard).
+
+#### Recommended architecture (simplest correct approach)
+
+**A. Shared aggregation util** — `src/utils/playerSeasonStats.ts`
+
+```ts
+export type PlayerSeasonRow = {
+  player: Player;
+  team: Team;
+  totalStats: GameStats;
+  gamesPlayed: number;
+};
+
+export function aggregatePlayerSeasonStats(
+  games: Game[],
+  teams: Team[],
+  options?: { teamId?: string; tournamentId?: string | 'all' }
+): PlayerSeasonRow[]
+```
+
+- Walk filtered games → `game.gameStats` → aggregate by `playerId` (same logic as `TournamentPage.getAllPlayersWithStats`).
+- If `teamId` set, only stats for players on that team’s roster.
+- Seed roster players with zero totals if no GP.
+
+**B. Shared UI component** — `src/components/PlayerStatsTable.tsx`
+
+- Props: `rows`, `sortField`, `sortOrder`, `onSort`, `onNavigateToPlayer`, `showTeamColumn?: boolean` (default true for tournament).
+- Move sort switch + table markup from `TournamentPage` (no visual change on tournament page).
+
+**C. Shared tournament filter** — `src/components/TournamentScopeSelect.tsx` (optional small component)
+
+- Props: `tournaments`, `teamId`, `teamGames`, `value`, `onChange`.
+- Builds option list + labels (`Sunig 2025`, etc.).
+
+**D. `TeamPage` `StatsTab` layout**
+
+```
+[Tournament: All tournaments ▼]     (full width above cards)
+
+┌ Team Statistics ─────────────┐   ← recalc from filtered games
+└──────────────────────────────┘
+
+┌ Player Stats — 15 Players ───┐
+│  (PlayerStatsTable, no Team) │
+└──────────────────────────────┘
+```
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **T1 — Extract `aggregatePlayerSeasonStats`** (`src/utils/playerSeasonStats.ts`)
+- [x] **T2 — Extract `PlayerStatsTable`** + refactor `TournamentPage` Players tab
+- [x] **T3 — Tournament filter** + scoped team statistics card
+- [x] **T4 — Player Stats table on Team Stats tab** (no Team column)
+- [ ] **T5 — Manual QA**
+  - Team with 1 tournament (Sunig): filter works, table matches tournament page for same players.
+  - Team in multiple tournaments (if available): switching filter changes GP/PPG.
+  - `All tournaments` aggregates multiple tournaments correctly.
+  - Mobile: horizontal scroll on player table.
+
+#### Success criteria (Designer sign-off)
+
+- Team Stats tab shows tournament filter + existing team summary + full player stats table.
+- Player table matches tournament Player Stats (minus Team column), scoped to team + selected tournament.
+- No copy-paste of 400 lines into `TeamPage.tsx`.
+
+#### Out of scope (this P1)
+
+- Refactoring `TournamentPageFixed.tsx` (unused in routes).
+- Changing Roster tab columns.
+- Stats Entry Step 2.
+
+---
+
 ### Primary feature focus
 - **Box score import (Sunig 2025)** — historical games from PDF → Supabase (pilot: NTU vs SUTD, 2025-09-19).
 - Stats Entry Step 2 (finalize) paused until import pilot verified.
@@ -640,6 +793,133 @@ points_in_paint: number | null  // null → "No stats recorded"
 
 ---
 
+## Dashboard UI Redesign (Designer — 2026-05-30)
+
+### Background and Motivation
+
+User feedback on the home dashboard after Sunig import:
+- **Latest Games** shows truncated team names (`Nanyang Te…`, `Singapore Univers…`) — unreadable.
+- Three equal-width cards force a horizontal “logo vs logo score” layout that cannot fit real team names (NTU full names are 30+ chars).
+- Demo teams (Thunder Bolts) still show Unsplash logos; imported teams (NTU, SUTD) show **no avatar** — inconsistent.
+- Card headers are center-aligned; preview lists use arbitrary array order (first 3 teams/tournaments), not “most relevant.”
+- **Recent Games** page already uses a better match-row pattern (full names, abbreviations, centered score) — dashboard preview was never updated to match.
+
+**Note:** Executor already fixed date sorting (`sortGamesByDateDesc`) locally; may need commit. Dashboard layout fix is separate.
+
+### Key Challenges and Analysis
+
+| Issue | Root cause | Design response |
+|-------|------------|-----------------|
+| Truncated names | Single-row flex with `truncate` in ~1/3 viewport width | Give Latest Games **full width** or ESPN-style **stacked row** |
+| Missing logos for real teams | Hardcoded `getTeamLogo` map keyed on demo team names only | Shared **`TeamAvatar`**: `team.icon` → abbreviation fallback (already on `Team` model) |
+| Cramped 3-column grid | All sections equal weight | **Asymmetric layout**: stats cards top, games full-width below |
+| Inconsistent with app | `RecentGames.tsx` has mature layout; `Dashboard.tsx` diverged | Reuse same visual language (abbrev under name, score block) |
+| “7 Games Completed” | Count is correct after sort fix; preview still only 3 | Keep count + “View all” link; show 3 **best-formatted** rows |
+
+### Assumptions to challenge
+
+- **Assumption:** Users need full team names always visible on dashboard.  
+  **Counterpoint:** Abbreviation-primary (`NTU vs SUTD`) with full name on tooltip may suffice in a compact preview — but user explicitly complained names aren’t visible, so **full names must show** in the redesigned games section (at least on one line each or stacked home/away blocks).
+
+- **Assumption:** Three equal cards is “balanced.”  
+  **Counterpoint:** Games are the highest-value content post-import; they deserve more space than tournament/team counts.
+
+### Proposed layout (ASCII)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [Search bar — unchanged]                                    │
+├──────────────────────────┬──────────────────────────────────┤
+│  Tournaments        →    │  Teams                      →    │
+│  3 active                │  7 created                       │
+│  · Sunig 2025 (2)        │  · NTU (15)                      │
+│  · IVP 2026 (0)          │  · SUTD (0)                      │
+│  · Summer League (5)     │  · …                             │
+├──────────────────────────┴──────────────────────────────────┤
+│  Latest Games                                    View all → │
+│  7 completed                                                 │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │ Sep 19, 2025 · Sunig 2025                               ││
+│  │  NTU          96  –  37          SUTD                   ││
+│  │  Nanyang Technological University                       ││
+│  │  Singapore University of Technology and Design          ││
+│  └─────────────────────────────────────────────────────────┘│
+│  (2 more compact rows…)                                      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Mobile:** Stack Tournaments → Teams → Latest Games (games still full width).
+
+### Latest Games row spec (match card)
+
+Each preview row (click → game summary):
+
+| Zone | Content |
+|------|---------|
+| Meta line | `{short date} · {tournament name if linked}` |
+| Match line | `{home abbrev}` **score** `{away abbrev}` — large, scannable |
+| Names line | Full home name (left) · Full away name (right) OR stacked under each abbrev |
+| Avatar | `TeamAvatar` both sides (abbrev fallback, no Unsplash hack) |
+
+**Score:** Use `resolveSideScore` / `finalScore` (already correct for SUTD).
+
+**Empty state:** “No completed games yet” + subtle CTA to Stats Entry.
+
+### Tournaments / Teams card polish (lighter touch)
+
+- Header: **left-aligned** title + optional `ChevronRight` “View all” (card still clickable).
+- Preview lists: sort by **name** or **most teams** (pick: **name alphabetical** for predictability).
+- Teams preview: prefer teams with **recent game activity** (optional v2 — v1: alphabetical first 3).
+- Use shared `TeamAvatar` / tournament `Avatar` (already partially there).
+
+### Shared components (Executor)
+
+| Component | Purpose |
+|-----------|---------|
+| `TeamAvatar.tsx` | Icon, abbrev fallback, optional size sm/md |
+| `DashboardGamePreview.tsx` | Single match row for dashboard |
+| `DashboardStatCard.tsx` | Reusable card shell (icon, title, count, list slot) |
+
+Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; defer RecentGames/TournamentPage dedup to optional follow-up.
+
+### Out of scope (this task)
+
+- Redesigning global header / search dropdown
+- Tournament/team **detail** pages
+- Custom team logo upload (future)
+- Replacing all demo seed data in Supabase
+
+### High-level task breakdown (Executor — one at a time)
+
+- [ ] **D1** Create `TeamAvatar` + `DashboardStatCard` shells  
+  **Success:** Renders NTU/SUTD with abbrev avatar; demo teams unchanged or use abbrev too.
+
+- [ ] **D2** Restructure `Dashboard.tsx` grid: 2-col top (Tournaments \| Teams), full-width Latest Games below  
+  **Success:** Latest Games card spans full container width on md+.
+
+- [ ] **D3** Implement `DashboardGamePreview` row (full names visible, score, date, tournament)  
+  **Success:** NTU vs SUTD row shows full names without truncation on desktop; abbrev + tooltip on mobile if needed.
+
+- [ ] **D4** Wire `recentGames` (sorted completed, top 3); add “View all” affordance  
+  **Success:** Sunig game is row 1; click opens game summary.
+
+- [ ] **D5** Polish: left-aligned headers, consistent spacing, hover states  
+  **Success:** Visual pass matches mockup; `npm run build` passes.
+
+- [ ] **D6** Commit pending `sortGamesByDateDesc` fix if not yet pushed  
+  **Success:** Dashboard order matches date sort.
+
+### D manual QA gate
+
+- [ ] Latest Games row 1: **NTU vs SUTD**, **Sep 19, 2025**, score **96–37**
+- [ ] Full team names readable (no `…` truncation on desktop ≥1024px)
+- [ ] NTU/SUTD show abbrev avatars (not blank)
+- [ ] Tournaments + Teams cards still navigate correctly
+- [ ] Mobile: no horizontal overflow; names wrap or stack cleanly
+- [ ] “View all” / card click → Recent Games list
+
+---
+
 #### Goal
 - Make live game stat entry fast, reliable, and recoverable under real courtside pressure.
 
@@ -839,9 +1119,14 @@ points_in_paint: number | null  // null → "No stats recorded"
 - [x] Stats Entry Step 1: Game Setup revamp (1.1–1.9, QA complete).
 - [x] Stats Entry Step 1.5: Active session (resume, single active, delete game, QA complete).
 - [x] Stats Entry Step 1.6: Delete setup-added players on existing teams (QA complete).
-- [x] Sunig Game 1 display fixes (B2.1–B2.5 code + re-import done; user QA pending).
-- [ ] Team abbreviation 3–5 chars (prerequisite for SUTD).
-- [ ] Stats Entry live entry + finalize (Steps 2+).
+- [x] Dashboard UI redesign (D1–D5) — user QA complete (2026-05-30).
+- [x] Sunig Game 1 display fixes (B2) — user QA sign-off (2026-05-30).
+- [x] Team abbreviation 3–5 chars — verified done.
+- [x] Team delete persistence — user QA complete (2026-05-30).
+- [x] Team roster list view + sortable columns — done.
+- [ ] **D6 / release:** commit + push local UI fixes (pending user request).
+- [ ] **P1 Team Stats player table + tournament filter** (T1–T4 done; T5 user QA).
+- [ ] Stats Entry live entry + finalize (Steps 2+) — **paused** (user decision 2026-05-30).
 - [ ] Save/sync status indicator in UI.
 - [ ] Phase C auth + RLS hardening (later).
 
@@ -857,8 +1142,12 @@ points_in_paint: number | null  // null → "No stats recorded"
 
 ## Current Status / Progress Tracking
 
+- **P0 Latest Games (2026-05-30):** **Complete** — G1–G5 signed off.
+- **Dashboard D + Sunig B2 + team delete QA (2026-05-30):** User confirmed all optional QA complete.
+- **Stats Entry Step 2+:** Paused by user (2026-05-30).
+- **P1 (2026-05-30):** T1–T4 implemented. Team Stats tab: tournament dropdown, filtered team summary, full player stats table. **TeamPage crash fixed** (null-safe `games`, `gameStats`, `teamStats`). `npm run build` passes. **Awaiting T5 user QA.**
+- **Active / release:** Local changes not yet committed since `487b516` — commit + push when ready (D6).
 - **Step 1 complete (2026-05-29):** Game Setup, active session, delete cleanup — QA passed.
-- **Active work:** Sunig Game 1 **B2 display fixes implemented** (2026-05-29). `npm run build` passes; JSON re-imported. **Awaiting user B2 manual QA** before Designer sign-off.
 - Added `formatPlayerPositionLabel(primaryPosition, secondaryPosition?)` in `src/components/PlayerPage.tsx`.
 - Helper behavior:
   - returns `primary` when secondary is empty/undefined
@@ -877,13 +1166,9 @@ points_in_paint: number | null  // null → "No stats recorded"
 
 ## Executor's Feedback or Assistance Requests
 
-- **Sunig Game 1 B2 (2026-05-29):** All B2.1–B2.5 tasks implemented. Key changes:
-  - `src/utils/gameDisplay.ts` — score resolution, score-only team detection, leaders with ties, optional stat formatting
-  - `src/components/GameLeadersSection.tsx` — leaders above tabs in Game Summary
-  - `GameSummary`, `BoxScore`, `TeamStats` updated per QA spec
-  - JSON nulls for unrecorded stats; re-import completed successfully
-  - `npm run build` passes
-  - **Please run B2 manual QA gate** (scratchpad B2 section) on game `game-sunig-2025-09-19-ntu-sutd` and confirm before Designer sign-off.
+- **Release (2026-05-30):** All feature QA signed off. **Only remaining housekeeping:** git commit + push of local changes (dashboard, scores, roster, team delete, PlayerPage opponent names). User to request when ready.
+- **Stats Entry Step 2+:** Paused — do not start until user unpause.
+- **P1 Team Player Stats (2026-05-30):** T1–T4 shipped. **Fixed TeamPage crash** (`Cannot read properties of undefined (reading 'filter')`) — guarded `games`, `gameStats`, and `teamStats` in TeamPage + `playerSeasonStats.ts`. Please hard-refresh and QA NTU Team Stats: Sunig filter, player table matches tournament tab, sort works.
 - **Sunig 2025 import:** B1.4 complete. User should hard-refresh and confirm B1.5 checklist. Re-import is idempotent: `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json"`.
 - Milestone reached: Player measurements (cm/kg input + profile display) implemented.
 - Rounding: cm -> feet/inches uses **nearest inch** (confirmed).

@@ -1,9 +1,12 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Trophy, Users, Calendar } from 'lucide-react';
+import { Trophy, Users, Calendar, ChevronRight } from 'lucide-react';
 import { Tournament, Team, Game } from '../App';
+import { TeamAvatar } from './TeamAvatar';
+import { DashboardStatCard } from './dashboard/DashboardStatCard';
+import { DashboardGamePreview } from './dashboard/DashboardGamePreview';
 
 interface DashboardProps {
   tournaments: Tournament[];
@@ -18,210 +21,146 @@ interface DashboardProps {
   onNavigateToRecentGames: () => void;
 }
 
-export function Dashboard({ 
-  tournaments, 
-  teams, 
-  recentGames, 
+function sortByName<T extends { name: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export function Dashboard({
+  tournaments,
+  teams,
+  recentGames,
   onNavigateToTournaments,
   onNavigateToTeams,
   onNavigateToGameSummary,
-  onStartNewGame,
   onNavigateToTournament,
   onNavigateToTeam,
-  onNavigateToRecentGames
+  onNavigateToRecentGames,
 }: DashboardProps) {
-  // Team logo mapping
-  const getTeamLogo = (teamName: string) => {
-    const logoMap: { [key: string]: string } = {
-      'Thunder Bolts': 'https://images.unsplash.com/photo-1682084037329-45a11d86cce7?w=200&h=200&fit=crop',
-      'Soaring Eagles': 'https://images.unsplash.com/photo-1761325970487-05c2541653eb?w=200&h=200&fit=crop',
-      'City Warriors': 'https://images.unsplash.com/photo-1743105351315-540bce258f1d?w=200&h=200&fit=crop',
-      'Rising Phoenix': 'https://images.unsplash.com/photo-1644721133152-55a3a4aa37d2?w=200&h=200&fit=crop'
-    };
-    return logoMap[teamName] || null;
-  };
+  const sortedTournaments = useMemo(() => sortByName(tournaments), [tournaments]);
+  const sortedTeams = useMemo(() => sortByName(teams), [teams]);
+  const previewGames = recentGames.slice(0, 3);
+
+  const tournamentNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const t of tournaments) {
+      map.set(t.id, t.name);
+    }
+    return map;
+  }, [tournaments]);
 
   return (
-    <div className="space-y-8">
-      {/* Main Sections */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        {/* Tournaments Section */}
-        <Card 
-          className="shadow-lg rounded-2xl cursor-pointer hover:shadow-xl transition-shadow"
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <DashboardStatCard
+          icon={Trophy}
+          title="Tournaments"
+          count={tournaments.length}
+          countLabel={
+            tournaments.length === 1 ? 'Active Tournament' : 'Active Tournaments'
+          }
           onClick={onNavigateToTournaments}
         >
-          <CardHeader>
-            <CardTitle className="flex items-center justify-center gap-2">
-              <Trophy className="h-5 w-5" />
-              Tournaments
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">{tournaments.length}</div>
-              <p className="text-sm text-muted-foreground">
-                Active {tournaments.length === 1 ? 'Tournament' : 'Tournaments'}
-              </p>
-            </div>
-            
-            {tournaments.length > 0 && (
-              <div className="space-y-2">
-                {tournaments.slice(0, 3).map(tournament => (
-                  <div 
-                    key={tournament.id}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onNavigateToTournament(tournament.id);
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <Avatar className="w-6 h-6">
-                        <AvatarFallback className="text-xs">
-                          {tournament.icon || tournament.name.substring(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-sm font-medium">{tournament.name}</span>
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      {tournament.teams.length} Teams
-                    </Badge>
+          {sortedTournaments.length > 0 && (
+            <div className="space-y-1">
+              {sortedTournaments.slice(0, 3).map((tournament) => (
+                <div
+                  key={tournament.id}
+                  className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigateToTournament(tournament.id);
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Avatar className="w-7 h-7 flex-shrink-0">
+                      <AvatarFallback className="text-xs">
+                        {tournament.icon || tournament.name.substring(0, 2).toUpperCase()}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="text-sm font-medium truncate">{tournament.name}</span>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  <Badge variant="outline" className="text-xs flex-shrink-0">
+                    {tournament.teams.length} Teams
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardStatCard>
 
-        {/* Teams Section */}
-        <Card 
-          className="shadow-lg rounded-2xl cursor-pointer hover:shadow-xl transition-shadow"
+        <DashboardStatCard
+          icon={Users}
+          title="Teams"
+          count={teams.length}
+          countLabel={teams.length === 1 ? 'Team Created' : 'Teams Created'}
           onClick={onNavigateToTeams}
         >
-          <CardHeader>
-            <CardTitle className="flex items-center justify-center gap-2">
-              <Users className="h-5 w-5" />
-              Teams
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">{teams.length}</div>
-              <p className="text-sm text-muted-foreground">
-                {teams.length === 1 ? 'Team' : 'Teams'} Created
-              </p>
-            </div>
-            
-            {teams.length > 0 && (
-              <div className="space-y-2">
-                {teams.slice(0, 3).map(team => {
-                  const teamLogo = getTeamLogo(team.name);
-                  return (
-                  <div 
-                    key={team.id}
-                    className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onNavigateToTeam(team.id);
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                        {teamLogo ? (
-                          <img 
-                            src={teamLogo} 
-                            alt={team.name}
-                            className="w-6 h-6 rounded-full object-cover flex-shrink-0"
-                          />
-                        ) : (
-                      <Avatar className="w-6 h-6">
-                        <AvatarFallback className="text-xs">
-                              {team.name.substring(0, 2).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                        )}
-                      <span className="text-sm font-medium">{team.name}</span>
-                    </div>
-                    <Badge variant="outline" className="text-xs">
-                      {team.players.length} Players
-                    </Badge>
+          {sortedTeams.length > 0 && (
+            <div className="space-y-1">
+              {sortedTeams.slice(0, 3).map((team) => (
+                <div
+                  key={team.id}
+                  className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onNavigateToTeam(team.id);
+                  }}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <TeamAvatar team={team} size="sm" />
+                    <span className="text-sm font-medium truncate">{team.name}</span>
                   </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                  <Badge variant="outline" className="text-xs flex-shrink-0">
+                    {team.players.length} Players
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardStatCard>
+      </div>
 
-        {/* Latest Games Section */}
-        <Card 
-          className="shadow-lg rounded-2xl cursor-pointer hover:shadow-xl transition-shadow"
-          onClick={onNavigateToRecentGames}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center justify-center gap-2">
-              <Calendar className="h-5 w-5" />
+      <Card
+        className="shadow-md rounded-2xl cursor-pointer hover:shadow-lg transition-shadow"
+        onClick={onNavigateToRecentGames}
+      >
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2 text-base font-semibold">
+              <Calendar className="h-5 w-5 text-primary" />
               Latest Games
             </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-primary">{recentGames.length}</div>
-              <p className="text-sm text-muted-foreground">
-                {recentGames.length === 1 ? 'Game' : 'Games'} Completed
-              </p>
+            <span className="flex items-center gap-1 text-sm text-muted-foreground">
+              View all
+              <ChevronRight className="h-4 w-4" />
+            </span>
+          </div>
+          <p className="text-sm text-muted-foreground pt-1">
+            {recentGames.length}{' '}
+            {recentGames.length === 1 ? 'game' : 'games'} completed
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3" onClick={(e) => e.stopPropagation()}>
+          {previewGames.length > 0 ? (
+            previewGames.map((game) => (
+              <DashboardGamePreview
+                key={game.id}
+                game={game}
+                tournamentName={
+                  game.tournamentId
+                    ? tournamentNameById.get(game.tournamentId)
+                    : undefined
+                }
+                onClick={() => onNavigateToGameSummary(game)}
+              />
+            ))
+          ) : (
+            <div className="py-8 text-center text-sm text-muted-foreground">
+              No completed games yet.
             </div>
-            
-            {recentGames.length > 0 && (
-              <div className="space-y-2">
-                {recentGames.slice(0, 3).map(game => {
-                  const homeTeamLogo = getTeamLogo(game.homeTeam.name);
-                  const awayTeamLogo = getTeamLogo(game.awayTeam.name);
-                  return (
-                    <div 
-                      key={game.id}
-                      className="p-2 rounded-lg hover:bg-muted/50 cursor-pointer"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onNavigateToGameSummary(game);
-                      }}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          {homeTeamLogo && (
-                            <img 
-                              src={homeTeamLogo} 
-                              alt={game.homeTeam.name}
-                              className="w-5 h-5 rounded-full object-cover flex-shrink-0"
-                            />
-                          )}
-                          <span className="text-sm font-medium truncate">{game.homeTeam.name}</span>
-                          <span className="text-xs text-muted-foreground flex-shrink-0">vs</span>
-                          {awayTeamLogo && (
-                            <img 
-                              src={awayTeamLogo} 
-                              alt={game.awayTeam.name}
-                              className="w-5 h-5 rounded-full object-cover flex-shrink-0"
-                            />
-                          )}
-                          <span className="text-sm font-medium truncate">{game.awayTeam.name}</span>
-                        </div>
-                        {game.finalScore && (
-                          <Badge variant="outline" className="text-xs flex-shrink-0">
-                            {game.finalScore.home}-{game.finalScore.away}
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {new Date(game.date).toLocaleDateString()}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

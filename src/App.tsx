@@ -1315,15 +1315,73 @@ export default function App() {
     });
   }, []);
 
-  const handleDeleteTeam = useCallback((teamId: string) => {
-    setTeams(prev => prev.filter(t => t.id !== teamId));
-    
-    // Remove team from all tournaments
-    setTournaments(prev => prev.map(tournament => ({
-      ...tournament,
-      teams: tournament.teams.filter(id => id !== teamId)
-    })));
-  }, []);
+  const handleDeleteTeam = useCallback(
+    (teamId: string) => {
+      const gameIdsToDelete = games
+        .filter((g) => g.homeTeam.id === teamId || g.awayTeam.id === teamId)
+        .map((g) => g.id);
+
+      const nextTeams = teams.filter((t) => t.id !== teamId);
+      const nextGames = games.filter((g) => !gameIdsToDelete.includes(g.id));
+      const nextTournaments = tournaments.map((tournament) => ({
+        ...tournament,
+        teams: tournament.teams.filter((id) => id !== teamId),
+        games: tournament.games.filter((id) => !gameIdsToDelete.includes(id)),
+      }));
+
+      skipSaveRef.current = true;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      setTeams(nextTeams);
+      setGames(nextGames);
+      setTournaments(nextTournaments);
+      setCurrentGame((prev) => {
+        if (!prev) return prev;
+        const touchesTeam =
+          prev.homeTeam.id === teamId ||
+          prev.awayTeam.id === teamId ||
+          gameIdsToDelete.includes(prev.id);
+        return touchesTeam ? null : prev;
+      });
+
+      const finishDeleteSave = () => {
+        prevTeamsRef.current = nextTeams;
+        prevTournamentsRef.current = nextTournaments;
+        prevGamesRef.current = nextGames;
+        prevDarkModeRef.current = darkMode;
+        skipSaveRef.current = false;
+      };
+
+      if (isSupabaseConfigured) {
+        void (async () => {
+          try {
+            if (gameIdsToDelete.length > 0) {
+              await deleteGamesFromSupabase(gameIdsToDelete);
+            }
+            await deleteTeamsFromSupabase([teamId]);
+            await saveAppDataToSupabase(
+              nextTeams,
+              nextTournaments,
+              nextGames,
+              darkMode
+            );
+            setSaveError(null);
+          } catch (err) {
+            console.error('Delete team from Supabase failed:', err);
+            setSaveError(err instanceof Error ? err.message : String(err));
+          } finally {
+            finishDeleteSave();
+          }
+        })();
+      } else {
+        finishDeleteSave();
+      }
+    },
+    [teams, tournaments, games, darkMode]
+  );
 
   // Search functionality
   const searchResults = useMemo(() => {

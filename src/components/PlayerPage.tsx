@@ -419,20 +419,18 @@ export function PlayerPage({
               return (
                 <div 
                   key={game.id} 
-                  className="flex items-center justify-between p-3 rounded-lg hover:bg-muted/50 cursor-pointer"
+                  className="flex items-center justify-between gap-4 p-3 rounded-lg hover:bg-muted/50 cursor-pointer"
                   onClick={() => onNavigateToGame(game.id)}
                 >
-                  <div className="flex items-center gap-3">
-                    <div className="text-center">
-                      <div className="text-xs text-muted-foreground">
-                        {new Date(game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </div>
-                      <div className="text-xs">
-                        {isHome ? 'vs' : '@'} {opponent.name.substring(0, 8)}
-                      </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-xs text-muted-foreground">
+                      {new Date(game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </div>
+                    <div className="text-sm font-medium leading-snug break-words">
+                      {isHome ? 'vs' : '@'} {opponent.name}
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 text-sm">
+                  <div className="flex items-center gap-4 text-sm shrink-0">
                     <div className="text-center">
                       <div className="font-bold">{stats.points}</div>
                       <div className="text-xs text-muted-foreground">PTS</div>

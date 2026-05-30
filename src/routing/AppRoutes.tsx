@@ -14,6 +14,7 @@ import { ActiveGameBanner } from '../components/ActiveGameBanner';
 import { GameSetup } from '../components/GameSetup';
 import { LiveGameEntry } from '../components/LiveGameEntry';
 import { getActiveGame } from '../utils/activeGame';
+import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
 import type { Game, Team, Tournament, Player, CreateTeamOptions } from '../App';
 import { parseSlugId, slugify } from './slugs';
@@ -358,7 +359,7 @@ export function AppRoutes(props: AppRoutesProps) {
           <Dashboard
             tournaments={tournaments}
             teams={teams}
-            recentGames={games.slice().reverse().slice(0, 10)}
+            recentGames={sortGamesByDateDesc(games.filter((g) => g.isCompleted)).slice(0, 10)}
             onNavigateToTournaments={() => navigate(paths.tournaments)}
             onNavigateToTeams={() => navigate(paths.teams)}
             onNavigateToGameSummary={(game) => navigate(gamePath(game.id))}
@@ -410,7 +411,7 @@ export function AppRoutes(props: AppRoutesProps) {
         path={paths.games}
         element={
           <RecentGames
-            games={games.slice().reverse()}
+            games={games}
             onBack={() => navigate(paths.home)}
             onNavigateToGame={(gameId) => {
               const game = games.find((g) => g.id === gameId);

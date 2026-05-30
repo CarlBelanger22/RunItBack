@@ -9,7 +9,7 @@ import { BoxScore } from './BoxScore';
 import { ShotChart } from './ShotChart';
 import { TeamStats } from './TeamStats';
 import { GameLeadersSection } from './GameLeadersSection';
-import { resolveSideScore } from '../utils/gameDisplay';
+import { resolveTeamScore } from '../utils/gameDisplay';
 
 interface GameSummaryProps {
   game: Game;
@@ -17,8 +17,8 @@ interface GameSummaryProps {
 }
 
 export function GameSummary({ game, onBack }: GameSummaryProps) {
-  const homeScore = resolveSideScore(game, 'home');
-  const awayScore = resolveSideScore(game, 'away');
+  const homeScore = resolveTeamScore(game, game.homeTeam.id);
+  const awayScore = resolveTeamScore(game, game.awayTeam.id);
 
   const gameDate = new Date(game.date);
   const isRecent = Date.now() - gameDate.getTime() < 7 * 24 * 60 * 60 * 1000; // Within 7 days
@@ -72,25 +72,9 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
         </CardHeader>
         
         <CardContent>
-          <div className="flex items-center justify-center space-x-8">
-            {/* Away Team */}
-            <div className="text-center space-y-3">
-              {awayTeamLogo && (
-                <img 
-                  src={awayTeamLogo} 
-                  alt={game.awayTeam.name}
-                  className="w-16 h-16 rounded-full object-cover mx-auto"
-                />
-              )}
-              <h3 className="text-xl font-medium">{game.awayTeam.name}</h3>
-              <div className="text-4xl font-bold">{awayScore}</div>
-            </div>
-            
-            {/* VS */}
-            <div className="text-2xl font-light text-muted-foreground">VS</div>
-            
+          <div className="flex items-start justify-center gap-8 sm:gap-12">
             {/* Home Team */}
-            <div className="text-center space-y-3">
+            <div className="text-center space-y-3 flex-1 min-w-0">
               {homeTeamLogo && (
                 <img 
                   src={homeTeamLogo} 
@@ -98,8 +82,24 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
                   className="w-16 h-16 rounded-full object-cover mx-auto"
                 />
               )}
-              <h3 className="text-xl font-medium">{game.homeTeam.name}</h3>
-              <div className="text-4xl font-bold">{homeScore}</div>
+              <h3 className="text-xl font-medium leading-snug break-words">{game.homeTeam.name}</h3>
+              <div className="text-4xl font-bold tabular-nums">{homeScore}</div>
+            </div>
+            
+            {/* VS */}
+            <div className="text-2xl font-light text-muted-foreground pt-8 shrink-0">VS</div>
+            
+            {/* Away Team */}
+            <div className="text-center space-y-3 flex-1 min-w-0">
+              {awayTeamLogo && (
+                <img 
+                  src={awayTeamLogo} 
+                  alt={game.awayTeam.name}
+                  className="w-16 h-16 rounded-full object-cover mx-auto"
+                />
+              )}
+              <h3 className="text-xl font-medium leading-snug break-words">{game.awayTeam.name}</h3>
+              <div className="text-4xl font-bold tabular-nums">{awayScore}</div>
             </div>
           </div>
           

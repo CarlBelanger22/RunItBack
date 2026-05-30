@@ -23,6 +23,12 @@ export interface GameLeaderResult {
   names: string[];
 }
 
+export function sortGamesByDateDesc(games: Game[]): Game[] {
+  return [...games].sort(
+    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
+  );
+}
+
 export function getTeamForSide(game: Game, side: TeamSide): Team {
   return side === 'home' ? game.homeTeam : game.awayTeam;
 }
@@ -34,6 +40,22 @@ export function getPersistedTeamStats(
   return side === 'home' ? game.teamStats?.home : game.teamStats?.away;
 }
 
+/** Team stats bucket matching `teamId` (not home/away slot). */
+export function getPersistedTeamStatsForTeam(
+  game: Game,
+  teamId: string
+): TeamStats | undefined {
+  const home = game.teamStats?.home;
+  const away = game.teamStats?.away;
+  if (home?.teamId === teamId) return home;
+  if (away?.teamId === teamId) return away;
+  return undefined;
+}
+
+function isHomeTeamId(game: Game, teamId: string): boolean {
+  return game.homeTeamId === teamId || game.homeTeam.id === teamId;
+}
+
 /** True when a side has no player box score rows but a team/final score exists (e.g. SUTD). */
 export function isScoreOnlyTeam(game: Game, side: TeamSide): boolean {
   const team = getTeamForSide(game, side);
@@ -42,8 +64,10 @@ export function isScoreOnlyTeam(game: Game, side: TeamSide): boolean {
   );
   if (hasPlayerBoxScore) return false;
 
-  const persisted = getPersistedTeamStats(game, side);
-  const fromFinal = game.finalScore?.[side] ?? 0;
+  const persisted = getPersistedTeamStatsForTeam(game, team.id);
+  const fromFinal = isHomeTeamId(game, team.id)
+    ? (game.finalScore?.home ?? 0)
+    : (game.finalScore?.away ?? 0);
   return (persisted?.total_points ?? 0) > 0 || fromFinal > 0;
 }
 
@@ -60,19 +84,37 @@ export function getPlayersWhoPlayed(game: Game, team: Team): Player[] {
   return team.players.filter((p) => playerPlayedInGame(game, p.id));
 }
 
-export function resolveSideScore(game: Game, side: TeamSide): number {
-  const team = getTeamForSide(game, side);
+/** Score for a specific team — uses team id, not home/away slot. */
+export function resolveTeamScore(game: Game, teamId: string): number {
+  const team =
+    game.homeTeam.id === teamId
+      ? game.homeTeam
+      : game.awayTeam.id === teamId
+        ? game.awayTeam
+        : null;
+  if (!team) return 0;
+
   const fromPlayers = game.gameStats
     .filter((s) => team.players.some((p) => p.id === s.playerId))
     .reduce((sum, s) => sum + s.points, 0);
   if (fromPlayers > 0) return fromPlayers;
 
-  const persisted = getPersistedTeamStats(game, side);
+  const persisted = getPersistedTeamStatsForTeam(game, teamId);
   if (persisted?.total_points != null && persisted.total_points > 0) {
     return persisted.total_points;
   }
 
-  return game.finalScore?.[side] ?? 0;
+  if (game.finalScore) {
+    return isHomeTeamId(game, teamId)
+      ? game.finalScore.home
+      : game.finalScore.away;
+  }
+
+  return 0;
+}
+
+export function resolveSideScore(game: Game, side: TeamSide): number {
+  return resolveTeamScore(game, getTeamForSide(game, side).id);
 }
 
 export function formatOptionalStat(value: number | null | undefined): string {

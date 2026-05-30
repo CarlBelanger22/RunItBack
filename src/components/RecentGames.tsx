@@ -9,6 +9,7 @@ import {
   isGameInProgress,
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
+import { resolveTeamScore } from '../utils/gameDisplay';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -124,6 +125,8 @@ export function RecentGames({
           filteredGames.map((game) => {
             const homeTeamLogo = getTeamLogo(game.homeTeam.name);
             const awayTeamLogo = getTeamLogo(game.awayTeam.name);
+            const homeScore = resolveTeamScore(game, game.homeTeam.id);
+            const awayScore = resolveTeamScore(game, game.awayTeam.id);
             const inProgress = isGameInProgress(game);
             const orphaned = isOrphanedIncompleteGame(game);
             const showIncompleteActions = canDeleteIncompleteGame(game);
@@ -139,47 +142,49 @@ export function RecentGames({
                     <div className="flex-1">
                       <div className="flex items-center gap-4">
                         {/* Home Team */}
-                        <div className="flex-1 flex items-center justify-end gap-2">
+                        <div className="flex-1 flex items-start justify-end gap-2">
                           <div className="text-right">
                             <div className="font-medium">{game.homeTeam.name}</div>
-                            <div className="text-xs text-muted-foreground">{game.homeTeam.abbreviation}</div>
+                            {game.isCompleted && (
+                              <div className="text-2xl font-bold tabular-nums mt-1">{homeScore}</div>
+                            )}
                           </div>
                           {homeTeamLogo && (
                             <img 
                               src={homeTeamLogo} 
                               alt={game.homeTeam.name}
-                              className="w-10 h-10 rounded-full object-cover"
+                              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                             />
                           )}
                         </div>
                         
-                        {/* Score */}
-                        <div className="flex items-center gap-3 px-6">
-                          {game.finalScore ? (
-                            <>
-                              <div className="text-2xl font-bold">{game.finalScore.home}</div>
-                              <div className="text-muted-foreground">-</div>
-                              <div className="text-2xl font-bold">{game.finalScore.away}</div>
-                            </>
-                          ) : inProgress ? (
+                        {/* Status */}
+                        <div className="flex items-center px-4 shrink-0">
+                          {inProgress ? (
                             <Badge variant="outline">Live</Badge>
-                          ) : (
+                          ) : !game.isCompleted ? (
                             <Badge variant="secondary">Incomplete</Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm" aria-hidden>
+                              vs
+                            </span>
                           )}
                         </div>
                         
                         {/* Away Team */}
-                        <div className="flex-1 flex items-center gap-2">
+                        <div className="flex-1 flex items-start gap-2">
                           {awayTeamLogo && (
                             <img 
                               src={awayTeamLogo} 
                               alt={game.awayTeam.name}
-                              className="w-10 h-10 rounded-full object-cover"
+                              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                             />
                           )}
                           <div className="text-left">
                             <div className="font-medium">{game.awayTeam.name}</div>
-                            <div className="text-xs text-muted-foreground">{game.awayTeam.abbreviation}</div>
+                            {game.isCompleted && (
+                              <div className="text-2xl font-bold tabular-nums mt-1">{awayScore}</div>
+                            )}
                           </div>
                         </div>
                       </div>
