@@ -1,5 +1,9 @@
 import type { Game, GameStats, Player, Team, Tournament } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
+import {
+  gameHasShotChartData,
+  getPlayerPaintAndFastbreakPoints,
+} from './gameDisplay';
 
 export type TournamentScope = 'all' | string;
 
@@ -8,6 +12,54 @@ export interface PlayerSeasonRow {
   team: Team;
   totalStats: GameStats;
   gamesPlayed: number;
+  /** Sum of paint points from games with shot chart data. */
+  paintPointsTotal: number;
+  /** Sum of fastbreak points from games with shot chart data. */
+  fastbreakPointsTotal: number;
+  /** Games played that had shot chart tracking. */
+  gamesWithShotData: number;
+}
+
+export interface ShotDataCoverage {
+  gamesWithShotData: number;
+  gamesTotal: number;
+  isPartial: boolean;
+}
+
+export function getShotDataCoverage(games: Game[] | undefined): ShotDataCoverage {
+  const scoped = games ?? [];
+  const gamesTotal = scoped.length;
+  const gamesWithShotData = scoped.filter((g) => gameHasShotChartData(g)).length;
+  return {
+    gamesWithShotData,
+    gamesTotal,
+    isPartial: gamesWithShotData > 0 && gamesWithShotData < gamesTotal,
+  };
+}
+
+/** True when at least one player-game in scope has a non-zero value (stat was recorded). */
+export interface FoulStatCoverage {
+  blocksAgainst: boolean;
+  techFouls: boolean;
+  unsportsmanlikeFouls: boolean;
+}
+
+export function getFoulStatCoverage(games: Game[] | undefined): FoulStatCoverage {
+  const coverage: FoulStatCoverage = {
+    blocksAgainst: false,
+    techFouls: false,
+    unsportsmanlikeFouls: false,
+  };
+
+  for (const game of games ?? []) {
+    for (const stat of game.gameStats ?? []) {
+      if (stat.blocks_received > 0) coverage.blocksAgainst = true;
+      if (stat.tech_fouls > 0) coverage.techFouls = true;
+      if (stat.unsportsmanlike_fouls > 0) coverage.unsportsmanlikeFouls = true;
+    }
+  }
+
+  return coverage;
 }
 
 export type PlayerStatsSortField =
@@ -30,13 +82,21 @@ export type PlayerStatsSortField =
   | 'FT%'
   | 'FTM'
   | 'FTA'
-  | 'ORPG'
   | 'TOPG'
   | 'FPG'
+  | 'ORPG'
   | 'FDPG'
   | '+/-'
   | 'GmSc'
-  | 'EFF';
+  | 'EFF'
+  | 'FG'
+  | '3PT'
+  | 'FT'
+  | 'Paint'
+  | 'FB'
+  | 'BlocksAgainst'
+  | 'TFPG'
+  | 'UFPG';
 
 const POSITION_ORDER = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
 
@@ -176,8 +236,26 @@ export function aggregatePlayerSeasonStats(
         team,
         totalStats: { ...stats },
         gamesPlayed: 1,
+        paintPointsTotal: 0,
+        fastbreakPointsTotal: 0,
+        gamesWithShotData: 0,
       });
     }
+  });
+
+  (games ?? []).forEach((game) => {
+    if (!gameHasShotChartData(game)) return;
+    (game.gameStats ?? []).forEach((stat) => {
+      const row = playerTotals.get(stat.playerId);
+      if (!row) return;
+      const { paintPoints, fastbreakPoints } = getPlayerPaintAndFastbreakPoints(
+        game,
+        stat.playerId
+      );
+      row.paintPointsTotal += paintPoints ?? 0;
+      row.fastbreakPointsTotal += fastbreakPoints ?? 0;
+      row.gamesWithShotData += 1;
+    });
   });
 
   scopeTeams.forEach((team) => {
@@ -188,6 +266,9 @@ export function aggregatePlayerSeasonStats(
           team,
           totalStats: emptyGameStats(player.id),
           gamesPlayed: 0,
+          paintPointsTotal: 0,
+          fastbreakPointsTotal: 0,
+          gamesWithShotData: 0,
         });
       }
     });
@@ -361,6 +442,70 @@ export function sortPlayerSeasonRows(
         bValue = b.gamesPlayed > 0 ? bEff / b.gamesPlayed : 0;
         break;
       }
+      case 'FG':
+        aValue = a.totalStats.fg_attempted;
+        bValue = b.totalStats.fg_attempted;
+        if (aValue === bValue) {
+          aValue = a.totalStats.fg_made;
+          bValue = b.totalStats.fg_made;
+        }
+        break;
+      case '3PT':
+        aValue = a.totalStats.three_attempted;
+        bValue = b.totalStats.three_attempted;
+        if (aValue === bValue) {
+          aValue = a.totalStats.three_made;
+          bValue = b.totalStats.three_made;
+        }
+        break;
+      case 'FT':
+        aValue = a.totalStats.ft_attempted;
+        bValue = b.totalStats.ft_attempted;
+        if (aValue === bValue) {
+          aValue = a.totalStats.ft_made;
+          bValue = b.totalStats.ft_made;
+        }
+        break;
+      case 'Paint':
+        aValue =
+          a.gamesWithShotData > 0
+            ? a.paintPointsTotal / a.gamesWithShotData
+            : Number.NEGATIVE_INFINITY;
+        bValue =
+          b.gamesWithShotData > 0
+            ? b.paintPointsTotal / b.gamesWithShotData
+            : Number.NEGATIVE_INFINITY;
+        break;
+      case 'FB':
+        aValue =
+          a.gamesWithShotData > 0
+            ? a.fastbreakPointsTotal / a.gamesWithShotData
+            : Number.NEGATIVE_INFINITY;
+        bValue =
+          b.gamesWithShotData > 0
+            ? b.fastbreakPointsTotal / b.gamesWithShotData
+            : Number.NEGATIVE_INFINITY;
+        break;
+      case 'BlocksAgainst':
+        aValue =
+          a.gamesPlayed > 0 ? a.totalStats.blocks_received / a.gamesPlayed : 0;
+        bValue =
+          b.gamesPlayed > 0 ? b.totalStats.blocks_received / b.gamesPlayed : 0;
+        break;
+      case 'TFPG':
+        aValue = a.gamesPlayed > 0 ? a.totalStats.tech_fouls / a.gamesPlayed : 0;
+        bValue = b.gamesPlayed > 0 ? b.totalStats.tech_fouls / b.gamesPlayed : 0;
+        break;
+      case 'UFPG':
+        aValue =
+          a.gamesPlayed > 0
+            ? a.totalStats.unsportsmanlike_fouls / a.gamesPlayed
+            : 0;
+        bValue =
+          b.gamesPlayed > 0
+            ? b.totalStats.unsportsmanlike_fouls / b.gamesPlayed
+            : 0;
+        break;
       case 'GmSc': {
         const aGmSc = MetricsCalculator.calculateGameScore(a.totalStats);
         const bGmSc = MetricsCalculator.calculateGameScore(b.totalStats);

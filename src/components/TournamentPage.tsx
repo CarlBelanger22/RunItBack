@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -11,7 +11,7 @@ import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Tournament, Team, Game } from '../App';
 import { PlayerStatsTable } from './PlayerStatsTable';
-import { aggregatePlayerSeasonStats } from '../utils/playerSeasonStats';
+import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
   Trophy, 
@@ -107,7 +107,7 @@ export function TournamentPage({
       
       const gamesPlayed = wins + losses;
       const winPercentage = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
-      const pointsDiff = gamesPlayed > 0 ? (pointsFor - pointsAgainst) / gamesPlayed : 0; // Per-game average
+      const pointsDiff = pointsFor - pointsAgainst;
       const ppg = gamesPlayed > 0 ? pointsFor / gamesPlayed : 0;
       const papg = gamesPlayed > 0 ? pointsAgainst / gamesPlayed : 0;
       
@@ -136,7 +136,7 @@ export function TournamentPage({
     const allPlayerStats: Array<{ player: Player; team: Team; stats: GameStats }> = [];
     
     tournamentGames.forEach(game => {
-      game.gameStats.forEach(stat => {
+      (game.gameStats ?? []).forEach(stat => {
         const playerTeam = tournamentTeams.find(team => 
           team.players.some(p => p.id === stat.playerId)
         );
@@ -895,7 +895,7 @@ export function TournamentPage({
                     </div>
                     <div>
                       <div className="font-bold">
-                        {teamStanding.pointsDiff >= 0 ? '+' : ''}{teamStanding.pointsDiff.toFixed(1)}
+                        {teamStanding.pointsDiff >= 0 ? '+' : ''}{teamStanding.pointsDiff}
                       </div>
                       <div className="text-xs text-muted-foreground">DIFF</div>
                     </div>
@@ -948,7 +948,6 @@ export function TournamentPage({
                   <TableHead className="text-center">DIFF</TableHead>
                   <TableHead className="text-center">PF</TableHead>
                   <TableHead className="text-center">PA</TableHead>
-                  <TableHead className="text-center">PD</TableHead>
                   <TableHead className="text-center">FG%</TableHead>
                   <TableHead className="text-center">3P%</TableHead>
                   <TableHead className="text-center">FT%</TableHead>
@@ -957,7 +956,6 @@ export function TournamentPage({
               <TableBody>
                 {extendedStandings.map((standing, index) => {
                   const teamLogo = getTeamLogo(standing.team.name);
-                  const totalPointsDiff = standing.pointsFor - standing.pointsAgainst;
                   return (
                     <TableRow 
                       key={standing.team.id} 
@@ -993,16 +991,11 @@ export function TournamentPage({
                       <TableCell className="text-center">{standing.papg.toFixed(1)}</TableCell>
                       <TableCell className="text-center">
                         <span className={standing.pointsDiff >= 0 ? "text-green-600" : "text-red-600"}>
-                          {standing.pointsDiff >= 0 ? '+' : ''}{standing.pointsDiff.toFixed(1)}
+                          {standing.pointsDiff >= 0 ? '+' : ''}{standing.pointsDiff}
                         </span>
                       </TableCell>
                       <TableCell className="text-center">{standing.pointsFor}</TableCell>
                       <TableCell className="text-center">{standing.pointsAgainst}</TableCell>
-                      <TableCell className="text-center">
-                        <span className={totalPointsDiff >= 0 ? "text-green-600" : "text-red-600"}>
-                          {totalPointsDiff >= 0 ? '+' : ''}{totalPointsDiff}
-                        </span>
-                      </TableCell>
                       <TableCell className="text-center">{standing.fgPct.toFixed(1)}%</TableCell>
                       <TableCell className="text-center">{standing.threePct.toFixed(1)}%</TableCell>
                       <TableCell className="text-center">{standing.ftPct.toFixed(1)}%</TableCell>
@@ -1019,6 +1012,8 @@ export function TournamentPage({
 
   const PlayersTab = () => {
     const playersData = aggregatePlayerSeasonStats(tournamentGames, tournamentTeams);
+    const shotDataCoverage = getShotDataCoverage(tournamentGames);
+    const foulStatCoverage = getFoulStatCoverage(tournamentGames);
 
     return (
       <div className="space-y-6">
@@ -1030,6 +1025,8 @@ export function TournamentPage({
         <PlayerStatsTable
           rows={playersData}
           showTeamColumn
+          shotDataCoverage={shotDataCoverage}
+          foulStatCoverage={foulStatCoverage}
           onNavigateToPlayer={onNavigateToPlayer}
         />
       </div>

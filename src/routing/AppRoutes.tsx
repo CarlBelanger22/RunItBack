@@ -27,6 +27,11 @@ import {
   tournamentPath,
 } from './paths';
 import { parsePlayerTab, parseTeamTab, parseTournamentTab, type PlayerTab, type TeamTab, type TournamentTab } from './tabs';
+import {
+  currentLocationPath,
+  navigateBack,
+  navigateWithReturnTo,
+} from './navigation';
 
 export interface AppRoutesProps {
   teams: Team[];
@@ -92,6 +97,8 @@ function TournamentDetailRoute({
     }
   };
 
+  const returnTo = currentLocationPath(location);
+
   return (
     <TournamentPage
       tournament={tournament}
@@ -99,21 +106,23 @@ function TournamentDetailRoute({
       games={games}
       activeTab={tab}
       onTabChange={handleTabChange}
-      onBack={() => navigate(paths.tournaments)}
+      onBack={() => navigateBack(navigate, location, paths.tournaments)}
       onNavigateToTeam={(teamId) => {
         const team = teams.find((t) => t.id === teamId);
-        if (team) navigate(teamPath(team));
+        if (team) navigateWithReturnTo(navigate, teamPath(team), returnTo);
       }}
       onNavigateToPlayer={(playerId, teamId) => {
         const found = findPlayer(teams, playerId);
-        if (found) navigate(playerPath(found.player));
+        if (found) navigateWithReturnTo(navigate, playerPath(found.player), returnTo);
         else if (teamId) {
           const team = teams.find((t) => t.id === teamId);
           const player = team?.players.find((p) => p.id === playerId);
-          if (player) navigate(playerPath(player));
+          if (player) navigateWithReturnTo(navigate, playerPath(player), returnTo);
         }
       }}
-      onNavigateToGame={(gameId) => navigate(gamePath(gameId))}
+      onNavigateToGame={(gameId) =>
+        navigateWithReturnTo(navigate, gamePath(gameId), returnTo)
+      }
       onCreateTeam={onCreateTeam}
       onAddTeamToTournament={onAddTeamToTournament}
       onUpdateTeam={onUpdateTeam}
@@ -150,6 +159,8 @@ function TeamDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoutesP
     }
   };
 
+  const returnTo = currentLocationPath(location);
+
   return (
     <ErrorBoundary>
       <TeamPage
@@ -158,20 +169,24 @@ function TeamDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoutesP
         tournaments={tournaments}
         activeTab={tab}
         onTabChange={handleTabChange}
-        onBack={() => navigate(paths.teams)}
+        onBack={() => navigateBack(navigate, location, paths.teams)}
         onNavigateToPlayer={(playerId, teamIdHint) => {
           const found = findPlayer(teams, playerId);
-          if (found) navigate(playerPath(found.player));
+          if (found) navigateWithReturnTo(navigate, playerPath(found.player), returnTo);
           else {
             const t = teams.find((x) => x.id === (teamIdHint || team.id));
             const player = t?.players.find((p) => p.id === playerId);
-            if (player) navigate(playerPath(player));
+            if (player) navigateWithReturnTo(navigate, playerPath(player), returnTo);
           }
         }}
-        onNavigateToGame={(gameId) => navigate(gamePath(gameId))}
+        onNavigateToGame={(gameId) =>
+          navigateWithReturnTo(navigate, gamePath(gameId), returnTo)
+        }
         onNavigateToTournament={(tournamentId) => {
           const tournament = tournaments.find((t) => t.id === tournamentId);
-          if (tournament) navigate(tournamentPath(tournament));
+          if (tournament) {
+            navigateWithReturnTo(navigate, tournamentPath(tournament), returnTo);
+          }
         }}
         onUpdateTeam={onUpdateTeam}
       />
@@ -208,6 +223,8 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoute
     }
   };
 
+  const returnTo = currentLocationPath(location);
+
   return (
     <ErrorBoundary>
       <PlayerPage
@@ -217,15 +234,19 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoute
         tournaments={tournaments}
         activeTab={tab}
         onTabChange={handleTabChange}
-        onBack={() => navigate(teamPath(team))}
+        onBack={() => navigateBack(navigate, location, teamPath(team))}
         onNavigateToTeam={(teamId) => {
           const t = teams.find((x) => x.id === teamId);
-          if (t) navigate(teamPath(t));
+          if (t) navigateWithReturnTo(navigate, teamPath(t), returnTo);
         }}
-        onNavigateToGame={(gameId) => navigate(gamePath(gameId))}
+        onNavigateToGame={(gameId) =>
+          navigateWithReturnTo(navigate, gamePath(gameId), returnTo)
+        }
         onNavigateToTournament={(tournamentId) => {
           const tournament = tournaments.find((t) => t.id === tournamentId);
-          if (tournament) navigate(tournamentPath(tournament));
+          if (tournament) {
+            navigateWithReturnTo(navigate, tournamentPath(tournament), returnTo);
+          }
         }}
         onUpdateTeam={onUpdateTeam}
       />
@@ -236,6 +257,7 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoute
 function GameSummaryRoute({ games }: Pick<AppRoutesProps, 'games'>) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const game = gameId ? games.find((g) => g.id === gameId) : undefined;
 
   if (!gameId || !game) {
@@ -243,7 +265,10 @@ function GameSummaryRoute({ games }: Pick<AppRoutesProps, 'games'>) {
   }
 
   return (
-    <GameSummary game={game} onBack={() => navigate(-1)} />
+    <GameSummary
+      game={game}
+      onBack={() => navigateBack(navigate, location, paths.home)}
+    />
   );
 }
 
@@ -327,20 +352,22 @@ export function AppRoutes(props: AppRoutesProps) {
     [games, currentGame]
   );
 
+  const returnTo = currentLocationPath(location);
+
   const navigateToTournament = (tournamentId: string, tab: TournamentTab = 'home') => {
     const tournament = tournaments.find((t) => t.id === tournamentId);
     if (!tournament) return;
     const target = tournamentPath(tournament, tab);
-    const current = `${location.pathname}${location.search}`;
-    if (target !== current) navigate(target);
+    const current = returnTo;
+    if (target !== current) navigateWithReturnTo(navigate, target, returnTo);
   };
 
   const navigateToTeam = (teamId: string, tab: TeamTab = 'overview') => {
     const team = teams.find((t) => t.id === teamId);
     if (!team) return;
     const target = teamPath(team, tab);
-    const current = `${location.pathname}${location.search}`;
-    if (target !== current) navigate(target);
+    const current = returnTo;
+    if (target !== current) navigateWithReturnTo(navigate, target, returnTo);
   };
 
   const handleGameStart = (game: Game): boolean => {
@@ -362,7 +389,9 @@ export function AppRoutes(props: AppRoutesProps) {
             recentGames={sortGamesByDateDesc(games.filter((g) => g.isCompleted)).slice(0, 10)}
             onNavigateToTournaments={() => navigate(paths.tournaments)}
             onNavigateToTeams={() => navigate(paths.teams)}
-            onNavigateToGameSummary={(game) => navigate(gamePath(game.id))}
+            onNavigateToGameSummary={(game) =>
+              navigateWithReturnTo(navigate, gamePath(game.id), returnTo)
+            }
             onStartNewGame={() => navigate(paths.statsEntry)}
             onNavigateToTournament={navigateToTournament}
             onNavigateToTeam={navigateToTeam}
@@ -417,9 +446,9 @@ export function AppRoutes(props: AppRoutesProps) {
               const game = games.find((g) => g.id === gameId);
               if (game?.isActive && !game.isCompleted) {
                 setCurrentGame(game);
-                navigate(liveGamePath(gameId));
+                navigateWithReturnTo(navigate, liveGamePath(gameId), returnTo);
               } else {
-                navigate(gamePath(gameId));
+                navigateWithReturnTo(navigate, gamePath(gameId), returnTo);
               }
             }}
             onDeleteActiveGame={onDeleteActiveGame}

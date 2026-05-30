@@ -36,20 +36,22 @@ export function TournamentManager({
     month: string;
     teams: string[];
   }) => {
-    const tournamentData = {
-      ...data,
-      games: [],
-      standings: []
-    };
-
     if (editingTournament) {
       onUpdateTournament({
         ...editingTournament,
-        ...tournamentData
+        name: data.name,
+        description: data.description,
+        year: data.year,
+        month: data.month,
+        teams: data.teams,
       });
       setEditingTournament(null);
     } else {
-      onCreateTournament(tournamentData);
+      onCreateTournament({
+        ...data,
+        games: [],
+        standings: [],
+      });
       setIsCreateDialogOpen(false);
     }
   }, [editingTournament, onUpdateTournament, onCreateTournament]);

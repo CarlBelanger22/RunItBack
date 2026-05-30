@@ -26,6 +26,7 @@ import {
 import { PLAYER_MEASUREMENTS_MIGRATION_KEY } from './lib/playerMeasurements';
 import { AppRoutes } from './routing/AppRoutes';
 import { gamePath, liveGamePath, paths, playerPath, teamPath } from './routing/paths';
+import { currentLocationPath, navigateWithReturnTo } from './routing/navigation';
 import {
   dedupeActiveGames,
   getActiveGame,
@@ -1537,7 +1538,11 @@ export default function App() {
                       <button
                         key={team.id}
                         onClick={() => {
-                          navigate(teamPath(team));
+                          navigateWithReturnTo(
+                            navigate,
+                            teamPath(team),
+                            currentLocationPath(location)
+                          );
                           setSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
@@ -1560,7 +1565,11 @@ export default function App() {
                       <button
                         key={player.id}
                         onClick={() => {
-                          navigate(playerPath(player));
+                          navigateWithReturnTo(
+                            navigate,
+                            playerPath(player),
+                            currentLocationPath(location)
+                          );
                           setSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted"
@@ -1584,7 +1593,11 @@ export default function App() {
                       <button
                         key={game.id}
                         onClick={() => {
-                          navigate(gamePath(game.id));
+                          navigateWithReturnTo(
+                            navigate,
+                            gamePath(game.id),
+                            currentLocationPath(location)
+                          );
                           setSearchQuery('');
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted"

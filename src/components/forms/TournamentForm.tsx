@@ -75,7 +75,7 @@ export const TournamentForm = React.memo(({
     };
 
     onSubmit(tournamentData);
-  }, [onSubmit]);
+  }, [onSubmit, month, selectedTeams]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" onKeyDown={(e) => {

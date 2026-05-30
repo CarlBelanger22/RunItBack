@@ -18,6 +18,8 @@ import { TournamentScopeSelect } from './TournamentScopeSelect';
 import {
   aggregatePlayerSeasonStats,
   filterTeamScopeGames,
+  getShotDataCoverage,
+  getFoulStatCoverage,
   getTeamTournamentScopeOptions,
   resolveInitialTournamentScope,
   type TournamentScope,
@@ -427,6 +429,16 @@ export function TeamPage({
     [filteredStatsGames, team]
   );
 
+  const playerStatsShotCoverage = useMemo(
+    () => getShotDataCoverage(filteredStatsGames),
+    [filteredStatsGames]
+  );
+
+  const playerStatsFoulCoverage = useMemo(
+    () => getFoulStatCoverage(filteredStatsGames),
+    [filteredStatsGames]
+  );
+
   const rosterRows = useMemo(
     () =>
       team.players.map((player) => {
@@ -577,7 +589,7 @@ export function TeamPage({
     
     const gamesPlayed = wins + losses;
     const winPercentage = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
-    const pointsDiff = gamesPlayed > 0 ? (pointsFor - pointsAgainst) / gamesPlayed : 0;
+    const pointsDiff = pointsFor - pointsAgainst;
     
     return {
       wins,
@@ -703,7 +715,7 @@ export function TeamPage({
         <Card className="text-center">
           <CardContent className="pt-4">
             <div className="text-2xl font-bold">
-              {record.pointsDiff >= 0 ? '+' : ''}{record.pointsDiff.toFixed(1)}
+              {record.pointsDiff >= 0 ? '+' : ''}{record.pointsDiff}
             </div>
             <div className="text-sm text-muted-foreground">Point Diff</div>
           </CardContent>
@@ -1157,6 +1169,8 @@ export function TeamPage({
           <PlayerStatsTable
             rows={playerSeasonRows}
             showTeamColumn={false}
+            shotDataCoverage={playerStatsShotCoverage}
+            foulStatCoverage={playerStatsFoulCoverage}
             onNavigateToPlayer={onNavigateToPlayer}
           />
         </div>

@@ -205,18 +205,25 @@ export function TeamStats({ game }: TeamStatsProps) {
   }) => {
     const team = side === 'home' ? game.homeTeam : game.awayTeam;
     const playedPlayers = getPlayersWhoPlayed(game, team);
-    const chartData = playedPlayers.map((player) => {
-      const stat =
-        game.gameStats.find((s) => s.playerId === player.id) ??
-        MetricsCalculator.getEmptyStats(player.id);
-      return {
-        name: getPlayerFirstName(player.name),
-        fullName: player.name,
-        points: stat.points,
-        rebounds: stat.orb + stat.drb,
-        assists: stat.assists,
-      };
-    });
+    const chartData = playedPlayers
+      .map((player) => {
+        const stat =
+          game.gameStats.find((s) => s.playerId === player.id) ??
+          MetricsCalculator.getEmptyStats(player.id);
+        return {
+          name: getPlayerFirstName(player.name),
+          fullName: player.name,
+          points: stat.points,
+          rebounds: stat.orb + stat.drb,
+          assists: stat.assists,
+          minutes_played: stat.minutes_played,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.minutes_played - a.minutes_played ||
+          a.fullName.localeCompare(b.fullName)
+      );
 
     if (stats.scoreOnly) {
       return (

@@ -420,6 +420,17 @@ export async function saveAppDataToSupabase(
       junctionRows.push({ tournament_id: t.id, team_id: teamId });
     }
   }
+
+  const tournamentIds = tournaments.map((t) => t.id);
+  if (tournamentIds.length > 0) {
+    const { error: junctionDeleteError } = await supabase
+      .from('tournament_teams')
+      .delete()
+      .in('tournament_id', tournamentIds);
+    if (junctionDeleteError) {
+      throw new Error(`tournament_teams delete: ${junctionDeleteError.message}`);
+    }
+  }
   await upsertChunks('tournament_teams', junctionRows, 'tournament_id,team_id');
 
   const gameRows = games.map((g) => gameToDbRow(g, leagueId));
