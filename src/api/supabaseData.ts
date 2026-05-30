@@ -21,6 +21,7 @@ interface DbTeam {
   icon: string | null;
   description: string | null;
   current_tournament_id: string | null;
+  created_at?: string;
 }
 
 interface DbPlayer {
@@ -46,6 +47,7 @@ interface DbTournament {
   year: number;
   month: string;
   standings: Tournament['standings'];
+  created_at?: string;
 }
 
 interface DbTournamentTeam {
@@ -100,6 +102,7 @@ function dbTeamToTeam(row: DbTeam, players: Player[]): Team {
     description: row.description ?? undefined,
     players,
     currentTournamentId: row.current_tournament_id ?? undefined,
+    createdAt: row.created_at ?? undefined,
   };
 }
 
@@ -338,6 +341,7 @@ export async function loadAppDataFromSupabase(
       teams: teamsByTournament.get(row.id) ?? [],
       games: gameIds,
       standings: row.standings ?? [],
+      createdAt: row.created_at ?? undefined,
     };
   });
 

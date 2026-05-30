@@ -21,8 +21,22 @@ interface DashboardProps {
   onNavigateToRecentGames: () => void;
 }
 
-function sortByName<T extends { name: string }>(items: T[]): T[] {
-  return [...items].sort((a, b) => a.name.localeCompare(b.name));
+function getCreatedAtMs(item: { id: string; createdAt?: string }): number {
+  if (item.createdAt) {
+    const parsed = Date.parse(item.createdAt);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  const match = item.id.match(/-(\d{10,})$/);
+  if (match) return Number(match[1]);
+  return 0;
+}
+
+function sortByMostRecent<T extends { id: string; createdAt?: string }>(
+  items: T[]
+): T[] {
+  return [...items].sort(
+    (a, b) => getCreatedAtMs(b) - getCreatedAtMs(a)
+  );
 }
 
 export function Dashboard({
@@ -36,8 +50,14 @@ export function Dashboard({
   onNavigateToTeam,
   onNavigateToRecentGames,
 }: DashboardProps) {
-  const sortedTournaments = useMemo(() => sortByName(tournaments), [tournaments]);
-  const sortedTeams = useMemo(() => sortByName(teams), [teams]);
+  const recentTournaments = useMemo(
+    () => sortByMostRecent(tournaments).slice(0, 3),
+    [tournaments]
+  );
+  const recentTeams = useMemo(
+    () => sortByMostRecent(teams).slice(0, 4),
+    [teams]
+  );
   const previewGames = recentGames.slice(0, 3);
 
   const tournamentNameById = useMemo(() => {
@@ -60,9 +80,9 @@ export function Dashboard({
           }
           onClick={onNavigateToTournaments}
         >
-          {sortedTournaments.length > 0 && (
+          {recentTournaments.length > 0 && (
             <div className="space-y-1">
-              {sortedTournaments.slice(0, 3).map((tournament) => (
+              {recentTournaments.map((tournament) => (
                 <div
                   key={tournament.id}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"
@@ -95,9 +115,9 @@ export function Dashboard({
           countLabel={teams.length === 1 ? 'Team Created' : 'Teams Created'}
           onClick={onNavigateToTeams}
         >
-          {sortedTeams.length > 0 && (
+          {recentTeams.length > 0 && (
             <div className="space-y-1">
-              {sortedTeams.slice(0, 3).map((team) => (
+              {recentTeams.map((team) => (
                 <div
                   key={team.id}
                   className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50"

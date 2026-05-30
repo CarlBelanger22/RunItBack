@@ -63,6 +63,7 @@ export interface Team {
   description?: string;
   players: Player[];
   currentTournamentId?: string;
+  createdAt?: string;
 }
 
 export interface Tournament {
@@ -75,6 +76,7 @@ export interface Tournament {
   teams: string[]; // Team IDs
   games: string[]; // Game IDs associated with this tournament
   standings: TournamentStanding[];
+  createdAt?: string;
 }
 
 export interface TournamentStanding {
@@ -1218,7 +1220,8 @@ export default function App() {
       id: `tournament-${Date.now()}`,
       teams: [],
       games: [],
-      standings: []
+      standings: [],
+      createdAt: new Date().toISOString(),
     };
     setTournaments(prev => [...prev, tournament]);
   }, []);
@@ -1246,6 +1249,7 @@ export default function App() {
           teamData.abbreviation?.trim().toUpperCase() ||
           generateTeamAbbreviation(teamData.name, taken),
         currentTournamentId: tournamentIds[0] ?? teamData.currentTournamentId,
+        createdAt: new Date().toISOString(),
       };
       setTeams((prev) => [...prev, team]);
 
