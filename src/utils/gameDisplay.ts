@@ -18,9 +18,16 @@ export type OptionalAdvancedTeamStatKey =
 
 export type GameLeaderMetric = 'points' | 'assists' | 'rebounds' | 'efficiency';
 
+export interface GameLeaderEntry {
+  name: string;
+  playerId: string;
+  teamId: string;
+}
+
 export interface GameLeaderResult {
   value: number;
   names: string[];
+  leaders: GameLeaderEntry[];
 }
 
 export function sortGamesByDateDesc(games: Game[]): Game[] {
@@ -84,7 +91,7 @@ export function getPlayersWhoPlayed(game: Game, team: Team): Player[] {
   return team.players.filter((p) => playerPlayedInGame(game, p.id));
 }
 
-/** Score for a specific team ó uses team id, not home/away slot. */
+/** Score for a specific team ù uses team id, not home/away slot. */
 export function resolveTeamScore(game: Game, teamId: string): number {
   const team =
     game.homeTeam.id === teamId
@@ -332,7 +339,12 @@ export function getGameLeaders(
   game: Game,
   metric: GameLeaderMetric
 ): GameLeaderResult | null {
-  const entries: { name: string; value: number }[] = [];
+  const entries: {
+    name: string;
+    playerId: string;
+    teamId: string;
+    value: number;
+  }[] = [];
 
   for (const team of [game.homeTeam, game.awayTeam]) {
     for (const player of getPlayersWhoPlayed(game, team)) {
@@ -340,6 +352,8 @@ export function getGameLeaders(
       if (!stat) continue;
       entries.push({
         name: player.name,
+        playerId: player.id,
+        teamId: team.id,
         value: leaderMetricValue(stat, metric),
       });
     }
@@ -348,8 +362,11 @@ export function getGameLeaders(
   if (entries.length === 0) return null;
 
   const max = Math.max(...entries.map((e) => e.value));
-  const names = entries.filter((e) => e.value === max).map((e) => e.name);
-  return { value: max, names };
+  const leaders = entries
+    .filter((e) => e.value === max)
+    .map(({ name, playerId, teamId }) => ({ name, playerId, teamId }));
+  const names = leaders.map((l) => l.name);
+  return { value: max, names, leaders };
 }
 
 /** First token of display name ù for compact chart axis labels. */

@@ -254,7 +254,10 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoute
   );
 }
 
-function GameSummaryRoute({ games }: Pick<AppRoutesProps, 'games'>) {
+function GameSummaryRoute({
+  games,
+  teams,
+}: Pick<AppRoutesProps, 'games' | 'teams'>) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -264,10 +267,30 @@ function GameSummaryRoute({ games }: Pick<AppRoutesProps, 'games'>) {
     return <NotFound />;
   }
 
+  const returnTo = currentLocationPath(location);
+
   return (
     <GameSummary
       game={game}
       onBack={() => navigateBack(navigate, location, paths.home)}
+      onNavigateToPlayer={(playerId, teamIdHint) => {
+        const found = findPlayer(teams, playerId);
+        if (found) {
+          navigateWithReturnTo(navigate, playerPath(found.player), returnTo);
+          return;
+        }
+        const team = teams.find((t) => t.id === teamIdHint);
+        const player = team?.players.find((p) => p.id === playerId);
+        if (player) {
+          navigateWithReturnTo(navigate, playerPath(player), returnTo);
+        }
+      }}
+      onNavigateToTeam={(teamId) => {
+        const team = teams.find((t) => t.id === teamId);
+        if (team) {
+          navigateWithReturnTo(navigate, teamPath(team), returnTo);
+        }
+      }}
     />
   );
 }
@@ -456,7 +479,10 @@ export function AppRoutes(props: AppRoutesProps) {
         }
       />
 
-      <Route path="/games/:gameId" element={<GameSummaryRoute games={games} />} />
+      <Route
+        path="/games/:gameId"
+        element={<GameSummaryRoute games={games} teams={teams} />}
+      />
 
       <Route
         path={paths.statsEntry}

@@ -4,13 +4,19 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Avatar, AvatarFallback } from './ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Tournament, Team, Game } from '../App';
 import { PlayerStatsTable } from './PlayerStatsTable';
+import { TeamAvatar } from './TeamAvatar';
+import {
+  generateTeamAbbreviation,
+  isValidTeamAbbreviation,
+  normalizeTeamAbbreviation,
+  TEAM_ABBREV_MAX,
+} from '../utils/teamAbbreviation';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
@@ -588,8 +594,15 @@ export function TournamentPage({
     
     // Read from refs instead of state
     const name = teamNameInputRef.current?.value || '';
-    const abbreviation = teamAbbreviationInputRef.current?.value.toUpperCase() || '';
+    const abbrevInput = normalizeTeamAbbreviation(
+      teamAbbreviationInputRef.current?.value || ''
+    );
     const description = teamDescriptionTextareaRef.current?.value || '';
+    const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
+    const resolvedAbbreviation =
+      abbrevInput && isValidTeamAbbreviation(abbrevInput)
+        ? abbrevInput
+        : generateTeamAbbreviation(name, takenAbbreviations);
     
     const players = teamFormData.players.map((player, index) => ({
       id: `player-${Date.now()}-${index}`,
@@ -603,7 +616,7 @@ export function TournamentPage({
 
     const teamData = {
       name,
-      abbreviation: abbreviation || name.substring(0, 3).toUpperCase(),
+      abbreviation: resolvedAbbreviation,
       description,
       players,
       currentTournamentId: tournament.id
@@ -677,11 +690,7 @@ export function TournamentPage({
                       }}
                     >
                       <div className="flex items-center gap-3">
-                        <Avatar className="w-8 h-8">
-                          <AvatarFallback className="text-xs">
-                            {team.name.substring(0, 2).toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
+                        <TeamAvatar team={team} size="md" />
                         <div>
                           <div className="font-medium">{team.name}</div>
                           <div className="text-xs text-muted-foreground">
@@ -737,12 +746,11 @@ export function TournamentPage({
                     ref={teamAbbreviationInputRef}
                     id="teamAbbreviation"
                     defaultValue=""
-                    placeholder="3–5 letter abbreviation (e.g. LAL, SUTD)"
-                    maxLength={5}
+                    placeholder="2–5 letter abbreviation (e.g. NTU, SUTD, SUSS)"
+                    maxLength={TEAM_ABBREV_MAX}
                     className="uppercase"
                     onChange={(e) => {
-                      // Auto-uppercase on change
-                      e.target.value = e.target.value.toUpperCase();
+                      e.target.value = normalizeTeamAbbreviation(e.target.value);
                     }}
                   />
                 </div>
@@ -866,11 +874,7 @@ export function TournamentPage({
                       className="w-10 h-10 rounded-full object-cover"
                     />
                   ) : (
-                    <Avatar className="w-10 h-10">
-                      <AvatarFallback>
-                        {team.name.substring(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <TeamAvatar team={team} size="lg" />
                   )}
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
@@ -976,11 +980,7 @@ export function TournamentPage({
                               className="w-6 h-6 rounded-full object-cover"
                             />
                           ) : (
-                            <Avatar className="w-6 h-6">
-                              <AvatarFallback className="text-xs">
-                                {standing.team.name.substring(0, 2).toUpperCase()}
-                              </AvatarFallback>
-                            </Avatar>
+                            <TeamAvatar team={standing.team} size="sm" />
                           )}
                           <span className="font-medium">{standing.team.name}</span>
                         </div>

@@ -14,6 +14,8 @@ import {
   formatWeightForDisplay,
 } from '../lib/playerMeasurements';
 import { PlayerStatsTable } from './PlayerStatsTable';
+import { TeamAvatar } from './TeamAvatar';
+import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { TournamentScopeSelect } from './TournamentScopeSelect';
 import {
   aggregatePlayerSeasonStats,
@@ -24,13 +26,13 @@ import {
   resolveInitialTournamentScope,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
+import { getParticipatedTournaments } from '../utils/teamTournaments';
 import { 
   ArrowLeft,
   Users, 
   BarChart3, 
   Calendar,
   User,
-  Trophy,
   Target,
   Activity,
   TrendingUp,
@@ -344,10 +346,7 @@ export function TeamPage({
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
   
-  const isNumberTaken = useCallback((number: string, teamId: string) => {
-    if (!team.players || !Array.isArray(team.players)) return false;
-    return team.players.some(player => player.number === parseInt(number));
-  }, [team.players]);
+  const isNumberTaken = useCallback((_number: string, _teamId: string) => false, []);
   
   const handleAddPlayer = useCallback((data: { 
     name: string; 
@@ -561,10 +560,11 @@ export function TeamPage({
     return rows;
   }, [rosterRows, rosterSortField, rosterSortOrder]);
   
-  // Get current tournament
-  const currentTournament = team.currentTournamentId 
-    ? tournaments.find(t => t.id === team.currentTournamentId)
-    : null;
+  // Tournaments this team has participated in (games + roster)
+  const participatedTournaments = useMemo(
+    () => getParticipatedTournaments(team.id, games, tournaments),
+    [team.id, games, tournaments]
+  );
   
   // Calculate team record
   const calculateRecord = () => {
@@ -656,30 +656,20 @@ export function TeamPage({
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center gap-6">
-            <Avatar className="w-24 h-24">
-              <AvatarFallback className="text-2xl">
-                {team.icon || team.name.substring(0, 2).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+            <TeamAvatar team={team} size="xl" />
             <div className="flex-1">
               <h2 className="text-2xl font-bold">{team.name}</h2>
               {team.description && (
                 <p className="text-muted-foreground mt-1">{team.description}</p>
               )}
-              <div className="flex items-center gap-4 mt-3">
+              <div className="flex flex-wrap items-center gap-3 mt-3">
                 <Badge variant="outline">
                   {team.players.length} Players
                 </Badge>
-                {currentTournament && (
-                  <Badge 
-                    variant="default" 
-                    className="cursor-pointer"
-                    onClick={() => onNavigateToTournament(currentTournament.id)}
-                  >
-                    <Trophy className="w-3 h-3 mr-1" />
-                    {currentTournament.name}
-                  </Badge>
-                )}
+                <ParticipatedTournamentBadges
+                  tournaments={participatedTournaments}
+                  onNavigateToTournament={onNavigateToTournament}
+                />
               </div>
             </div>
           </div>
@@ -1261,11 +1251,7 @@ export function TeamPage({
           Back
         </Button>
         <div className="flex items-center gap-3">
-          <Avatar className="w-12 h-12">
-            <AvatarFallback>
-              {team.icon || team.name.substring(0, 2).toUpperCase()}
-            </AvatarFallback>
-          </Avatar>
+          <TeamAvatar team={team} size="header" />
           <div>
             <h1 className="text-2xl font-bold">{team.name}</h1>
             <p className="text-sm text-muted-foreground">

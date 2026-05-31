@@ -1,9 +1,9 @@
-export const TEAM_ABBREV_MIN = 3;
+export const TEAM_ABBREV_MIN = 2;
 export const TEAM_ABBREV_MAX = 5;
 
 const STOP_WORDS = new Set(['of', 'and', 'the', 'for', 'a', 'an']);
 
-/** Normalize user-entered abbreviation (3–5 uppercase alphanumeric). */
+/** Normalize user-entered abbreviation (2–5 uppercase alphanumeric). */
 export function normalizeTeamAbbreviation(value: string): string {
   return value
     .toUpperCase()
@@ -19,7 +19,7 @@ export function isValidTeamAbbreviation(value: string): boolean {
   );
 }
 
-/** Build a 3–5 letter uppercase abbreviation from a team name. */
+/** Build a 2–5 letter uppercase abbreviation from a team name. */
 export function generateTeamAbbreviation(
   name: string,
   takenAbbreviations: string[] = []
@@ -85,11 +85,56 @@ function nextAvailable(base: string, taken: Set<string>): string {
     .padEnd(TEAM_ABBREV_MIN, '0');
 }
 
-export function hasDuplicateJerseyNumbers(players: { number: number }[]): boolean {
-  const seen = new Set<number>();
-  for (const p of players) {
-    if (seen.has(p.number)) return true;
-    seen.add(p.number);
+export interface TeamAvatarLabelSource {
+  name: string;
+  abbreviation?: string;
+  icon?: string;
+}
+
+/** Label for team avatar circles — full abbreviation up to 5 chars (e.g. SUTD, SUSS). */
+export function getTeamAvatarLabel(team: TeamAvatarLabelSource): string {
+  if (team.icon) {
+    const normalizedIcon = normalizeTeamAbbreviation(team.icon);
+    if (isValidTeamAbbreviation(normalizedIcon)) {
+      return normalizedIcon;
+    }
+    if (team.icon.length <= TEAM_ABBREV_MAX) {
+      return team.icon.toUpperCase();
+    }
   }
+
+  if (team.abbreviation) {
+    const normalized = normalizeTeamAbbreviation(team.abbreviation);
+    if (normalized.length >= TEAM_ABBREV_MIN) {
+      return normalized;
+    }
+  }
+
+  return team.name.substring(0, 2).toUpperCase();
+}
+
+/** Smaller text when 4–5 letter abbreviations must fit small avatar sizes. */
+export function getTeamAvatarLabelClass(
+  label: string,
+  size: 'sm' | 'md' | 'lg' | 'header' | 'xl'
+): string {
+  if (label.length <= 3) return '';
+
+  if (label.length === 4) {
+    if (size === 'sm') return 'text-[7px] leading-none tracking-tighter';
+    if (size === 'md') return 'text-[9px] leading-none tracking-tight';
+    if (size === 'lg') return 'text-[10px] leading-none tracking-tight';
+    return 'text-sm leading-none tracking-tight';
+  }
+
+  if (size === 'sm') return 'text-[6px] leading-none tracking-tighter';
+  if (size === 'md') return 'text-[8px] leading-none tracking-tighter';
+  if (size === 'lg') return 'text-[9px] leading-none tracking-tighter';
+  if (size === 'header') return 'text-xs leading-none tracking-tight';
+  return 'text-lg leading-none tracking-tight';
+}
+
+/** Duplicate jersey numbers are allowed (multi-tournament rosters). */
+export function hasDuplicateJerseyNumbers(_players: { number: number }[]): boolean {
   return false;
 }

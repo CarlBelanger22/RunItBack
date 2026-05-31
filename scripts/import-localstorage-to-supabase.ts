@@ -123,7 +123,9 @@ function teamToRow(team: Team, leagueId: string) {
     id: team.id,
     league_id: leagueId,
     name: team.name,
-    abbreviation: team.abbreviation || team.name.slice(0, 3).toUpperCase(),
+    abbreviation:
+      team.abbreviation ||
+      team.name.replace(/[^a-zA-Z0-9\s]/g, '').slice(0, 5).toUpperCase(),
     icon: team.icon ?? null,
     description: team.description ?? null,
     current_tournament_id: team.currentTournamentId ?? null,

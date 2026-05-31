@@ -140,7 +140,7 @@ export const TeamForm = React.memo(({
           ref={abbreviationRef}
           id="teamAbbreviation"
           defaultValue={initialAbbreviation}
-          placeholder="3–5 letter code (e.g. LAL, SUTD)"
+          placeholder="2–5 letter code (e.g. NTU, SUTD, SUSS)"
           maxLength={TEAM_ABBREV_MAX}
           required
           onChange={handleAbbreviationChange}

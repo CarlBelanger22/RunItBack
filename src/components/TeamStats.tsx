@@ -19,10 +19,12 @@ import {
   type OptionalAdvancedTeamStatKey,
 } from '../utils/gameDisplay';
 import { NoStatRecorded, OptionalStatBadge, OptionalStatText } from './StatDisplay';
+import { GameTeamLink } from './GameTeamLink';
 import { BarChart3, TrendingUp, Users, Award, Target, Activity } from 'lucide-react';
 
 interface TeamStatsProps {
   game: Game;
+  onNavigateToTeam?: (teamId: string) => void;
 }
 
 interface TeamDisplayStats {
@@ -91,7 +93,7 @@ function buildTeamDisplayStats(game: Game, side: TeamSide): TeamDisplayStats {
   };
 }
 
-export function TeamStats({ game }: TeamStatsProps) {
+export function TeamStats({ game, onNavigateToTeam }: TeamStatsProps) {
   const homeStats = buildTeamDisplayStats(game, 'home');
   const awayStats = buildTeamDisplayStats(game, 'away');
 
@@ -230,7 +232,12 @@ export function TeamStats({ game }: TeamStatsProps) {
         <Card className="shadow-lg rounded-2xl">
           <CardContent className="py-12 text-center">
             <Users className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
-            <h3 className="font-medium mb-2">{teamName}</h3>
+            <GameTeamLink
+              teamId={team.id}
+              teamName={teamName}
+              onNavigateToTeam={onNavigateToTeam}
+              className="font-medium mb-2 block"
+            />
             <div className="text-4xl font-bold text-primary mb-4">{stats.points}</div>
             <p className="text-sm text-muted-foreground">
               No detailed stats recorded for this team.
@@ -360,11 +367,13 @@ export function TeamStats({ game }: TeamStatsProps) {
   };
 
   const ScoringPie = ({
+    teamId,
     teamName,
     distribution,
     scoreOnly,
     points,
   }: {
+    teamId: string;
     teamName: string;
     distribution: { name: string; value: number; color: string }[];
     scoreOnly: boolean;
@@ -372,7 +381,15 @@ export function TeamStats({ game }: TeamStatsProps) {
   }) => (
     <Card className="shadow-lg rounded-2xl">
       <CardHeader>
-        <CardTitle className="text-center">{teamName} Scoring</CardTitle>
+        <CardTitle className="text-center">
+          <GameTeamLink
+            teamId={teamId}
+            teamName={teamName}
+            onNavigateToTeam={onNavigateToTeam}
+            className="inline"
+          />
+          {' '}Scoring
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {scoreOnly ? (
@@ -446,12 +463,14 @@ export function TeamStats({ game }: TeamStatsProps) {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <ScoringPie
+                teamId={game.homeTeam.id}
                 teamName={game.homeTeam.name}
                 distribution={homeDistribution}
                 scoreOnly={homeStats.scoreOnly}
                 points={homeStats.points}
               />
               <ScoringPie
+                teamId={game.awayTeam.id}
                 teamName={game.awayTeam.name}
                 distribution={awayDistribution}
                 scoreOnly={awayStats.scoreOnly}

@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -11,6 +11,16 @@ import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
 import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
+import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import {
+  buildPlayerTournamentSeasonRows,
+  getFoulStatCoverage,
+  getShotDataCoverage,
+} from '../utils/playerSeasonStats';
+import { getPlayerParticipatedTournaments } from '../utils/teamTournaments';
+import { PlayerStatsTable } from './PlayerStatsTable';
+import { TeamAvatar } from './TeamAvatar';
+import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { 
@@ -18,7 +28,6 @@ import {
   User, 
   BarChart3, 
   Calendar,
-  Trophy,
   Target,
   Activity,
   TrendingUp,
@@ -75,11 +84,7 @@ export function PlayerPage({
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
   
-  const isNumberTaken = useCallback((number: string, teamId: string) => {
-    // Check if number is taken by another player (not the current player)
-    if (!number || !team?.players) return false;
-    return team.players.some(p => p.id !== player.id && p.number === parseInt(number));
-  }, [team?.players, player?.id]);
+  const isNumberTaken = useCallback((_number: string, _teamId: string) => false, []);
   
   const handleUpdatePlayer = useCallback((data: { 
     name: string; 
@@ -135,11 +140,12 @@ export function PlayerPage({
     return <div>Invalid player or team data</div>;
   }
   
-  const playerGames = games.filter(game => {
-    // Defensive check: ensure gameStats exists and is an array
-    if (!game.gameStats || !Array.isArray(game.gameStats)) return false;
-    return game.gameStats.some(stat => stat.playerId === player.id);
-  });
+  const playerGames = sortGamesByDateDesc(
+    games.filter(game => {
+      if (!game.gameStats || !Array.isArray(game.gameStats)) return false;
+      return game.gameStats.some(stat => stat.playerId === player.id);
+    })
+  );
   
   const playerGameStats = playerGames.map(game => {
     // Defensive check: ensure gameStats exists before finding
@@ -186,7 +192,7 @@ export function PlayerPage({
   
   // Get recent performance
   const getRecentPerformance = () => {
-    return playerGameStats.slice().reverse().slice(0, 5);
+    return playerGameStats.slice(0, 5);
   };
   
   // Calculate advanced metrics
@@ -197,10 +203,10 @@ export function PlayerPage({
   );
   const recentGames = getRecentPerformance();
   
-  // Get current tournament
-  const currentTournament = team.currentTournamentId 
-    ? tournaments.find(t => t.id === team.currentTournamentId)
-    : null;
+  const participatedTournaments = useMemo(
+    () => getPlayerParticipatedTournaments(player.id, games, tournaments),
+    [player.id, games, tournaments]
+  );
   const displayPosition = formatPlayerPositionLabel(player.position, player.secondaryPosition);
   const displayHeight = player.height ? formatHeightForDisplay(player.height) : '';
   const displayWeight = player.weight ? formatWeightForDisplay(player.weight) : '';
@@ -286,24 +292,19 @@ export function PlayerPage({
                 )}
                 {Number.isFinite(displayAge) && displayAge > 0 && <span>{displayAge} years old</span>}
               </div>
-              <div className="flex items-center gap-3 mt-3">
-                <Badge 
-                  variant="outline" 
-                  className="cursor-pointer"
+              <div className="flex flex-wrap items-center gap-3 mt-3">
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer flex items-center gap-2"
                   onClick={() => onNavigateToTeam(team.id)}
                 >
+                  <TeamAvatar team={team} size="sm" />
                   {team.name}
                 </Badge>
-                {currentTournament && (
-                  <Badge 
-                    variant="default" 
-                    className="cursor-pointer"
-                    onClick={() => onNavigateToTournament(currentTournament.id)}
-                  >
-                    <Trophy className="w-3 h-3 mr-1" />
-                    {currentTournament.name}
-                  </Badge>
-                )}
+                <ParticipatedTournamentBadges
+                  tournaments={participatedTournaments}
+                  onNavigateToTournament={onNavigateToTournament}
+                />
               </div>
             </div>
           </div>
@@ -486,7 +487,7 @@ export function PlayerPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {playerGameStats.slice().reverse().map(({ game, stats }) => {
+              {playerGameStats.map(({ game, stats }) => {
                 const isHome = game.homeTeamId === team.id;
                 const opponent = isHome ? game.awayTeam : game.homeTeam;
                 if (!opponent || !opponent.name) return null;
@@ -549,21 +550,39 @@ export function PlayerPage({
   );
 
   const PlayerStatsTab = () => {
-    // Filter stats based on selected tournament
-    const filteredStats = selectedTournament === 'all' 
-      ? tournamentStats 
-      : tournamentStats.filter(stat => stat.tournamentId === selectedTournament);
-    
-    // Calculate all-time totals
-    const allTimeStats = {
-      ...totals,
-      games: gamesPlayed,
-      advanced
-    };
-    
+    const allRows = useMemo(
+      () => buildPlayerTournamentSeasonRows(player, team, games, tournaments),
+      [player, team, games, tournaments]
+    );
+
+    const displayRows = useMemo(() => {
+      if (selectedTournament === 'all') {
+        return allRows;
+      }
+      return allRows.filter(
+        (row) => row.scopeId === selectedTournament && !row.isSummaryRow
+      );
+    }, [allRows, selectedTournament]);
+
+    const coverageGames = useMemo(() => {
+      const playerCompletedGames = games.filter(
+        (game) =>
+          game.isCompleted &&
+          (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+      );
+      if (selectedTournament === 'all') {
+        return playerCompletedGames;
+      }
+      return playerCompletedGames.filter(
+        (game) => game.tournamentId === selectedTournament
+      );
+    }, [games, player.id, selectedTournament]);
+
+    const shotDataCoverage = getShotDataCoverage(coverageGames);
+    const foulStatCoverage = getFoulStatCoverage(coverageGames);
+
     return (
       <div className="space-y-6">
-        {/* Tournament Filter */}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center gap-4">
@@ -576,9 +595,9 @@ export function PlayerPage({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Tournaments</SelectItem>
-                    {tournaments.map(tournament => (
-                      <SelectItem key={tournament.id} value={tournament.id}>
-                        {tournament.name}
+                    {tournamentStats.map((stat) => (
+                      <SelectItem key={stat.tournamentId} value={stat.tournamentId}>
+                        {stat.tournament ? stat.tournament.name : 'No Tournament'}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -588,149 +607,15 @@ export function PlayerPage({
           </CardContent>
         </Card>
 
-        {/* Stats Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Tournament Statistics</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tournament</TableHead>
-                  <TableHead className="text-center">GP</TableHead>
-                  <TableHead className="text-center">MIN</TableHead>
-                  <TableHead className="text-center">PTS</TableHead>
-                  <TableHead className="text-center">REB</TableHead>
-                  <TableHead className="text-center">AST</TableHead>
-                  <TableHead className="text-center">STL</TableHead>
-                  <TableHead className="text-center">BLK</TableHead>
-                  <TableHead className="text-center">TO</TableHead>
-                  <TableHead className="text-center">FDPG</TableHead>
-                  <TableHead className="text-center">FG%</TableHead>
-                  <TableHead className="text-center">3P%</TableHead>
-                  <TableHead className="text-center">FT%</TableHead>
-                  <TableHead className="text-center">EFF</TableHead>
-                  <TableHead className="text-center">GmSc</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filteredStats.map((stat) => {
-                  const averageStats = { ...stat.stats };
-                  // Calculate per-game averages
-                  Object.keys(averageStats).forEach(key => {
-                    if (key !== 'playerId' && typeof averageStats[key as keyof GameStats] === 'number') {
-                      (averageStats as any)[key] = (averageStats as any)[key] / (stat.games || 1);
-                    }
-                  });
-                  
-                  return (
-                    <TableRow key={stat.tournamentId}>
-                      <TableCell className="font-medium">
-                        {stat.tournament ? stat.tournament.name : 'No Tournament'}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">{stat.games}</TableCell>
-                      <TableCell className="text-center font-mono">
-                        {averageStats.minutes_played.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono font-medium">
-                        {averageStats.points.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {(averageStats.orb + averageStats.drb).toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {averageStats.assists.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {averageStats.steals.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {averageStats.blocks.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {averageStats.turnovers.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {averageStats.fouls_drawn.toFixed(1)}
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {stat.advanced.fieldGoalPercentage.toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {stat.advanced.threePointPercentage.toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        {stat.advanced.freeThrowPercentage.toFixed(1)}%
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        <Badge variant={stat.advanced.efficiency >= 15 ? "default" : "secondary"} className="text-xs">
-                          {(stat.advanced.efficiency / (stat.games || 1)).toFixed(1)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-center font-mono">
-                        <Badge variant={stat.advanced.gameScore >= 15 ? "default" : "secondary"} className="text-xs">
-                          {(stat.advanced.gameScore / (stat.games || 1)).toFixed(1)}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-                
-                {/* All Time Row */}
-                {filteredStats.length > 0 && (
-                  <TableRow className="border-t-2 bg-muted/20 font-medium">
-                    <TableCell className="font-bold">All Time</TableCell>
-                    <TableCell className="text-center font-mono font-bold">{allTimeStats.games}</TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.minutes_played.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.points.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {(averages.orb + averages.drb).toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.assists.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.steals.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.blocks.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.turnovers.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {averages.fouls_drawn.toFixed(1)}
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {allTimeStats.advanced.fieldGoalPercentage.toFixed(1)}%
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {allTimeStats.advanced.threePointPercentage.toFixed(1)}%
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      {allTimeStats.advanced.freeThrowPercentage.toFixed(1)}%
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      <Badge variant={allTimeStats.advanced.efficiency >= 15 ? "default" : "secondary"} className="text-xs">
-                        {(allTimeStats.advanced.efficiency / (allTimeStats.games || 1)).toFixed(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-center font-mono font-bold">
-                      <Badge variant={allTimeStats.advanced.gameScore >= 15 ? "default" : "secondary"} className="text-xs">
-                        {(allTimeStats.advanced.gameScore / (allTimeStats.games || 1)).toFixed(1)}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+        <PlayerStatsTable
+          rows={displayRows}
+          layout="tournament-breakdown"
+          showTeamColumn={false}
+          disableRowNavigation
+          shotDataCoverage={shotDataCoverage}
+          foulStatCoverage={foulStatCoverage}
+          onNavigateToTournament={onNavigateToTournament}
+        />
       </div>
     );
   };

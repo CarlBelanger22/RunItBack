@@ -59,7 +59,7 @@ export interface CreateTeamOptions {
 export interface Team {
   id: string;
   name: string;
-  abbreviation: string; // 3–5 letter team abbreviation (uppercase)
+  abbreviation: string; // 2–5 letter team abbreviation (uppercase)
   icon?: string;
   description?: string;
   players: Player[];

@@ -20,6 +20,8 @@ type StatsView = 'standard' | 'advanced';
 
 const COLUMN_TOOLTIPS: Record<string, string> = {
   '#': 'Row number for the current sort order',
+  Tournament: 'Tournament name',
+  Scope: 'Tournament or summary scope',
   Player: 'Player name',
   Team: 'Team abbreviation',
   Position: 'Primary position',
@@ -57,6 +59,7 @@ const COLUMN_TOOLTIPS: Record<string, string> = {
 };
 
 const STANDARD_SORT_FIELDS = new Set<PlayerStatsSortField>([
+  'Scope',
   'Player',
   'Team',
   'Position',
@@ -84,6 +87,7 @@ const STANDARD_SORT_FIELDS = new Set<PlayerStatsSortField>([
 ]);
 
 const ADVANCED_SORT_FIELDS = new Set<PlayerStatsSortField>([
+  'Scope',
   'Player',
   'Team',
   'Position',
@@ -103,10 +107,15 @@ const ADVANCED_SORT_FIELDS = new Set<PlayerStatsSortField>([
 
 interface PlayerStatsTableProps {
   rows: PlayerSeasonRow[];
+  layout?: 'roster' | 'tournament-breakdown';
   showTeamColumn?: boolean;
   shotDataCoverage?: ShotDataCoverage;
   foulStatCoverage?: FoulStatCoverage;
-  onNavigateToPlayer: (playerId: string, teamId: string) => void;
+  disableRowNavigation?: boolean;
+  defaultSortField?: PlayerStatsSortField;
+  defaultSortOrder?: 'asc' | 'desc';
+  onNavigateToPlayer?: (playerId: string, teamId: string) => void;
+  onNavigateToTournament?: (tournamentId: string) => void;
 }
 
 function SortIcon({
@@ -193,14 +202,25 @@ function madeAttempted(made: number, attempted: number): string {
 
 export function PlayerStatsTable({
   rows,
+  layout = 'roster',
   showTeamColumn = true,
   shotDataCoverage,
   foulStatCoverage,
+  disableRowNavigation = false,
+  defaultSortField,
+  defaultSortOrder,
   onNavigateToPlayer,
+  onNavigateToTournament,
 }: PlayerStatsTableProps) {
+  const isBreakdown = layout === 'tournament-breakdown';
+  const initialSortField =
+    defaultSortField ?? (isBreakdown ? 'Scope' : 'PPG');
+  const initialSortOrder =
+    defaultSortOrder ?? defaultSortOrderForField(initialSortField);
+
   const [view, setView] = useState<StatsView>('standard');
-  const [sortField, setSortField] = useState<PlayerStatsSortField>('PPG');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+  const [sortField, setSortField] = useState<PlayerStatsSortField>(initialSortField);
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>(initialSortOrder);
   const tableContainerRef = useRef<HTMLDivElement>(null);
 
   const partialShotTooltip =
@@ -235,11 +255,11 @@ export function PlayerStatsTable({
       setView(next);
       const allowed = next === 'standard' ? STANDARD_SORT_FIELDS : ADVANCED_SORT_FIELDS;
       if (!allowed.has(sortField)) {
-        setSortField(next === 'standard' ? 'PPG' : 'FG');
+        setSortField(next === 'standard' ? (isBreakdown ? 'Scope' : 'PPG') : 'FG');
         setSortOrder('desc');
       }
     },
-    [sortField]
+    [sortField, isBreakdown]
   );
 
   const cellHighlight = (field: PlayerStatsSortField) =>
@@ -275,19 +295,31 @@ export function PlayerStatsTable({
             <Table>
               <TableHeader className="sticky top-0 bg-background z-10">
                 <TableRow>
-                  <StatTooltipHead
-                    label="#"
-                    tooltip={COLUMN_TOOLTIPS['#']}
-                    className="w-12 text-center"
-                  />
-                  <SortableHead
-                    label="Player"
-                    field="Player"
-                    sortField={sortField}
-                    sortOrder={sortOrder}
-                    onSort={handleSort}
-                  />
-                  {showTeamColumn && (
+                  {!isBreakdown && (
+                    <StatTooltipHead
+                      label="#"
+                      tooltip={COLUMN_TOOLTIPS['#']}
+                      className="w-12 text-center"
+                    />
+                  )}
+                  {isBreakdown ? (
+                    <SortableHead
+                      label="Tournament"
+                      field="Scope"
+                      sortField={sortField}
+                      sortOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                  ) : (
+                    <SortableHead
+                      label="Player"
+                      field="Player"
+                      sortField={sortField}
+                      sortOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                  )}
+                  {!isBreakdown && showTeamColumn && (
                     <SortableHead
                       label="Team"
                       field="Team"
@@ -297,13 +329,15 @@ export function PlayerStatsTable({
                       className="w-16"
                     />
                   )}
-                  <SortableHead
-                    label="Pos"
-                    field="Position"
-                    sortField={sortField}
-                    sortOrder={sortOrder}
-                    onSort={handleSort}
-                  />
+                  {!isBreakdown && (
+                    <SortableHead
+                      label="Pos"
+                      field="Position"
+                      sortField={sortField}
+                      sortOrder={sortOrder}
+                      onSort={handleSort}
+                    />
+                  )}
                   <SortableHead
                     label="GP"
                     field="GP"
@@ -390,6 +424,8 @@ export function PlayerStatsTable({
               <TableBody>
                 {sortedRows.map((playerData, index) => {
                   const { totalStats, gamesPlayed } = playerData;
+                  const rowKey = playerData.scopeId ?? playerData.player.id;
+                  const isSummaryRow = playerData.isSummaryRow === true;
                   const mpg =
                     gamesPlayed > 0 ? totalStats.minutes_played / gamesPlayed : 0;
                   const paintPg =
@@ -414,25 +450,73 @@ export function PlayerStatsTable({
                       : null;
 
                   return (
-                    <TableRow key={playerData.player.id} className="hover:bg-muted/50">
-                      <TableCell className="text-center">{index + 1}</TableCell>
-                      <TableCell
-                        className={`font-medium cursor-pointer hover:text-primary ${cellHighlight('Player')}`}
-                        onClick={() =>
-                          onNavigateToPlayer(playerData.player.id, playerData.team.id)
-                        }
-                      >
-                        {playerData.player.name}
-                      </TableCell>
-                      {showTeamColumn && (
+                    <TableRow
+                      key={rowKey}
+                      className={`hover:bg-muted/50 ${
+                        isSummaryRow ? 'border-t-2 bg-muted/20 font-medium' : ''
+                      }`}
+                    >
+                      {!isBreakdown && (
+                        <TableCell className="text-center">{index + 1}</TableCell>
+                      )}
+                      {isBreakdown ? (
+                        <TableCell
+                          className={`font-medium ${cellHighlight('Scope')} ${
+                            isSummaryRow ? 'font-bold' : ''
+                          }`}
+                        >
+                          {!isSummaryRow &&
+                          playerData.scopeId &&
+                          playerData.scopeId !== 'no-tournament' &&
+                          onNavigateToTournament ? (
+                            <button
+                              type="button"
+                              className="text-left hover:text-primary hover:underline cursor-pointer"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onNavigateToTournament(playerData.scopeId!);
+                              }}
+                            >
+                              {playerData.scopeLabel ?? '—'}
+                            </button>
+                          ) : (
+                            playerData.scopeLabel ?? '—'
+                          )}
+                        </TableCell>
+                      ) : (
+                        <TableCell
+                          className={`font-medium ${
+                            disableRowNavigation
+                              ? ''
+                              : 'cursor-pointer hover:text-primary'
+                          } ${cellHighlight('Player')}`}
+                          onClick={() => {
+                            if (!disableRowNavigation && onNavigateToPlayer) {
+                              onNavigateToPlayer(
+                                playerData.player.id,
+                                playerData.team.id
+                              );
+                            }
+                          }}
+                        >
+                          {playerData.player.name}
+                        </TableCell>
+                      )}
+                      {!isBreakdown && showTeamColumn && (
                         <TableCell className={cellHighlight('Team')}>
                           {playerData.team.abbreviation}
                         </TableCell>
                       )}
-                      <TableCell className={cellHighlight('Position')}>
-                        {playerData.player.position}
-                      </TableCell>
-                      <TableCell className={`text-center ${cellHighlight('GP')}`}>
+                      {!isBreakdown && (
+                        <TableCell className={cellHighlight('Position')}>
+                          {playerData.player.position}
+                        </TableCell>
+                      )}
+                      <TableCell
+                        className={`text-center ${cellHighlight('GP')} ${
+                          isSummaryRow ? 'font-bold' : ''
+                        }`}
+                      >
                         {gamesPlayed}
                       </TableCell>
                       <TableCell

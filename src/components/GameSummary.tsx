@@ -9,14 +9,22 @@ import { BoxScore } from './BoxScore';
 import { ShotChart } from './ShotChart';
 import { TeamStats } from './TeamStats';
 import { GameLeadersSection } from './GameLeadersSection';
+import { GameTeamLink } from './GameTeamLink';
 import { resolveTeamScore } from '../utils/gameDisplay';
 
 interface GameSummaryProps {
   game: Game;
   onBack: () => void;
+  onNavigateToPlayer?: (playerId: string, teamId: string) => void;
+  onNavigateToTeam?: (teamId: string) => void;
 }
 
-export function GameSummary({ game, onBack }: GameSummaryProps) {
+export function GameSummary({
+  game,
+  onBack,
+  onNavigateToPlayer,
+  onNavigateToTeam,
+}: GameSummaryProps) {
   const homeScore = resolveTeamScore(game, game.homeTeam.id);
   const awayScore = resolveTeamScore(game, game.awayTeam.id);
 
@@ -78,13 +86,27 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
             {/* Home Team */}
             <div className="text-center space-y-3 flex-1 min-w-0">
               {homeTeamLogo && (
-                <img 
-                  src={homeTeamLogo} 
-                  alt={game.homeTeam.name}
-                  className="w-16 h-16 rounded-full object-cover mx-auto"
-                />
+                <button
+                  type="button"
+                  className={`mx-auto block rounded-full${
+                    onNavigateToTeam ? ' cursor-pointer hover:opacity-80' : ''
+                  }`}
+                  disabled={!onNavigateToTeam}
+                  onClick={() => onNavigateToTeam?.(game.homeTeam.id)}
+                >
+                  <img
+                    src={homeTeamLogo}
+                    alt={game.homeTeam.name}
+                    className="w-16 h-16 rounded-full object-cover"
+                  />
+                </button>
               )}
-              <h3 className="text-xl font-medium leading-snug break-words">{game.homeTeam.name}</h3>
+              <GameTeamLink
+                teamId={game.homeTeam.id}
+                teamName={game.homeTeam.name}
+                onNavigateToTeam={onNavigateToTeam}
+                className="text-xl font-medium leading-snug break-words block w-full text-center"
+              />
               <div className="text-4xl font-bold tabular-nums">{homeScore}</div>
             </div>
             
@@ -94,13 +116,27 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
             {/* Away Team */}
             <div className="text-center space-y-3 flex-1 min-w-0">
               {awayTeamLogo && (
-                <img 
-                  src={awayTeamLogo} 
-                  alt={game.awayTeam.name}
-                  className="w-16 h-16 rounded-full object-cover mx-auto"
-                />
+                <button
+                  type="button"
+                  className={`mx-auto block rounded-full${
+                    onNavigateToTeam ? ' cursor-pointer hover:opacity-80' : ''
+                  }`}
+                  disabled={!onNavigateToTeam}
+                  onClick={() => onNavigateToTeam?.(game.awayTeam.id)}
+                >
+                  <img
+                    src={awayTeamLogo}
+                    alt={game.awayTeam.name}
+                    className="w-16 h-16 rounded-full object-cover"
+                  />
+                </button>
               )}
-              <h3 className="text-xl font-medium leading-snug break-words">{game.awayTeam.name}</h3>
+              <GameTeamLink
+                teamId={game.awayTeam.id}
+                teamName={game.awayTeam.name}
+                onNavigateToTeam={onNavigateToTeam}
+                className="text-xl font-medium leading-snug break-words block w-full text-center"
+              />
               <div className="text-4xl font-bold tabular-nums">{awayScore}</div>
             </div>
           </div>
@@ -114,7 +150,7 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
         </CardContent>
       </Card>
 
-      <GameLeadersSection game={game} />
+      <GameLeadersSection game={game} onNavigateToPlayer={onNavigateToPlayer} />
 
       {/* Game Details Tabs */}
       <Tabs defaultValue="team-stats" className="space-y-6">
@@ -125,12 +161,16 @@ export function GameSummary({ game, onBack }: GameSummaryProps) {
 
         <div className="space-y-6">
           <TabsContent value="team-stats" className="space-y-6">
-            <TeamStats game={game} />
+            <TeamStats game={game} onNavigateToTeam={onNavigateToTeam} />
             <ShotChart game={game} />
           </TabsContent>
 
           <TabsContent value="box-score" className="space-y-6">
-            <BoxScore game={game} />
+            <BoxScore
+              game={game}
+              onNavigateToPlayer={onNavigateToPlayer}
+              onNavigateToTeam={onNavigateToTeam}
+            />
           </TabsContent>
         </div>
       </Tabs>

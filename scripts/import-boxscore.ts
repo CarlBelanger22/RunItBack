@@ -5,6 +5,7 @@
  *   npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json"
  *   npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json" --dry-run
  *   npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json" --stats-only
+ *   npm run import:boxscore -- --file "Importingboxscores/ivp 2026/game-2026-01-13-ntu-np.json" --stats-only --add-new-players
  */
 
 import { readFileSync } from 'fs';
@@ -22,6 +23,7 @@ interface PlayerRow {
   height?: string;
   weight?: string;
   age?: number;
+  dateOfBirth?: string;
 }
 
 interface TeamRow {
@@ -93,12 +95,14 @@ function parseArgs(): {
   dryRun: boolean;
   leagueId: string;
   statsOnly: boolean;
+  addNewPlayers: boolean;
 } {
   const args = process.argv.slice(2);
   let file = '';
   let dryRun = false;
   let leagueId = DEFAULT_LEAGUE_ID;
   let statsOnly = false;
+  let addNewPlayers = false;
 
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--file' && args[i + 1]) {
@@ -107,6 +111,8 @@ function parseArgs(): {
       dryRun = true;
     } else if (args[i] === '--stats-only') {
       statsOnly = true;
+    } else if (args[i] === '--add-new-players') {
+      addNewPlayers = true;
     } else if (args[i] === '--league-id' && args[i + 1]) {
       leagueId = args[++i];
     }
@@ -114,12 +120,17 @@ function parseArgs(): {
 
   if (!file) {
     console.error(
-      'Usage: npm run import:boxscore -- --file path/to/game.json [--dry-run] [--stats-only] [--league-id league-default]'
+      'Usage: npm run import:boxscore -- --file path/to/game.json [--dry-run] [--stats-only] [--add-new-players] [--league-id league-default]'
     );
     process.exit(1);
   }
 
-  return { file: resolve(process.cwd(), file), dryRun, leagueId, statsOnly };
+  if (addNewPlayers && !statsOnly) {
+    console.error('--add-new-players requires --stats-only');
+    process.exit(1);
+  }
+
+  return { file: resolve(process.cwd(), file), dryRun, leagueId, statsOnly, addNewPlayers };
 }
 
 async function upsertBatch<T extends Record<string, unknown>>(
@@ -243,8 +254,23 @@ async function loadExistingTeamIds(
   return ids;
 }
 
+async function loadExistingPlayerIds(
+  supabase: SupabaseClient,
+  playerIds: string[]
+): Promise<Set<string>> {
+  const ids = new Set<string>();
+  if (playerIds.length === 0) return ids;
+
+  const { data, error } = await supabase.from('players').select('id').in('id', playerIds);
+  if (error) throw new Error(`players fetch failed: ${error.message}`);
+  for (const row of data ?? []) {
+    ids.add(row.id as string);
+  }
+  return ids;
+}
+
 async function main() {
-  const { file, dryRun, leagueId, statsOnly } = parseArgs();
+  const { file, dryRun, leagueId, statsOnly, addNewPlayers } = parseArgs();
   const env = loadEnvLocal();
   const url = env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
   const key =
@@ -293,7 +319,7 @@ async function main() {
       height: player.height ?? '',
       weight: player.weight ?? '',
       age: player.age ?? 0,
-      date_of_birth: null as string | null,
+      date_of_birth: player.dateOfBirth ?? null,
     }))
   );
 
@@ -359,6 +385,7 @@ async function main() {
     score: `${homeTeam.abbreviation} ${bundle.game.finalScore.home}  ${awayTeam.abbreviation} ${bundle.game.finalScore.away}`,
     game_stats_rows: bundle.game.gameStats.length,
     stats_only: statsOnly,
+    add_new_players: addNewPlayers,
     dry_run: dryRun,
   };
 
@@ -388,6 +415,24 @@ async function main() {
         mergedTeamRows.length
       } new team(s): ${mergedTeamRows.map((t) => t.id).join(', ') || '(none)'}`
     );
+    if (addNewPlayers && playerRowsRaw.length > 0) {
+      const existingPlayerIds = await loadExistingPlayerIds(
+        supabase,
+        playerRowsRaw.map((p) => p.id)
+      );
+      playerRows = playerRowsRaw.filter((row) => !existingPlayerIds.has(row.id));
+      console.log(
+        `Add-new-players mode: inserting ${playerRows.length} new player(s): ${
+          playerRows.map((p) => p.id).join(', ') || '(none)'
+        }`
+      );
+      if (playerRowsRaw.length > playerRows.length) {
+        const skipped = playerRowsRaw
+          .filter((row) => existingPlayerIds.has(row.id))
+          .map((p) => p.id);
+        console.log(`Skipped ${skipped.length} existing player(s): ${skipped.join(', ')}`);
+      }
+    }
   } else {
     const playerIds = playerRowsRaw.map((p) => p.id);
     const [existingPlayers, existingTeams] = await Promise.all([
@@ -427,6 +472,8 @@ async function main() {
   await upsertBatch(supabase, 'leagues', [{ id: leagueId, name: 'My League' }], 'id', false);
   await upsertBatch(supabase, 'teams', mergedTeamRows, 'id', false);
   if (!statsOnly) {
+    await upsertBatch(supabase, 'players', playerRows, 'id', false);
+  } else if (addNewPlayers && playerRows.length > 0) {
     await upsertBatch(supabase, 'players', playerRows, 'id', false);
   }
   await upsertBatch(supabase, 'tournaments', [tournamentRow], 'id', false);

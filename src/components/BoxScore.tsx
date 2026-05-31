@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { Game, GameStats } from '../App';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerIdentity } from './PlayerIdentity';
+import { GameTeamLink } from './GameTeamLink';
 import {
   NoStatRecorded,
   OptionalStatTableCell,
@@ -29,6 +30,8 @@ import { TrendingUp, Users, Calculator, Download, Target } from 'lucide-react';
 
 interface BoxScoreProps {
   game: Game;
+  onNavigateToPlayer?: (playerId: string, teamId: string) => void;
+  onNavigateToTeam?: (teamId: string) => void;
 }
 
 interface PlayerBoxScore extends GameStats {
@@ -38,7 +41,7 @@ interface PlayerBoxScore extends GameStats {
   advanced: AdvancedMetrics;
 }
 
-export function BoxScore({ game }: BoxScoreProps) {
+export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScoreProps) {
   const [selectedTeam, setSelectedTeam] = useState<'home' | 'away'>('home');
   const [view, setView] = useState<'traditional' | 'advanced'>('traditional');
 
@@ -100,15 +103,22 @@ export function BoxScore({ game }: BoxScoreProps) {
   const TraditionalStatsTable = ({
     rows,
     teamName,
+    teamId,
     totals,
   }: {
     rows: OrderedBoxScoreRow<PlayerBoxScore>[];
     teamName: string;
+    teamId: string;
     totals: ResolvedTeamTotals;
   }) => (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-medium">{teamName}</h3>
+        <GameTeamLink
+          teamId={teamId}
+          teamName={teamName}
+          onNavigateToTeam={onNavigateToTeam}
+          className="font-medium"
+        />
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="font-mono">
             {totals.points} PTS
@@ -160,7 +170,13 @@ export function BoxScore({ game }: BoxScoreProps) {
 
               const player = row.player!;
               return (
-              <TableRow key={player.playerId} className="text-sm">
+              <TableRow
+                key={player.playerId}
+                className={`text-sm ${onNavigateToPlayer ? 'cursor-pointer hover:bg-muted/50' : ''}`}
+                onClick={() =>
+                  onNavigateToPlayer?.(player.playerId, teamId)
+                }
+              >
                 <TableCell className="font-medium">
                   <PlayerIdentity
                     name={player.name}
@@ -233,13 +249,22 @@ export function BoxScore({ game }: BoxScoreProps) {
   const AdvancedStatsTable = ({
     rows,
     teamName,
+    teamId,
   }: {
     rows: OrderedBoxScoreRow<PlayerBoxScore>[];
     teamName: string;
+    teamId: string;
   }) => (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="font-medium">{teamName} - Advanced Metrics</h3>
+        <h3 className="font-medium">
+          <GameTeamLink
+            teamId={teamId}
+            teamName={teamName}
+            onNavigateToTeam={onNavigateToTeam}
+          />
+          {' '}- Advanced Metrics
+        </h3>
         <Badge variant="secondary" className="text-xs">EFF • GmSc</Badge>
       </div>
       
@@ -283,7 +308,13 @@ export function BoxScore({ game }: BoxScoreProps) {
               );
 
               return (
-              <TableRow key={player.playerId} className="text-sm">
+              <TableRow
+                key={player.playerId}
+                className={`text-sm ${onNavigateToPlayer ? 'cursor-pointer hover:bg-muted/50' : ''}`}
+                onClick={() =>
+                  onNavigateToPlayer?.(player.playerId, teamId)
+                }
+              >
                 <TableCell className="font-medium">
                   <PlayerIdentity
                     name={player.name}
@@ -334,14 +365,24 @@ export function BoxScore({ game }: BoxScoreProps) {
         <CardContent>
           <div className="grid grid-cols-3 gap-6 text-center">
             <div>
-              <h3 className="font-medium text-lg">{game.homeTeam.name}</h3>
+              <GameTeamLink
+                teamId={game.homeTeam.id}
+                teamName={game.homeTeam.name}
+                onNavigateToTeam={onNavigateToTeam}
+                className="font-medium text-lg block"
+              />
               <div className="text-3xl font-bold text-primary mt-2">{homeScore}</div>
             </div>
             <div className="flex items-center justify-center">
               <div className="text-muted-foreground">vs</div>
             </div>
             <div>
-              <h3 className="font-medium text-lg">{game.awayTeam.name}</h3>
+              <GameTeamLink
+                teamId={game.awayTeam.id}
+                teamName={game.awayTeam.name}
+                onNavigateToTeam={onNavigateToTeam}
+                className="font-medium text-lg block"
+              />
               <div className="text-3xl font-bold text-primary mt-2">{awayScore}</div>
             </div>
           </div>
@@ -387,10 +428,15 @@ export function BoxScore({ game }: BoxScoreProps) {
                   <TraditionalStatsTable
                     rows={homeBoxScore}
                     teamName={game.homeTeam.name}
+                    teamId={game.homeTeam.id}
                     totals={homeTotals}
                   />
                 ) : (
-                  <AdvancedStatsTable rows={homeBoxScore} teamName={game.homeTeam.name} />
+                  <AdvancedStatsTable
+                    rows={homeBoxScore}
+                    teamName={game.homeTeam.name}
+                    teamId={game.homeTeam.id}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -401,7 +447,12 @@ export function BoxScore({ game }: BoxScoreProps) {
               <CardContent className="p-6">
                 {awayScoreOnly ? (
                   <div className="text-center py-12">
-                    <h3 className="font-medium text-lg mb-2">{game.awayTeam.name}</h3>
+                    <GameTeamLink
+                      teamId={game.awayTeam.id}
+                      teamName={game.awayTeam.name}
+                      onNavigateToTeam={onNavigateToTeam}
+                      className="font-medium text-lg mb-2 block"
+                    />
                     <div className="text-4xl font-bold text-primary mb-4">{awayScore}</div>
                     <p className="text-sm text-muted-foreground">
                       No player box score recorded for this team.
@@ -411,10 +462,15 @@ export function BoxScore({ game }: BoxScoreProps) {
                   <TraditionalStatsTable
                     rows={awayBoxScore}
                     teamName={game.awayTeam.name}
+                    teamId={game.awayTeam.id}
                     totals={awayTotals}
                   />
                 ) : (
-                  <AdvancedStatsTable rows={awayBoxScore} teamName={game.awayTeam.name} />
+                  <AdvancedStatsTable
+                    rows={awayBoxScore}
+                    teamName={game.awayTeam.name}
+                    teamId={game.awayTeam.id}
+                  />
                 )}
               </CardContent>
             </Card>

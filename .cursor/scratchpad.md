@@ -22,6 +22,521 @@
 
 ## 2) Active Plan (Now)
 
+### **C5 — Game page: clickable team names → Team page (Designer, 2026-05-31)**
+
+User request: On **Game pages**, clicking **team names** should navigate to that team's page.
+
+#### Current state (Designer analysis)
+
+| Location | Team names today | Navigation |
+|----------|------------------|------------|
+| **`/games/:gameId` — `GameSummary`** | Home/away names in main matchup card (`<h3>`) | Plain text — **not clickable** |
+| **`GameLeadersSection`** | N/A | Player names already clickable ✅ |
+| **`BoxScore`** (tab) | Mini scoreboard + per-table `{teamName}` headers + tab triggers | Plain text; tab triggers switch view only |
+| **`TeamStats`** (tab) | Tab triggers + pie chart / detail headers use `teamName` | Plain text |
+| **`GameSummaryRoute`** | Wires `onNavigateToPlayer` only | **No `onNavigateToTeam`** passed |
+| **Elsewhere** (Dashboard preview, Tournament games list, Recent Games) | Team names in lists | Out of scope unless user expands — this task is **Game Summary route only** |
+
+**Gap:** Game page team links were deferred when player/tournament links were added (C3 nav work). Pattern already exists on Team/Tournament/Player pages: `onNavigateToTeam(teamId)` + `navigateWithReturnTo` in `AppRoutes`.
+
+#### Product decisions (Designer recommendation)
+
+1. **Scope:** `/games/:gameId` (`GameSummary` + its tabs: Team Stats, Box Score). **Not** live stats entry, dashboard previews, or tournament game lists in this task.
+2. **Navigation:** Use existing smart back — `navigateWithReturnTo(navigate, teamPath(team), returnTo)` from `GameSummaryRoute` (same as `PlayerDetailRoute`).
+3. **What is clickable:**
+   - ✅ **Main matchup card** — home/away **team name** (and optionally logo/avatar area above name)
+   - ✅ **Box Score mini scoreboard** — home/away names above the team tabs
+   - ✅ **Section headers** inside Box Score / Team Stats that show a single team name (table title, scoring pie title)
+   - ❌ **Tab triggers** (`TabsTrigger` with team name) — keep as **tab switch only**; combining tab switch + navigate on same click is confusing. User can click the header names instead.
+4. **Reuse:** Small shared **`GameTeamLink`** (or `ClickableTeamName`) component — `button` styled `hover:text-primary hover:underline cursor-pointer`, takes `teamId`, `teamName`, optional `className`, `children`.
+5. **Optional polish:** Replace demo `getTeamLogo` images in header with `TeamAvatar` for consistency — **out of scope** unless trivial; focus on click behavior only.
+
+#### Proposed implementation
+
+**1) `src/components/GameTeamLink.tsx`** (minimal)
+
+```typescript
+interface GameTeamLinkProps {
+  teamId: string;
+  teamName: string;
+  onNavigateToTeam: (teamId: string) => void;
+  className?: string;
+  children?: React.ReactNode;
+}
+```
+
+**2) `AppRoutes.tsx` — `GameSummaryRoute`**
+
+Add `onNavigateToTeam={(teamId) => { const team = teams.find(...); if (team) navigateWithReturnTo(navigate, teamPath(team), returnTo); }}`
+
+**3) `GameSummary.tsx`**
+
+- Add prop `onNavigateToTeam?: (teamId: string) => void`
+- Wrap home/away `<h3>` names (and optionally logo `<img>` wrapper) with `GameTeamLink`
+- Pass `onNavigateToTeam` to `BoxScore` and `TeamStats`
+
+**4) `BoxScore.tsx`**
+
+- Add optional `onNavigateToTeam`
+- Clickable: mini scoreboard team names; `TraditionalStatsTable` / `AdvancedStatsTable` `<h3>{teamName}</h3>` headers
+
+**5) `TeamStats.tsx`**
+
+- Add optional `onNavigateToTeam`
+- Clickable: `ScoringPie` / `TeamDetailView` titles where `teamName` is displayed (not tab triggers)
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **C5.1 — Add `GameTeamLink` component**
+  - Success: renders team name as accessible button with hover link styling.
+- [x] **C5.2 — Wire `GameSummaryRoute` → `onNavigateToTeam`**
+  - Success: navigation uses `navigateWithReturnTo`; Back from team page returns to game.
+- [x] **C5.3 — GameSummary main matchup card**
+  - Success: both team names click → correct team pages.
+- [x] **C5.4 — BoxScore + TeamStats team name headers**
+  - Success: secondary team name labels on game page also navigate; tab triggers unchanged.
+- [ ] **C5.5 — Manual QA**
+  - Open NTU vs SUSS game → click each team name in header + box score → team pages load; Back returns to game.
+
+#### Success criteria (Designer sign-off)
+
+- All prominent **team name** labels on the Game Summary page navigate to the correct team page.
+- Tab switching on Box Score / Team Stats still works normally.
+- Smart back navigation preserved.
+- Build passes.
+
+**Designer confidence: ~95%** — ready for Executor on user ack.
+
+**Out of scope (unless requested):** Dashboard game preview, Recent Games, Tournament games tab, Live Game Entry.
+
+---
+
+### **C4 — Team/Player header: abbreviation avatar + all participated tournaments (Designer, 2026-05-31)**
+
+User request: Team page shows **"NA"** in the avatar circle instead of **"NTU"** (should use team **abbreviation** when no custom icon). Show **all tournaments** the team participated in as badges (not only `currentTournament` / Sunig 2025). Apply the same logic on **Player pages**.
+
+#### Current state (Designer analysis)
+
+| Location | Avatar / label today | Tournament badges today |
+|----------|------------------------|-------------------------|
+| **Team page — overview card** | `team.icon \|\| team.name.substring(0, 2)` → **"NA"** for NTU | Single badge: `team.currentTournamentId` only |
+| **Team page — sticky header** | Same broken fallback | None |
+| **Player page — overview card** | Player initials (correct) | Team name badge + single `currentTournament` badge |
+| **Dashboard / game previews** | Uses `TeamAvatar` component ✅ | N/A |
+| **`TeamAvatar.tsx`** | `abbreviation` → first 3 chars ✅; fallback name[0:2] | N/A |
+
+**Root cause:** `TeamPage` (and `TournamentPage` standings) **do not use** the existing `TeamAvatar` component and **never read `team.abbreviation`**. NTU has `abbreviation: 'NTU'` in data but UI shows "NA" from name prefix.
+
+**Tournament root cause:** UI binds to `team.currentTournamentId` (one “active” tournament), not the set of tournaments the team actually appears in. `getTeamTournamentScopeOptions()` in `playerSeasonStats.ts` already derives the full set from **completed games + tournament roster membership** — reuse that logic.
+
+#### Product decisions (Designer recommendation)
+
+1. **Single source of truth for team avatar label:** Extend/reuse `TeamAvatar` everywhere; do not duplicate fallback strings.
+2. **Avatar label priority (no image icon):**
+   - Short text `team.icon` (≤3 chars, e.g. custom monogram) → use as-is
+   - Else `team.abbreviation` → show up to **3 chars** in circle (matches existing `TeamAvatar`; NTU → "NTU")
+   - Else generated from name (existing `generateTeamAbbreviation` / first 2 letters)
+3. **Tournament badges — Team page:** Show **every tournament** the team participated in (games + roster), sorted by name. Each badge clickable → tournament page (existing `onNavigateToTournament`). Use `variant="default"` with trophy icon; wrap in `flex flex-wrap gap-2` when multiple.
+4. **Tournament badges — Player page:** Show **every tournament the player has GP in** (from completed games with stats), not team's `currentTournamentId`. Same badge styling + click → tournament page. *(Player may have fewer tournaments than team if they didn't play every game.)*
+5. **Remove reliance on `currentTournamentId` for display** on these headers. Keep field in data model for other uses (Game Setup default, etc.) but not for “which badges to show.”
+6. **Scope:** Team page + Player page headers in this task. Also fix duplicate avatar fallbacks in `TournamentPage` standings/team lists (same "NA" bug) as a small follow-on in same PR.
+
+#### Proposed implementation
+
+**1) Utils — `src/utils/teamTournaments.ts` (or extend `playerSeasonStats.ts`)**
+
+```typescript
+getParticipatedTournamentIds(teamId, games, tournaments): string[]
+getParticipatedTournaments(teamId, games, tournaments): Tournament[]  // sorted by name
+
+getPlayerParticipatedTournamentIds(playerId, games): string[]
+getPlayerParticipatedTournaments(playerId, games, tournaments): Tournament[]
+```
+
+Reuse same ID-gathering as `getTeamTournamentScopeOptions` (games with `tournamentId` + `tournament.teams.includes(teamId)`).
+
+**2) UI — extend `TeamAvatar`**
+
+- Add size `xl` (`w-24 h-24 text-2xl`) for overview headers.
+- Optional: support `AvatarImage` later if `icon` is URL — out of scope unless already used.
+
+**3) UI — `ParticipatedTournamentBadges` (small shared component)**
+
+Props: `tournaments: Tournament[]`, `onNavigateToTournament`. Renders 0..N clickable badges. Empty → render nothing.
+
+**4) Wire pages**
+
+| File | Change |
+|------|--------|
+| `TeamPage.tsx` | Replace 2 inline `Avatar` blocks with `<TeamAvatar size="xl" />`; replace single `currentTournament` badge with `<ParticipatedTournamentBadges tournaments={teamParticipatedTournaments} />` |
+| `PlayerPage.tsx` | Replace single `currentTournament` badge with player participated tournaments; optionally show `TeamAvatar size="sm"` beside team badge or badge text `team.abbreviation` — **recommend:** keep team name badge but prefix with small `TeamAvatar` for consistency |
+| `TournamentPage.tsx` | Replace `team.name.substring(0, 2)` avatars with `TeamAvatar` (3 sites) |
+
+**5) Data for NTU smoke test**
+
+- Team `team-sunig-ntu`, abbreviation `NTU`
+- Tournaments: Sunig 2025 + IVP 2026 (from games + roster)
+- Player with both: e.g. Carl → 2 tournament badges; player with Sunig only → 1 badge
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **C4.1 — Helpers: `getParticipatedTournaments` (team + player)**
+  - Success: NTU returns Sunig + IVP; player returns subset from their games.
+- [x] **C4.2 — Extend `TeamAvatar` (`xl` size) + `ParticipatedTournamentBadges`**
+  - Success: NTU renders "NTU"; badges render list with click handlers.
+- [x] **C4.3 — TeamPage: avatar + all tournament badges**
+  - Success: overview + header show NTU + both tournament badges.
+- [x] **C4.4 — PlayerPage: all player tournament badges (+ team avatar consistency)**
+  - Success: player overview shows all played tournaments; team ref uses abbreviation avatar pattern.
+- [x] **C4.5 — TournamentPage avatar cleanup (same abbreviation fix)**
+  - Success: standings/team lists show NTU not NA.
+- [ ] **C4.6 — Manual QA**
+  - NTU team page, NTU player with multi-tournament GP, team with no games (roster-only tournament still shows badge).
+
+#### Success criteria (Designer sign-off)
+
+- NTU avatar shows **NTU**, not NA, on team page (overview + header).
+- All teams without custom icon use **abbreviation** consistently via `TeamAvatar`.
+- Team page lists **all** participated tournaments as clickable badges.
+- Player page lists **all** tournaments that player has game stats in.
+- Build passes; no change to `currentTournamentId` persistence semantics.
+
+**Designer confidence: ~95%** — ready for Executor on user ack.
+
+**Open question (optional):** On player page, should the team badge show **full name** (today), **abbreviation only** ("NTU"), or **avatar + full name**? Default plan: **small TeamAvatar + full team name** (click → team page).
+
+---
+
+### **C3 — Player page Stats tab: Standard/Advanced toggle (Designer, 2026-05-31)**
+
+User request: Apply the same **Standard / Advanced** stats toggle used on Team and Tournament pages to the **Player Stats** tab on the player page.
+
+#### Current state (Designer analysis)
+
+| Location | What it shows today |
+|----------|---------------------|
+| **Team / Tournament pages** | `PlayerStatsTable` with Standard/Advanced toggle (C2) — roster rows, sortable, tooltips, MM:SS MPG |
+| **Player page → Player Stats tab** | Custom inline `<Table>` — one row **per tournament** + **All Time** footer. Columns: Tournament, GP, MIN (decimal), PTS, REB, AST, STL, BLK, TO, **FDPG**, FG%, 3P%, FT%, EFF, GmSc. **No toggle.** |
+| **Player page → Advanced Stats tab** | Separate UI: tournament filter + **shooting breakdown cards** (FG/3PT/FT splits, efficiency summary). **Not** the same as `PlayerStatsTable` Advanced columns. |
+
+**Gap:** Player Stats tab is a one-off table that diverged from C2 column sets (e.g. FDPG in main view, decimal minutes, missing FGM/FGA/FPG/+/- in standard).
+
+#### Product decision (Designer recommendation)
+
+- **Reuse `PlayerStatsTable`** (same columns, toggle, tooltips, MM:SS MPG, Paint/FB warnings) — do **not** duplicate column logic in `PlayerPage`.
+- **Row model:** Each row = one **tournament scope** for the current player (not one row per player). Optional **All Time** summary row when filter = "All Tournaments".
+- **Keep the existing tournament filter** (`Select`) above the table.
+- **Keep the separate "Advanced Stats" tab** for now (shooting breakdown cards). Only the **Player Stats tab** gets the C2 toggle. *(Avoid removing a tab without explicit user ask.)*
+
+#### Proposed implementation
+
+**1) Data layer — `playerSeasonStats.ts`**
+
+Add helper e.g. `buildPlayerTournamentSeasonRows(player, team, games, tournaments)`:
+
+- For each tournament the player has GP in: filter completed games → `aggregatePlayerSeasonStats` scoped to that `tournamentId` → one `PlayerSeasonRow` for this player.
+- Attach `scopeLabel: string` (tournament name) on row or parallel map.
+- **All Time row:** aggregate all player games → one row with `scopeLabel: 'All Time'`.
+- Compute `getShotDataCoverage` / `getFoulStatCoverage` from the **filtered game set** (respect tournament filter).
+
+Extend `PlayerSeasonRow` optionally:
+
+```typescript
+scopeLabel?: string; // e.g. "Sunig 2025", "IVP 2026", "All Time"
+```
+
+**2) `PlayerStatsTable` extensions (minimal props)**
+
+| Prop | Purpose |
+|------|---------|
+| `layout?: 'roster' \| 'tournament-breakdown'` | Default `roster` (unchanged). Breakdown mode hides `#`, Team, Pos; first column = scope label not player name. |
+| `scopeLabel?: (row) => string` | Returns tournament name for breakdown rows |
+| `summaryRowIds?: Set<string>` | Style All Time row (bold / muted bg) — or match existing footer styling |
+| `disableRowNavigation?: boolean` | No click → player profile (already on player page) |
+| `defaultSortField` / `defaultSortOrder` | Breakdown: sort by GP or scope label, not PPG |
+
+**3) `PlayerPage.tsx` — replace `PlayerStatsTab` custom table**
+
+- Keep tournament filter card.
+- Build `PlayerSeasonRow[]` via helper; filter by `selectedTournament`.
+- Render `<PlayerStatsTable layout="tournament-breakdown" showTeamColumn={false} disableRowNavigation ... />`.
+- When filter = single tournament: show that row only (hide All Time or show same single row — **prefer hide All Time** when redundant).
+
+**4) Column parity with C2**
+
+| View | Columns (same as team/tournament) |
+|------|-----------------------------------|
+| **Standard** | GP, MPG, PPG, RPG, APG, SPG, BPG, FG%, FGM, FGA, 3P%, 3PM, 3PA, FT%, FTM, FTA, TOPG, FPG, +/-, GmSc, EFF |
+| **Advanced** | GP, MPG, FG, 3PT, FT (season totals), ORPG, FDPG, Paint, FB, BA, TF, UF |
+
+Remove legacy mixed column set (FDPG-only in standard, decimal MIN).
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **C3.1 — Extend `PlayerSeasonRow` + `buildPlayerTournamentSeasonRows()` helper**
+  - Success: given a player + games, returns one row per tournament + all-time row with paint/FB totals.
+- [x] **C3.2 — Extend `PlayerStatsTable` for `tournament-breakdown` layout**
+  - Success: renders scope label column; no player navigation; All Time row styled; build passes.
+- [x] **C3.3 — Wire `PlayerStatsTab` to use `PlayerStatsTable` + toggle; remove inline table**
+  - Success: Player Stats tab matches team page Standard/Advanced columns and toggle UX.
+- [ ] **C3.4 — Manual QA**
+  - Player with Sunig + IVP games: filter All / per-tournament; toggle Standard ↔ Advanced; All Time row; MM:SS MPG; Paint/FB show `-` for imported games.
+
+#### Success criteria (Designer sign-off)
+
+- Player Stats tab has **Standard / Advanced** buttons identical to team/tournament pages.
+- Column sets match C2 exactly (no duplicate custom columns).
+- Tournament filter + All Time row still work.
+- Advanced Stats **tab** unchanged (shooting cards remain).
+
+#### Open question for user (optional before Executor)
+
+The player page already has a top-level **"Advanced Stats"** tab (shooting breakdown cards). After C3, **Player Stats → Advanced** will show ORPG, FDPG, Paint, etc. Is that overlap OK, or do you want to rename/remove the old Advanced Stats tab later?
+
+**Designer confidence: ~95%** — ready for Executor on user ack (default: keep both tabs).
+
+---
+
+### **IVP1 — IVP 2026 full season import (5 games) (Designer, 2026-05-31)**
+
+User request: Import **5 IVP 2026 box scores** from `Importingboxscores/ivp 2026/` (PDFs only — JSON not yet created). Add **3 new NTU players**. Set starters + start times per game. Follow Sunig 2025 import conventions.
+
+#### Source material (Designer verified from PDFs)
+
+| # | Date | Matchup (PDF) | Final | NTU | Home | Start | NTU starters (user) |
+|---|------|---------------|-------|-----|------|-------|---------------------|
+| 1 | 2026-01-13 | NP 70 – 80 NTU | 80–70 | W | **NTU** | 19:15 | Jingjie, Louis, Minghui, Glen, Carl |
+| 2 | 2026-01-20 | SUSS 49 – 96 NTU | 96–49 | W | **NTU** | 20:45 | Minghui, Jeremy, Haniel, Sunzhe, Kovan |
+| 3 | 2026-01-23 | ITE 54 – 89 NTU | 89–54 | W | **NTU** | 20:45 | Jingjie, Chengshan, Jeremy, Khaimun, Carl |
+| 4 | 2026-01-26 | SIM 51 – 74 NTU | 74–51 | W | **SIM** | 21:25 | Jingjie, Chengshan, Minghui, Glen, Carl |
+| 5 | 2026-01-28 | NP 69 – 90 NTU | 90–69 | W | **NTU** | 20:45 | Jingjie, Chengshan, Darren, Glen, Carl |
+
+PDFs contain **NTU player lines only** (same pattern as Sunig) — opponent box scores not tracked; `trackBothTeams: false`.
+
+#### New NTU players (user)
+
+| Name | Pos | # | Profile |
+|------|-----|---|---------|
+| Glen Yeo | PF/C | 11 | (no height/weight/DOB given) |
+| Haniel Muze | SF/PF | 12 | **Conflicts with Yuanyang Tan (#12, Sunig)** — user says OK across tournaments |
+| Lucas Hoo | SG/SF | 23 | 185 cm, 80 kg, DOB 3 Feb 2004 |
+
+Proposed player IDs (distinct from Sunig ids):
+- `player-ivp-ntu-11` — Glen Yeo
+- `player-ivp-ntu-12` — Haniel Muze *(not `player-sunig-ntu-12` = Yuanyang)*
+- `player-ivp-ntu-23` — Lucas Hoo
+
+Existing NTU players reuse **`player-sunig-ntu-*`** ids (already in Supabase from Sunig imports).
+
+#### Existing player ↔ jersey map (IVP PDFs)
+
+| # | App name | Existing id |
+|---|----------|-------------|
+| 0 | Shawn Lee | player-sunig-ntu-0 |
+| 1 | Jingjie Lim | player-sunig-ntu-1 |
+| 4 | Louis Ho | player-sunig-ntu-4 |
+| 6 | Daniel Delin | player-sunig-ntu-6 *(appears G2/G3, not in starter lists)* |
+| 8 | Chengshan Tan | player-sunig-ntu-8 |
+| 10 | Jeremy Chew | player-sunig-ntu-10 |
+| 14 | Khaimun Ng | player-sunig-ntu-14 |
+| 15 | Darren Ng | player-sunig-ntu-15 |
+| 20 | Minghui Pan | player-sunig-ntu-20 |
+| 21 | Kovan Toh | player-sunig-ntu-21 |
+| 22 | Carl Belanger | player-sunig-ntu-22 |
+| 45 | Sunzhe Lew | player-sunig-ntu-45 |
+
+PDF name variants: "Jing Jie" → Jingjie, "Cheng Shan" → Chengshan, "Lucas" → Lucas Hoo.
+
+#### Proposed import strategy (pending user confirm)
+
+1. **Game 1 JSON** — full import (**no** `--stats-only`): upsert 3 new players + opponent shell `team-ivp-np`; preserve existing NTU profile fields via merge logic.
+2. **Games 2–5** — `--stats-only`: game stats + team totals only; **never overwrite** player profiles.
+3. Create 5 JSON files mirroring Sunig structure under `Importingboxscores/ivp 2026/`.
+4. Minutes: PDF `MM:SS` → decimal minutes (e.g. `26:12` → `26.2`).
+5. Extend import script to accept optional `dateOfBirth` on player rows (for Lucas).
+
+#### Code changes likely required
+
+| Area | Change |
+|------|--------|
+| **Duplicate jersey #12** | Relax `isNumberTaken` in TeamPage, TeamManager, PlayerPage, GameSetup — allow same # on one roster if different player ids *(DB has no unique constraint on team+number)* |
+| **import-boxscore.ts** | Support `dateOfBirth` in player JSON; optional `--add-players-only` or game-1 full import for new players |
+| **Tournament teams junction** | Ensure IVP tournament linked to NTU + all 4 opponents (+ NUS if user wants) |
+
+#### High-level task breakdown (Executor — after user Q&A)
+
+- [x] **IVP1.0 — User confirms open questions**
+- [x] **IVP1.1 — Code: `--add-new-players`, DOB, duplicate jersey UI**
+- [x] **IVP1.2 — Create 5 JSON files + import game 1**
+- [x] **IVP1.3 — Import games 2–5 stats-only**
+- [x] **IVP1.4 — Verified: 3 new players; 15 existing NTU profiles unchanged; 5 games in Supabase**
+- [ ] **IVP1.5 — User QA gate**
+
+#### Open questions for user (need answers before Executor)
+
+**Q1 — Same NTU team entity?**  
+Should IVP use the existing **`team-sunig-ntu`** (one NTU roster shared with Sunig 2025), or a separate team id like `team-ivp-ntu`?
+
+**Q2 — IVP tournament id?**  
+What is the exact tournament id in your app for IVP 2026? (e.g. `tournament-ivp-2026` or an auto-generated id from when you created it in Tournament Manager?) Executor needs the exact string for JSON.
+
+**Q3 — Opponent team names & ids?**  
+Proposed mapping — please confirm or correct:
+
+| Opponent | Proposed id | Full name | Abbr |
+|----------|-------------|-----------|------|
+| NP | `team-ivp-np` | Ngee Ann Polytechnic? | NP |
+| SUSS | `team-sunig-suss` *(reuse)* | Singapore University of Social Sciences | SUSS |
+| ITE | `team-ivp-ite` | Institute of Technical Education? | ITE |
+| SIM | `team-ivp-sim` | Singapore Institute of Management? | SIM |
+
+**Q4 — NUS in tournament?**  
+You added NUS to IVP 2026 in Tournament Manager but there is no NUS game in these 5 PDFs. Include NUS in `teamIds` anyway, or only the 5 teams that actually play?
+
+**Q5 — Duplicate #12 (Yuanyang vs Haniel)?**  
+Confirm: both stay on **`team-sunig-ntu`** roster with jersey **12**, distinguished by player id (`player-sunig-ntu-12` vs `player-ivp-ntu-12`). UI will show both #12 — OK?
+
+**Q6 — Daniel #6 stats?**  
+Daniel appears in games 2 and 3 PDFs but wasn’t listed in your starter notes. Import his box score lines using existing `player-sunig-ntu-6`?
+
+**Q7 — Lucas profile on import?**  
+Store DOB as `2004-02-03`, height `185`, weight `80` on first import — correct?
+
+**Q8 — Import order OK?**  
+Game 1 = full import (adds 3 players). Games 2–5 = `--stats-only`. Matches Sunig workflow — confirm?
+
+---
+
+### **N1 — Smart back navigation: return to previous page (Designer, 2026-05-29)**
+
+User report: From **Sunig tournament → Teams tab → NTU team page → Back**, expected return to **tournament Teams tab**, but landed on **Team Manager** (`/teams`).
+
+#### Root cause analysis (Designer)
+
+**1) Back buttons are hardcoded to parent list pages, not contextual**
+
+In `src/routing/AppRoutes.tsx`:
+
+| Route | Current `onBack` | Problem |
+|-------|------------------|---------|
+| `TeamDetailRoute` | `navigate(paths.teams)` | Always Team Manager, ignores where user came from |
+| `PlayerDetailRoute` | `navigate(teamPath(team))` | Always team overview, ignores tournament/dashboard origin |
+| `TournamentDetailRoute` | `navigate(paths.tournaments)` | Always tournament list, ignores dashboard origin |
+
+**2) This was an intentional prior fix — now conflicts with user intent**
+
+Scratchpad (Executor notes) documents a previous change: *"Team detail Back now routes directly to `paths.teams` (single click)"* — removing browser-history dependency. That fixed **Team Manager → Team → Back** in one click, but broke **cross-section navigation** (tournament, dashboard, standings → team).
+
+**3) `GameSummary` already uses history correctly**
+
+`GameSummaryRoute` uses `navigate(-1)`. Inconsistent pattern across detail pages.
+
+**4) Tab query params must be preserved**
+
+Tournament Teams tab URL is `/tournaments/sunig-2025--tournament-sunig-2025?tab=teams`. Any fix must restore the **full path + search**, not just the tournament home tab.
+
+#### Product decision (Designer)
+
+- **Back = return to the page the user came from** (including tab query param).
+- **Sensible fallback** when there is no referrer (direct URL / bookmark / new tab): parent list page for that entity type.
+- **One click** — user should not have to press Back multiple times to escape internal tab changes on the detail page they just left (e.g. team stats tab history should not block return to tournament).
+
+Recommended approach: **explicit return URL via React Router location state**, not raw `navigate(-1)` alone.
+
+#### Proposed implementation
+
+**Step 1 — Add `src/routing/navigation.ts`**
+
+```typescript
+export type NavigationFromState = { from?: string };
+
+export function currentLocationPath(location: Location): string {
+  return `${location.pathname}${location.search}`;
+}
+
+/** Navigate to a detail page, recording where the user came from. */
+export function navigateWithReturnTo(
+  navigate: NavigateFunction,
+  target: string,
+  returnTo: string
+): void {
+  navigate(target, { state: { from: returnTo } satisfies NavigationFromState });
+}
+
+/** Back: use recorded `from`, else fallback (e.g. /teams). */
+export function navigateBack(
+  navigate: NavigateFunction,
+  location: Location,
+  fallback: string
+): void {
+  const from = (location.state as NavigationFromState | null)?.from;
+  if (from) {
+    navigate(from);
+    return;
+  }
+  navigate(fallback);
+}
+```
+
+**Step 2 — Forward navigation: pass `from` when entering detail pages**
+
+Update navigators to call `navigateWithReturnTo(navigate, target, currentLocationPath(location))`:
+
+| Location | Calls to update |
+|----------|-----------------|
+| `TournamentDetailRoute` | `onNavigateToTeam`, `onNavigateToPlayer`, `onNavigateToGame` |
+| `TeamDetailRoute` | `onNavigateToPlayer`, `onNavigateToGame`, `onNavigateToTournament` |
+| `PlayerDetailRoute` | `onNavigateToTeam`, `onNavigateToGame`, `onNavigateToTournament` |
+| Shared `navigateToTeam` / `navigateToTournament` in `AppRoutes` | Dashboard + TeamManager entry points |
+| `TeamManager` route | already uses shared `navigateToTeam` |
+| `App.tsx` | any direct `navigate(teamPath(...))` calls |
+
+**Step 3 — Back handlers on detail routes**
+
+| Route | Fallback when no `from` |
+|-------|-------------------------|
+| `TeamDetailRoute` | `paths.teams` |
+| `PlayerDetailRoute` | `teamPath(team)` |
+| `TournamentDetailRoute` | `paths.tournaments` |
+
+Replace hardcoded `onBack` with `navigateBack(navigate, location, fallback)`.
+
+**Step 4 — Leave list-page backs unchanged**
+
+`TournamentManager`, `TeamManager`, `RecentGames` back → home is correct (section entry points).
+
+**Optional (defer):** Align `GameSummaryRoute` to same `navigateBack` + pass `from` on `gamePath` navigations for consistency.
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **N1.1 — Add `navigation.ts` helpers** (+ unit tests if test harness exists; else manual QA only)
+  - Success: helpers exported, typed, no lint errors.
+- [x] **N1.2 — Wire `navigateWithReturnTo` on all forward detail navigations in `AppRoutes.tsx`**
+  - Success: tournament → team navigation sets `location.state.from` with `?tab=teams`.
+- [x] **N1.3 — Replace detail route `onBack` with `navigateBack`**
+  - Success: Team/Player/Tournament detail backs use helper + fallbacks.
+- [x] **N1.4 — Audit `App.tsx` for direct navigates without return state**
+  - Success: global search team/player/game links use `navigateWithReturnTo`.
+- [ ] **N1.5 — Manual QA gate (user)**
+  - Tournament Teams tab → NTU → Back → **Tournament Teams tab** ✓
+  - Team Manager → NTU → Back → **Team Manager** ✓
+  - Dashboard team tile → NTU → Back → **Dashboard** ✓
+  - Tournament Players tab → player → Back → **Tournament Players tab** ✓
+  - Direct URL to team → Back → **Team Manager** (fallback) ✓
+
+#### Success criteria (Designer sign-off)
+
+- Back from a detail page returns to the **exact prior URL** (path + tab query), not a hardcoded list page.
+- Fallback behavior works for direct/deep links.
+- No regression: Team Manager → Team → Back still one click.
+
+#### Risks / notes
+
+- **Do not** revert to bare `navigate(-1)` without `from` state — user changing tabs on team page would require multiple backs to reach tournament.
+- Previous scratchpad note (*"Removed dependency on browser history"*) is **superseded** by this plan.
+
+---
+
 ### **P0 — Latest Games preview: wrong scores + diagonal layout (Designer, 2026-05-30)**
 
 User report: Dashboard “Latest Games” cards show **scores on the wrong team** (e.g. Sunig: SUTD left with 96, NTU right with 37; correct is **NTU 96**, **SUTD 37**). Same class of error on Summer League cards. Team names also look **diagonally misaligned** (one side high, one low).
@@ -232,6 +747,321 @@ Usage: `npm run import:boxscore -- --file "...game-2025-09-26-ntu-nus.json" --st
 2. **NUS full name:** **National University of Singapore** — correct?
 3. **Starters** for this game (PG/SG/SF/PF/C order, like Games 1–2)? PDF does not list them.
 4. **`--stats-only` import:** OK with this approach so we never touch player rows?
+
+---
+
+### **B5 — Sunig 2025 Game 4: SUSS vs NTU (Designer, 2026-05-30)**
+
+**Source:** `Importingboxscores/sunig 2025/SUSS_vs_NTU_BoxScore_2025-09-29.pdf`  
+**Target JSON:** `Importingboxscores/sunig 2025/game-2025-09-29-suss-ntu.json`  
+**Import:** `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-29-suss-ntu.json" --stats-only`  
+**User constraint:** **Stats only** — never upsert `players`; preserve all NTU profile data in Supabase.
+
+#### PDF summary (verified)
+
+| Field | Value |
+|-------|--------|
+| Date | **September 29, 2025** |
+| Header score | **SUSS 41 — NTU 86** (NTU win) |
+| NTU players in PDF | **12** who played |
+| SUSS player lines | **None** (score-only opponent, like SUTD/SIT/NUS) |
+| NTU team line | 86 pts · 35/75 FG · 10/22 3PT · 6/9 FT · 40 REB (16 ORB / 24 DRB) · 23 AST · 2 BLK · 19 STL · 12 TO · 13 PF |
+
+Player points sum to **86** ✓. Top scorers: Jeremy **15**, Sunzhe **14**, Daniel **13**.
+
+**NTU played (12):** #10, #45, #6, #8, #33, #1, #22, #4, #20, #15, #21, #12  
+**NTU did not play (0 GP):** #0 Shawn, #13 Cliff, #14 Khaimun (no `gameStats` row)
+
+#### Proposed data model
+
+| Entity | Proposed value |
+|--------|----------------|
+| Game id | `game-sunig-2025-09-29-suss-ntu` |
+| Date | `2025-09-29` |
+| Home / Away | **Assumed:** SUSS home, NTU away → `finalScore: { home: 41, away: 86 }` (matches NUS game pattern: first team in PDF header = home) |
+| New team | `team-sunig-suss` — **Singapore University of Social Sciences**, abbrev **SUSS**, `players: []` |
+| NTU in bundle | **Stub only** — `id`, `name`, `abbreviation`, **`players: []`** |
+| `trackBothTeams` | `false` |
+| `homeStarters` | `[]` (SUSS score-only) |
+| `awayStarters` | User to confirm (PG→C order); NTU is **away** |
+| `gameStats` | 12 NTU rows; **decimal minutes** (MM:SS → min + sec/60) |
+| `teamStats.home` | SUSS: `total_points: 41` only |
+| `teamStats.away` | NTU full TEAM line from PDF |
+| `tournament.teamIds` | Add `team-sunig-suss` to existing five |
+
+#### NTU player stat mapping (PDF → JSON)
+
+Reuse existing `player-sunig-ntu-*` ids. Minutes as decimal (never rounded integers).
+
+| # | PDF name | player id | MIN | PTS | FG | 3PT | FT | REB (ORB/DRB) | AST | BLK | STL | TO | PF | FD | +/- |
+|---|----------|-----------|-----|-----|-----|-----|-----|---------------|-----|-----|-----|-----|-----|-----|-----|
+| 10 | Jeremy | player-sunig-ntu-10 | 17.9333 | 15 | 5-12 | 3-7 | 2-3 | 7 (4/3) | 0 | 0 | 1 | 1 | 1 | 3 | 33 |
+| 45 | Sunzhe | player-sunig-ntu-45 | 16.9667 | 14 | 5-8 | 4-6 | 0-0 | 6 (4/2) | 3 | 0 | 3 | 0 | 2 | 1 | 30 |
+| 6 | Daniel | player-sunig-ntu-6 | 16.15 | 13 | 6-8 | 0-0 | 1-1 | 4 (0/4) | 2 | 0 | 5 | 0 | 2 | 3 | 31 |
+| 8 | Cheng Shan | player-sunig-ntu-8 | 24.2833 | 12 | 6-13 | 0-0 | 0-0 | 2 (0/2) | 1 | 1 | 1 | 0 | 0 | 0 | 33 |
+| 33 | Han Qing | player-sunig-ntu-33 | 11.5167 | 7 | 3-5 | 1-2 | 0-0 | 2 (0/2) | 0 | 0 | 1 | 0 | 1 | 0 | 33 |
+| 1 | Jing Jie | player-sunig-ntu-1 | 12.1333 | 6 | 3-3 | 0-0 | 0-0 | 2 (0/2) | 3 | 0 | 1 | 2 | 2 | 0 | 33 |
+| 22 | Carl | player-sunig-ntu-22 | 17.1667 | 5 | 2-8 | 1-1 | 0-0 | 4 (3/1) | 5 | 0 | 2 | 2 | 1 | 1 | 21 |
+| 4 | Louis | player-sunig-ntu-4 | 15.7167 | 5 | 2-6 | 0-2 | 1-2 | 3 (2/1) | 2 | 0 | 4 | 2 | 1 | 1 | 12 |
+| 20 | Minghui | player-sunig-ntu-20 | 18.65 | 4 | 2-4 | 0-1 | 0-1 | 1 (0/1) | 2 | 0 | 0 | 1 | 0 | 1 | 9 |
+| 15 | Darren | player-sunig-ntu-15 | 19.4 | 3 | 1-7 | 1-3 | 0-0 | 3 (0/3) | 1 | 1 | 1 | 3 | 1 | 1 | 2 |
+| 21 | Kovan | player-sunig-ntu-21 | 10.8833 | 2 | 0-1 | 0-0 | 2-2 | 4 (3/1) | 2 | 0 | 0 | 1 | 2 | 1 | 6 |
+| 12 | Yuan Yang | player-sunig-ntu-12 | 11.3167 | 0 | 0-0 | 0-0 | 0-0 | 2 (0/2) | 2 | 0 | 0 | 0 | 0 | 0 | 11 |
+
+**NTU away team totals:** 35/75 FG, 10/22 3PT, 25/53 2PT, 6/9 FT, 40 REB (16 ORB / 24 DRB), 23 AST, 2 BLK, 19 STL, 12 TO, 13 PF.
+
+#### Import strategy
+
+Same as B4 — **`--stats-only`** mandatory. Creates `team-sunig-suss` shell only; skips all player upserts; upserts game + tournament_teams.
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **B5.1 — User confirms** home/away, SUSS name, starters, start time (see questions)
+- [x] **B5.2 — Author stats-only JSON** (`game-2025-09-29-ntu-suss.json`)
+- [x] **B5.3 — Dry-run + import with `--stats-only`**
+- [ ] **B5.4 — Manual QA:** score NTU 86 / SUSS 41, 12 NTU lines, box score order, **player profiles unchanged**
+
+#### Success criteria
+
+- Game live as **SUSS 41, NTU 86** with correct home/away pairing.
+- All 12 NTU stat lines match PDF; minutes stored as decimals.
+- **No changes** to existing NTU player profiles (verify before/after query).
+- SUSS appears in tournament as score-only opponent.
+
+#### Open questions (need answers before Executor B5.2)
+
+1. **Home/Away:** Confirm **SUSS home, NTU away** (`41` home / `86` away)? PDF header + filename suggest SUSS home; schedule might read as “@ SUSS” from NTU’s perspective.
+2. **SUSS full name:** **Singapore University of Social Sciences** — correct?
+3. **NTU starters** for this game (PG/SG/SF/PF/C order)? PDF does not list them. Cliff (#13) and Khaimun (#14) DNP — do not include in starters even if they started other games.
+4. **Start time** (24h `HH:MM`, e.g. `20:40`)?
+5. **`--stats-only` import:** Confirmed — never touch player rows?
+
+---
+
+### **B6 — Sunig 2025 Game 5 (finale): NUS vs NTU (Designer, 2026-05-31)**
+
+**Source:** `Importingboxscores/sunig 2025/NUS_vs_NTU_BoxScore_2025-10-03.pdf`  
+**Target JSON:** `Importingboxscores/sunig 2025/game-2025-10-03-nus-ntu.json`  
+**Import:** `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-10-03-nus-ntu.json" --stats-only`  
+**User constraint:** **Stats only** — never upsert `players`; preserve all NTU profile data.  
+**Note:** Last Sunig 2025 game in import folder. NUS rematch from Game 3 (Sep 26).
+
+#### PDF summary (verified)
+
+| Field | Value |
+|-------|--------|
+| Date | **October 3, 2025** |
+| Header score | **NUS 45 — NTU 80** (NTU win) |
+| NTU players in PDF | **12** who played |
+| NUS player lines | **None** (score-only opponent) |
+| NTU team line | 80 pts · 27/70 FG · 9/24 3PT · 17/24 FT · 43 REB (14 ORB / 29 DRB) · 24 AST · 4 BLK · 5 STL · 7 TO · 13 PF |
+
+Player points sum to **80** ✓. Top scorers: Carl **23**, Chengshan **15**, Jeremy **9**.
+
+**NTU played (12):** #22, #8, #10, #0, #45, #6, #33, #1, #15, #20, #14, #21  
+**NTU did not play (0 GP):** #4 Louis, #12 Yuanyang, #13 Cliff (no `gameStats` row)
+
+#### Proposed data model
+
+| Entity | Proposed value |
+|--------|----------------|
+| Game id | `game-sunig-2025-10-03-nus-ntu` |
+| Date | `2025-10-03` |
+| Home / Away | **Assumed:** NUS home, NTU away → `finalScore: { home: 45, away: 80 }` (same header pattern as Sep 26 rematch) |
+| Teams in bundle | Stub `team-sunig-nus` + stub `team-sunig-ntu`, both `players: []` |
+| `trackBothTeams` | `false` |
+| `homeStarters` | `[]` (NUS score-only) |
+| `awayStarters` | User to confirm (PG→C); NTU is **away** if assumption holds |
+| `gameStats` | 12 NTU rows; decimal minutes |
+| `teamStats.home` | NUS: `total_points: 45` only |
+| `teamStats.away` | NTU full TEAM line from PDF |
+| `tournament.teamIds` | All six existing teams (no new team) |
+
+#### NTU player stat mapping (PDF → JSON)
+
+Reuse existing `player-sunig-ntu-*` ids. Minutes = min + sec/60.
+
+| # | PDF name | player id | MIN (dec) | PTS | FG | 3PT | FT | REB (O/D) | AST | BLK | STL | TO | PF | FD | +/- |
+|---|----------|-----------|-----------|-----|-----|-----|-----|-----------|-----|-----|-----|-----|-----|-----|-----|
+| 22 | Carl | player-sunig-ntu-22 | 27.9667 | 23 | 9-13 | 1-2 | 4-4 | 5 (1/4) | 0 | 2 | 0 | 1 | 0 | 3 | 22 |
+| 8 | Cheng Shan | player-sunig-ntu-8 | 22.4 | 15 | 4-11 | 1-2 | 6-8 | 2 (0/2) | 3 | 1 | 1 | 0 | 1 | 4 | 26 |
+| 10 | Jeremy | player-sunig-ntu-10 | 24.4 | 9 | 3-7 | 3-7 | 0-0 | 7 (3/4) | 4 | 0 | 0 | 1 | 0 | 0 | 24 |
+| 0 | Shawn | player-sunig-ntu-0 | 8.4667 | 8 | 3-6 | 2-3 | 0-0 | 0 (0/0) | 2 | 0 | 0 | 0 | 0 | 0 | 6 |
+| 45 | Sunzhe | player-sunig-ntu-45 | 20.4333 | 7 | 2-5 | 1-4 | 2-2 | 3 (1/2) | 0 | 1 | 0 | 0 | 2 | 1 | 8 |
+| 6 | Daniel | player-sunig-ntu-6 | 17.25 | 4 | 2-3 | 0-0 | 0-0 | 2 (0/2) | 3 | 0 | 0 | 2 | 3 | 2 | 16 |
+| 33 | Han Qing | player-sunig-ntu-33 | 15.5167 | 3 | 1-6 | 1-4 | 0-0 | 5 (2/3) | 1 | 0 | 0 | 1 | 1 | 0 | 22 |
+| 1 | Jing Jie | player-sunig-ntu-1 | 17.0667 | 3 | 1-3 | 0-0 | 1-2 | 5 (2/3) | 3 | 0 | 2 | 1 | 3 | 1 | 19 |
+| 15 | Darren | player-sunig-ntu-15 | 14.5833 | 2 | 0-6 | 0-0 | 2-6 | 4 (1/3) | 3 | 0 | 0 | 0 | 1 | 3 | 2 |
+| 20 | Minghui | player-sunig-ntu-20 | 15.7667 | 2 | 0-2 | 0-1 | 2-2 | 4 (1/3) | 3 | 0 | 0 | 1 | 0 | 3 | 12 |
+| 14 | Khaimun | player-sunig-ntu-14 | 10.9833 | 2 | 1-4 | 0-1 | 0-0 | 5 (2/3) | 2 | 0 | 2 | 0 | 2 | 0 | 19 |
+| 21 | Kovan | player-sunig-ntu-21 | 5.05 | 2 | 1-4 | 0-0 | 0-0 | 1 (1/0) | 0 | 0 | 0 | 0 | 0 | 2 | -1 |
+
+**NTU team totals (away side if assumption holds):** 27/70 FG, 9/24 3PT, 18/46 2PT, 17/24 FT, 43 REB (14 ORB / 29 DRB), 24 AST, 4 BLK, 5 STL, 7 TO, 13 PF.
+
+#### Import strategy
+
+**`--stats-only`** — no new team needed (NUS exists). Skip all player upserts; upsert game + tournament junction only.
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **B6.1 — User confirms** home/away, starters, start time
+- [x] **B6.2 — Author stats-only JSON** (`game-2025-10-03-nus-ntu.json`)
+- [x] **B6.3 — Dry-run + import with `--stats-only`**
+- [ ] **B6.4 — Manual QA:** score NUS 45 / NTU 80, 12 NTU lines, box score order, **player profiles unchanged**
+
+#### Success criteria
+
+- Game live with correct home/away pairing and **NTU 80 — NUS 45**.
+- All 12 NTU stat lines match PDF; decimal minutes.
+- **No changes** to NTU player profiles (before/after query).
+- Sunig 2025 tournament has all **5 games** imported.
+
+#### Open questions (need answers before Executor B6.2)
+
+1. **Home/Away:** Confirm **NUS home, NTU away** (`45` home / `80` away)? Same as Sep 26 rematch, or **NTU home** this time?
+2. **NTU starters** (PG/SG/SF/PF/C order)? Khaimun (#14) played but was DNP in SUSS — include only if he started. Cliff DNP again.
+3. **Start time** (24h `HH:MM`)?
+4. **`--stats-only`:** Confirmed — never touch player rows?
+
+---
+
+### **C1 — Player Performance chart: sort x-axis by minutes (Designer, 2026-05-31)**
+
+User request: On the **Player Performance** bar chart (Game Summary → Team Stats → home/away team tab), sort players on the **x-axis by minutes played** instead of roster order.
+
+#### Current behavior (problem)
+
+`TeamStats.tsx` → `TeamDetailView` builds `chartData` from `getPlayersWhoPlayed(game, team)`, which returns `team.players.filter(...)` — **roster insertion order**, no stat-based sort.
+
+Result: x-axis shows e.g. Chengshan, Hanqing, Jeremy, Carl… regardless of who played most minutes.
+
+#### Product decision (Designer)
+
+1. **Sort key:** `minutes_played` from each player's `gameStats` row for this game.
+2. **Sort direction:** **Descending** (most minutes → left, fewest → right). Matches box score bench sort convention.
+3. **Scope:** **Only** the "Player Performance" grouped bar chart in `TeamStats.tsx` (home + away team detail tabs). Do not change box score order, game leaders, or team page season tables.
+4. **Tiebreaker:** When minutes are equal, sort by **last name / full name** ascending (stable, predictable).
+5. **Tooltip:** Unchanged — still shows full name on hover; optionally add minutes to tooltip later (out of scope unless user asks).
+
+#### Recommended implementation (Executor)
+
+**File:** `src/components/TeamStats.tsx` only (~5 lines).
+
+Replace flat `playedPlayers.map(...)` with:
+
+1. Map each played player to `{ name, fullName, points, rebounds, assists, minutes_played }`.
+2. `.sort((a, b) => b.minutes_played - a.minutes_played || a.fullName.localeCompare(b.fullName))`.
+3. Pass sorted array to `<BarChart data={chartData}>`.
+
+No new util file needed — single call site, inline sort is sufficient per minimize-scope rule.
+
+#### High-level task breakdown (Executor — one step)
+
+- [x] **C1.1 — Sort `chartData` by `minutes_played` desc** in `TeamStats.tsx`
+- [ ] **C1.2 — Manual QA:** Open SUSS game Team Stats → NTU tab; leftmost bar should be **Chengshan** (~24 min), rightmost **Kovan** (~11 min). Verify home + away tabs on a game with both teams' stats.
+
+#### Success criteria
+
+- X-axis order reflects minutes played (high → low), not roster order.
+- SUSS game NTU chart order (expected): Chengshan → Darren → Minghui → Jeremy → Carl → Sunzhe → Daniel → Louis → Jingjie → Hanqing → Yuanyang → Kovan.
+- Chart still hidden for score-only teams (unchanged).
+- `npm run build` passes.
+
+#### Open questions
+
+None — user confirmed sort by minutes. Proceed to Executor on approval.
+
+---
+
+### **C2 — Player stats table: Standard / Advanced toggle (Designer, 2026-05-31)**
+
+User request: Add a **Standard / Advanced toggle** on both player stats tables (Team page → Team Stats, Tournament page → Players). Advanced view shows specific columns in order; move ORPG and FDPG from standard into advanced only.
+
+#### Scope
+
+- **Single component:** `PlayerStatsTable.tsx` (used by `TeamPage.tsx` and `TournamentPage.tsx`)
+- **No changes** to Box Score toggle (already has Traditional/Advanced)
+- Sorting, sticky header, tournament filter unchanged
+
+#### Column layout
+
+**Fixed columns (both modes):** `#`, `Player`, `Team` (tournament only), `Pos`
+
+**Standard mode (default)** — existing stat columns **minus ORPG and FDPG**:
+
+`GP`, `MPG` (MM:SS), `PPG`, `RPG`, `APG`, `SPG`, `BPG`, `FG%`, `FGM`, `FGA`, `3P%`, `3PM`, `3PA`, `FT%`, `FTM`, `FTA`, `TOPG`, `FPG`, `+/-`, `GmSc`, `EFF`
+
+**Advanced mode** — left to right exactly:
+
+| Col | Label | Format | Source |
+|-----|-------|--------|--------|
+| 1 | **FG** | `made/attempted` e.g. `132/275` | `totalStats.fg_made` / `fg_attempted` (season totals) |
+| 2 | **3PT** | `9/27` | `three_made` / `three_attempted` |
+| 3 | **FT** | `17/24` | `ft_made` / `ft_attempted` |
+| 4 | **ORPG** | 1 decimal | `orb / GP` (moved from standard) |
+| 5 | **FDPG** | 1 decimal | `fouls_drawn / GP` (moved from standard) |
+| 6 | **Paint** | 1 decimal or `-` | Paint pts per game (see data note) |
+| 7 | **FBPG** | 1 decimal or `-` | Fastbreak pts per game |
+| 8 | **BAPG** | 1 decimal | `blocks_received / GP` |
+| 9 | **TFPG** | 1 decimal | `tech_fouls / GP` |
+| 10 | **UFPG** | 1 decimal | `unsportsmanlike_fouls / GP` |
+
+#### Paint / FBPG data model (important)
+
+Unlike box-score counting stats, **paint and fastbreak are not stored on `GameStats`**. They are derived per game from **shot chart** via `getPlayerPaintAndFastbreakPoints()` in `gameDisplay.ts` (sums made shots with `inPaint` / `isTransition` flags).
+
+**Sunig imported games have `shots: []`** → Paint and FBPG will show **` - `** (No stat recorded) for all players until live tracking or shot import exists. Same UX as Box Score advanced `OptionalStatTableCell`.
+
+**Proposed season aggregation:**
+
+1. Extend `aggregatePlayerSeasonStats` (or post-process rows) with access to scoped `games[]`.
+2. For each player-game: call `getPlayerPaintAndFastbreakPoints(game, playerId)`.
+3. If **no game in scope** has shot chart data (`game.shots.length > 0`) for that player's team → `paintPg: null`, `fbPg: null`.
+4. If shot data exists in scope → sum paint/fb across games (null games count as 0), divide by **`gamesPlayed`** for per-game average.
+5. Display via `OptionalStatText` / `NoStatRecorded` when null.
+
+#### UI pattern
+
+Mirror Box Score toggle (two small buttons above table, inside `PlayerStatsTable` card):
+
+```
+[ Standard ] [ Advanced ]
+```
+
+- Default: `standard`
+- Toggle resets sort? **No** — keep current sort field if valid; if advanced-only field active, fall back to `PPG` desc when switching to standard (and vice versa).
+
+#### Sorting
+
+Add to `PlayerStatsSortField`: `FG`, `3PT`, `FT`, `Paint`, `FBPG`, `BAPG`, `TFPG`, `UFPG` (ORPG/FDPG already exist).
+
+- **FG / 3PT / FT:** sort by **attempts** (denominator), tiebreak makes
+- **Paint / FBPG:** sort by numeric value; nulls last
+- **BAPG / TFPG / UFPG:** sort by per-game average
+
+#### Implementation tasks (Executor)
+
+- [ ] **C2.1 — Extend aggregation** for paint/fb optional stats (needs `games` passed into aggregator or new helper)
+- [ ] **C2.2 — `PlayerStatsTable` view state** + Standard/Advanced toggle UI
+- [ ] **C2.3 — Render advanced column set**; remove ORPG/FDPG from standard
+- [ ] **C2.4 — Sort fields** for new advanced columns
+- [ ] **C2.5 — QA** Team page + Tournament page; verify Sunig shows `-` for Paint/FBPG; verify FG totals e.g. Carl ~40/76 across 5 games
+
+#### Success criteria
+
+- Toggle works on both Team Stats and Tournament Player Stats tables.
+- Advanced column order matches spec.
+- ORPG/FDPG only in advanced view.
+- Paint/FBPG show `-` when no shot data (Sunig case).
+- FG/3PT/FT show season totals as `made/attempted`.
+- Build passes.
+
+#### Open questions for user
+
+1. **BAPG** — Confirm this is **Blocks Against** (`blocks_received` per game), same as Box Score **BA** column?
+2. **Advanced mode layout** — Replace **all** standard stat columns when advanced (only identity + 10 advanced cols), **or** keep basics like `GP` / `MPG` / `PPG` visible in advanced too?
+3. **FG / 3PT / FT** — Confirm these are **season totals** (sum across filtered games), not per-game averages?
+4. **Paint / FBPG denominator** — When some games have shot data and some don't, average over **all GP** (missing games = 0 paint) **or** only games with shot tracking?
 
 ---
 
@@ -1384,7 +2214,13 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 - [x] B4 Game 3 (NUS vs NTU, 2025-09-26) — JSON created, stats-only import complete, player profiles verified unchanged
 - [ ] B4.5 User QA — confirm score NUS 39 / NTU 70, box score starter/bench order on game page
-- [x] Player position display task - Step 1 helper added in `src/components/PlayerPage.tsx`
+- [x] B5 Game 4 (SUSS vs NTU, 2025-09-29) — JSON created, stats-only import complete, player profiles verified unchanged
+- [ ] B5.5 User QA — confirm score NTU 86 / SUSS 41, starters, box score order
+- [x] C1 Player Performance chart — sort x-axis by minutes desc (C1.1 done; awaiting C1.2 QA)
+- [x] C5 Game page clickable team names — C5.1–C5.4 implemented; build passes; awaiting C5.5 user QA
+- [x] B6 Game 5 finale (NUS vs NTU, 2025-10-03) — JSON created, stats-only import complete, player profiles verified unchanged
+- [ ] B6.4 User QA — confirm score NUS 45 / NTU 80, starters, box score order
+- [x] N1 Smart back navigation — N1.1–N1.4 implemented; awaiting N1.5 user QA
 - [x] Player position display task - Step 2 apply helper to both player page render sites
 - [x] Player position display task - Step 3 manual smoke test checklist documented/executed (build + targeted UI checks)
 
@@ -1392,10 +2228,15 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 ## Current Status / Progress Tracking
 
-- **P0 Latest Games (2026-05-30):** **Complete** — G1–G5 signed off.
+- **N1 Smart back navigation (2026-05-29):** N1.1–N1.4 complete. Added `src/routing/navigation.ts` (`navigateWithReturnTo`, `navigateBack`). Detail routes (tournament/team/player/game summary) use `navigateBack`; forward navigations pass `state.from` with full path+tab. Dashboard search + shared `navigateToTeam`/`navigateToTournament` updated. Build passes. **Awaiting N1.5 user QA.**
 - **Dashboard D + Sunig B2 + team delete QA (2026-05-30):** User confirmed all optional QA complete.
 - **Stats Entry Step 2+:** Paused by user (2026-05-30).
-- **B4 Game 3 NUS vs NTU (2026-05-29):** JSON at `Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json`. NUS home (39), NTU away (70). NTU away starters: Jingjie #1, Chengshan #8, Daniel #6, Cliff #13, Carl #22. Imported with `--stats-only` — created `team-sunig-nus` only; 12 NTU stat lines (70 pts); all 15 NTU player profiles unchanged. **Awaiting B4.5 user QA.**
+- **B6 Game 5 finale NUS vs NTU (2026-05-31):** JSON at `Importingboxscores/sunig 2025/game-2025-10-03-nus-ntu.json`. NUS home (45), NTU away (80). Start time 20:40. NTU away starters: Minghui #20, Chengshan #8, Daniel #6, Sunzhe #45, Carl #22. Imported with `--stats-only`; 12 NTU stat lines (80 pts); all 15 NTU player profiles unchanged. **Sunig 2025 import complete (5 games). Awaiting B6.4 user QA.**
+- **C3 Player page Stats tab Standard/Advanced toggle (2026-05-31):** C3.1–C3.3 complete. Added `buildPlayerTournamentSeasonRows()` + `aggregateSinglePlayerSeasonStats()` in `playerSeasonStats.ts`. Extended `PlayerStatsTable` with `layout="tournament-breakdown"` (Tournament column, All Time summary row styling, no row nav). `PlayerStatsTab` now reuses `PlayerStatsTable` with Standard/Advanced toggle; tournament filter dropdown limited to tournaments player actually played in. Build passes. **Awaiting C3.4 user QA.**
+- **C2 Player stats Standard/Advanced toggle (2026-05-31):** Designer plan — toggle in `PlayerStatsTable`, advanced cols FG/3PT/FT totals + ORPG/FDPG/Paint/FBPG/BAPG/TFPG/UFPG. **Awaiting user answers (4 questions).**
+- **C1 Player Performance chart (2026-05-31):****** C1.1 complete — `TeamStats.tsx` sorts chart x-axis by `minutes_played` desc (name tiebreaker). Build passes. **Awaiting C1.2 user QA.**
+- **B5 Game 4 SUSS vs NTU (2026-05-30):**** JSON at `Importingboxscores/sunig 2025/game-2025-09-29-ntu-suss.json`. NTU home (86), SUSS away (41). Start time 19:15. NTU home starters: Jingjie #1, Chengshan #8, Daniel #6, Sunzhe #45, Carl #22. Imported with `--stats-only` — created `team-sunig-suss` only; 12 NTU stat lines (86 pts); all 15 NTU player profiles unchanged. **Awaiting B5.5 user QA.**
+- **B4 Game 3 NUS vs NTU (2026-05-29):**** JSON at `Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json`. NUS home (39), NTU away (70). NTU away starters: Jingjie #1, Chengshan #8, Daniel #6, Cliff #13, Carl #22. Imported with `--stats-only` — created `team-sunig-nus` only; 12 NTU stat lines (70 pts); all 15 NTU player profiles unchanged. **Awaiting B4.5 user QA.**
 - **B3 Box score order (2026-05-30):** B3.1–B3.4 complete. `boxScoreOrder.ts`, BoxScore starters/bench/divider, JSON starters fixed, both games re-imported (height/weight preserved). **Awaiting B3.5 user QA.**
 - **B2 Sunig NTU vs SIT:** Import complete. Import script fixed to preserve player height/weight on re-import.
 - **Active / release:** Local changes not yet committed since `487b516` — commit + push when ready (D6).
@@ -1418,7 +2259,13 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 ## Executor's Feedback or Assistance Requests
 
-- **Release (2026-05-30):** All feature QA signed off. **Only remaining housekeeping:** git commit + push of local changes (dashboard, scores, roster, team delete, PlayerPage opponent names). User to request when ready.
+- **N1 Smart back navigation (2026-05-29):** Please hard-refresh and verify:
+  1. Sunig tournament **Teams tab** → NTU → Back → returns to **Teams tab** (not Team Manager)
+  2. Team Manager → NTU → Back → Team Manager
+  3. Dashboard team tile → NTU → Back → Dashboard
+  4. Tournament **Players tab** → player → Back → Players tab
+  5. Direct URL to a team page → Back → Team Manager (fallback)
+- **Release (2026-05-30):** All feature QA signed off.
 - **Stats Entry Step 2+:** Paused — do not start until user unpause.
 - **P1 Team Player Stats (2026-05-30):** T1–T4 shipped. **Fixed TeamPage crash** (`Cannot read properties of undefined (reading 'filter')`) — guarded `games`, `gameStats`, and `teamStats` in TeamPage + `playerSeasonStats.ts`. Please hard-refresh and QA NTU Team Stats: Sunig filter, player table matches tournament tab, sort works.
 - **Sunig 2025 import:** B4 Game 3 imported stats-only. For future games always use `--stats-only` flag. Re-import idempotent: `npm run import:boxscore -- --file "Importingboxscores/sunig 2025/game-2025-09-26-nus-ntu.json" --stats-only`.
@@ -1437,8 +2284,8 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
   - create player with height `191` cm, weight `88` kg
   - profile shows `6'3'' (191cm)` and `88kg`
   - existing legacy player migrates after refresh (first load saves normalized values)
-- Navigation bug fix completed:
+- Navigation bug fix completed (2026-05-29 — **superseded by N1**):
   - Team detail Back now routes directly to `paths.teams` (single click).
   - Player detail Back now routes directly to `teamPath(team)` (single click).
   - Removed dependency on browser history depth for these two Back buttons.
-  - Verification: `npm run build` passes and no lints on routing file.
+  - **Known regression:** Tournament → Team → Back lands on Team Manager instead of tournament tab. N1 plan addresses this with `navigateWithReturnTo` / `navigateBack`.

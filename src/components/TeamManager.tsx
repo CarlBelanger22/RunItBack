@@ -127,10 +127,7 @@ export function TeamManager({
     onUpdateTeam(updatedTeam);
   }, [onUpdateTeam]);
 
-  const isNumberTaken = useCallback((number: string, teamId: string) => {
-    const team = teams.find(t => t.id === teamId);
-    return team?.players.some(player => player.number === parseInt(number)) || false;
-  }, [teams]);
+  const isNumberTaken = useCallback((_number: string, _teamId: string) => false, []);
 
   const handleTeamFormCancel = useCallback(() => {
     if (editingTeam) {

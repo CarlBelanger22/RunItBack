@@ -18,6 +18,12 @@ export interface PlayerSeasonRow {
   fastbreakPointsTotal: number;
   /** Games played that had shot chart tracking. */
   gamesWithShotData: number;
+  /** Tournament or summary label for player-page breakdown rows. */
+  scopeLabel?: string;
+  /** Tournament id, `no-tournament`, or `all-time`. */
+  scopeId?: string;
+  /** Style as summary footer row (e.g. All Time). */
+  isSummaryRow?: boolean;
 }
 
 export interface ShotDataCoverage {
@@ -63,6 +69,7 @@ export function getFoulStatCoverage(games: Game[] | undefined): FoulStatCoverage
 }
 
 export type PlayerStatsSortField =
+  | 'Scope'
   | 'Player'
   | 'Team'
   | 'Position'
@@ -277,6 +284,102 @@ export function aggregatePlayerSeasonStats(
   return Array.from(playerTotals.values());
 }
 
+export function aggregateSinglePlayerSeasonStats(
+  player: Player,
+  team: Team,
+  games: Game[]
+): PlayerSeasonRow {
+  const totalStats = emptyGameStats(player.id);
+  let gamesPlayed = 0;
+  let paintPointsTotal = 0;
+  let fastbreakPointsTotal = 0;
+  let gamesWithShotData = 0;
+
+  for (const game of games ?? []) {
+    if (!game.isCompleted) continue;
+    const stat = (game.gameStats ?? []).find((s) => s.playerId === player.id);
+    if (!stat) continue;
+
+    gamesPlayed++;
+    (Object.keys(stat) as (keyof GameStats)[]).forEach((key) => {
+      if (key !== 'playerId' && typeof stat[key] === 'number') {
+        (totalStats as Record<string, number>)[key] += stat[key] as number;
+      }
+    });
+
+    if (gameHasShotChartData(game)) {
+      const { paintPoints, fastbreakPoints } = getPlayerPaintAndFastbreakPoints(
+        game,
+        player.id
+      );
+      paintPointsTotal += paintPoints ?? 0;
+      fastbreakPointsTotal += fastbreakPoints ?? 0;
+      gamesWithShotData++;
+    }
+  }
+
+  return {
+    player,
+    team,
+    totalStats,
+    gamesPlayed,
+    paintPointsTotal,
+    fastbreakPointsTotal,
+    gamesWithShotData,
+  };
+}
+
+export function buildPlayerTournamentSeasonRows(
+  player: Player,
+  team: Team,
+  games: Game[],
+  tournaments: Tournament[],
+  options?: { includeAllTime?: boolean }
+): PlayerSeasonRow[] {
+  const playerGames = (games ?? []).filter(
+    (game) =>
+      game.isCompleted &&
+      (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+  );
+
+  const byTournament = new Map<string, Game[]>();
+  for (const game of playerGames) {
+    const tournamentId = game.tournamentId ?? 'no-tournament';
+    const bucket = byTournament.get(tournamentId);
+    if (bucket) {
+      bucket.push(game);
+    } else {
+      byTournament.set(tournamentId, [game]);
+    }
+  }
+
+  const tournamentLabel = (tournamentId: string): string => {
+    if (tournamentId === 'no-tournament') return 'No Tournament';
+    return tournaments.find((t) => t.id === tournamentId)?.name ?? tournamentId;
+  };
+
+  const rows: PlayerSeasonRow[] = [...byTournament.entries()]
+    .sort(([aId], [bId]) =>
+      tournamentLabel(aId).localeCompare(tournamentLabel(bId))
+    )
+    .map(([tournamentId, scopedGames]) => ({
+      ...aggregateSinglePlayerSeasonStats(player, team, scopedGames),
+      scopeLabel: tournamentLabel(tournamentId),
+      scopeId: tournamentId,
+    }));
+
+  if (options?.includeAllTime !== false && playerGames.length > 0) {
+    rows.push({
+      ...aggregateSinglePlayerSeasonStats(player, team, playerGames),
+      scopeLabel: 'All Time',
+      scopeId: 'all-time',
+      isSummaryRow: true,
+    });
+  }
+
+  return rows;
+}
+
 export function sortPlayerSeasonRows(
   rows: PlayerSeasonRow[],
   sortField: PlayerStatsSortField,
@@ -287,6 +390,10 @@ export function sortPlayerSeasonRows(
     let bValue: string | number;
 
     switch (sortField) {
+      case 'Scope':
+        aValue = (a.scopeLabel ?? a.player.name).toLowerCase();
+        bValue = (b.scopeLabel ?? b.player.name).toLowerCase();
+        break;
       case 'Player':
         aValue = a.player.name.toLowerCase();
         bValue = b.player.name.toLowerCase();
@@ -535,7 +642,12 @@ export function sortPlayerSeasonRows(
 export function defaultSortOrderForField(
   field: PlayerStatsSortField
 ): 'asc' | 'desc' {
-  if (field === 'Player' || field === 'Team' || field === 'Position') {
+  if (
+    field === 'Scope' ||
+    field === 'Player' ||
+    field === 'Team' ||
+    field === 'Position'
+  ) {
     return 'asc';
   }
   return 'desc';
