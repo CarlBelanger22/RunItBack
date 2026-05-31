@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { TournamentForm } from './forms/TournamentForm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
@@ -6,6 +6,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Badge } from './ui/badge';
 import { Tournament, Team } from '../App';
 import { Plus, Trophy, Users, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
+import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
+import { TournamentBadge } from './TournamentBadge';
 
 interface TournamentManagerProps {
   tournaments: Tournament[];
@@ -35,6 +37,7 @@ export function TournamentManager({
     year: number;
     month: string;
     teams: string[];
+    icon?: string;
   }) => {
     if (editingTournament) {
       onUpdateTournament({
@@ -44,6 +47,7 @@ export function TournamentManager({
         year: data.year,
         month: data.month,
         teams: data.teams,
+        icon: data.icon,
       });
       setEditingTournament(null);
     } else {
@@ -67,6 +71,11 @@ export function TournamentManager({
   const handleEdit = (tournament: Tournament) => {
     setEditingTournament(tournament);
   };
+
+  const sortedTournaments = useMemo(
+    () => sortTournamentsByDateDesc(tournaments),
+    [tournaments]
+  );
 
   return (
     <div className="space-y-6">
@@ -128,8 +137,10 @@ export function TournamentManager({
                 description: editingTournament.description || '',
                 year: editingTournament.year,
                 month: editingTournament.month,
-                selectedTeams: editingTournament.teams
+                selectedTeams: editingTournament.teams,
+                icon: editingTournament.icon,
               }}
+              tournamentId={editingTournament.id}
               teams={teams}
               onSubmit={handleFormSubmit}
               onCancel={handleFormCancel}
@@ -140,7 +151,7 @@ export function TournamentManager({
       )}
 
       {/* Tournaments Grid */}
-      {tournaments.length === 0 ? (
+      {sortedTournaments.length === 0 ? (
         <Card className="text-center p-12">
           <CardContent className="space-y-4">
             <Trophy className="h-16 w-16 text-muted-foreground mx-auto" />
@@ -158,11 +169,17 @@ export function TournamentManager({
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {tournaments.map((tournament) => (
+          {sortedTournaments.map((tournament) => (
             <Card key={tournament.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => onNavigateToTournament(tournament.id)}>
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
+                <div className="flex items-start justify-between gap-3">
+                  <TournamentBadge
+                    tournament={tournament}
+                    tournamentId={tournament.id}
+                    size="lg"
+                    className="mt-0.5"
+                  />
+                  <div className="space-y-1 min-w-0 flex-1">
                     <CardTitle className="text-lg">{tournament.name}</CardTitle>
                     <CardDescription className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />

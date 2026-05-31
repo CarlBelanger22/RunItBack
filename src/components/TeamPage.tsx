@@ -5,16 +5,15 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Avatar, AvatarFallback } from './ui/avatar';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Team, Game, Player, GameStats, Tournament } from '../App';
 import { MetricsCalculator } from './MetricsCalculator';
-import { PlayerForm } from './forms/PlayerForm';
+import { AddPlayerDialog } from './AddPlayerDialog';
 import {
   formatHeightForDisplay,
   formatWeightForDisplay,
 } from '../lib/playerMeasurements';
 import { PlayerStatsTable } from './PlayerStatsTable';
-import { TeamAvatar } from './TeamAvatar';
+import { TeamBadge } from './TeamBadge';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { TournamentScopeSelect } from './TournamentScopeSelect';
 import {
@@ -23,7 +22,6 @@ import {
   getShotDataCoverage,
   getFoulStatCoverage,
   getTeamTournamentScopeOptions,
-  resolveInitialTournamentScope,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
@@ -55,6 +53,7 @@ type RosterSortField =
   | 'secondary'
   | 'height'
   | 'weight'
+  | 'age'
   | 'ppg'
   | 'rpg'
   | 'apg'
@@ -304,6 +303,7 @@ function calculateTeamStatsFromGames(games: Game[] | undefined, teamId: string):
 
 interface TeamPageProps {
   team: Team;
+  teams: Team[];
   games: Game[];
   tournaments: Tournament[];
   activeTab: 'overview' | 'roster' | 'stats' | 'games';
@@ -317,6 +317,7 @@ interface TeamPageProps {
 
 export function TeamPage({ 
   team, 
+  teams = [],
   games = [], 
   tournaments = [],
   activeTab, 
@@ -346,46 +347,11 @@ export function TeamPage({
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
   
-  const isNumberTaken = useCallback((_number: string, _teamId: string) => false, []);
-  
-  const handleAddPlayer = useCallback((data: { 
-    name: string; 
-    number: string; 
-    position: string;
-    secondaryPosition?: string;
-    height: string;
-    weight: string;
-    dateOfBirth?: string;
-  }) => {
-    // Calculate age from date of birth if provided
-    let age = 0;
-    if (data.dateOfBirth) {
-      const birthDate = new Date(data.dateOfBirth);
-      const today = new Date();
-      age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-    }
-    
-    const newPlayer: Player = {
-      id: `player-${Date.now()}`,
-      name: data.name,
-      number: parseInt(data.number),
-      position: data.position,
-      secondaryPosition: data.secondaryPosition,
-      height: data.height || '',
-      weight: data.weight || '',
-      age: age,
-      dateOfBirth: data.dateOfBirth
-    };
-    
+  const handleAddPlayerToRoster = useCallback((player: Player) => {
     const updatedTeam = {
       ...team,
-      players: [...(team.players || []), newPlayer]
+      players: [...(team.players || []), player],
     };
-    
     onUpdateTeam(updatedTeam);
     setIsAddPlayerDialogOpen(false);
   }, [team, onUpdateTeam]);
@@ -400,15 +366,9 @@ export function TeamPage({
     [team.id, teamGames, tournaments]
   );
 
-  const initialStatsTournamentScope = useMemo(
-    () =>
-      resolveInitialTournamentScope(team.currentTournamentId, statsTournamentOptions),
-    [team.currentTournamentId, statsTournamentOptions]
-  );
-
   useEffect(() => {
-    setStatsTournamentScope(initialStatsTournamentScope);
-  }, [team.id, initialStatsTournamentScope]);
+    setStatsTournamentScope('all');
+  }, [team.id]);
 
   const filteredStatsGames = useMemo(
     () => filterTeamScopeGames(teamGames, team.id, statsTournamentScope),
@@ -456,6 +416,14 @@ export function TeamPage({
             : '-',
           heightCm: parseStoredCm(player.height ?? ''),
           weightKg: parseStoredKg(player.weight ?? ''),
+          ageNum:
+            Number.isFinite(Number(player.age)) && Number(player.age) > 0
+              ? Number(player.age)
+              : null,
+          ageDisplay:
+            Number.isFinite(Number(player.age)) && Number(player.age) > 0
+              ? String(player.age)
+              : '-',
           ...aggregateRosterPlayerSeasonStats(player.id, teamGames),
         };
       }),
@@ -470,7 +438,7 @@ export function TeamPage({
     setRosterSortField(field);
     if (field === 'player' || field === 'primary' || field === 'secondary') {
       setRosterSortOrder('asc');
-    } else if (field === 'number') {
+    } else if (field === 'number' || field === 'age') {
       setRosterSortOrder('asc');
     } else {
       setRosterSortOrder('desc');
@@ -506,6 +474,9 @@ export function TeamPage({
           break;
         case 'weight':
           cmp = compareNullableNumber(a.weightKg, b.weightKg, order);
+          break;
+        case 'age':
+          cmp = compareNullableNumber(a.ageNum, b.ageNum, order);
           break;
         case 'ppg':
           cmp = compareNullableNumber(
@@ -544,6 +515,7 @@ export function TeamPage({
       if (
         rosterSortField === 'height' ||
         rosterSortField === 'weight' ||
+        rosterSortField === 'age' ||
         rosterSortField === 'ppg' ||
         rosterSortField === 'rpg' ||
         rosterSortField === 'apg' ||
@@ -656,7 +628,7 @@ export function TeamPage({
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center gap-6">
-            <TeamAvatar team={team} size="xl" />
+            <TeamBadge team={team} teamId={team.id} size="hero" />
             <div className="flex-1">
               <h2 className="text-2xl font-bold">{team.name}</h2>
               {team.description && (
@@ -817,23 +789,6 @@ export function TeamPage({
             <Plus className="h-4 w-4 mr-2" />
             Add Player
           </Button>
-          <Dialog open={isAddPlayerDialogOpen} onOpenChange={setIsAddPlayerDialogOpen}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Add Player to {team.name}</DialogTitle>
-                <DialogDescription>
-                  Add a new player to the team roster.
-                </DialogDescription>
-              </DialogHeader>
-              <PlayerForm
-                selectedTeam={team}
-                positions={positions}
-                isNumberTaken={isNumberTaken}
-                onSubmit={handleAddPlayer}
-                onCancel={() => setIsAddPlayerDialogOpen(false)}
-              />
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
       
@@ -908,6 +863,15 @@ export function TeamPage({
                       sortOrder={rosterSortOrder}
                       onSort={handleRosterSort}
                       className="w-20"
+                      center
+                    />
+                    <RosterSortableHead
+                      label="Age"
+                      field="age"
+                      sortField={rosterSortField}
+                      sortOrder={rosterSortOrder}
+                      onSort={handleRosterSort}
+                      className="w-14"
                       center
                     />
                     <RosterSortableHead
@@ -1002,6 +966,9 @@ export function TeamPage({
                       </TableCell>
                       <TableCell className="text-center text-sm whitespace-nowrap">
                         {row.weight}
+                      </TableCell>
+                      <TableCell className="text-center text-sm tabular-nums">
+                        {row.ageDisplay}
                       </TableCell>
                       <TableCell className="text-center font-mono tabular-nums">
                         {row.gamesPlayed > 0 ? row.ppg.toFixed(1) : '-'}
@@ -1251,7 +1218,7 @@ export function TeamPage({
           Back
         </Button>
         <div className="flex items-center gap-3">
-          <TeamAvatar team={team} size="header" />
+          <TeamBadge team={team} teamId={team.id} size="hero" />
           <div>
             <h1 className="text-2xl font-bold">{team.name}</h1>
             <p className="text-sm text-muted-foreground">
@@ -1286,6 +1253,16 @@ export function TeamPage({
           <GamesTab />
         </TabsContent>
       </Tabs>
+
+      <AddPlayerDialog
+        open={isAddPlayerDialogOpen}
+        onOpenChange={setIsAddPlayerDialogOpen}
+        team={team}
+        teams={teams}
+        tournaments={tournaments}
+        positions={positions}
+        onSubmit={handleAddPlayerToRoster}
+      />
     </div>
   );
 }

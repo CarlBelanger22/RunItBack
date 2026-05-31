@@ -1,7 +1,7 @@
 import React from 'react';
 import { Badge } from './ui/badge';
-import { Trophy } from 'lucide-react';
 import type { Tournament } from '../App';
+import { TournamentBadge } from './TournamentBadge';
 
 interface ParticipatedTournamentBadgesProps {
   tournaments: Tournament[];
@@ -22,10 +22,15 @@ export function ParticipatedTournamentBadges({
         <Badge
           key={tournament.id}
           variant="default"
-          className="cursor-pointer"
+          className="cursor-pointer gap-1.5 pl-1.5"
           onClick={() => onNavigateToTournament(tournament.id)}
         >
-          <Trophy className="w-3 h-3 mr-1" />
+          <TournamentBadge
+            tournament={tournament}
+            tournamentId={tournament.id}
+            size="xs"
+            className="rounded-sm"
+          />
           {tournament.name}
         </Badge>
       ))}

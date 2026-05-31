@@ -1,3 +1,5 @@
+import { isTeamIconImage } from './teamIcon';
+
 export const TEAM_ABBREV_MIN = 2;
 export const TEAM_ABBREV_MAX = 5;
 
@@ -91,9 +93,9 @@ export interface TeamAvatarLabelSource {
   icon?: string;
 }
 
-/** Label for team avatar circles — full abbreviation up to 5 chars (e.g. SUTD, SUSS). */
+/** Label for team avatar circles — abbreviation (image icons use AvatarImage separately). */
 export function getTeamAvatarLabel(team: TeamAvatarLabelSource): string {
-  if (team.icon) {
+  if (team.icon && !isTeamIconImage(team.icon)) {
     const normalizedIcon = normalizeTeamAbbreviation(team.icon);
     if (isValidTeamAbbreviation(normalizedIcon)) {
       return normalizedIcon;

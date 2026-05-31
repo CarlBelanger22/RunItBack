@@ -4,6 +4,57 @@ import type { Team, Tournament, Game, Player } from '../App';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
+export type PlayerStorageSchema = 'legacy' | 'team_players' | 'global_position';
+
+export const MIGRATION_002_HINT =
+  'Run supabase/migrations/002_team_players.sql in Supabase SQL Editor, or: npm run db:migrate:002';
+
+export const MIGRATION_003_HINT =
+  'Run supabase/migrations/003_player_global_position.sql in Supabase SQL Editor, or: npm run db:migrate:003';
+
+let cachedPlayerStorageSchema: PlayerStorageSchema | null = null;
+
+export function getPlayerStorageSchema(): PlayerStorageSchema | null {
+  return cachedPlayerStorageSchema;
+}
+
+export function resetPlayerStorageSchemaCache(): void {
+  cachedPlayerStorageSchema = null;
+}
+
+/** Probe Supabase player/roster schema (legacy → team_players → global_position). */
+export async function detectPlayerStorageSchema(): Promise<PlayerStorageSchema> {
+  if (cachedPlayerStorageSchema) return cachedPlayerStorageSchema;
+  if (!supabase) {
+    cachedPlayerStorageSchema = 'legacy';
+    return cachedPlayerStorageSchema;
+  }
+
+  const teamPlayersProbe = await supabase
+    .from('team_players')
+    .select('team_id')
+    .limit(1);
+  if (teamPlayersProbe.error) {
+    cachedPlayerStorageSchema = 'legacy';
+    return cachedPlayerStorageSchema;
+  }
+
+  const leagueProbe = await supabase.from('players').select('league_id').limit(1);
+  if (leagueProbe.error) {
+    cachedPlayerStorageSchema = 'legacy';
+    return cachedPlayerStorageSchema;
+  }
+
+  const positionProbe = await supabase.from('players').select('position').limit(1);
+  if (positionProbe.error) {
+    cachedPlayerStorageSchema = 'team_players';
+    return cachedPlayerStorageSchema;
+  }
+
+  cachedPlayerStorageSchema = 'global_position';
+  return cachedPlayerStorageSchema;
+}
+
 export interface LoadedAppData {
   teams: Team[];
   tournaments: Tournament[];
@@ -11,6 +62,7 @@ export interface LoadedAppData {
   darkMode: boolean;
   /** True when legacy height/weight values were normalized on load. */
   playerMeasurementsMigrationPending?: boolean;
+  playerStorageSchema?: PlayerStorageSchema;
 }
 
 interface DbTeam {
@@ -24,18 +76,37 @@ interface DbTeam {
   created_at?: string;
 }
 
-interface DbPlayer {
+interface DbPlayerProfileBase {
   id: string;
-  team_id: string;
+  league_id: string;
   name: string;
-  number: number;
-  position: string;
-  secondary_position: string | null;
   picture: string | null;
   height: string;
   weight: string;
   age: number;
   date_of_birth: string | null;
+}
+
+interface DbPlayerProfile extends DbPlayerProfileBase {
+  position: string;
+  secondary_position: string | null;
+}
+
+interface DbTeamPlayer {
+  team_id: string;
+  player_id: string;
+  number: number;
+  /** Present before migration 003 only. */
+  position?: string;
+  secondary_position?: string | null;
+}
+
+/** Pre-C10 / transitional rows on players or team_players. */
+interface LegacyDbPlayer extends DbPlayerProfileBase {
+  position?: string;
+  secondary_position?: string | null;
+  team_id?: string;
+  number?: number;
 }
 
 interface DbTournament {
@@ -78,18 +149,25 @@ interface DbGame {
   lineup_stints: Game['lineupStints'];
 }
 
-function dbPlayerToPlayer(row: DbPlayer): Player {
+function dbPlayerToPlayer(
+  profile: DbPlayerProfileBase & {
+    position?: string;
+    secondary_position?: string | null;
+  },
+  roster?: Pick<DbTeamPlayer, 'number' | 'position' | 'secondary_position'>
+): Player {
   return {
-    id: row.id,
-    name: row.name,
-    number: row.number,
-    position: row.position,
-    secondaryPosition: row.secondary_position ?? undefined,
-    picture: row.picture ?? undefined,
-    height: row.height,
-    weight: row.weight,
-    age: row.age,
-    dateOfBirth: row.date_of_birth ?? undefined,
+    id: profile.id,
+    name: profile.name,
+    number: roster?.number ?? 0,
+    position: profile.position || roster?.position || '',
+    secondaryPosition:
+      profile.secondary_position ?? roster?.secondary_position ?? undefined,
+    picture: profile.picture ?? undefined,
+    height: profile.height,
+    weight: profile.weight,
+    age: profile.age,
+    dateOfBirth: profile.date_of_birth ?? undefined,
   };
 }
 
@@ -118,7 +196,118 @@ function teamToDbRow(team: Team, leagueId: string): DbTeam {
   };
 }
 
-function playerToDbRow(player: Player, teamId: string): DbPlayer {
+function playerProfileBaseToDbRow(player: Player, leagueId: string): DbPlayerProfileBase {
+  return {
+    id: player.id,
+    league_id: leagueId,
+    name: player.name,
+    picture: player.picture ?? null,
+    height: player.height ?? '',
+    weight: player.weight ?? '',
+    age: player.age ?? 0,
+    date_of_birth: player.dateOfBirth ?? null,
+  };
+}
+
+function playerProfileToDbRow(player: Player, leagueId: string): DbPlayerProfile {
+  return {
+    ...playerProfileBaseToDbRow(player, leagueId),
+    position: player.position || 'PG',
+    secondary_position: player.secondaryPosition ?? null,
+  };
+}
+
+function playerToTeamPlayerRow(player: Player, teamId: string): DbTeamPlayer {
+  return {
+    team_id: teamId,
+    player_id: player.id,
+    number: player.number,
+  };
+}
+
+function playerToTeamPlayerRowWithPosition(
+  player: Player,
+  teamId: string
+): Required<Pick<DbTeamPlayer, 'team_id' | 'player_id' | 'number' | 'position' | 'secondary_position'>> {
+  return {
+    team_id: teamId,
+    player_id: player.id,
+    number: player.number,
+    position: player.position || 'PG',
+    secondary_position: player.secondaryPosition ?? null,
+  };
+}
+
+function collectUniquePlayerProfileBases(
+  teams: Team[],
+  leagueId: string
+): DbPlayerProfileBase[] {
+  const map = new Map<string, DbPlayerProfileBase>();
+  for (const team of teams) {
+    for (const player of team.players ?? []) {
+      const existing = map.get(player.id);
+      if (!existing) {
+        map.set(player.id, playerProfileBaseToDbRow(player, leagueId));
+        continue;
+      }
+      map.set(player.id, {
+        ...existing,
+        name: player.name || existing.name,
+        picture: player.picture ?? existing.picture,
+        height: player.height || existing.height,
+        weight: player.weight || existing.weight,
+        age: player.age ?? existing.age,
+        date_of_birth: player.dateOfBirth ?? existing.date_of_birth,
+      });
+    }
+  }
+  return [...map.values()];
+}
+
+function collectUniquePlayerProfiles(
+  teams: Team[],
+  leagueId: string
+): DbPlayerProfile[] {
+  const map = new Map<string, DbPlayerProfile>();
+  for (const team of teams) {
+    for (const player of team.players ?? []) {
+      const existing = map.get(player.id);
+      if (!existing) {
+        map.set(player.id, playerProfileToDbRow(player, leagueId));
+        continue;
+      }
+      map.set(player.id, {
+        ...existing,
+        name: player.name || existing.name,
+        position: player.position || existing.position,
+        secondary_position:
+          player.secondaryPosition ?? existing.secondary_position,
+        picture: player.picture ?? existing.picture,
+        height: player.height || existing.height,
+        weight: player.weight || existing.weight,
+        age: player.age ?? existing.age,
+        date_of_birth: player.dateOfBirth ?? existing.date_of_birth,
+      });
+    }
+  }
+  return [...map.values()];
+}
+
+interface LegacyDbPlayerRow {
+  id: string;
+  team_id: string;
+  name: string;
+  number: number;
+  position: string;
+  secondary_position: string | null;
+  picture: string | null;
+  height: string;
+  weight: string;
+  age: number;
+  date_of_birth: string | null;
+}
+
+function playerToLegacyDbRow(player: Player, teamId: string): LegacyDbPlayerRow {
   return {
     id: player.id,
     team_id: teamId,
@@ -132,6 +321,85 @@ function playerToDbRow(player: Player, teamId: string): DbPlayer {
     age: player.age ?? 0,
     date_of_birth: player.dateOfBirth ?? null,
   };
+}
+
+function findMultiTeamPlayerIds(teams: Team[]): string[] {
+  const teamIdsByPlayer = new Map<string, string[]>();
+  for (const team of teams) {
+    for (const player of team.players ?? []) {
+      const ids = teamIdsByPlayer.get(player.id) ?? [];
+      ids.push(team.id);
+      teamIdsByPlayer.set(player.id, ids);
+    }
+  }
+  return [...teamIdsByPlayer.entries()]
+    .filter(([, ids]) => ids.length > 1)
+    .map(([playerId]) => playerId);
+}
+
+function assertCanSaveWithLegacySchema(teams: Team[]): void {
+  const multiTeamPlayerIds = findMultiTeamPlayerIds(teams);
+  if (multiTeamPlayerIds.length > 0) {
+    throw new Error(
+      `Multi-team rosters require database migration 002 before saving. ${MIGRATION_002_HINT}`
+    );
+  }
+}
+
+async function savePlayersWithSchema(
+  teams: Team[],
+  leagueId: string,
+  schema: PlayerStorageSchema
+): Promise<void> {
+  const teamIds = teams.map((t) => t.id);
+
+  if (schema === 'global_position') {
+    const playerProfileRows = collectUniquePlayerProfiles(teams, leagueId);
+    const teamPlayerRows = teams.flatMap((t) =>
+      (t.players ?? []).map((p) => playerToTeamPlayerRow(p, t.id))
+    );
+
+    await upsertChunks('players', playerProfileRows, 'id');
+
+    if (teamIds.length > 0) {
+      const { error: rosterDeleteError } = await supabase!
+        .from('team_players')
+        .delete()
+        .in('team_id', teamIds);
+      if (rosterDeleteError) {
+        throw new Error(`team_players delete: ${rosterDeleteError.message}`);
+      }
+    }
+    await upsertChunks('team_players', teamPlayerRows, 'team_id,player_id');
+    return;
+  }
+
+  if (schema === 'team_players') {
+    const playerProfileRows = collectUniquePlayerProfileBases(teams, leagueId);
+    const teamPlayerRows = teams.flatMap((t) =>
+      (t.players ?? []).map((p) => playerToTeamPlayerRowWithPosition(p, t.id))
+    );
+
+    await upsertChunks('players', playerProfileRows, 'id');
+
+    if (teamIds.length > 0) {
+      const { error: rosterDeleteError } = await supabase!
+        .from('team_players')
+        .delete()
+        .in('team_id', teamIds);
+      if (rosterDeleteError) {
+        throw new Error(`team_players delete: ${rosterDeleteError.message}`);
+      }
+    }
+    await upsertChunks('team_players', teamPlayerRows, 'team_id,player_id');
+    return;
+  }
+
+  assertCanSaveWithLegacySchema(teams);
+  const playerRows = teams.flatMap((t) =>
+    (t.players ?? []).map((p) => playerToLegacyDbRow(p, t.id))
+  );
+  await upsertChunks('players', playerRows, 'id');
 }
 
 const TEAM_STATS_META_KEY = '__meta' as const;
@@ -273,42 +541,121 @@ export async function loadAppDataFromSupabase(
     throw new Error('Supabase is not configured');
   }
 
+  const teamRowsRes = await supabase
+    .from('teams')
+    .select('*')
+    .eq('league_id', leagueId);
+  if (teamRowsRes.error) throw new Error(teamRowsRes.error.message);
+
+  const teamRows = (teamRowsRes.data ?? []) as DbTeam[];
+  const teamIds = teamRows.map((t) => t.id);
+
   const [
-    teamsRes,
-    playersRes,
+    playersResInitial,
+    teamPlayersRes,
     tournamentsRes,
     junctionRes,
     gamesRes,
     prefsRes,
   ] = await Promise.all([
-    supabase.from('teams').select('*').eq('league_id', leagueId),
-    supabase.from('players').select('*'),
+    supabase.from('players').select('*').eq('league_id', leagueId),
+    teamIds.length > 0
+      ? supabase.from('team_players').select('*').in('team_id', teamIds)
+      : Promise.resolve({ data: [], error: null }),
     supabase.from('tournaments').select('*').eq('league_id', leagueId),
     supabase.from('tournament_teams').select('tournament_id, team_id'),
     supabase.from('games').select('*').eq('league_id', leagueId),
     supabase.from('app_preferences').select('dark_mode').eq('league_id', leagueId).maybeSingle(),
   ]);
 
-  if (teamsRes.error) throw new Error(teamsRes.error.message);
+  let playersRes = playersResInitial;
+  if (playersRes.error || (playersRes.data ?? []).length === 0) {
+    const legacyPlayersRes = await supabase.from('players').select('*');
+    if (!legacyPlayersRes.error && (legacyPlayersRes.data ?? []).length > 0) {
+      playersRes = legacyPlayersRes;
+    }
+  }
+
   if (playersRes.error) throw new Error(playersRes.error.message);
+  if (teamPlayersRes.error) {
+    console.warn(
+      '[Supabase] team_players unavailable; falling back to legacy players.team_id if present'
+    );
+  }
   if (tournamentsRes.error) throw new Error(tournamentsRes.error.message);
   if (junctionRes.error) throw new Error(junctionRes.error.message);
   if (gamesRes.error) throw new Error(gamesRes.error.message);
   if (prefsRes.error) throw new Error(prefsRes.error.message);
 
-  const teamRows = (teamsRes.data ?? []) as DbTeam[];
-  const playerRows = (playersRes.data ?? []) as DbPlayer[];
+  const playerRows = (playersRes.data ?? []) as LegacyDbPlayer[];
+  const teamPlayerRows = teamPlayersRes.error
+    ? []
+    : ((teamPlayersRes.data ?? []) as DbTeamPlayer[]);
   const tournamentRows = (tournamentsRes.data ?? []) as DbTournament[];
   const junctionRows = (junctionRes.data ?? []) as DbTournamentTeam[];
   const gameRows = (gamesRes.data ?? []) as DbGame[];
 
-  const teamIds = new Set(teamRows.map((t) => t.id));
-  const playersByTeam = new Map<string, Player[]>();
+  const teamIdSet = new Set(teamIds);
+  const profileById = new Map<string, DbPlayerProfile>();
   for (const row of playerRows) {
-    if (!teamIds.has(row.team_id)) continue;
-    const list = playersByTeam.get(row.team_id) ?? [];
-    list.push(dbPlayerToPlayer(row));
-    playersByTeam.set(row.team_id, list);
+    profileById.set(row.id, {
+      id: row.id,
+      league_id: row.league_id ?? leagueId,
+      name: row.name,
+      position: row.position ?? '',
+      secondary_position: row.secondary_position ?? null,
+      picture: row.picture ?? null,
+      height: row.height,
+      weight: row.weight,
+      age: row.age,
+      date_of_birth: row.date_of_birth ?? null,
+    });
+  }
+
+  const playersByTeam = new Map<string, Player[]>();
+  const useLegacyRoster =
+    teamPlayerRows.length === 0 &&
+    playerRows.some((row) => row.team_id != null && teamIdSet.has(row.team_id));
+
+  if (useLegacyRoster) {
+    for (const row of playerRows) {
+      if (!row.team_id || !teamIdSet.has(row.team_id)) continue;
+      const profile = profileById.get(row.id) ?? {
+        id: row.id,
+        league_id: leagueId,
+        name: row.name,
+        position: row.position ?? '',
+        secondary_position: row.secondary_position ?? null,
+        picture: row.picture ?? null,
+        height: row.height,
+        weight: row.weight,
+        age: row.age,
+        date_of_birth: row.date_of_birth ?? null,
+      };
+      const list = playersByTeam.get(row.team_id) ?? [];
+      list.push(
+        dbPlayerToPlayer(profile, {
+          number: row.number ?? 0,
+          position: row.position ?? '',
+          secondary_position: row.secondary_position ?? null,
+        })
+      );
+      playersByTeam.set(row.team_id, list);
+    }
+  } else {
+    for (const row of teamPlayerRows) {
+      if (!teamIdSet.has(row.team_id)) continue;
+      const profile = profileById.get(row.player_id);
+      if (!profile) {
+        console.warn(
+          `[Supabase] team_players row missing profile: team=${row.team_id} player=${row.player_id}`
+        );
+        continue;
+      }
+      const list = playersByTeam.get(row.team_id) ?? [];
+      list.push(dbPlayerToPlayer(profile, row));
+      playersByTeam.set(row.team_id, list);
+    }
   }
 
   const teamsRaw: Team[] = teamRows.map((row) =>
@@ -356,6 +703,7 @@ export async function loadAppDataFromSupabase(
     games,
     darkMode: prefsRes.data?.dark_mode ?? false,
     playerMeasurementsMigrationPending,
+    playerStorageSchema: await detectPlayerStorageSchema(),
   };
 }
 
@@ -391,12 +739,10 @@ export async function saveAppDataToSupabase(
   await upsertChunks('leagues', [{ id: leagueId, name: 'My League' }], 'id');
 
   const teamRows = teams.map((t) => teamToDbRow(t, leagueId));
-  const playerRows = teams.flatMap((t) =>
-    (t.players ?? []).map((p) => playerToDbRow(p, t.id))
-  );
+  const schema = await detectPlayerStorageSchema();
 
   await upsertChunks('teams', teamRows, 'id');
-  await upsertChunks('players', playerRows, 'id');
+  await savePlayersWithSchema(teams, leagueId, schema);
 
   const tournamentRows = tournaments.map((t) => ({
     id: t.id,

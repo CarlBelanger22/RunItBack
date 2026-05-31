@@ -22,6 +22,9 @@ import {
   deleteTeamsFromSupabase,
   loadAppDataFromSupabase,
   saveAppDataToSupabase,
+  MIGRATION_002_HINT,
+  MIGRATION_003_HINT,
+  type PlayerStorageSchema,
 } from './api/supabaseData';
 import { PLAYER_MEASUREMENTS_MIGRATION_KEY } from './lib/playerMeasurements';
 import { AppRoutes } from './routing/AppRoutes';
@@ -35,8 +38,33 @@ import {
   resolveTeamsToDeleteWithGame,
 } from './utils/activeGame';
 import { generateTeamAbbreviation } from './utils/teamAbbreviation';
+import {
+  validateTeamRosterUpdate,
+  wouldTournamentEnrollmentViolateOverlap,
+} from './utils/rosterPlayers';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
+
+function formatCloudSaveError(message: string): string {
+  if (
+    message.includes('league_id') ||
+    message.includes('team_players') ||
+    message.includes('migration 002')
+  ) {
+    return message.includes('npm run db:migrate:002')
+      ? message
+      : `${message} ${MIGRATION_002_HINT}`;
+  }
+  if (
+    message.includes("'position' column") ||
+    message.includes('migration 003')
+  ) {
+    return message.includes('npm run db:migrate:003')
+      ? message
+      : `${message} ${MIGRATION_003_HINT}`;
+  }
+  return message;
+}
 
 // Types for our basketball app
 export interface Player {
@@ -872,6 +900,8 @@ export default function App() {
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [dataLoadError, setDataLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [playerStorageSchema, setPlayerStorageSchema] =
+    useState<PlayerStorageSchema | null>(null);
   const skipSaveRef = useRef(true);
 
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
@@ -921,6 +951,7 @@ export default function App() {
         const cleanedGames = dedupedGames.filter((g) => !orphanIds.includes(g.id));
         setGames(cleanedGames);
         setDarkMode(data.darkMode);
+        setPlayerStorageSchema(data.playerStorageSchema ?? null);
         prevTeamsRef.current = data.teams;
         prevTournamentsRef.current = data.tournaments;
         prevGamesRef.current = cleanedGames;
@@ -939,7 +970,7 @@ export default function App() {
             data.darkMode
           ).catch((err: Error) => {
             console.error('Active game dedupe save failed:', err);
-            setSaveError(err.message);
+            setSaveError(formatCloudSaveError(err.message));
           });
         }
 
@@ -961,7 +992,7 @@ export default function App() {
             data.darkMode
           ).catch((err: Error) => {
             console.error('Player measurements migration save failed:', err);
-            setSaveError(err.message);
+            setSaveError(formatCloudSaveError(err.message));
           });
         } else if (!localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)) {
           localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
@@ -1033,7 +1064,7 @@ export default function App() {
           .then(() => setSaveError(null))
           .catch((err: Error) => {
             console.error('Supabase save failed:', err);
-            setSaveError(err.message);
+            setSaveError(formatCloudSaveError(err.message));
           });
         saveTimeoutRef.current = null;
       }, 500);
@@ -1067,7 +1098,7 @@ export default function App() {
         : games;
 
     saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
-      setSaveError(err.message)
+      setSaveError(formatCloudSaveError(err.message))
     );
   };
 
@@ -1158,7 +1189,9 @@ export default function App() {
             setSaveError(null);
           } catch (err) {
             console.error('Delete game/teams/players from Supabase failed:', err);
-            setSaveError(err instanceof Error ? err.message : String(err));
+            setSaveError(
+              formatCloudSaveError(err instanceof Error ? err.message : String(err))
+            );
           } finally {
             finishDeleteSave();
           }
@@ -1278,6 +1311,17 @@ export default function App() {
   );
 
   const handleAddTeamToTournament = useCallback((teamId: string, tournamentId: string) => {
+    const violation = wouldTournamentEnrollmentViolateOverlap(
+      teamId,
+      tournamentId,
+      teams,
+      tournaments
+    );
+    if (violation.violates) {
+      setSaveError(violation.message ?? 'Cannot add team to tournament.');
+      return;
+    }
+    setSaveError(null);
     // Add team to tournament
     setTournaments(prev => prev.map(tournament => 
       tournament.id === tournamentId 
@@ -1290,11 +1334,22 @@ export default function App() {
         ? { ...team, currentTournamentId: tournamentId }
         : team
     ));
-  }, []);
+  }, [teams, tournaments]);
 
   const handleUpdateTeam = useCallback((updatedTeam: Team) => {
     setTeams(prev => {
       const oldTeam = prev.find(t => t.id === updatedTeam.id);
+      const violation = validateTeamRosterUpdate(
+        oldTeam,
+        updatedTeam,
+        prev,
+        tournaments
+      );
+      if (violation.violates) {
+        setSaveError(violation.message ?? 'Roster update blocked.');
+        return prev;
+      }
+      setSaveError(null);
       const newTeams = prev.map(t => t.id === updatedTeam.id ? updatedTeam : t);
       
       // Handle tournament association changes
@@ -1320,7 +1375,7 @@ export default function App() {
       
       return newTeams;
     });
-  }, []);
+  }, [tournaments]);
 
   const handleDeleteTeam = useCallback(
     (teamId: string) => {
@@ -1378,7 +1433,9 @@ export default function App() {
             setSaveError(null);
           } catch (err) {
             console.error('Delete team from Supabase failed:', err);
-            setSaveError(err instanceof Error ? err.message : String(err));
+            setSaveError(
+              formatCloudSaveError(err instanceof Error ? err.message : String(err))
+            );
           } finally {
             finishDeleteSave();
           }
@@ -1444,6 +1501,21 @@ export default function App() {
         <div className="bg-amber-500/15 text-amber-900 dark:text-amber-200 text-sm text-center py-2 px-4">
           Cloud database not connected (missing env vars in this deploy). Data is from this browser only.
           Redeploy on Vercel after adding VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.
+        </div>
+      )}
+      {playerStorageSchema === 'legacy' && (
+        <div className="bg-amber-500/15 text-amber-900 dark:text-amber-200 text-sm text-center py-2 px-4">
+          Database migration 002 is required for cloud saves with shared players across teams.{' '}
+          Open Supabase SQL Editor and run{' '}
+          <code className="text-xs">supabase/migrations/002_team_players.sql</code>, then
+          hard-refresh.
+        </div>
+      )}
+      {playerStorageSchema === 'team_players' && (
+        <div className="bg-amber-500/15 text-amber-900 dark:text-amber-200 text-sm text-center py-2 px-4">
+          Run migration 003 for global player positions:{' '}
+          <code className="text-xs">supabase/migrations/003_player_global_position.sql</code>
+          {' '}(saves work until then; hard-refresh after running).
         </div>
       )}
       {(dataLoadError || saveError) && (

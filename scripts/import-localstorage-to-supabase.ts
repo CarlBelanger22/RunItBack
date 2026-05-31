@@ -132,12 +132,11 @@ function teamToRow(team: Team, leagueId: string) {
   };
 }
 
-function playerToRow(player: Player, teamId: string) {
+function playerProfileToRow(player: Player, leagueId: string) {
   return {
     id: player.id,
-    team_id: teamId,
+    league_id: leagueId,
     name: player.name,
-    number: player.number,
     position: player.position,
     secondary_position: player.secondaryPosition ?? null,
     picture: player.picture ?? null,
@@ -145,6 +144,14 @@ function playerToRow(player: Player, teamId: string) {
     weight: player.weight ?? '',
     age: player.age ?? 0,
     date_of_birth: player.dateOfBirth || null,
+  };
+}
+
+function teamPlayerToRow(player: Player, teamId: string) {
+  return {
+    team_id: teamId,
+    player_id: player.id,
+    number: player.number,
   };
 }
 
@@ -238,15 +245,21 @@ async function main() {
   }
 
   const teamMap = collectTeams(data);
-  const playerRows: ReturnType<typeof playerToRow>[] = [];
+  const playerProfileById = new Map<string, ReturnType<typeof playerProfileToRow>>();
+  const teamPlayerRows: ReturnType<typeof teamPlayerToRow>[] = [];
   const teamRows: ReturnType<typeof teamToRow>[] = [];
 
   for (const team of teamMap.values()) {
     teamRows.push(teamToRow(team, leagueId));
     for (const player of team.players ?? []) {
-      playerRows.push(playerToRow(player, team.id));
+      if (!playerProfileById.has(player.id)) {
+        playerProfileById.set(player.id, playerProfileToRow(player, leagueId));
+      }
+      teamPlayerRows.push(teamPlayerToRow(player, team.id));
     }
   }
+
+  const playerRows = [...playerProfileById.values()];
 
   const tournamentRows = data.tournaments.map((t) => ({
     id: t.id,
@@ -291,6 +304,7 @@ async function main() {
     league: leagueId,
     teams: teamRows.length,
     players: playerRows.length,
+    team_players: teamPlayerRows.length,
     tournaments: tournamentRows.length,
     tournament_teams: tournamentTeamRows.length,
     games: gameRows.length,
@@ -326,16 +340,19 @@ async function main() {
   console.log('2/6 Upserting teams...');
   await upsertBatch(supabase, 'teams', teamRows, 'id', false);
 
-  console.log('3/6 Upserting players...');
+  console.log('3/7 Upserting player profiles...');
   await upsertBatch(supabase, 'players', playerRows, 'id', false);
 
-  console.log('4/6 Upserting tournaments...');
+  console.log('4/7 Upserting team_players...');
+  await upsertBatch(supabase, 'team_players', teamPlayerRows, 'team_id,player_id', false);
+
+  console.log('5/7 Upserting tournaments...');
   await upsertBatch(supabase, 'tournaments', tournamentRows, 'id', false);
 
-  console.log('5/6 Upserting tournament_teams...');
+  console.log('6/7 Upserting tournament_teams...');
   await upsertBatch(supabase, 'tournament_teams', tournamentTeamRows, 'tournament_id,team_id', false);
 
-  console.log('6/6 Upserting games...');
+  console.log('7/7 Upserting games...');
   await upsertBatch(supabase, 'games', gameRows, 'id', false);
 
   if (data.preferences?.darkMode !== undefined) {

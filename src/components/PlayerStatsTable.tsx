@@ -24,6 +24,7 @@ const COLUMN_TOOLTIPS: Record<string, string> = {
   Scope: 'Tournament or summary scope',
   Player: 'Player name',
   Team: 'Team abbreviation',
+  Age: 'Age during this tournament season (month and year)',
   Position: 'Primary position',
   GP: 'Games played',
   MPG: 'Minutes per game (MM:SS)',
@@ -62,6 +63,7 @@ const STANDARD_SORT_FIELDS = new Set<PlayerStatsSortField>([
   'Scope',
   'Player',
   'Team',
+  'Age',
   'Position',
   'GP',
   'MPG',
@@ -90,6 +92,7 @@ const ADVANCED_SORT_FIELDS = new Set<PlayerStatsSortField>([
   'Scope',
   'Player',
   'Team',
+  'Age',
   'Position',
   'GP',
   'MPG',
@@ -109,6 +112,7 @@ interface PlayerStatsTableProps {
   rows: PlayerSeasonRow[];
   layout?: 'roster' | 'tournament-breakdown';
   showTeamColumn?: boolean;
+  showAgeColumn?: boolean;
   shotDataCoverage?: ShotDataCoverage;
   foulStatCoverage?: FoulStatCoverage;
   disableRowNavigation?: boolean;
@@ -200,10 +204,16 @@ function madeAttempted(made: number, attempted: number): string {
   return `${made}/${attempted}`;
 }
 
+const tableLinkButtonClass =
+  'text-sm font-normal text-left hover:text-primary hover:underline cursor-pointer';
+
+const numericCellClass = 'text-center text-sm font-mono tabular-nums';
+
 export function PlayerStatsTable({
   rows,
   layout = 'roster',
   showTeamColumn = true,
+  showAgeColumn = false,
   shotDataCoverage,
   foulStatCoverage,
   disableRowNavigation = false,
@@ -319,7 +329,7 @@ export function PlayerStatsTable({
                       onSort={handleSort}
                     />
                   )}
-                  {!isBreakdown && showTeamColumn && (
+                  {showTeamColumn && (
                     <SortableHead
                       label="Team"
                       field="Team"
@@ -327,6 +337,18 @@ export function PlayerStatsTable({
                       sortOrder={sortOrder}
                       onSort={handleSort}
                       className="w-16"
+                    />
+                  )}
+                  {isBreakdown && showAgeColumn && (
+                    <SortableHead
+                      label="Age"
+                      field="Age"
+                      sortField={sortField}
+                      sortOrder={sortOrder}
+                      onSort={handleSort}
+                      center
+                      className="text-center w-12"
+                      tooltip={COLUMN_TOOLTIPS.Age}
                     />
                   )}
                   {!isBreakdown && (
@@ -452,17 +474,19 @@ export function PlayerStatsTable({
                   return (
                     <TableRow
                       key={rowKey}
-                      className={`hover:bg-muted/50 ${
-                        isSummaryRow ? 'border-t-2 bg-muted/20 font-medium' : ''
-                      }`}
+                      className={
+                        isSummaryRow
+                          ? 'border-t-2 border-border bg-muted/40 hover:bg-muted/40'
+                          : 'hover:bg-muted/50'
+                      }
                     >
                       {!isBreakdown && (
-                        <TableCell className="text-center">{index + 1}</TableCell>
+                        <TableCell className="text-center text-sm">{index + 1}</TableCell>
                       )}
                       {isBreakdown ? (
                         <TableCell
-                          className={`font-medium ${cellHighlight('Scope')} ${
-                            isSummaryRow ? 'font-bold' : ''
+                          className={`text-sm ${cellHighlight('Scope')} ${
+                            isSummaryRow ? 'font-semibold' : ''
                           }`}
                         >
                           {!isSummaryRow &&
@@ -471,25 +495,27 @@ export function PlayerStatsTable({
                           onNavigateToTournament ? (
                             <button
                               type="button"
-                              className="text-left hover:text-primary hover:underline cursor-pointer"
+                              className={tableLinkButtonClass}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 onNavigateToTournament(playerData.scopeId!);
                               }}
                             >
-                              {playerData.scopeLabel ?? 'ó'}
+                              {playerData.scopeLabel ?? 'ù'}
                             </button>
                           ) : (
-                            playerData.scopeLabel ?? 'ó'
+                            playerData.scopeLabel ?? 'ù'
                           )}
                         </TableCell>
                       ) : (
                         <TableCell
-                          className={`font-medium ${
+                          className={`text-sm ${
                             disableRowNavigation
                               ? ''
                               : 'cursor-pointer hover:text-primary'
-                          } ${cellHighlight('Player')}`}
+                          } ${cellHighlight('Player')} ${
+                            playerData.isSummaryRow ? 'font-semibold' : ''
+                          }`}
                           onClick={() => {
                             if (!disableRowNavigation && onNavigateToPlayer) {
                               onNavigateToPlayer(
@@ -502,25 +528,32 @@ export function PlayerStatsTable({
                           {playerData.player.name}
                         </TableCell>
                       )}
-                      {!isBreakdown && showTeamColumn && (
-                        <TableCell className={cellHighlight('Team')}>
+                      {showTeamColumn && (
+                        <TableCell className={`text-sm ${cellHighlight('Team')}`}>
                           {playerData.team.abbreviation}
                         </TableCell>
                       )}
+                      {isBreakdown && showAgeColumn && (
+                        <TableCell
+                          className={`text-sm text-center ${cellHighlight('Age')}`}
+                        >
+                          {playerData.ageAtScope ?? '-'}
+                        </TableCell>
+                      )}
                       {!isBreakdown && (
-                        <TableCell className={cellHighlight('Position')}>
+                        <TableCell className={`text-sm ${cellHighlight('Position')}`}>
                           {playerData.player.position}
                         </TableCell>
                       )}
                       <TableCell
-                        className={`text-center ${cellHighlight('GP')} ${
-                          isSummaryRow ? 'font-bold' : ''
+                        className={`${numericCellClass} ${cellHighlight('GP')} ${
+                          isSummaryRow ? 'font-semibold' : ''
                         }`}
                       >
                         {gamesPlayed}
                       </TableCell>
                       <TableCell
-                        className={`text-center font-mono tabular-nums ${cellHighlight('MPG')}`}
+                        className={`${numericCellClass} ${cellHighlight('MPG')}`}
                       >
                         {formatDecimalMinutes(mpg)}
                       </TableCell>
@@ -535,43 +568,43 @@ export function PlayerStatsTable({
                       ) : (
                         <>
                           <TableCell
-                            className={`text-center font-mono tabular-nums ${cellHighlight('FG')}`}
+                            className={`${numericCellClass} ${cellHighlight('FG')}`}
                           >
                             {madeAttempted(totalStats.fg_made, totalStats.fg_attempted)}
                           </TableCell>
                           <TableCell
-                            className={`text-center font-mono tabular-nums ${cellHighlight('3PT')}`}
+                            className={`${numericCellClass} ${cellHighlight('3PT')}`}
                           >
                             {madeAttempted(totalStats.three_made, totalStats.three_attempted)}
                           </TableCell>
                           <TableCell
-                            className={`text-center font-mono tabular-nums ${cellHighlight('FT')}`}
+                            className={`${numericCellClass} ${cellHighlight('FT')}`}
                           >
                             {madeAttempted(totalStats.ft_made, totalStats.ft_attempted)}
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('ORPG')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('ORPG')}`}>
                             {gamesPlayed > 0
                               ? (totalStats.orb / gamesPlayed).toFixed(1)
                               : '0.0'}
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('FDPG')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('FDPG')}`}>
                             {gamesPlayed > 0
                               ? (totalStats.fouls_drawn / gamesPlayed).toFixed(1)
                               : '0.0'}
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('Paint')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('Paint')}`}>
                             <OptionalStatText value={paintPg} decimals={1} />
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('FB')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('FB')}`}>
                             <OptionalStatText value={fbPg} decimals={1} />
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('BlocksAgainst')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('BlocksAgainst')}`}>
                             <OptionalStatText value={blocksAgainstPg} decimals={1} />
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('TFPG')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('TFPG')}`}>
                             <OptionalStatText value={tfPg} decimals={1} />
                           </TableCell>
-                          <TableCell className={`text-center ${cellHighlight('UFPG')}`}>
+                          <TableCell className={`${numericCellClass} ${cellHighlight('UFPG')}`}>
                             <OptionalStatText value={ufPg} decimals={1} />
                           </TableCell>
                         </>
@@ -631,30 +664,30 @@ function StandardStatCells({
 
   return (
     <>
-      <TableCell className={`text-center ${cellHighlight('PPG')}`}>{ppg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('RPG')}`}>{rpg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('APG')}`}>{apg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('SPG')}`}>{spg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('BPG')}`}>{bpg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FG%')}`}>{fgPct.toFixed(1)}%</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FGM')}`}>{fgm.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FGA')}`}>{fga.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('3P%')}`}>{threePct.toFixed(1)}%</TableCell>
-      <TableCell className={`text-center ${cellHighlight('3PM')}`}>{threePm.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('3PA')}`}>{threePa.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FT%')}`}>{ftPct.toFixed(1)}%</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FTM')}`}>{ftm.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FTA')}`}>{fta.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('TOPG')}`}>{topg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('FPG')}`}>{fpg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('+/-')}`}>
+      <TableCell className={`${numericCellClass} ${cellHighlight('PPG')}`}>{ppg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('RPG')}`}>{rpg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('APG')}`}>{apg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('SPG')}`}>{spg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('BPG')}`}>{bpg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FG%')}`}>{fgPct.toFixed(1)}%</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FGM')}`}>{fgm.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FGA')}`}>{fga.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('3P%')}`}>{threePct.toFixed(1)}%</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('3PM')}`}>{threePm.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('3PA')}`}>{threePa.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FT%')}`}>{ftPct.toFixed(1)}%</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FTM')}`}>{ftm.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FTA')}`}>{fta.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('TOPG')}`}>{topg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('FPG')}`}>{fpg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('+/-')}`}>
         <span className={plusMinus >= 0 ? 'text-green-600' : 'text-red-600'}>
           {plusMinus >= 0 ? '+' : ''}
           {plusMinus.toFixed(1)}
         </span>
       </TableCell>
-      <TableCell className={`text-center ${cellHighlight('GmSc')}`}>{gameScPg.toFixed(1)}</TableCell>
-      <TableCell className={`text-center ${cellHighlight('EFF')}`}>{effPg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('GmSc')}`}>{gameScPg.toFixed(1)}</TableCell>
+      <TableCell className={`${numericCellClass} ${cellHighlight('EFF')}`}>{effPg.toFixed(1)}</TableCell>
     </>
   );
 }

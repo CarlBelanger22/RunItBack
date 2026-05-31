@@ -22,6 +22,398 @@
 
 ## 2) Active Plan (Now)
 
+### **C6 — Team icon image: create/edit UI + real logos for existing teams (Designer, 2026-05-31)**
+
+User request: When **creating** or **editing** a team, allow setting an **icon image**. Also add icons for **all existing teams** based on real-world university/institute logos.
+
+#### Current state (Designer analysis)
+
+| Area | Today |
+|------|--------|
+| **DB** | `teams.icon` column exists (`text`, nullable) — already persisted via `supabaseData.ts` ✅ |
+| **`Team.icon` type** | `icon?: string` on `Team` — overloaded: demo seed uses **emoji** (`⚡`, `🦅`); no image URLs in production teams |
+| **`TeamForm`** (Team Manager create/edit) | Name + abbreviation + tournaments only — **no icon field** |
+| **`TournamentPage` create-team dialog** | Name + abbreviation + description — **no icon field** |
+| **`TeamAvatar`** | Always `AvatarFallback` with abbreviation — **never renders image**, even if URL stored |
+| **`getTeamAvatarLabel()`** | Treats short `icon` as text label (conflicts with image URLs if we store paths) |
+| **Hardcoded logos** | `getTeamLogo()` name→Unsplash maps in `GameSummary`, `TournamentPage`, `RecentGames` — **demo teams only**, not wired to `team.icon` |
+
+**Existing real teams (from imports / IDs):**
+
+| Team ID | Name | Abbr |
+|---------|------|------|
+| `team-sunig-ntu` | Nanyang Technological University | NTU |
+| `team-sunig-nus` | National University of Singapore | NUS |
+| `team-sunig-suss` | Singapore University of Social Sciences | SUSS |
+| `team-sunig-sutd` | Singapore University of Technology and Design | SUTD |
+| `team-sunig-sit` | Singapore Institute of Technology | SIT |
+| `team-ivp-np` | Ngee Ann Polytechnic | NP |
+| `team-ivp-ite` | Institute of Technical Education | ITE |
+| `team-ivp-sim` | Singapore Institute of Management | SIM |
+
+Plus demo teams in seed data (Thunder Bolts, etc.) — emoji icons OK to keep or replace with generic ball.
+
+#### Product decisions (Designer recommendation)
+
+1. **Semantic split for `team.icon`:**
+   - Store **image reference only** in `icon`: HTTPS URL, site-relative path (`/team-logos/ntu.png`), or `data:image/...` from local file pick.
+   - Add helper `isTeamIconImage(value)` — true if URL/path/data-URI; false if emoji/short text (legacy).
+   - **`TeamAvatar`:** if image → `AvatarImage`; else → abbreviation fallback (current behavior).
+   - Stop using `icon` as abbreviation substitute when value is an image URL.
+
+2. **Create/edit UX (Team Manager + Tournament create-team):**
+   - New **`TeamIconField`** shared component:
+     - Preview (circle, same as `TeamAvatar`)
+     - **Upload image** (file input: PNG/JPG/WebP/SVG, max ~500KB)
+     - **Remove** button to clear icon
+     - Optional **URL** text input (advanced) for external logo URL
+   - **MVP storage (no Supabase Storage bucket yet — auth paused):**
+     - On file select: read as **data URL** OR copy into **`public/team-logos/`** at build time for bundled defaults; user uploads persist as **data URL in `teams.icon`** for now *(simple, works with existing text column)*.
+     - **Designer prefers data URL for user uploads** in MVP — avoids new infra; bundled real logos use **static paths** `/team-logos/{id}.png`.
+   - **Later (optional):** Supabase Storage bucket `team-icons` when auth lands.
+
+3. **Real logos for existing teams:**
+   - Add **`public/team-logos/`** (or `src/assets/team-logos/` + Vite import map) with one PNG/SVG per institute.
+   - One-time **`scripts/seed-team-icons.ts`** (or SQL patch): set `teams.icon = '/team-logos/team-sunig-ntu.png'` etc. for the 8 real teams.
+   - **Copyright note:** Official university logos are trademarked. Executor should use **user-provided assets** or **Wikimedia Commons / official brand kit downloads**; document sources in `src/assets/team-logos/ATTRIBUTION.md`. Do **not** hotlink random CDN URLs in production.
+   - **If logos not available at implementation time:** ship UI + paths; user drops PNG files into folder before running seed script.
+
+4. **Remove duplication:**
+   - Delete/replace hardcoded `getTeamLogo()` maps — use **`TeamAvatar`** everywhere (GameSummary header, TournamentPage, RecentGames, Dashboard game preview if applicable).
+
+5. **Scope:**
+
+   | In scope | Out of scope (later) |
+   |----------|----------------------|
+   | TeamForm create + edit | Player picture upload |
+   | TeamManager wiring | Tournament icon upload |
+   | TournamentPage create-team dialog | Image cropping editor |
+   | TeamAvatar image render | Supabase Storage (unless user asks) |
+   | Seed script + bundled logos for 8 teams | Auto-fetch logos from web |
+
+#### Proposed implementation
+
+**1) Utils — `src/utils/teamIcon.ts`**
+
+```typescript
+isTeamIconImage(icon?: string): boolean
+resolveTeamIconSrc(icon?: string): string | undefined  // for <img src>
+```
+
+**2) `TeamAvatar.tsx`**
+
+- Import `AvatarImage`
+- If `resolveTeamIconSrc(team.icon)` → show image + abbreviation fallback on error
+
+**3) `TeamIconField.tsx`**
+
+- Props: `value`, `onChange`, `teamName` (preview alt text)
+- File pick → validate type/size → `onChange(dataUrlOrPath)`
+- Clear button
+
+**4) `TeamForm` + `TeamFormValues`**
+
+- Add `icon?: string`
+- `initialIcon` prop for edit mode
+- Include icon in submit payload
+
+**5) `TeamManager` + `App.handleCreateTeam` / `handleUpdateTeam`**
+
+- Pass `icon` through create/update (already on `Team` type; ensure not stripped)
+
+**6) `TournamentPage` create-team**
+
+- Add `TeamIconField` or reuse abbreviated form section
+
+**7) Assets + seed**
+
+- `public/team-logos/*.png` (8 files)
+- `scripts/seed-team-icons.ts` → update Supabase `teams.icon` for known IDs
+- `public/team-logos/ATTRIBUTION.md` — source links
+
+**8) Cleanup**
+
+- Replace `getTeamLogo` usages with `TeamAvatar team={...}`
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [ ] **C6.1 — `teamIcon.ts` helpers + `TeamAvatar` image support**
+  - Success: team with `icon: '/team-logos/ntu.png'` shows image; without icon shows NTU text.
+- [ ] **C6.2 — `TeamIconField` + wire `TeamForm` (create + edit)**
+  - Success: upload/clear/URL works; edit pre-fills current icon.
+- [ ] **C6.3 — Wire `TeamManager` + Tournament create-team**
+  - Success: icon persists to Supabase on save.
+- [ ] **C6.4 — Bundle logo assets + seed script for 8 existing teams**
+  - Success: all real teams have icons in DB; attribution file present.
+- [ ] **C6.5 — Replace hardcoded `getTeamLogo` with `TeamAvatar`**
+  - Success: Game Summary / Tournament / Recent Games use `team.icon`.
+- [ ] **C6.6 — Manual QA**
+  - Create team with upload; edit change/remove; existing NTU/SUTD show logos.
+
+#### Success criteria (Designer sign-off)
+
+- Create and edit team flows include icon image option with preview.
+- `TeamAvatar` displays image when `icon` is set, abbreviation otherwise.
+- All 8 Singapore uni/poly teams have real logos visible across app.
+- No duplicate hardcoded logo maps for demo Unsplash URLs.
+- Build passes; icons persist after refresh (Supabase).
+
+#### Open questions for user (before Executor)
+
+1. **Logo files:** Can you provide PNG/SVG logo files for NTU, NUS, SUSS, SUTD, SIT, NP, ITE, SIM? *(Executor can use placeholders + seed paths if not — you drop files in `public/team-logos/`.)*
+2. **Upload storage:** OK with **data URLs in DB** for user-uploaded icons for now, vs setting up Supabase Storage immediately?
+
+**Designer confidence: ~90%** — UI/avatar path is clear; logo asset sourcing is the main dependency.
+
+---
+
+### **C6.7 — Team logo warping / aspect ratio fix (Designer, 2026-05-31)**
+
+User report: NTU coat-of-arms logo looks **deformed/warped** in team avatars (Team Manager, team page, game summary, etc.).
+
+#### Root cause (Designer analysis)
+
+| Factor | Finding |
+|--------|---------|
+| **NTU asset aspect ratio** | `team-sunig-ntu.png` is **795×1024** (tall heraldic shield), not square |
+| **`TeamAvatar` intent** | Uses `object-contain` on `AvatarImage` to preserve aspect ratio |
+| **Actual CSS** | **`object-contain` is NOT in compiled `index.css` / build CSS** — only `.object-cover` exists. Tailwind v4 did not emit the utility despite use in `TeamAvatar.tsx` |
+| **Default `object-fit`** | **`fill`** — image is **stretched** to fill the square/circle box → shield looks squashed |
+| **Container shape** | `rounded-full` circle clips a tall shield awkwardly even when contain works — secondary UX issue |
+
+**Primary bug:** missing effective `object-fit: contain`.  
+**Secondary UX:** circles are a poor frame for tall crest/shield logos.
+
+#### Product decisions (Designer recommendation)
+
+1. **Fix stretch first (required):** Ensure logo images **never** use default fill.
+   - Prefer **`style={{ objectFit: 'contain' }}`** on `TeamAvatar`'s image (reliable, no Tailwind purge issue), **or** add explicit `.object-contain { object-fit: contain; }` to CSS / safelist.
+   - Do **not** change global `AvatarImage` for player photos — **TeamAvatar only**.
+
+2. **Shape for logo vs abbreviation (recommended):**
+   - **When showing image:** `rounded-lg` (or `rounded-md`) **square** container — crest reads naturally, no circular squeeze.
+   - **When showing abbreviation fallback:** keep `rounded-full` circle (current text avatars).
+   - Single component `TeamAvatar` toggles shape by `showImage`.
+
+3. **Padding:** `p-1` or `p-1.5` inside logo container so crest doesn't touch edges (especially at `sm` size).
+
+4. **Optional asset trim:** Re-export NTU PNG with tighter crop / square canvas — nice-to-have, not required if contain + padding work.
+
+**User feedback (2026-05-31):** Option 2 still ugly everywhere → **revised approach D+C (approved):**
+
+- **D — Context split:** New `TeamLogo` (natural-aspect `<img>`, fixed height + auto width) for **team page header** + **icon upload preview** only. `TeamAvatar` = **abbreviation circle only** everywhere else (Manager, Dashboard, games, tournaments).
+- **C — Clean asset:** NTU JPEG-with-.png-extension converted to **true RGBA PNG** with near-black background made transparent (Pillow script).
+
+#### Task breakdown (revised)
+
+- [x] **C6.7.4 — `TeamLogo` component + context split** ✅ Executor 2026-05-31
+- [x] **C6.7.5 — Simplify `TeamAvatar` to abbreviation-only circles** ✅ Executor 2026-05-31
+- [x] **C6.7.6 — NTU asset → transparent PNG** ✅ Executor 2026-05-31
+- [ ] **C6.7.7 — User QA** — team page header, Team Manager (NTU = "NTU" circle), game rows, icon upload preview
+
+5. **Scope:** `TeamAvatar.tsx` only (+ remove conflicting `object-cover` img usages on TournamentPage/RecentGames that still bypass TeamAvatar for demo Unsplash logos — separate cleanup).
+
+#### Proposed implementation
+
+**`TeamAvatar.tsx`**
+
+```tsx
+// Image mode
+<Avatar className={cn('rounded-lg', sizeClasses[size], ...)}>
+  <AvatarImage
+    className="size-full p-1.5 bg-background"
+    style={{ objectFit: 'contain' }}
+  />
+</Avatar>
+
+// Fallback mode — rounded-full circle, abbreviation text
+```
+
+Consider overriding `Avatar` root `rounded-full` from ui/avatar when image shown via `className="!rounded-lg"` or split inner wrapper.
+
+**Verify:** NTU at sm/md/lg/xl — shield proportional, not stretched; Team Manager card + team page header + game summary.
+
+#### High-level task breakdown (Executor)
+
+- [x] **C6.7.1 — Fix object-fit (contain) in `TeamAvatar`** ✅ Executor 2026-05-29
+  - Success: NTU shield not stretched at any size; inspect computed `object-fit: contain`.
+  - Done: `style={{ objectFit: 'contain' }}` on `AvatarImage` (Tailwind `object-contain` not in compiled CSS).
+- [x] **C6.7.2 — Logo container shape (rounded square for images, circle for fallback)** ✅ Executor 2026-05-29
+  - Success: crest looks natural; abbreviation fallback unchanged.
+  - Done: `rounded-lg` + `bg-background` on `Avatar` when `showImage`; `rounded-full` on fallback; `p-1.5` padding on image.
+- [ ] **C6.7.3 — QA all `TeamAvatar` sizes + hard refresh** (awaiting user)
+  - Team Manager, Team page, Dashboard, Game Summary.
+
+#### Success criteria
+
+- NTU coat of arms displays with **correct aspect ratio** (no horizontal/vertical squash).
+- Logos readable at Team Manager card size (`lg`).
+- Abbreviation-only teams still show circular text avatars.
+
+**Designer confidence: ~95%** — root cause identified; small focused fix.
+
+**Status:** C6.7 approaches (rounded square avatar, D+C context split) **rejected by user** — still ugly everywhere. Superseded by **C6.8 SofaScore pattern** below.
+
+---
+
+### **C6.8 — SofaScore-style team badges (Designer, 2026-05-31)**
+
+User request: Analyse how **SofaScore** displays team logos and implement the same pattern here. **Designer mode** — plan only; Executor after approval.
+
+#### How SofaScore does it (analysis)
+
+SofaScore treats team logos as **normalized badge images in fixed square slots** — not profile avatars, not natural-aspect free-floating images.
+
+| SofaScore pattern | Detail |
+|-------------------|--------|
+| **Same logo everywhere** | Match list, standings, team header, event scoreboard — all show the **real badge** at different sizes. Logos are never hidden in compact rows. |
+| **Fixed square bounding box** | Every badge sits in a **square container** (`24×24`, `32×32`, `48×48`, `64×64` depending on context). Container size is constant per context; logo scales inside it. |
+| **Flex center + contain** | Container uses `display: flex; align-items: center; justify-content: center`. Image uses **`width: 100%; height: 100%; object-fit: contain`** so aspect ratio is preserved without distortion. |
+| **Square, not circle** | Football badges are **not** clipped to circles. Shape is square (sometimes imperceptibly rounded corners on dark theme). |
+| **No visible frame** | No border ring on the badge box — logo sits on page/card background. Optional neutral placeholder when missing. |
+| **Normalized PNG assets** | CDN logos (`img.sofascore.com`) are **PNG, transparent background**, pre-processed so crests fill the square frame consistently. Torneo admin requires **PNG-only** uploads. |
+| **Missing logo fallback** | Generic **neutral shield silhouette** in the **same square dimensions** — not a colored abbreviation circle. |
+
+**Visual model (match row):**
+
+```
+┌────┐  Team Name                    72
+│ 🛡 │  Opponent Name                65
+└────┘
+ 24px square — logo centered, contain
+```
+
+**Visual model (event header / team page):**
+
+```
+     ┌──────┐                    ┌──────┐
+     │ logo │        72 – 65     │ logo │
+     └──────┘                    └──────┘
+       48–64px square slots, same contain rules
+```
+
+#### Why our C6.7 approaches failed (honest post-mortem)
+
+| Our attempt | SofaScore would never do this | Why it looked bad |
+|-------------|------------------------------|-------------------|
+| Radix `Avatar` + circle/square toggle | Uses plain div + img, not Avatar | Wrong component metaphor (people vs institutions) |
+| Context split (logo header only, abbrev elsewhere) | Logo **everywhere** | NTU crest missing in lists; inconsistent identity |
+| Natural-aspect `<img>` on header | Fixed square at all sizes | Misaligned with title row; tall shield floats awkwardly |
+| Auto background removal on raw JPEG | Curated PNG assets | Halos, dark remnants, non-transparent source |
+| Tall 795×1024 PNG without square canvas | Assets normalized to square | Shield appears tiny inside square slot (letterboxing) |
+
+**Root insight:** SofaScore's polish is **50% CSS pattern + 50% asset normalization**. Fixing CSS alone (C6.7) was never enough with our raw heraldic shield asset.
+
+#### Product decision (Designer recommendation — approved direction)
+
+Adopt the **SofaScore badge model** end-to-end:
+
+1. **One component: `TeamBadge`** — replaces both `TeamAvatar` and `TeamLogo`.
+2. **Fixed square box** per size token; flex-center; `object-fit: contain` via **inline style** (Tailwind `object-contain` not reliably compiled).
+3. **Show logo at all sizes** when `team.icon` / bundled path resolves — match list, Manager, Dashboard, game header, team page.
+4. **Fallback:** square placeholder with abbreviation text + existing team color tint (practical stand-in for SofaScore's grey shield until we add a generic SVG).
+5. **Asset pipeline:** normalize uploads + bundled logos to **square RGBA PNG** with transparent bg and ~8–10% padding inset (scripted, repeatable).
+6. **Do not use** Radix `Avatar` for team logos — keep Avatar for **players only**.
+
+#### Size tokens (map to existing call sites)
+
+| Token | Box | Current usage |
+|-------|-----|---------------|
+| `xs` | 16×16 | Tournament standings (sm today) |
+| `sm` | 20×20 | Player page team ref |
+| `md` | 24×24 | Dashboard game preview, tournament team lists |
+| `lg` | 32×32 | Team Manager cards |
+| `xl` | 48×48 | Game Summary scoreboard |
+| `hero` | 64×64 | Team page header / overview card |
+| `preview` | 64×64 | TeamIconField upload preview |
+
+Alias existing `header` → `hero`, `xl` in GameSummary → `xl` (48px).
+
+#### Component spec: `TeamBadge`
+
+```tsx
+// src/components/TeamBadge.tsx
+<div
+  className={cn('flex shrink-0 items-center justify-center', sizeBoxClasses[size])}
+  aria-hidden={!iconSrc} // fallback still shows abbrev
+>
+  {iconSrc && !failed ? (
+    <img
+      src={iconSrc}
+      alt=""
+      className="size-full"
+      style={{ objectFit: 'contain' }}
+      onError={() => setFailed(true)}
+    />
+  ) : (
+    <div className={cn('flex size-full items-center justify-center rounded-sm font-semibold', labelClass)}>
+      {label}
+    </div>
+  )}
+</div>
+```
+
+- **No border** on logo mode (SofaScore-clean).
+- **Fallback:** `rounded-sm` square (not `rounded-full`), reuse `getTeamAvatarLabel` + `getTeamAvatarLabelClass`.
+- Optional later: swap fallback for `/team-logos/placeholder-shield.svg`.
+
+#### Asset pipeline: `scripts/normalize-team-icon.ts`
+
+Input: any PNG/JPEG in `public/team-logos/` or upload buffer.
+
+Steps:
+1. Convert to RGBA.
+2. Remove near-black background (threshold ~50, tunable per asset).
+3. Trim to content bounding box.
+4. **Pad to square canvas** — longest side + 10% inset padding (key SofaScore-like step).
+5. Export PNG to `public/team-logos/{teamId}.png`.
+6. Update `BUNDLED_TEAM_ICONS` + run `npm run seed:team-icons`.
+
+**NTU first:** Re-process `team-sunig-ntu.png` → square ~512×512 transparent PNG.
+
+#### Files to change (Executor)
+
+| Action | File |
+|--------|------|
+| **Create** | `src/components/TeamBadge.tsx` |
+| **Create** | `scripts/normalize-team-icon.ts` + `npm run normalize:team-icon` |
+| **Delete / deprecate** | `TeamLogo.tsx`; slim `TeamAvatar.tsx` → re-export `TeamBadge` or remove |
+| **Replace imports** | `GameSummary`, `DashboardGamePreview`, `Dashboard`, `TeamManager`, `TeamPage`, `TournamentPage`, `PlayerPage`, `TeamIconField` |
+| **CSS belt** | Add `.object-contain { object-fit: contain; }` to global CSS (one line, prevents future Tailwind gap) |
+| **Asset** | Re-normalize NTU PNG |
+| **Copy** | `TeamIconField` help text → "Shown as badge across the app (SofaScore-style square slot)" |
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **C6.8.1 — `TeamBadge` component + size tokens** ✅ Executor 2026-05-31
+- [x] **C6.8.2 — `normalize-team-icon.py` + re-process NTU asset** ✅ Executor 2026-05-31
+  - NTU → 512×512 RGBA square PNG via `npm run normalize:team-icon`
+- [x] **C6.8.3 — Replace all `TeamAvatar` / `TeamLogo` usages with `TeamBadge`** ✅ Executor 2026-05-31
+  - Removed `TeamAvatar.tsx`, `TeamLogo.tsx`; removed Unsplash `getTeamLogo` hacks in TournamentPage + RecentGames
+- [x] **C6.8.4 — Global `.object-contain` CSS + build verify** ✅ Executor 2026-05-31
+- [ ] **C6.8.5 — User QA**
+  - Team page header, Team Manager, Dashboard game card, Game Summary, tournament standings — NTU badge proportional, no black box, same visual language everywhere.
+
+#### Success criteria (Designer sign-off)
+
+- Team logos use **fixed square slots + contain** at every size (SofaScore pattern).
+- NTU crest readable at `md` (24px) and `hero` (64px) without stretch or opaque background box.
+- Teams without logos show **square** abbreviation fallback (not circle).
+- One component (`TeamBadge`); no context split between header vs lists.
+- Build passes; NTU asset normalized to square transparent PNG.
+
+#### Out of scope (C6.8)
+
+- Logos for other 7 institutes (NUS, SUSS, etc.) — same pipeline when assets provided.
+- Generic shield SVG fallback — nice-to-have after C6.8.5 passes.
+- Supabase Storage migration for uploads — unchanged from C6.
+
+**Designer confidence: ~92%** — pattern is well-established in sports apps; remaining risk is NTU crest quality after square normalization (may need manual asset touch-up).
+
+**Awaiting user approval to proceed in Executor mode.**
+
+---
+
 ### **C5 — Game page: clickable team names → Team page (Designer, 2026-05-31)**
 
 User request: On **Game pages**, clicking **team names** should navigate to that team's page.
@@ -2210,6 +2602,505 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 ---
 
+### **C6.9 — NTU crest dark details punched out (Designer, 2026-05-31)**
+
+User report: On black `TeamBadge` background, **dark areas inside the NTU crest** (lion mane, outlines) look **transparent/wrong** — black shows through where solid dark blue/black artwork should be.
+
+#### Root cause (Designer analysis — verified with pixel audit)
+
+| Factor | Finding |
+|--------|---------|
+| **Script** | `scripts/normalize-team-icon.py` lines 24–25 |
+| **Logic** | Any pixel with `max(R,G,B) < 50` → forced **alpha = 0** (treated as background) |
+| **NTU mane color** | Dark navy e.g. `[13, 24, 46]` → max channel **46 < 50** → **incorrectly deleted** |
+| **Scale of damage** | ~**144k pixels** keyed out at threshold 50; only **14** dark pixels survived in current asset |
+| **User's source** | Screenshot shows correct crest on **white** outer background with intact dark mane — our script destroyed interior darks |
+
+**What user sees:** Not that crest black is transparent in the source — the **normalized PNG has holes** where dark artwork was removed; the black **badge background** shows through those holes.
+
+**Secondary issue:** ~11.5k pixels have **partial alpha** (JPEG/compression artifacts) → soft halos at edges.
+
+#### Product decision (Designer recommendation)
+
+1. **Stop global dark-pixel keying** — never remove pixels by `max(RGB) < N` alone; crest art legitimately uses dark blues/blacks.
+2. **Border flood-fill background removal** — sample corner color(s); remove only pixels **connected to the image border** within tolerance (standard logo matting).
+   - For **white-bg sources** (user's screenshot): flood **near-white** from corners (`min(RGB) > 240` or similar).
+   - For **black-bg sources**: flood near-black from corners only — **interior dark mane untouched**.
+3. **`--bg auto|white|black|none` CLI flag** on normalize script; default `auto` from corner samples.
+4. **Re-source NTU** — user drops clean PNG (white outer bg OK) into `public/team-logos/team-sunig-ntu.png` **before** re-run (screenshot asset is the right reference).
+5. **Optional `--bake-bg #000`** — composite final crest onto opaque black 512×512 so asset matches badge UI exactly (eliminates all alpha edge cases). Recommended since badges are always black now.
+6. **No `TeamBadge` CSS change needed** — fix is asset pipeline only.
+
+#### High-level task breakdown (Executor)
+
+- [x] **C6.9.1 — Rewrite `normalize-team-icon.py`**: border flood-fill; remove global dark threshold ✅
+- [x] **C6.9.2 — Add `--bg` and `--bake-bg` flags** ✅
+- [x] **C6.9.3 — User replaces NTU source PNG** ✅ (vector export PNG provided)
+- [x] **C6.9.4 — Re-run normalize** ✅ — 3804 dark-blue mane pixels preserved; baked `#000`
+- [ ] **C6.9.5 — User QA** on black badges at md + hero sizes
+
+#### Success criteria
+
+- Lion **dark blue mane + tail** solid on black badge (no see-through holes).
+- Outer background transparent (or baked black) — no white fringing.
+- Script safe for future institute logos (won't eat dark crest details).
+
+**Designer confidence: ~95%** — root cause confirmed in code + pixel counts.
+
+**User action before Executor:** Replace `public/team-logos/team-sunig-ntu.png` with the clean white-background crest (like screenshot), then say **Executor mode**.
+
+---
+
+### **C7 — Team logo editor in Team Manager (Designer, 2026-05-31)**
+
+User request: Enable editing team logos through Team Manager — possibly a fixed crop window + bg removal + transparency. **Designer mode** — recommend best approach (not bound to user's crop-window idea).
+
+#### Current state
+
+| Piece | Today |
+|-------|--------|
+| **Team Manager** | `TeamForm` → `TeamIconField`: raw file → data URL → Supabase `teams.icon` |
+| **Processing** | **None in browser** — Python `normalize-team-icon.py` is CLI-only |
+| **Display** | `TeamBadge` — fixed square slot, `object-fit: contain`, transparent outside crest |
+| **Storage** | Data URLs in DB, **512 KB** limit (`TEAM_ICON_MAX_BYTES`) |
+| **Tournament create team** | Inline form — **no icon field** (gap) |
+| **Bundled logos** | `BUNDLED_TEAM_ICONS` fallback when DB icon empty |
+
+**Gap:** Upload saves unprocessed JPEG/PNG → bad bg, wrong size, or broken dark details unless user pre-processes offline.
+
+#### Evaluating user's idea (fixed crop window)
+
+| Aspect | Verdict |
+|--------|---------|
+| Fixed **square** crop window | **Reject** — heraldic shields are tall; square crop caused filler / tiny crest (C6.7–C6.9 lessons) |
+| User **adjust** framing | **Good** — pan/zoom or drag crop handles |
+| Auto **bg removal** | **Good** — but must be **preview + undo**, not silent on upload |
+| Process on upload | **Good** — must run **client-side** (no backend in Vite app today) |
+
+#### Recommended solution: **Logo Editor dialog** (not silent auto-crop)
+
+**Flow:**
+
+```
+Upload → Logo Editor (modal) → Apply → data URL saved → TeamForm submit → Supabase
+```
+
+**Editor UI (single dialog, ~600px wide):**
+
+1. **Source pane** — uploaded image with pan/zoom; optional rectangular crop overlay (free aspect, **not** forced square).
+2. **Controls:**
+   - **Background:** `Auto` | `White` | `Black` (same semantics as Python flood-fill)
+   - **Trim:** Auto tight-trim (default on) + optional padding slider 0–8px
+   - **Reset** to original upload
+3. **Live preview row** — `TeamBadge` at **md (24px)**, **lg (32px)**, **hero (64px)** on checkerboard (shows transparency).
+4. **Actions:** Cancel | **Apply logo**
+
+**Default path (80% case):** Upload → editor opens → Auto bg + auto trim already applied → user confirms → Apply. No manual crop required.
+
+**Advanced path:** Wrong bg detected → switch White/Black; still too much junk → drag crop; preview updates live.
+
+**Explicitly NOT in v1:** ML background removal libraries, square-only crop, baking black bg (user prefers transparent crest).
+
+#### Technical approach
+
+**C7.1 — Port normalize pipeline to TypeScript (browser Canvas)**
+
+New `src/utils/teamIconNormalize.ts`:
+
+- `loadImageFromFile / dataUrl` → `ImageData`
+- `removeBorderBackground(imageData, mode: 'auto'|'white'|'black')` — BFS flood from edges (port of Python)
+- `trimAndResize(imageData, { paddingPx, maxSize: 512 })` — tight bbox, preserve aspect
+- `imageDataToPngDataUrl(imageData)` — `canvas.toDataURL('image/png')`
+- Unit tests with fixture pixels (mane color not removed when disconnected from border)
+
+Keep Python script for dev/batch (`public/team-logos/` seeding); **single algorithm, two runtimes**.
+
+**C7.2 — `TeamLogoEditorDialog` component**
+
+- Props: `open`, `sourceDataUrl`, `onApply(processedDataUrl)`, `onCancel`
+- Internal state: working copy, bg mode, crop rect (optional), processing debounced ~200ms
+- Uses Dialog from ui/dialog
+
+**C7.3 — Upgrade `TeamIconField`**
+
+- Upload opens editor instead of immediate `onChange`
+- Edit existing icon → re-open editor with current value
+- Remove URL paste in v1? **Keep** for power users but warn "may need manual editing"
+- Update help text: processed transparent PNG, max 512px longest side
+
+**C7.4 — Size / storage guards**
+
+- After processing, if data URL > 512 KB → reduce max dimension (448 → 384) or PNG re-encode loop
+- Reject if still too large with clear error
+
+**C7.5 — Wire TournamentPage create-team**
+
+- Replace inline team form with `TeamForm` **or** add `TeamIconField` — same editor everywhere
+
+**C7.6 — SVG**
+
+- Rasterize SVG to canvas at 512px max then run same pipeline; or skip bg removal if already transparent
+
+#### Out of scope (C7 v1)
+
+- Supabase Storage bucket (still data URLs)
+- Bundled `public/team-logos/` auto-sync on upload
+- Eraser brush / manual mask repair (v2 if flood-fill fails often)
+- Replace bundled NTU icon when user clears upload (already: DB icon wins)
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **C7.1 — `teamIconNormalize.ts`** ✅ — flood-fill + trim + size limit
+- [x] **C7.2 — `TeamLogoEditorDialog`** ✅ — bg toggle, padding slider, md/lg/hero previews
+- [x] **C7.3 — Integrate into `TeamIconField`** ✅ — upload/URL opens editor; Edit logo button
+- [x] **C7.4 — Storage size guard** ✅ — `processTeamIconWithSizeLimit`
+- [x] **C7.5 — TournamentPage create-team icon field** ✅
+- [ ] **C7.6 — User QA** — upload white-bg + black-bg crest in Team Manager + tournament create
+
+#### Success criteria
+
+- User uploads institute crest in Team Manager → sees editor → Apply → logo matches NTU-quality pipeline (transparent, tight trim, dark mane intact).
+- Preview matches final `TeamBadge` appearance at list + header sizes.
+- No new backend; build passes; icons persist in Supabase after refresh.
+
+**Designer confidence: ~88%** — Canvas port is straightforward; edge cases (JPEG halos, complex bg) mitigated by bg mode toggle + optional crop.
+
+**Awaiting user approval for Executor C7.1.**
+
+---
+
+### **C8 — Tournament logos (Designer, 2026-05-31)**
+
+User request: **Tournament logos**, same UX as team logos (upload → editor → bg removal → badge display everywhere).
+
+#### Current state (Designer analysis)
+
+| Area | Today |
+|------|--------|
+| **DB** | `tournaments.icon` column exists (`text`, nullable) — already loaded/saved in `supabaseData.ts` ✅ |
+| **`Tournament.icon` type** | `icon?: string` on `Tournament` interface ✅ |
+| **`TournamentForm`** | Name, description, year, month, teams — **no icon field** |
+| **`TournamentManager`** | Create/edit dialogs — **no icon**; cards show Trophy + text only |
+| **`TournamentPage` header** | Generic `<Trophy />` icon — **never renders `tournament.icon`** |
+| **Dashboard recent tournaments** | `AvatarFallback` with `tournament.icon \|\| initials` — **broken for image icons** (would show raw `data:image/...` text in fallback) |
+| **`ParticipatedTournamentBadges`** | Text badge + Trophy — no logo |
+| **Processing pipeline** | `teamIconNormalize.ts` + `TeamLogoEditorDialog` — **team-only wiring** |
+| **Bundled assets** | `public/team-logos/` for teams — **no `public/tournament-logos/` yet** |
+
+**Good news:** No schema migration needed. This is UI + display parity on top of existing `tournament.icon` persistence.
+
+**Known tournament IDs (for bundled fallbacks):**
+
+| ID | Name |
+|----|------|
+| `tournament-sunig-2025` | Sunig 2025 |
+| `tournament-ivp-2026` | IVP 2026 (if imported) |
+| `tournament-summer-2024` | Summer League 2024 |
+
+#### Recommended approach — mirror team logo stack (don't refactor teams)
+
+Reuse the **same image pipeline** (`processTeamIconWithSizeLimit`, flood-fill, trim, 512 KB guard). Add tournament-specific **display + form** layers only.
+
+```
+Upload → Tournament Logo Editor (modal) → Apply → data URL → TournamentForm → Supabase tournaments.icon
+```
+
+**New files (parallel to team stack):**
+
+| File | Role |
+|------|------|
+| `src/utils/tournamentIcon.ts` | `BUNDLED_TOURNAMENT_ICONS`, `resolveTournamentIconSrc()`, `getTournamentAvatarLabel()` (2–5 char abbrev via `generateTeamAbbreviation`), re-export `readTeamIconFile` / accept constants |
+| `src/components/TournamentBadge.tsx` | Fixed square slot + `object-fit: contain` + initials fallback (same sizing tokens as `TeamBadge`) |
+| `src/components/TournamentLogoEditorDialog.tsx` | Same controls as team editor (bg mode, padding slider, checkerboard preview, md/lg/hero badge row) — previews use `TournamentBadge` |
+| `src/components/TournamentIconField.tsx` | Upload / URL / Edit / Remove — mirrors `TeamIconField` |
+
+**Optional small DRY (Executor choice):** Extract shared checkerboard + processing UI from both editor dialogs into a private helper — **not required for v1** if it risks touching stable team code.
+
+#### Fallback when no logo (user decision — locked)
+
+- **Square badge with 2–5 letter abbreviation** derived from tournament name — **reuse** `generateTeamAbbreviation(name)` from `teamAbbreviation.ts` (same rules as teams: multi-word → first letters, min 2 / max 5, stop words skipped).
+- Reuse `getTeamAvatarLabelClass()` for smaller text when label is 4–5 chars (fits small badge slots).
+- **Summer League 2024:** no bundled image — abbreviation only (e.g. `SL2` / `SUML` depending on generator).
+- No Trophy icon in badge slots — keeps visual parity with `TeamBadge`.
+
+#### Display sites to wire (v1)
+
+| Location | Change |
+|----------|--------|
+| **Tournament Manager** — create/edit form | `TournamentIconField` |
+| **Tournament Manager** — card grid | `TournamentBadge` + name |
+| **Tournament Page** — header | `TournamentBadge size="hero"` replaces Trophy |
+| **Dashboard** — recent tournaments list | `TournamentBadge size="sm"` (fixes broken Avatar fallback) |
+| **`ParticipatedTournamentBadges`** | Mini `TournamentBadge` + name (replace Trophy) |
+
+**Defer v1.1 (optional):** Game Setup tournament `<SelectItem>` with badge — nice polish, not blocking.
+
+#### Bundled tournament logos (user decision — locked)
+
+**User has source assets ready** (Sunig + IVP only; **no** Summer League logo).
+
+| Tournament | Bundled? | Source (today) | Normalized output |
+|------------|----------|----------------|-------------------|
+| `tournament-sunig-2025` | ✅ | `public/Tournamentlogos/480x288-sunig24db92be-….webp` | `public/tournament-logos/tournament-sunig-2025.png` |
+| IVP 2026 | ✅ | `public/Tournamentlogos/480-x-288-ivp-logoee76c56b-….webp` | `public/tournament-logos/tournament-ivp-2026.png` (confirm exact tournament id in Supabase on C8.7) |
+| `tournament-summer-2024` | ❌ | — | Abbreviation fallback only |
+
+**C8.7 Executor steps:**
+
+1. Create `public/tournament-logos/` + `ATTRIBUTION.md` (mirror team-logos layout).
+2. Run `npm run normalize:team-icon` (or equivalent) on each WebP → transparent tight PNG, max 512px longest side, **no square padding**.
+3. Register paths in `BUNDLED_TOURNAMENT_ICONS` keyed by stable tournament id.
+4. DB `tournaments.icon` still wins when user uploads via UI; bundled is fallback when DB empty.
+
+**Note:** Raw assets live under `public/Tournamentlogos/` (legacy folder); normalized canonical copies go under `public/tournament-logos/` (kebab-case, matches `team-logos`).
+
+#### Out of scope (C8 v1 — same as C7)
+
+- Supabase Storage bucket (still data URLs in Postgres)
+- Auto-replace bundled icon when user clears upload (DB icon wins when set)
+- ML bg removal / manual eraser brush
+- Forced square crop
+
+#### High-level task breakdown (Executor — one step at a time)
+
+- [x] **C8.1 — `tournamentIcon.ts`** ✅
+- [x] **C8.2 — `TournamentBadge`** ✅
+- [x] **C8.3 — `TournamentLogoEditorDialog`** ✅
+- [x] **C8.4 — `TournamentIconField`** ✅
+- [x] **C8.5 — Wire `TournamentForm` + `TournamentManager`** ✅
+- [x] **C8.6 — Wire display** ✅ — TournamentPage header, Manager cards, Dashboard, ParticipatedTournamentBadges
+- [x] **C8.7 — Bundled assets** ✅ — Sunig + IVP normalized PNGs in `public/tournament-logos/`
+- [ ] **C8.8 — User QA**
+
+#### Success criteria
+
+- Create/edit tournament in Tournament Manager → upload logo → editor → Apply → logo visible on Manager card + Tournament page header + Dashboard.
+- Same transparent, tight-trim quality as team logos (shared pipeline).
+- No Supabase schema changes; build passes; icons persist after hard refresh.
+- Dashboard no longer shows garbled `data:image/...` text when icon is set.
+
+#### User decisions (locked 2026-05-31)
+
+1. **Bundled logos:** Sunig 2025 + IVP 2026 assets **already provided** (`public/Tournamentlogos/*.webp`). Summer League 2024 — **no logo**; abbreviation badge only.
+2. **Fallback:** **2–5 letter** abbreviations (same generator as teams), not fixed 2-letter initials.
+
+**Designer confidence: ~95%** — assets on disk; team pipeline reusable; only IVP tournament id needs verification at C8.7.
+
+**Awaiting user “Executor mode” to start C8.1.**
+
+---
+
+### **C9 — Tournament page “Create Team” dialog closes on keystroke (Designer, 2026-06-01)**
+
+User report: On **Tournament → Teams tab**, clicking **Create New Team** opens a popup, but **every keystroke** makes the dialog glitch, disappear, and the tab “refreshes” — cannot create a team.
+
+Screenshot context: empty tournament (0 teams), e.g. “National Basketball League (Men) Division 2 2024”.
+
+#### Root cause (confirmed in code)
+
+**Anti-pattern:** `TournamentPage.tsx` defines tab bodies as **inline component functions** inside the render body:
+
+```tsx
+const HomeTab = () => ( ... );
+const TeamsTab = () => ( ... );  // Create Team Dialog lives HERE
+// ...
+<TabsContent value="teams"><TeamsTab /></TabsContent>
+```
+
+On **every parent re-render**, `TeamsTab` is a **new function reference** → React treats it as a **different component type** → **full unmount + remount** of the entire Teams tab subtree (including the Dialog, form, and inputs).
+
+**Trigger introduced in C7/C8:** Create-team form `onChange` handlers call:
+
+- `setTeamIconPreviewName(e.target.value)` (team name input)
+- `setTeamIconPreviewAbbrev(e.target.value)` (abbreviation input)
+
+Each keystroke → state update → `TournamentPage` re-renders → `TeamsTab` remounts → dialog destroyed/recreated → user sees flicker/close/reset (“whole thing refreshes”).
+
+Dialog open state (`isCreateTeamDialogOpen`) lives in the **parent** and stays `true`, but the **Dialog DOM unmounts** — Radix portal loses focus/state; form `defaultValue=""` inputs reset on remount.
+
+**Same latent bug** exists for all five inline tabs (`HomeTab`, `TeamsTab`, `StandingsTab`, `PlayersTab`, `GamesTab`). Also present on `TeamPage.tsx` (four inline tabs) — not reported yet.
+
+#### Why Team Manager works
+
+`TeamManager` renders `<Dialog>` + `<TeamForm>` at **page level** — not inside a remounting inline tab component. Keystrokes only re-render `TeamForm`, not destroy the dialog tree.
+
+#### Recommended fix (Executor)
+
+**Primary (structural — fixes root cause):**
+
+1. **Hoist both team dialogs** (`Create New Team`, `Add Team`) to **`TournamentPage` root return** — siblings of `<Tabs>`, **not** inside `TeamsTab`.
+2. **Replace inline create-team form** with shared **`TeamForm`** (same as Team Manager / C7.5 intent):
+   - `initialTournamentIds={[tournament.id]}` — current tournament pre-selected
+   - Optional prop `hideTournamentPicker?: boolean` when creating from tournament context (or show picker with current tournament checked + disabled)
+   - `onSubmit` → `onCreateTeam({ name, abbreviation, icon, players: [] }, { tournamentIds: [tournament.id] })`
+   - `createFormKey` increment on open (reset form between opens — TeamManager pattern)
+3. **Delete** `teamIconPreviewName`, `teamIconPreviewAbbrev`, inline refs form, and `handleCreateTeam` inline form handler from `TeamsTab`.
+
+**Secondary (optional hardening — can defer):**
+
+4. Refactor inline `HomeTab` / `StandingsTab` / etc. to **plain JSX variables** (`const teamsTabContent = (...)` ) or **module-level components** — prevents remount on unrelated state changes. Lower priority if dialogs are hoisted.
+
+**Do NOT use as sole fix:** removing `setTeamIconPreviewName` only — would stop the trigger but **any future state update** in `TournamentPage` would still remount tabs.
+
+#### High-level task breakdown (Executor)
+
+- [x] **C9.1 — Hoist Create Team + Add Team dialogs** ✅
+- [x] **C9.2 — Replace inline form with `TeamForm`** ✅ + `hideTournamentPicker` prop
+- [x] **C9.3 — Verify** ✅ — build passes
+- [ ] **C9.4 — User QA**
+
+#### Success criteria
+
+- Create Team dialog stays open and stable while typing in all fields.
+- Team created successfully and appears in tournament teams list.
+- No full-tab flash/remount on keystroke.
+- Build passes.
+
+**Designer confidence: ~98%** — classic React inline-component remount bug; trigger line identified; fix pattern proven in TeamManager.
+
+**Awaiting user “Executor mode” for C9.1.**
+
+---
+
+### **C10 — Global players + multi-team rosters (Designer, 2026-06-01 — REVISED)**
+
+User request (clarified): **Players are independent** — same person, **same `player.id`**, can appear on **multiple teams / tournaments**. No copying or new IDs. Player profile shows **stats across all tournaments and teams**. Add Player: **searchable dropdown** of the whole player pool.
+
+This is a **data-model change**, not just a UI toggle.
+
+#### Current state (blockers)
+
+| Area | Today | Problem for multi-team |
+|------|--------|-------------------------|
+| **DB `players`** | `team_id NOT NULL` — one team per row | Cannot link same player to Kai Xuan + NTU |
+| **App `Team.players[]`** | Nested roster; player “belongs” to one team | Add to team B requires duplicate or move |
+| **Game stats** | `gameStats[].playerId` only | ✅ Already global — Sunig stats stay linked if same ID |
+| **PlayerPage stats** | Filters games by `playerId` | ✅ Cross-tournament totals mostly work |
+| **PlayerPage UI** | Single `team` in header; `#player.number` global | Wrong when # differs per team |
+| **Game log** | Uses route `team.id` for home/away | Breaks when player played for another team |
+| **Tournament stats rows** | Group by tournament only | Need **Team** column when player switched teams |
+| **`findPlayer()`** | Returns first team containing ID | Ambiguous for multi-team |
+
+#### Target model (Designer recommendation)
+
+**Split identity vs roster:**
+
+```
+players (global)          team_players (roster link)
+─────────────────         ───────────────────────────
+id                        team_id + player_id (PK)
+league_id                 number, position, secondary_position
+name, height, weight…     (jersey/role can differ per team)
+```
+
+- **`players`**: who they are (profile shared everywhere).
+- **`team_players`**: which teams they’re on + jersey # / position **for that team**.
+- **Add to second team**: insert junction row only — **same player ID**.
+- **Remove from team**: delete junction row; keep global player + all game stats.
+- **App hydration**: still build `team.players[]` from join (minimal UI churn).
+
+**Stats:** `gameStats.playerId` unchanged. Profile aggregates all games for that ID. Derive “which team in this game” from home/away roster membership.
+
+#### UI — Add Player dialog
+
+| Mode | Behavior |
+|------|----------|
+| **New player** | Create global `players` row + `team_players` link |
+| **Existing player** | Searchable **Command/combobox** over **full league pool**; exclude already on this team; on select → set **# / position for this team** → add link |
+
+Hoist dialog outside inline `RosterTab` on TeamPage. Wire TeamPage + TeamManager.
+
+#### Player profile (same epic)
+
+- Header: list **all teams** player is on.
+- Stats tab: tournament rows include **Team** column.
+- Game log: home/away per game from roster, not route context.
+
+#### Migration
+
+1. Create `team_players`; copy from existing `players.team_id` rows.
+2. Add `players.league_id`; drop/deprecate `players.team_id`.
+3. Verify NTU player IDs + Sunig box scores unchanged.
+
+#### User decisions (locked 2026-06-01)
+
+1. **Jersey # and position:** **Per team** on `team_players` (e.g. #22 NTU, #10 Kai Xuan).
+2. **Remove from roster:** **Unlink only** — global `players` row + all game stats preserved.
+3. **Same player, two teams, same tournament:** **Not allowed** — block at roster-add time (see rule below).
+4. **Player page header:** Show **all teams** the player is on (badges/links), not single context team.
+
+#### Same-tournament conflict rule (Designer)
+
+A player may be on **multiple teams** only if those teams share **no tournament** in common.
+
+**Validation on “Add existing player to team”:**
+
+```
+sharedTournament = ∃ T : targetTeam ∈ T.teams AND otherTeam ∈ T.teams
+                 where otherTeam is any team that already rosters this player
+if sharedTournament → reject with clear error message
+```
+
+**Examples:**
+
+| Player on | Adding to | Sunig 2025 | IVP 2026 | OK? |
+|-----------|-----------|------------|----------|-----|
+| NTU (Sunig+IVP) | Kai Xuan (new tourney only) | — | — | ✅ |
+| NTU (Sunig only) | NUS (Sunig only) | overlap | — | ❌ |
+| NTU | Kai Xuan | no overlap | — | ✅ |
+
+**Also validate when:**
+
+- **Adding a team to a tournament** (`tournament_teams`) — if any player appears on both that team and another team already in the tournament → block (or warn — **see open Q5**).
+- **Creating team in tournament + picking existing players** — same roster rule.
+
+Helper: `getPlayerTeamIds(playerId)`, `getTeamTournamentIds(teamId)`, `wouldRosterViolateTournamentOverlap(playerId, targetTeamId)`.
+
+#### Profile edits (Designer assumption — confirm if wrong)
+
+Editing name / height / weight / DOB on **Player page** updates the **global** `players` row → reflects everywhere. Jersey # / position edits on Player page should target **which team’s roster row?** — **see open Q6**.
+
+#### Player page header (locked UI)
+
+```
+[Photo] Carl Belanger
+#22 NTU · #10 Kai Xuan   ← per-team jersey in subtitle OR team badges each with #
+[NTU badge] [Kai Xuan badge]   ← all teams, clickable → team page
+PG • 6'3" • …
+```
+
+Stats tab: rows grouped by **tournament**, **Team** column shows which team they played for in that tournament (one team per tournament given Q3).
+
+#### Open questions (remaining)
+
+5. **Tournament enrollment conflict:** If NTU roster includes Carl and admin adds **Kai Xuan** to Sunig where NTU already plays — **block** adding Kai Xuan to Sunig, or only block adding Carl to Kai Xuan’s roster? *(Designer recommends: block **both directions** — any action that would put same player on two teams in one tournament.)*
+
+6. **Editing # / position on Player page:** Edit **all teams at once**, **pick a team** dropdown, or **only editable from Team roster** (per-team fields live on team page)? *(Designer recommends: edit per-team roster fields from **Team roster** or Player page with **team selector**.)*
+
+#### Phased tasks (Executor)
+
+- **C10.1** — Supabase migration: `team_players`, `players.league_id`, migrate data
+- **C10.2** — Load/save + hydrate `team.players[]` from join
+- **C10.3** — App handlers + `wouldRosterViolateTournamentOverlap()`
+- **C10.4** — `AddPlayerDialog` (New | Existing + searchable combobox)
+- **C10.5** — Wire TeamPage + TeamManager; hoist dialog
+- **C10.6** — PlayerPage: all-teams header, per-game team in game log
+- **C10.7** — Stats tab: Team column; cross-tournament breakdown
+- **C10.8** — User QA
+
+#### Success criteria
+
+- Same player ID on multiple teams (different tournaments); no copy.
+- Block adding player to second team in shared tournament.
+- Sunig stats remain on profile after joining new team in different tournament.
+- Searchable full player pool; header shows all teams.
+
+**Designer confidence: ~93%** — pending Q5–Q6 (minor UX); ready for Executor C10.1 once confirmed or defaults accepted.
+
+**Awaiting Q5–Q6 or “Executor mode” (Designer defaults OK).**
+
+---
+
 ## Project Status Board
 
 - [x] B4 Game 3 (NUS vs NTU, 2025-09-26) — JSON created, stats-only import complete, player profiles verified unchanged
@@ -2217,7 +3108,10 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 - [x] B5 Game 4 (SUSS vs NTU, 2025-09-29) — JSON created, stats-only import complete, player profiles verified unchanged
 - [ ] B5.5 User QA — confirm score NTU 86 / SUSS 41, starters, box score order
 - [x] C1 Player Performance chart — sort x-axis by minutes desc (C1.1 done; awaiting C1.2 QA)
-- [x] C5 Game page clickable team names — C5.1–C5.4 implemented; build passes; awaiting C5.5 user QA
+- [x] **C7 Team logo editor (Team Manager)** — C7.1–C7.5 complete; awaiting C7.6 user QA
+- [ ] **C8 Tournament logos** — C8.1–C8.7 complete; awaiting C8.8 user QA
+- [ ] **C9 Tournament create-team dialog bug** — C9.1–C9.3 complete; awaiting C9.4 user QA
+- [ ] **C10 Global players + multi-team rosters** — C10.1–C10.7 complete; awaiting C10.8 user QA
 - [x] B6 Game 5 finale (NUS vs NTU, 2025-10-03) — JSON created, stats-only import complete, player profiles verified unchanged
 - [ ] B6.4 User QA — confirm score NUS 45 / NTU 80, starters, box score order
 - [x] N1 Smart back navigation — N1.1–N1.4 implemented; awaiting N1.5 user QA
@@ -2228,7 +3122,309 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 ## Current Status / Progress Tracking
 
-- **N1 Smart back navigation (2026-05-29):** N1.1–N1.4 complete. Added `src/routing/navigation.ts` (`navigateWithReturnTo`, `navigateBack`). Detail routes (tournament/team/player/game summary) use `navigateBack`; forward navigations pass `state.from` with full path+tab. Dashboard search + shared `navigateToTeam`/`navigateToTournament` updated. Build passes. **Awaiting N1.5 user QA.**
+- **C11 Player identity (2026-06-01):** **C11.1–C11.7 + C11.9 implemented.** Migration `003_player_global_position.sql`, global position in data layer, `PlayerJerseyGrid`, `PlayerTeamBadges`, overview layout (jerseys on name row, team badges + tournament badges below bio). Build passes. **User must run migration 003 in Supabase SQL Editor if not done.** Awaiting C11.8/C11.9 user QA.
+
+---
+
+## C11 — Player identity + global position (Designer, 2026-06-01) — **REVISED**
+
+### Background
+
+User QA: overview identity block is messy (C10.8). User proposed **Basketball Reference** pattern: plain jersey icons on the **right**, one per team-number, tooltip = team name. Also **reverses C10 Q1**: **position is global** on the player profile; **only jersey # varies per team**.
+
+### Decision log (supersedes C10 Q1 / Q6 partial)
+
+| Field | Was (C10) | Now (C11) |
+|-------|-----------|-----------|
+| Position / secondary | Per team (`team_players`) | **Global** (`players`) |
+| Jersey # | Per team (`team_players`) | Per team (unchanged) |
+| Name, height, weight, DOB | Global | Global (unchanged) |
+| Add existing player | # + position + secondary | **Jersey # only** |
+| Edit position on Player page | Per-team via roster selector | **Single global** in Edit dialog |
+| Edit jersey # | Per team | Per team (Edit dialog section or team roster) |
+
+**Rationale:** Position is an attribute of the athlete, not the roster slot. Jerseys differ by program (NTU #22 vs Kai Xuan #10). BBR-style grid communicates multi-team numbers without prose duplication.
+
+**Migration note:** Existing data where Carl is PF/C on one team and C/PF on another → migration picks one (deterministic: existing `players` row if present, else lexicographically first `team_players` row). User can fix once in Edit Player after migration.
+
+### Target layout — Overview identity card (BBR-inspired)
+
+```
+┌────────────────────────────────────────────────────────────────────┐
+│  [Photo]   Carl Belanger                    ┌──┐ ┌──┐              │
+│            PF/C                              │22│ │22│  ← plain     │
+│            6'3" (191cm) · 88kg               └──┘ └──┘    jerseys  │
+│            [IVP 2026]  [Sunig 2025]         tooltip: team name   │
+└────────────────────────────────────────────────────────────────────┘
+```
+
+**Left column:** name → **global position** → bio (height · weight · age) → tournament badges.
+
+**Right column:** `PlayerJerseyGrid` — neutral outline tank-top SVG, number centered, **no team colors**. One cell per `(team, number)` roster link. Hover/focus tooltip: `{Team full name} — #{number}`. Click jersey → navigate to that team page.
+
+**Single-team player:** one jersey on the right (same component, grid of 1). Bio line does **not** repeat `#` in text — jersey carries number.
+
+**Sticky header (above tabs):** name only — `← Back · Carl Belanger · Edit`. No subtitle duplication.
+
+### New component: `PlayerJerseyGrid`
+
+- Props: `{ entries: { team: Team; number: number }[]; onTeamClick? }`
+- Plain gray stroke jersey SVG (~40×48px), number in `font-bold tabular-nums`
+- Wrap grid, top-aligned beside name block on `md+`; stacks below name on mobile
+- Same number on two teams → two jerseys (tooltips differ)
+
+### Add existing player (simplified)
+
+**Existing tab fields only:**
+1. Search / pick player
+2. Jersey number (with taken check on **target team**)
+3. Submit
+
+No position / secondary selects. Linked player keeps global position from profile.
+
+### Edit Player dialog (revised)
+
+**Global section:** name, position, secondary, height, weight, DOB (one set).
+
+**Jersey numbers section** (when on 1+ teams): compact list or mini grid
+
+| Team (abbrev) | # |
+|---------------|---|
+| NTU | 22 |
+| KX | 22 |
+
+Remove “Roster team selector” that switched which position you edit. Optional: remove per-team selector entirely — jerseys edited in table above.
+
+**Team roster page** still shows position from global profile; editing player from team page opens same global rules.
+
+### Schema change — migration `003_player_global_position.sql`
+
+1. Add `position`, `secondary_position` to `players` (if not exists)
+2. Backfill from `team_players` (one row per player_id, `ORDER BY team_id LIMIT 1`; if conflict, first wins — document)
+3. Drop `position`, `secondary_position` from `team_players`
+4. `team_players` retains: `team_id`, `player_id`, `number` only (+ timestamps)
+
+Update: `supabaseData.ts` load/save, import script, `Player` hydration (position from profile row, number from junction).
+
+### What we remove (UI)
+
+- Per-team position in overview prose / roster chips (C11 v1 draft **cancelled** — no `PlayerRosterChip`)
+- Duplicate team name badges separate from jerseys (jersey click + tooltip replaces)
+- Position fields on Add Existing flow
+- Per-team position editing via roster team selector on Player page
+
+### What stays
+
+- Tournament overlap validation (C10.3)
+- Game log Team column (multi-team)
+- Stats tab Team column per tournament
+- Global player pool search
+
+### Task breakdown (Executor — after user OK)
+
+| Task | Scope | Success criteria |
+|------|--------|------------------|
+| **C11.1** | `003_player_global_position.sql` + backfill | Supabase saves position on `players`; `team_players` number-only |
+| **C11.2** | `supabaseData.ts` + import script | Load/save round-trip; legacy fallback if needed |
+| **C11.3** | `PlayerJerseyGrid.tsx` | Plain jerseys, tooltip, click → team |
+| **C11.4** | PlayerPage overview + slim header | BBR layout; no duplicate prose |
+| **C11.5** | `AddPlayerDialog` existing tab | Jersey # only |
+| **C11.6** | Edit Player dialog | Global position; per-team # list |
+| **C11.7** | Team roster / PlayerForm | Position always global; new player form unchanged |
+| **C11.8** | User QA | Carl multi-team; add existing; edit position once updates everywhere |
+
+**Designer confidence: ~96%**
+
+### Open question (optional)
+
+**Jersey edit location:** Edit dialog table only (default), or also inline click on jersey grid? Default: **edit via Edit Player** + team roster page; grid is display + navigate.
+
+**Awaiting user “Executor mode” to start C11.1.**
+
+---
+
+## C11.9 — Player card layout revision (Designer, 2026-06-01)
+
+### User feedback (post C11.4)
+
+1. **Miss team list** — want teams listed under player details **like tournament badges** (clickable pills with logo + name).
+2. **Jersey placement** — jerseys feel orphaned at bottom-right; should sit **on the same row** as name/avatar (BBR-style top band), not in a separate stacked row.
+
+### Revised layout
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ [Avatar]  Carl Belanger                         [22]  [22]       │
+│           C/PF                                  (top-aligned)    │
+│           6'3" (191cm) · 88kg · 24 years old                     │
+│                                                                  │
+│           [NTU badge + name]  [Kai Xuan badge + name]  ← outline │
+│           [IVP 2026]  [Sunig 2025]                     ← solid  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**One horizontal band:** avatar + text column on the left, **jersey grid on the right**, both `items-start` (top-aligned). No `flex-col` breakpoint that drops jerseys below the card body.
+
+### Teams row — restore (mirror tournaments)
+
+New component **`PlayerTeamBadges`** (parallel to `ParticipatedTournamentBadges`):
+
+| Property | Teams | Tournaments |
+|----------|-------|-------------|
+| Variant | `outline` | `default` (existing) |
+| Icon | `TeamBadge` sm | `TournamentBadge` xs |
+| Label | Full team name | Tournament name |
+| Click | → team page | → tournament page |
+| Data | `playerRosterEntries` / teams on roster | `participatedTournaments` |
+
+Two badge rows under bio, **teams first**, then tournaments. Visual distinction: outline vs filled avoids needing "Teams:" labels.
+
+**No duplication:** jerseys show **number only**; team badges show **who** — different jobs (BBR numbers vs roster membership).
+
+### Jersey grid tweaks
+
+- Parent: `flex flex-row items-start gap-6` (not `flex-col md:flex-row` with large gap pushing jerseys down).
+- Jerseys: `shrink-0 self-start` on the right column.
+- Mobile (`< sm`): optional — jerseys inline to the right of name on same row if they fit; else wrap jerseys directly under name row (still **above** badge rows, not at card bottom).
+
+### What does NOT change
+
+- Global position, migration 003, Add Existing jersey-only, edit dialog jersey table.
+- Sticky header name-only.
+- Jersey tooltips + click → team (jerseys remain a second path to team page — acceptable).
+
+### Executor tasks (after approval)
+
+| Task | Success criteria |
+|------|------------------|
+| **C11.9.1** | `PlayerTeamBadges.tsx` — outline badges, TeamBadge + name, clickable | **Done** |
+| **C11.9.2** | Overview card: single top row (avatar + details + jerseys aligned top) | **Done** |
+| **C11.9.3** | Teams row + tournaments row under bio; mobile sanity check | **Done (build pass) — awaiting user QA** |
+
+**Designer confidence: ~98%** — no open questions; ready for Executor on user OK.
+
+---
+
+## C12 — Player Stats: age-at-tournament column (Designer, 2026-06-01)
+
+### Background
+
+User wants an **Age** column on the **Player page → Player Stats** tab (tournament-breakdown table), placed **immediately after Team**. Value = player age **during that tournament season**, not current age.
+
+### Data available
+
+| Field | Source | Notes |
+|-------|--------|-------|
+| Tournament season | `Tournament.year` + `Tournament.month` | e.g. `2026` + `"Apr"` — month is 3-letter abbrev |
+| Player DOB | `Player.dateOfBirth` | ISO `YYYY-MM-DD` in DB |
+| Stored `Player.age` | Profile | Current/legacy age — **do not use** for per-tournament rows |
+
+Tournament date is **month + year only** (no day). Existing helper `getTournamentDateMs()` in `tournamentSort.ts` parses `"Apr 1, 2026"`.
+
+### Age rule (user-specified)
+
+Compare at **month granularity**:
+
+```
+age = tournamentYear - birthYear
+if tournamentMonthIndex < birthMonthIndex:
+  age -= 1
+# if tournamentMonthIndex >= birthMonthIndex → birthday counted as passed
+# (same month counts as passed — Apr tournament + Apr birthday → older age)
+```
+
+**Examples** (DOB 2002-04-15):
+
+| Tournament | Age |
+|------------|-----|
+| Mar 2026 | 23 |
+| Apr 2026 | 24 |
+| May 2026 | 24 |
+
+Parse DOB from `YYYY-MM-DD` string parts (avoid UTC timezone shift from `new Date(isoString)`).
+
+Return `null` when: no DOB, invalid month, invalid DOB, or computed age &lt; 0.
+
+### Row display rules
+
+| Row | Age cell |
+|-----|----------|
+| Tournament row (IVP 2026, Sunig 2025) | Computed age |
+| **All Time** summary | `-` |
+| **No Tournament** | `-` |
+| Missing DOB | `-` |
+
+All Time stays pinned at bottom (existing C11 sort behavior).
+
+### UI scope
+
+**In scope:** Player page `PlayerStatsTab` only (`layout="tournament-breakdown"`).
+
+**Out of scope (for now):** Team page player stats table, roster tab Age (already shows current age), Overview tab.
+
+Column order when Team column visible:
+
+```
+Tournament | Team | Age | GP | MPG | …
+```
+
+When `showTeamColumn` is false (single team): **still show Age after Tournament** (Team column hidden but Age remains useful).
+
+New table prop: `showAgeColumn?: boolean` — `true` from `PlayerStatsTab` only.
+
+- Sortable **Age** header (numeric asc/desc)
+- Tooltip: `"Age during this tournament season (month and year)"`
+- Display: integer or `-`
+- Style: match Team column (`text-sm`, centered)
+
+### Implementation plan (Executor)
+
+| Task | Work | Success criteria |
+|------|------|------------------|
+| **C12.1** | `src/utils/playerAge.ts` — `parseDateOnly`, `getPlayerAgeAtTournamentSeason(dob, month, year)`, month index map | **Done** |
+| **C12.2** | Extend `PlayerSeasonRow` with `ageAtScope?: number \| null`; set in `buildPlayerTournamentSeasonRows` via tournament lookup | **Done** |
+| **C12.3** | `PlayerStatsTable`: `showAgeColumn`, Age header + cell after Team; add `'Age'` to `PlayerStatsSortField` + sort branch | **Done** |
+| **C12.4** | Wire `PlayerStatsTab`: `showAgeColumn` | **Done — awaiting user QA** |
+
+### Edge cases
+
+- **DOB missing:** column shows `-` (column still visible — prompts user to add DOB in Edit Player).
+- **Invalid tournament month string:** `-` for that row; log nothing (silent).
+- **Future tournament season:** if age &lt; 0, show `-`.
+- **Timezone:** parse DOB as local calendar parts only.
+
+### What does NOT change
+
+- Team roster Age column (current age from stored `player.age`).
+- Overview "24 years old" line (unchanged this epic).
+- Tournament form month/year fields.
+
+**Designer confidence: ~97%** — one optional question below; can proceed without answer using proposed default.
+
+**Optional:** Should Overview age eventually derive from DOB instead of stored `player.age`? **Deferred** — not part of C12.
+
+**Awaiting user “Executor mode” for C12.1.**
+
+---
+
+### ~~C11 v1 draft (superseded)~~
+
+~~Roster chips with abbrev + # + position~~ — replaced by BBR jersey grid + global position above.
+
+### One decision for you
+
+~~Single-team layout: chip vs bio line~~ — **Resolved:** always use jersey grid (1 cell if single team); bio = position + measurements only.
+
+---
+
+## Project Status Board
+
+- [ ] **C12 Player Stats age-at-tournament column** — C12.1–C12.4 done; awaiting user QA
+- [ ] **C11 Player identity (BBR jerseys + global position)** — C11.1–C11.7 + C11.9 done; awaiting C11.8/C11.9 user QA
+- [ ] **C10 Global players + multi-team rosters** — C10.1–C10.7 complete; migration 002 applied; C10.8 folded into C11 QA
+- **C9 Tournament create-team dialog bug (2026-06-01):** **C9.1–C9.3 complete.** Hoisted dialogs to `TournamentPage` root; replaced inline form with `TeamForm` + `hideTournamentPicker`. Build passes. **Awaiting C9.4 user QA.**
+- **C8 Tournament logos (2026-05-31):** **C8.1–C8.7 complete.** TournamentBadge, TournamentIconField, editor, form/manager wiring, display on Dashboard/TournamentPage/badges. Bundled Sunig + IVP PNGs normalized. Build passes. **Awaiting C8.8 user QA.**
+- **C6.8 bugfix (2026-05-31):** NTU logo rendered at full 512px — `size-6`/`size-8` etc. not in compiled Tailwind CSS (same class of bug as `object-contain`). Fixed `TeamBadge` to use `w-* h-*` + `overflow-hidden`. `TeamBadge` (fixed square slot + contain + square abbrev fallback) wired everywhere. NTU normalized to 512×512 transparent PNG. `npm run normalize:team-icon`. Build passes. **Awaiting C6.8.5 user QA.**
 - **Dashboard D + Sunig B2 + team delete QA (2026-05-30):** User confirmed all optional QA complete.
 - **Stats Entry Step 2+:** Paused by user (2026-05-30).
 - **B6 Game 5 finale NUS vs NTU (2026-05-31):** JSON at `Importingboxscores/sunig 2025/game-2025-10-03-nus-ntu.json`. NUS home (45), NTU away (80). Start time 20:40. NTU away starters: Minghui #20, Chengshan #8, Daniel #6, Sunzhe #45, Carl #22. Imported with `--stats-only`; 12 NTU stat lines (80 pts); all 15 NTU player profiles unchanged. **Sunig 2025 import complete (5 games). Awaiting B6.4 user QA.**
@@ -2257,7 +3453,7 @@ Extract **remove** duplicated `getTeamLogo` from `Dashboard.tsx` only in v1; def
 
 ---
 
-## Executor's Feedback or Assistance Requests
+- **C6.9 NTU crest (2026-05-31):** Executor complete. Border flood-fill normalize script; NTU re-processed from user PNG (~3804 mane pixels preserved); baked `#000` 512². **Awaiting C6.9.5 user QA (hard refresh).**
 
 - **N1 Smart back navigation (2026-05-29):** Please hard-refresh and verify:
   1. Sunig tournament **Teams tab** → NTU → Back → returns to **Teams tab** (not Team Manager)

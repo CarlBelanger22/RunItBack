@@ -58,6 +58,10 @@
             "dev": "vite",
             "build": "vite build",
             "import:local": "tsx scripts/import-localstorage-to-supabase.ts",
-            "import:boxscore": "tsx scripts/import-boxscore.ts"
+            "import:boxscore": "tsx scripts/import-boxscore.ts",
+            "seed:team-icons": "tsx scripts/seed-team-icons.ts",
+            "normalize:team-icon": "python3 scripts/normalize-team-icon.py",
+            "db:migrate:002": "tsx scripts/apply-migration-002.ts",
+            "db:migrate:003": "tsx scripts/apply-migration-003.ts"
       }
 }

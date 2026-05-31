@@ -1,12 +1,13 @@
 import React, { useState, useCallback } from 'react';
 import { TeamForm } from './forms/TeamForm';
-import { PlayerForm } from './forms/PlayerForm';
+import { AddPlayerDialog } from './AddPlayerDialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
 import { Team, Player, Tournament, CreateTeamOptions } from '../App';
 import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
+import { TeamBadge } from './TeamBadge';
 import { Plus, Users, ArrowLeft, Trash2, Edit, UserPlus } from 'lucide-react';
 
 interface TeamManagerProps {
@@ -39,7 +40,7 @@ export function TeamManager({
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
 
   const handleTeamSubmit = useCallback(
-    ({ name, abbreviation, tournamentIds }: { name: string; abbreviation: string; tournamentIds: string[] }) => {
+    ({ name, abbreviation, icon, tournamentIds }: { name: string; abbreviation: string; icon?: string; tournamentIds: string[] }) => {
       const resolvedAbbrev =
         abbreviation.trim().toUpperCase() ||
         generateTeamAbbreviation(
@@ -54,6 +55,7 @@ export function TeamManager({
           ...editingTeam,
           name,
           abbreviation: resolvedAbbrev,
+          icon,
         });
         setEditingTeam(null);
       } else {
@@ -61,6 +63,7 @@ export function TeamManager({
           {
             name,
             abbreviation: resolvedAbbrev,
+            icon,
             players: [],
           },
           { tournamentIds }
@@ -71,49 +74,19 @@ export function TeamManager({
     [editingTeam, onUpdateTeam, onCreateTeam, takenAbbreviations]
   );
 
-  const handlePlayerSubmit = useCallback((data: { 
-    name: string; 
-    number: string; 
-    position: string;
-    secondaryPosition?: string;
-    height: string;
-    weight: string;
-    dateOfBirth?: string;
-  }) => {
-    if (!selectedTeam) return;
-
-    // Calculate age from date of birth if provided
-    let age = 0;
-    if (data.dateOfBirth) {
-      const birthDate = new Date(data.dateOfBirth);
-      const today = new Date();
-      age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
-    }
-
-    const newPlayer: Player = {
-      id: `player-${Date.now()}`,
-      name: data.name,
-      number: parseInt(data.number),
-      position: data.position,
-      secondaryPosition: data.secondaryPosition,
-      height: data.height || '',
-      weight: data.weight || '',
-      age: age,
-      dateOfBirth: data.dateOfBirth
-    };
-
-    const updatedTeam = {
-      ...selectedTeam,
-      players: [...selectedTeam.players, newPlayer]
-    };
-
-    onUpdateTeam(updatedTeam);
-    setIsPlayerDialogOpen(false);
-  }, [selectedTeam, onUpdateTeam]);
+  const handleAddPlayerToRoster = useCallback(
+    (player: Player) => {
+      if (!selectedTeam) return;
+      const currentTeam =
+        teams.find((t) => t.id === selectedTeam.id) ?? selectedTeam;
+      onUpdateTeam({
+        ...currentTeam,
+        players: [...currentTeam.players, player],
+      });
+      setIsPlayerDialogOpen(false);
+    },
+    [selectedTeam, teams, onUpdateTeam]
+  );
 
   const handleEditTeam = useCallback((team: Team) => {
     setEditingTeam(team);
@@ -127,8 +100,6 @@ export function TeamManager({
     onUpdateTeam(updatedTeam);
   }, [onUpdateTeam]);
 
-  const isNumberTaken = useCallback((_number: string, _teamId: string) => false, []);
-
   const handleTeamFormCancel = useCallback(() => {
     if (editingTeam) {
       setEditingTeam(null);
@@ -136,10 +107,6 @@ export function TeamManager({
       setIsCreateDialogOpen(false);
     }
   }, [editingTeam]);
-
-  const handlePlayerFormCancel = useCallback(() => {
-    setIsPlayerDialogOpen(false);
-  }, []);
 
   return (
     <div className="space-y-6">
@@ -202,8 +169,11 @@ export function TeamManager({
               </DialogDescription>
             </DialogHeader>
             <TeamForm
+              key={editingTeam.id}
               initialName={editingTeam.name}
               initialAbbreviation={editingTeam.abbreviation}
+              initialIcon={editingTeam.icon}
+              teamId={editingTeam.id}
               takenAbbreviations={takenAbbreviations.filter(
                 (a) => a !== editingTeam.abbreviation
               )}
@@ -216,23 +186,20 @@ export function TeamManager({
       )}
 
       {/* Add Player Dialog */}
-      <Dialog open={isPlayerDialogOpen} onOpenChange={setIsPlayerDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add Player to {selectedTeam?.name}</DialogTitle>
-            <DialogDescription>
-              Add a new player to the team roster.
-            </DialogDescription>
-          </DialogHeader>
-            <PlayerForm
-              selectedTeam={selectedTeam}
-              positions={positions}
-              isNumberTaken={isNumberTaken}
-              onSubmit={handlePlayerSubmit}
-              onCancel={handlePlayerFormCancel}
-            />
-        </DialogContent>
-      </Dialog>
+      {selectedTeam && (
+        <AddPlayerDialog
+          open={isPlayerDialogOpen}
+          onOpenChange={(open) => {
+            setIsPlayerDialogOpen(open);
+            if (!open) setSelectedTeam(null);
+          }}
+          team={teams.find((t) => t.id === selectedTeam.id) ?? selectedTeam}
+          teams={teams}
+          tournaments={tournaments}
+          positions={positions}
+          onSubmit={handleAddPlayerToRoster}
+        />
+      )}
 
       {/* Teams Grid */}
       {teams.length === 0 ? (
@@ -265,15 +232,19 @@ export function TeamManager({
               onClick={() => onNavigateToTeam(team.id)}
             >
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div className="space-y-1">
-                    <CardTitle className="text-lg">{team.name}</CardTitle>
-                    <CardDescription className="flex items-center gap-1">
-                      <Users className="h-3 w-3" />
-                      {team.players.length} {team.players.length === 1 ? 'Player' : 'Players'}
-                    </CardDescription>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <TeamBadge team={team} teamId={team.id} size="lg" />
+                    <div className="space-y-1 min-w-0">
+                      <CardTitle className="text-lg leading-snug">{team.name}</CardTitle>
+                      <CardDescription className="flex items-center gap-1">
+                        <Users className="h-3 w-3 shrink-0" />
+                        {team.players.length}{' '}
+                        {team.players.length === 1 ? 'Player' : 'Players'}
+                      </CardDescription>
+                    </div>
                   </div>
-                  <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="ghost"
                       size="sm"

@@ -27,6 +27,7 @@ import {
 } from "../App";
 import { Plus, Trash2, Users, Calendar } from "lucide-react";
 import { addedPlayersFromBaseline } from "../utils/activeGame";
+import { sortTournamentsByDateDesc } from "../utils/tournamentSort";
 import {
   generateTeamAbbreviation,
   hasDuplicateJerseyNumbers,
@@ -342,7 +343,7 @@ export function GameSetup({
   onUpdateTeam,
 }: GameSetupProps) {
   const sortedTournaments = useMemo(
-    () => [...tournaments].sort((a, b) => a.name.localeCompare(b.name)),
+    () => sortTournamentsByDateDesc(tournaments),
     [tournaments]
   );
 

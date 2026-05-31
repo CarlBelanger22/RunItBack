@@ -1,22 +1,15 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
-import { Input } from './ui/input';
-import { Label } from './ui/label';
-import { Textarea } from './ui/textarea';
-import { Tournament, Team, Game } from '../App';
+import { Tournament, Team, Game, CreateTeamOptions } from '../App';
 import { PlayerStatsTable } from './PlayerStatsTable';
-import { TeamAvatar } from './TeamAvatar';
-import {
-  generateTeamAbbreviation,
-  isValidTeamAbbreviation,
-  normalizeTeamAbbreviation,
-  TEAM_ABBREV_MAX,
-} from '../utils/teamAbbreviation';
+import { TeamBadge } from './TeamBadge';
+import { TournamentBadge } from './TournamentBadge';
+import { TeamForm } from './forms/TeamForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
@@ -46,7 +39,7 @@ interface TournamentPageProps {
   onNavigateToTeam: (teamId: string) => void;
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   onNavigateToGame: (gameId: string) => void;
-  onCreateTeam: (teamData: Omit<Team, 'id'>) => void;
+  onCreateTeam: (teamData: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
@@ -67,17 +60,6 @@ export function TournamentPage({
   onUpdateTeam,
   onDeleteTeam
 }: TournamentPageProps) {
-  
-  // Team logo mapping
-  const getTeamLogo = (teamName: string) => {
-    const logoMap: { [key: string]: string } = {
-      'Thunder Bolts': 'https://images.unsplash.com/photo-1682084037329-45a11d86cce7?w=200&h=200&fit=crop',
-      'Soaring Eagles': 'https://images.unsplash.com/photo-1761325970487-05c2541653eb?w=200&h=200&fit=crop',
-      'City Warriors': 'https://images.unsplash.com/photo-1743105351315-540bce258f1d?w=200&h=200&fit=crop',
-      'Rising Phoenix': 'https://images.unsplash.com/photo-1644721133152-55a3a4aa37d2?w=200&h=200&fit=crop'
-    };
-    return logoMap[teamName];
-  };
   
   // Get tournament teams
   const tournamentTeams = teams.filter(team => tournament.teams.includes(team.id));
@@ -273,20 +255,47 @@ export function TournamentPage({
   const leaders = getTournamentLeaders();
   const extendedStandings = calculateStandingsWithExtendedStats();
   
-  // Team creation state
+  // Team dialogs (hoisted outside tab components to avoid remount on keystroke)
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
   const [isAddTeamDialogOpen, setIsAddTeamDialogOpen] = useState(false);
-  const [teamFormData, setTeamFormData] = useState({
-    name: '',
-    abbreviation: '',
-    description: '',
-    players: [] as Array<{ name: string; number: string; position: string }>
-  });
-  
-  // Refs for uncontrolled inputs
-  const teamNameInputRef = useRef<HTMLInputElement>(null);
-  const teamAbbreviationInputRef = useRef<HTMLInputElement>(null);
-  const teamDescriptionTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [createFormKey, setCreateFormKey] = useState(0);
+
+  const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
+
+  const openCreateTeamDialog = useCallback(() => {
+    setCreateFormKey((k) => k + 1);
+    setIsCreateTeamDialogOpen(true);
+  }, []);
+
+  const handleTeamFormSubmit = useCallback(
+    ({
+      name,
+      abbreviation,
+      icon,
+    }: {
+      name: string;
+      abbreviation: string;
+      icon?: string;
+      tournamentIds: string[];
+    }) => {
+      onCreateTeam(
+        {
+          name,
+          abbreviation,
+          icon,
+          players: [],
+          currentTournamentId: tournament.id,
+        },
+        { tournamentIds: [tournament.id] }
+      );
+      setIsCreateTeamDialogOpen(false);
+    },
+    [onCreateTeam, tournament.id]
+  );
+
+  const handleTeamFormCancel = useCallback(() => {
+    setIsCreateTeamDialogOpen(false);
+  }, []);
 
   // Get teams not in tournament
   const availableTeams = teams.filter(team => !tournament.teams.includes(team.id));
@@ -342,20 +351,13 @@ export function TournamentPage({
           <CardContent>
             <div className="space-y-2">
               {standings.slice(0, 5).map((standing, index) => {
-                const teamLogo = getTeamLogo(standing.team.name);
                 return (
                   <div key={standing.team.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 cursor-pointer" onClick={() => onNavigateToTeam(standing.team.id)}>
                     <div className="flex items-center gap-3">
                       <Badge variant={index === 0 ? "default" : "secondary"} className="w-6 h-6 p-0 flex items-center justify-center text-xs">
                         {index + 1}
                       </Badge>
-                      {teamLogo && (
-                        <img 
-                          src={teamLogo} 
-                          alt={standing.team.name}
-                          className="w-6 h-6 rounded-full object-cover"
-                        />
-                      )}
+                      <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
                       <span className="font-medium">{standing.team.name}</span>
                     </div>
                     <div className="text-sm text-muted-foreground">
@@ -382,8 +384,6 @@ export function TournamentPage({
           <CardContent>
             <div className="space-y-2">
               {tournamentGames.slice().reverse().slice(0, 5).map(game => {
-                const homeTeamLogo = getTeamLogo(game.homeTeam.name);
-                const awayTeamLogo = getTeamLogo(game.awayTeam.name);
                 return (
                   <div 
                     key={game.id} 
@@ -394,22 +394,10 @@ export function TournamentPage({
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      {homeTeamLogo && (
-                        <img 
-                          src={homeTeamLogo} 
-                          alt={game.homeTeam.name}
-                          className="w-5 h-5 rounded-full object-cover"
-                        />
-                      )}
+                      <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="xs" />
                       <span className="text-sm">{game.homeTeam.name}</span>
                       <span className="text-xs text-muted-foreground">vs</span>
-                      {awayTeamLogo && (
-                        <img 
-                          src={awayTeamLogo} 
-                          alt={game.awayTeam.name}
-                          className="w-5 h-5 rounded-full object-cover"
-                        />
-                      )}
+                      <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="xs" />
                       <span className="text-sm">{game.awayTeam.name}</span>
                     </div>
                     {game.finalScore && (
@@ -576,85 +564,6 @@ export function TournamentPage({
     </div>
   );
 
-  const resetTeamForm = () => {
-    setTeamFormData({
-      name: '',
-      abbreviation: '',
-      description: '',
-      players: []
-    });
-    // Clear refs
-    if (teamNameInputRef.current) teamNameInputRef.current.value = '';
-    if (teamAbbreviationInputRef.current) teamAbbreviationInputRef.current.value = '';
-    if (teamDescriptionTextareaRef.current) teamDescriptionTextareaRef.current.value = '';
-  };
-
-  const handleCreateTeam = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Read from refs instead of state
-    const name = teamNameInputRef.current?.value || '';
-    const abbrevInput = normalizeTeamAbbreviation(
-      teamAbbreviationInputRef.current?.value || ''
-    );
-    const description = teamDescriptionTextareaRef.current?.value || '';
-    const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
-    const resolvedAbbreviation =
-      abbrevInput && isValidTeamAbbreviation(abbrevInput)
-        ? abbrevInput
-        : generateTeamAbbreviation(name, takenAbbreviations);
-    
-    const players = teamFormData.players.map((player, index) => ({
-      id: `player-${Date.now()}-${index}`,
-      name: player.name,
-      number: parseInt(player.number),
-      position: player.position,
-      height: '',
-      weight: '',
-      age: 0
-    }));
-
-    const teamData = {
-      name,
-      abbreviation: resolvedAbbreviation,
-      description,
-      players,
-      currentTournamentId: tournament.id
-    };
-
-    onCreateTeam(teamData);
-    setIsCreateTeamDialogOpen(false);
-    resetTeamForm();
-    
-    // Clear refs
-    if (teamNameInputRef.current) teamNameInputRef.current.value = '';
-    if (teamAbbreviationInputRef.current) teamAbbreviationInputRef.current.value = '';
-    if (teamDescriptionTextareaRef.current) teamDescriptionTextareaRef.current.value = '';
-  };
-
-  const addPlayer = () => {
-    setTeamFormData(prev => ({
-      ...prev,
-      players: [...prev.players, { name: '', number: '', position: 'Guard' }]
-    }));
-  };
-
-  const updatePlayer = (index: number, field: string, value: string) => {
-    setTeamFormData(prev => ({
-      ...prev,
-      players: prev.players.map((player, i) => 
-        i === index ? { ...player, [field]: value } : player
-      )
-    }));
-  };
-
-  const removePlayer = (index: number) => {
-    setTeamFormData(prev => ({
-      ...prev,
-      players: prev.players.filter((_, i) => i !== index)
-    }));
-  };
-
   const TeamsTab = () => (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -663,202 +572,25 @@ export function TournamentPage({
           <Badge variant="secondary">{tournamentTeams.length} Teams</Badge>
           
           {availableTeams.length > 0 && (
-            <>
-              <Button 
-                variant="outline"
-                onClick={() => setIsAddTeamDialogOpen(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add Team
-              </Button>
-              <Dialog open={isAddTeamDialogOpen} onOpenChange={setIsAddTeamDialogOpen}>
-                <DialogContent className="max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Add Team to Tournament</DialogTitle>
-                  <DialogDescription>
-                    Select an existing team to add to this tournament.
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="space-y-3 max-h-60 overflow-y-auto">
-                  {availableTeams.map(team => (
-                    <div
-                      key={team.id}
-                      className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                      onClick={() => {
-                        onAddTeamToTournament(team.id, tournament.id);
-                        setIsAddTeamDialogOpen(false);
-                      }}
-                    >
-                      <div className="flex items-center gap-3">
-                        <TeamAvatar team={team} size="md" />
-                        <div>
-                          <div className="font-medium">{team.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {team.players.length} players
-                          </div>
-                        </div>
-                      </div>
-                      <Button size="sm">Add</Button>
-                    </div>
-                  ))}
-                </div>
-              </DialogContent>
-              </Dialog>
-            </>
+            <Button
+              variant="outline"
+              onClick={() => setIsAddTeamDialogOpen(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Team
+            </Button>
           )}
-          
-          <Button
-            onClick={() => setIsCreateTeamDialogOpen(true)}
-          >
+
+          <Button onClick={openCreateTeamDialog}>
             <Plus className="h-4 w-4 mr-2" />
             Create New Team
           </Button>
-          <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}>
-            <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Create New Team</DialogTitle>
-                <DialogDescription>
-                  Create a new team for this tournament. You can add players now or later.
-                </DialogDescription>
-              </DialogHeader>
-              
-              <form onSubmit={handleCreateTeam} className="space-y-4" onKeyDown={(e) => {
-                // Prevent form submission on Enter (only submit on button click)
-                if (e.key === 'Enter' && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
-                  e.preventDefault();
-                }
-              }}>
-                <div className="space-y-2">
-                  <Label htmlFor="teamName">Team Name</Label>
-                  <Input
-                    ref={teamNameInputRef}
-                    id="teamName"
-                    defaultValue=""
-                    placeholder="Enter team name"
-                    required
-                    autoFocus
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="teamAbbreviation">Team Abbreviation</Label>
-                  <Input
-                    ref={teamAbbreviationInputRef}
-                    id="teamAbbreviation"
-                    defaultValue=""
-                    placeholder="2–5 letter abbreviation (e.g. NTU, SUTD, SUSS)"
-                    maxLength={TEAM_ABBREV_MAX}
-                    className="uppercase"
-                    onChange={(e) => {
-                      e.target.value = normalizeTeamAbbreviation(e.target.value);
-                    }}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="teamDescription">Description (Optional)</Label>
-                  <Textarea
-                    ref={teamDescriptionTextareaRef}
-                    id="teamDescription"
-                    defaultValue=""
-                    placeholder="Enter team description"
-                    rows={2}
-                  />
-                </div>
-
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <Label>Players (Optional)</Label>
-                    <Button type="button" variant="outline" size="sm" onClick={addPlayer}>
-                      <Plus className="h-3 w-3 mr-1" />
-                      Add Player
-                    </Button>
-                  </div>
-                  
-                  {teamFormData.players.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      No players added yet. You can add players now or after creating the team.
-                    </p>
-                  ) : (
-                    <div className="space-y-2 max-h-40 overflow-y-auto">
-                      {teamFormData.players.map((player, index) => (
-                        <div key={index} className="grid grid-cols-12 gap-2 items-center">
-                          <div className="col-span-5">
-                            <Input
-                              placeholder="Player name"
-                              value={player.name}
-                              onChange={(e) => updatePlayer(index, 'name', e.target.value)}
-                              required
-                            />
-                          </div>
-                          <div className="col-span-2">
-                            <Input
-                              placeholder="#"
-                              type="number"
-                              min="0"
-                              max="99"
-                              value={player.number}
-                              onChange={(e) => updatePlayer(index, 'number', e.target.value)}
-                              required
-                            />
-                          </div>
-                          <div className="col-span-4">
-                            <select
-                              className="w-full px-3 py-1 text-sm border border-border rounded-md bg-background"
-                              value={player.position}
-                              onChange={(e) => updatePlayer(index, 'position', e.target.value)}
-                            >
-                              <option value="Point Guard">Point Guard</option>
-                              <option value="Shooting Guard">Shooting Guard</option>
-                              <option value="Small Forward">Small Forward</option>
-                              <option value="Power Forward">Power Forward</option>
-                              <option value="Center">Center</option>
-                              <option value="Guard">Guard</option>
-                              <option value="Forward">Forward</option>
-                            </select>
-                          </div>
-                          <div className="col-span-1">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => removePlayer(index)}
-                              className="h-8 w-8 p-0"
-                            >
-                              ×
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex justify-end space-x-2 pt-4">
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    onClick={() => {
-                      setIsCreateTeamDialogOpen(false);
-                      resetTeamForm();
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button type="submit">
-                    Create Team
-                  </Button>
-                </div>
-              </form>
-            </DialogContent>
-          </Dialog>
         </div>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {tournamentTeams.map(team => {
           const teamStanding = standings.find(s => s.team.id === team.id);
-          const teamLogo = getTeamLogo(team.name);
           return (
             <Card 
               key={team.id} 
@@ -867,15 +599,7 @@ export function TournamentPage({
             >
               <CardHeader className="pb-2">
                 <CardTitle className="flex items-center gap-3">
-                  {teamLogo ? (
-                    <img 
-                      src={teamLogo} 
-                      alt={team.name}
-                      className="w-10 h-10 rounded-full object-cover"
-                    />
-                  ) : (
-                    <TeamAvatar team={team} size="lg" />
-                  )}
+                  <TeamBadge team={team} teamId={team.id} size="lg" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <div className="font-medium">{team.name}</div>
@@ -922,7 +646,7 @@ export function TournamentPage({
                 Add teams to this tournament to start tracking games and statistics.
               </p>
             </div>
-            <Button onClick={() => setIsCreateTeamDialogOpen(true)}>
+            <Button onClick={openCreateTeamDialog}>
               <Plus className="h-4 w-4 mr-2" />
               Create First Team
             </Button>
@@ -959,7 +683,6 @@ export function TournamentPage({
               </TableHeader>
               <TableBody>
                 {extendedStandings.map((standing, index) => {
-                  const teamLogo = getTeamLogo(standing.team.name);
                   return (
                     <TableRow 
                       key={standing.team.id} 
@@ -973,15 +696,7 @@ export function TournamentPage({
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          {teamLogo ? (
-                            <img 
-                              src={teamLogo} 
-                              alt={standing.team.name}
-                              className="w-6 h-6 rounded-full object-cover"
-                            />
-                          ) : (
-                            <TeamAvatar team={standing.team} size="sm" />
-                          )}
+                          <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
                           <span className="font-medium">{standing.team.name}</span>
                         </div>
                       </TableCell>
@@ -1096,8 +811,6 @@ export function TournamentPage({
             </Card>
           ) : (
             sortedGames.map((game) => {
-              const homeTeamLogo = getTeamLogo(game.homeTeam.name);
-              const awayTeamLogo = getTeamLogo(game.awayTeam.name);
               return (
                 <Card 
                   key={game.id} 
@@ -1115,13 +828,7 @@ export function TournamentPage({
                               <div className="font-medium">{game.homeTeam.name}</div>
                               <div className="text-xs text-muted-foreground">{game.homeTeam.abbreviation}</div>
                             </div>
-                            {homeTeamLogo && (
-                              <img 
-                                src={homeTeamLogo} 
-                                alt={game.homeTeam.name}
-                                className="w-10 h-10 rounded-full object-cover"
-                              />
-                            )}
+                            <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="lg" />
                           </div>
                           
                           {/* Score */}
@@ -1139,13 +846,7 @@ export function TournamentPage({
                           
                           {/* Away Team */}
                           <div className="flex-1 flex items-center gap-2">
-                            {awayTeamLogo && (
-                              <img 
-                                src={awayTeamLogo} 
-                                alt={game.awayTeam.name}
-                                className="w-10 h-10 rounded-full object-cover"
-                              />
-                            )}
+                            <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="lg" />
                             <div className="text-left">
                               <div className="font-medium">{game.awayTeam.name}</div>
                               <div className="text-xs text-muted-foreground">{game.awayTeam.abbreviation}</div>
@@ -1187,8 +888,12 @@ export function TournamentPage({
           <Button variant="ghost" size="sm" onClick={onBack} className="p-2">
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div className="flex items-center gap-2">
-            <Trophy className="w-6 h-6 text-primary" />
+          <div className="flex items-center gap-3">
+            <TournamentBadge
+              tournament={tournament}
+              tournamentId={tournament.id}
+              size="hero"
+            />
             <div>
               <h1 className="text-2xl font-bold">{tournament.name}</h1>
               <p className="text-muted-foreground">{tournament.month} {tournament.year}</p>
@@ -1230,6 +935,61 @@ export function TournamentPage({
           <GamesTab />
         </TabsContent>
       </Tabs>
+
+      <Dialog open={isAddTeamDialogOpen} onOpenChange={setIsAddTeamDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Team to Tournament</DialogTitle>
+            <DialogDescription>
+              Select an existing team to add to this tournament.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-60 overflow-y-auto">
+            {availableTeams.map((team) => (
+              <div
+                key={team.id}
+                className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                onClick={() => {
+                  onAddTeamToTournament(team.id, tournament.id);
+                  setIsAddTeamDialogOpen(false);
+                }}
+              >
+                <div className="flex items-center gap-3">
+                  <TeamBadge team={team} teamId={team.id} size="md" />
+                  <div>
+                    <div className="font-medium">{team.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {team.players.length} players
+                    </div>
+                  </div>
+                </div>
+                <Button size="sm">Add</Button>
+              </div>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isCreateTeamDialogOpen} onOpenChange={setIsCreateTeamDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Create New Team</DialogTitle>
+            <DialogDescription>
+              Create a new team for {tournament.name}. You can add players after creating the team.
+            </DialogDescription>
+          </DialogHeader>
+          <TeamForm
+            key={createFormKey}
+            takenAbbreviations={takenAbbreviations}
+            tournaments={[tournament]}
+            initialTournamentIds={[tournament.id]}
+            hideTournamentPicker
+            onSubmit={handleTeamFormSubmit}
+            onCancel={handleTeamFormCancel}
+            isEditing={false}
+          />
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

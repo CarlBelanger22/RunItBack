@@ -10,6 +10,7 @@ import { ShotChart } from './ShotChart';
 import { TeamStats } from './TeamStats';
 import { GameLeadersSection } from './GameLeadersSection';
 import { GameTeamLink } from './GameTeamLink';
+import { TeamBadge } from './TeamBadge';
 import { resolveTeamScore } from '../utils/gameDisplay';
 
 interface GameSummaryProps {
@@ -30,20 +31,6 @@ export function GameSummary({
 
   const gameDate = new Date(game.date);
   const isRecent = Date.now() - gameDate.getTime() < 7 * 24 * 60 * 60 * 1000; // Within 7 days
-
-  // Team logo mapping
-  const getTeamLogo = (teamName: string) => {
-    const logoMap: { [key: string]: string } = {
-      'Thunder Bolts': 'https://images.unsplash.com/photo-1682084037329-45a11d86cce7?w=200&h=200&fit=crop',
-      'Soaring Eagles': 'https://images.unsplash.com/photo-1761325970487-05c2541653eb?w=200&h=200&fit=crop',
-      'City Warriors': 'https://images.unsplash.com/photo-1743105351315-540bce258f1d?w=200&h=200&fit=crop',
-      'Rising Phoenix': 'https://images.unsplash.com/photo-1644721133152-55a3a4aa37d2?w=200&h=200&fit=crop'
-    };
-    return logoMap[teamName] || null;
-  };
-
-  const homeTeamLogo = getTeamLogo(game.homeTeam.name);
-  const awayTeamLogo = getTeamLogo(game.awayTeam.name);
 
   return (
     <div className="space-y-6">
@@ -85,22 +72,12 @@ export function GameSummary({
           <div className="flex items-start justify-center gap-8 sm:gap-12">
             {/* Home Team */}
             <div className="text-center space-y-3 flex-1 min-w-0">
-              {homeTeamLogo && (
-                <button
-                  type="button"
-                  className={`mx-auto block rounded-full${
-                    onNavigateToTeam ? ' cursor-pointer hover:opacity-80' : ''
-                  }`}
-                  disabled={!onNavigateToTeam}
-                  onClick={() => onNavigateToTeam?.(game.homeTeam.id)}
-                >
-                  <img
-                    src={homeTeamLogo}
-                    alt={game.homeTeam.name}
-                    className="w-16 h-16 rounded-full object-cover"
-                  />
-                </button>
-              )}
+              <TeamBadge
+                team={game.homeTeam}
+                teamId={game.homeTeam.id}
+                size="xl"
+                className="mx-auto"
+              />
               <GameTeamLink
                 teamId={game.homeTeam.id}
                 teamName={game.homeTeam.name}
@@ -115,22 +92,12 @@ export function GameSummary({
             
             {/* Away Team */}
             <div className="text-center space-y-3 flex-1 min-w-0">
-              {awayTeamLogo && (
-                <button
-                  type="button"
-                  className={`mx-auto block rounded-full${
-                    onNavigateToTeam ? ' cursor-pointer hover:opacity-80' : ''
-                  }`}
-                  disabled={!onNavigateToTeam}
-                  onClick={() => onNavigateToTeam?.(game.awayTeam.id)}
-                >
-                  <img
-                    src={awayTeamLogo}
-                    alt={game.awayTeam.name}
-                    className="w-16 h-16 rounded-full object-cover"
-                  />
-                </button>
-              )}
+              <TeamBadge
+                team={game.awayTeam}
+                teamId={game.awayTeam.id}
+                size="xl"
+                className="mx-auto"
+              />
               <GameTeamLink
                 teamId={game.awayTeam.id}
                 teamName={game.awayTeam.name}

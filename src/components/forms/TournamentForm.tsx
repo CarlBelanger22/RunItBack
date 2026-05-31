@@ -6,6 +6,7 @@ import { Textarea } from '../ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import { Checkbox } from '../ui/checkbox';
 import { Team } from '../../App';
+import { TournamentIconField } from '../TournamentIconField';
 
 interface TournamentFormProps {
   initialData?: {
@@ -14,7 +15,9 @@ interface TournamentFormProps {
     year?: number;
     month?: string;
     selectedTeams?: string[];
+    icon?: string;
   };
+  tournamentId?: string;
   teams: Team[];
   onSubmit: (data: {
     name: string;
@@ -22,6 +25,7 @@ interface TournamentFormProps {
     year: number;
     month: string;
     teams: string[];
+    icon?: string;
   }) => void;
   onCancel: () => void;
   isEditing?: boolean;
@@ -29,6 +33,7 @@ interface TournamentFormProps {
 
 export const TournamentForm = React.memo(({
   initialData,
+  tournamentId,
   teams,
   onSubmit,
   onCancel,
@@ -37,6 +42,8 @@ export const TournamentForm = React.memo(({
   const nameRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const yearRef = useRef<HTMLInputElement>(null);
+  const [icon, setIcon] = React.useState<string | undefined>(initialData?.icon);
+  const [tournamentName, setTournamentName] = React.useState(initialData?.name || '');
   // Use state for month and teams (needed for Select and Checkbox components)
   // But these don't cause parent re-renders since form is extracted
   const [month, setMonth] = React.useState<string>(
@@ -71,11 +78,12 @@ export const TournamentForm = React.memo(({
       description: descriptionRef.current?.value || '',
       year: parseInt(yearRef.current?.value || String(new Date().getFullYear())) || new Date().getFullYear(),
       month: month,
-      teams: Array.from(selectedTeams)
+      teams: Array.from(selectedTeams),
+      icon,
     };
 
     onSubmit(tournamentData);
-  }, [onSubmit, month, selectedTeams]);
+  }, [onSubmit, month, selectedTeams, icon]);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" onKeyDown={(e) => {
@@ -93,8 +101,16 @@ export const TournamentForm = React.memo(({
           placeholder="Enter tournament name"
           required
           autoFocus
+          onChange={(e) => setTournamentName(e.target.value)}
         />
       </div>
+
+      <TournamentIconField
+        value={icon}
+        onChange={setIcon}
+        tournamentName={tournamentName || 'Tournament'}
+        tournamentId={tournamentId}
+      />
 
       <div className="space-y-2">
         <Label htmlFor="description">Description (Optional)</Label>

@@ -10,19 +10,26 @@ import {
   normalizeTeamAbbreviation,
   TEAM_ABBREV_MAX,
 } from '../../utils/teamAbbreviation';
+import { sortTournamentsByDateDesc } from '../../utils/tournamentSort';
+import { TeamIconField } from '../TeamIconField';
 
 export interface TeamFormValues {
   name: string;
   abbreviation: string;
+  icon?: string;
   tournamentIds: string[];
 }
 
 interface TeamFormProps {
   initialName?: string;
   initialAbbreviation?: string;
+  initialIcon?: string;
   initialTournamentIds?: string[];
+  teamId?: string;
   takenAbbreviations?: string[];
   tournaments?: Tournament[];
+  /** When true, tournament membership is fixed via initialTournamentIds (e.g. create from tournament page). */
+  hideTournamentPicker?: boolean;
   onSubmit: (data: TeamFormValues) => void;
   onCancel: () => void;
   isEditing?: boolean;
@@ -31,9 +38,12 @@ interface TeamFormProps {
 export const TeamForm = React.memo(({
   initialName = '',
   initialAbbreviation = '',
+  initialIcon,
   initialTournamentIds = [],
+  teamId,
   takenAbbreviations = [],
   tournaments = [],
+  hideTournamentPicker = false,
   onSubmit,
   onCancel,
   isEditing = false,
@@ -41,12 +51,15 @@ export const TeamForm = React.memo(({
   const nameRef = useRef<HTMLInputElement>(null);
   const abbreviationRef = useRef<HTMLInputElement>(null);
   const abbrevManuallyEditedRef = useRef(isEditing);
+  const [icon, setIcon] = useState<string | undefined>(initialIcon);
+  const [teamNamePreview, setTeamNamePreview] = useState(initialName);
+  const [abbrevPreview, setAbbrevPreview] = useState(initialAbbreviation);
   const [selectedTournamentIds, setSelectedTournamentIds] = useState<Set<string>>(
     () => new Set(initialTournamentIds)
   );
 
   const sortedTournaments = useMemo(
-    () => [...tournaments].sort((a, b) => a.name.localeCompare(b.name)),
+    () => sortTournamentsByDateDesc(tournaments),
     [tournaments]
   );
 
@@ -105,10 +118,15 @@ export const TeamForm = React.memo(({
       onSubmit({
         name,
         abbreviation,
-        tournamentIds: isEditing ? [] : [...selectedTournamentIds],
+        icon,
+        tournamentIds: isEditing
+          ? []
+          : hideTournamentPicker
+            ? [...initialTournamentIds]
+            : [...selectedTournamentIds],
       });
     },
-    [onSubmit, takenAbbreviations, isEditing, selectedTournamentIds]
+    [onSubmit, takenAbbreviations, isEditing, selectedTournamentIds, icon, hideTournamentPicker, initialTournamentIds]
   );
 
   return (
@@ -130,7 +148,10 @@ export const TeamForm = React.memo(({
           placeholder="Enter team name"
           required
           autoFocus
-          onChange={syncAbbreviationFromName}
+          onChange={(e) => {
+            setTeamNamePreview(e.target.value);
+            syncAbbreviationFromName();
+          }}
         />
       </div>
 
@@ -143,14 +164,25 @@ export const TeamForm = React.memo(({
           placeholder="2–5 letter code (e.g. NTU, SUTD, SUSS)"
           maxLength={TEAM_ABBREV_MAX}
           required
-          onChange={handleAbbreviationChange}
+          onChange={(e) => {
+            handleAbbreviationChange();
+            setAbbrevPreview(e.target.value);
+          }}
         />
         <p className="text-xs text-muted-foreground">
           Auto-generated from the team name. You can edit it if needed.
         </p>
       </div>
 
-      {!isEditing && (
+      <TeamIconField
+        value={icon}
+        onChange={setIcon}
+        teamName={teamNamePreview || 'Team'}
+        abbreviation={abbrevPreview}
+        teamId={teamId}
+      />
+
+      {!isEditing && !hideTournamentPicker && (
         <div className="space-y-2">
           <Label>Tournaments</Label>
           <p className="text-xs text-muted-foreground">

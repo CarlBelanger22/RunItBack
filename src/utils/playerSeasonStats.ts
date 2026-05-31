@@ -4,6 +4,11 @@ import {
   gameHasShotChartData,
   getPlayerPaintAndFastbreakPoints,
 } from './gameDisplay';
+import {
+  resolvePlayerTeamInGame,
+  resolvePlayerTeamIdForGames,
+} from './rosterPlayers';
+import { getPlayerAgeAtTournamentSeason } from './playerAge';
 
 export type TournamentScope = 'all' | string;
 
@@ -24,6 +29,8 @@ export interface PlayerSeasonRow {
   scopeId?: string;
   /** Style as summary footer row (e.g. All Time). */
   isSummaryRow?: boolean;
+  /** Age during tournament season; null for summary / unknown. */
+  ageAtScope?: number | null;
 }
 
 export interface ShotDataCoverage {
@@ -72,6 +79,7 @@ export type PlayerStatsSortField =
   | 'Scope'
   | 'Player'
   | 'Team'
+  | 'Age'
   | 'Position'
   | 'GP'
   | 'MPG'
@@ -170,19 +178,6 @@ export function getTeamTournamentScopeOptions(
     options.push({ value: id, label: tournament?.name ?? id });
   }
   return options;
-}
-
-export function resolveInitialTournamentScope(
-  currentTournamentId: string | undefined,
-  options: TournamentScopeOption[]
-): TournamentScope {
-  if (
-    currentTournamentId &&
-    options.some((o) => o.value === currentTournamentId)
-  ) {
-    return currentTournamentId;
-  }
-  return 'all';
 }
 
 export function aggregatePlayerSeasonStats(
@@ -331,11 +326,15 @@ export function aggregateSinglePlayerSeasonStats(
 
 export function buildPlayerTournamentSeasonRows(
   player: Player,
-  team: Team,
+  teams: Team[],
   games: Game[],
   tournaments: Tournament[],
   options?: { includeAllTime?: boolean }
 ): PlayerSeasonRow[] {
+  const leagueTeams = teams.filter((t) =>
+    (t.players ?? []).some((p) => p.id === player.id)
+  );
+
   const playerGames = (games ?? []).filter(
     (game) =>
       game.isCompleted &&
@@ -358,22 +357,71 @@ export function buildPlayerTournamentSeasonRows(
     return tournaments.find((t) => t.id === tournamentId)?.name ?? tournamentId;
   };
 
+  const ageAtTournament = (tournamentId: string): number | null => {
+    if (tournamentId === 'no-tournament' || tournamentId === 'all-time') {
+      return null;
+    }
+    const tournament = tournaments.find((t) => t.id === tournamentId);
+    if (!tournament) return null;
+    return getPlayerAgeAtTournamentSeason(
+      player.dateOfBirth,
+      tournament.month,
+      tournament.year
+    );
+  };
+
+  const rosterPlayerForTeam = (teamId: string | null): Player => {
+    if (!teamId) return player;
+    const team = leagueTeams.find((t) => t.id === teamId);
+    return team?.players.find((p) => p.id === player.id) ?? player;
+  };
+
+  const teamForScope = (scopedGames: Game[]): Team => {
+    const teamId = resolvePlayerTeamIdForGames(player.id, scopedGames, leagueTeams);
+    const team = teamId ? leagueTeams.find((t) => t.id === teamId) : leagueTeams[0];
+    return team ?? leagueTeams[0] ?? ({ id: '', name: '', abbreviation: '-', players: [] } as Team);
+  };
+
+  const allTimeTeam = (): Team => {
+    const playedIds = new Set<string>();
+    for (const game of playerGames) {
+      const t = resolvePlayerTeamInGame(player.id, game, leagueTeams);
+      if (t) playedIds.add(t.id);
+    }
+    if (playedIds.size <= 1) {
+      const id = [...playedIds][0];
+      return leagueTeams.find((t) => t.id === id) ?? leagueTeams[0];
+    }
+    const fallback = leagueTeams[0];
+    return { ...fallback, abbreviation: 'Multi', name: 'Multiple teams' };
+  };
+
   const rows: PlayerSeasonRow[] = [...byTournament.entries()]
     .sort(([aId], [bId]) =>
       tournamentLabel(aId).localeCompare(tournamentLabel(bId))
     )
-    .map(([tournamentId, scopedGames]) => ({
-      ...aggregateSinglePlayerSeasonStats(player, team, scopedGames),
-      scopeLabel: tournamentLabel(tournamentId),
-      scopeId: tournamentId,
-    }));
+    .map(([tournamentId, scopedGames]) => {
+      const team = teamForScope(scopedGames);
+      const rosterPlayer = rosterPlayerForTeam(team.id);
+      return {
+        ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, scopedGames),
+        scopeLabel: tournamentLabel(tournamentId),
+        scopeId: tournamentId,
+        ageAtScope: ageAtTournament(tournamentId),
+      };
+    });
 
   if (options?.includeAllTime !== false && playerGames.length > 0) {
+    const team = allTimeTeam();
+    const rosterPlayer = rosterPlayerForTeam(
+      team.abbreviation === 'Multi' ? null : team.id
+    );
     rows.push({
-      ...aggregateSinglePlayerSeasonStats(player, team, playerGames),
+      ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, playerGames),
       scopeLabel: 'All Time',
       scopeId: 'all-time',
       isSummaryRow: true,
+      ageAtScope: null,
     });
   }
 
@@ -385,7 +433,10 @@ export function sortPlayerSeasonRows(
   sortField: PlayerStatsSortField,
   sortOrder: 'asc' | 'desc'
 ): PlayerSeasonRow[] {
-  const sorted = [...rows].sort((a, b) => {
+  const summaryRows = rows.filter((row) => row.isSummaryRow);
+  const dataRows = rows.filter((row) => !row.isSummaryRow);
+
+  const sorted = [...dataRows].sort((a, b) => {
     let aValue: string | number;
     let bValue: string | number;
 
@@ -401,6 +452,10 @@ export function sortPlayerSeasonRows(
       case 'Team':
         aValue = a.team.abbreviation;
         bValue = b.team.abbreviation;
+        break;
+      case 'Age':
+        aValue = a.ageAtScope ?? -1;
+        bValue = b.ageAtScope ?? -1;
         break;
       case 'Position': {
         const aPos = POSITION_ORDER.indexOf(
@@ -636,7 +691,7 @@ export function sortPlayerSeasonRows(
       : (bValue as number) - aValue;
   });
 
-  return sorted;
+  return [...sorted, ...summaryRows];
 }
 
 export function defaultSortOrderForField(
@@ -646,6 +701,7 @@ export function defaultSortOrderForField(
     field === 'Scope' ||
     field === 'Player' ||
     field === 'Team' ||
+    field === 'Age' ||
     field === 'Position'
   ) {
     return 'asc';

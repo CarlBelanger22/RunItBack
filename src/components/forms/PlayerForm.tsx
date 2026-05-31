@@ -29,6 +29,8 @@ interface PlayerFormProps {
     dateOfBirth?: string;
   }) => void;
   onCancel: () => void;
+  /** Hide jersey field (e.g. edit dialog uses per-team jersey editor). */
+  hideJerseyNumber?: boolean;
 }
 
 export const PlayerForm = React.memo(({
@@ -37,7 +39,8 @@ export const PlayerForm = React.memo(({
   positions = ['PG', 'SG', 'SF', 'PF', 'C'],
   isNumberTaken,
   onSubmit,
-  onCancel
+  onCancel,
+  hideJerseyNumber = false,
 }: PlayerFormProps) => {
   const nameRef = useRef<HTMLInputElement>(null);
   const numberRef = useRef<HTMLInputElement>(null);
@@ -86,10 +89,10 @@ export const PlayerForm = React.memo(({
     const weight = weightRef.current?.value || '';
     const dateOfBirth = dateOfBirthRef.current?.value || '';
     
-    if (name.trim() && number.trim()) {
+    if (name.trim() && (hideJerseyNumber || number.trim())) {
       onSubmit({ 
         name, 
-        number, 
+        number: hideJerseyNumber ? '' : number, 
         position,
         secondaryPosition: secondaryPosition === NONE_POSITION ? undefined : secondaryPosition,
         height: normalizeHeightCmInput(height),
@@ -97,7 +100,7 @@ export const PlayerForm = React.memo(({
         dateOfBirth: dateOfBirth || undefined
       });
     }
-  }, [onSubmit, position, secondaryPosition]);
+  }, [onSubmit, position, secondaryPosition, hideJerseyNumber]);
 
   // Defensive check: ensure isNumberTaken function exists and selectedTeam is valid
   const numberTaken = selectedTeam && numberValue && isNumberTaken && selectedTeam.id
@@ -123,24 +126,26 @@ export const PlayerForm = React.memo(({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="playerNumber">Jersey Number</Label>
-          <Input
-            ref={numberRef}
-            id="playerNumber"
-            type="number"
-            min="0"
-            max="99"
-            defaultValue={initialData?.number || ''}
-            placeholder="0-99"
-            required
-            onChange={handleNumberChange}
-          />
-          {numberTaken && (
-            <p className="text-xs text-destructive">This number is already taken</p>
-          )}
-        </div>
+      <div className={hideJerseyNumber ? 'space-y-4' : 'grid grid-cols-2 gap-4'}>
+        {!hideJerseyNumber && (
+          <div className="space-y-2">
+            <Label htmlFor="playerNumber">Jersey Number</Label>
+            <Input
+              ref={numberRef}
+              id="playerNumber"
+              type="number"
+              min="0"
+              max="99"
+              defaultValue={initialData?.number || ''}
+              placeholder="0-99"
+              required
+              onChange={handleNumberChange}
+            />
+            {numberTaken && (
+              <p className="text-xs text-destructive">This number is already taken</p>
+            )}
+          </div>
+        )}
         
         <div className="space-y-2">
           <Label htmlFor="playerPosition">Position</Label>

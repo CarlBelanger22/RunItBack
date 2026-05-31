@@ -1,4 +1,5 @@
 import type { Game, Tournament } from '../App';
+import { sortTournamentsByDateDesc } from './tournamentSort';
 
 export function getParticipatedTournamentIds(
   teamId: string,
@@ -30,10 +31,11 @@ export function getParticipatedTournaments(
   games: Game[] | undefined,
   tournaments: Tournament[] | undefined
 ): Tournament[] {
-  return getParticipatedTournamentIds(teamId, games, tournaments)
+  const list = getParticipatedTournamentIds(teamId, games, tournaments)
     .map((id) => (tournaments ?? []).find((t) => t.id === id))
-    .filter((t): t is Tournament => t != null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .filter((t): t is Tournament => t != null);
+
+  return sortTournamentsByDateDesc(list);
 }
 
 export function getPlayerParticipatedTournamentIds(
@@ -57,8 +59,9 @@ export function getPlayerParticipatedTournaments(
   games: Game[] | undefined,
   tournaments: Tournament[] | undefined
 ): Tournament[] {
-  return getPlayerParticipatedTournamentIds(playerId, games)
+  const list = getPlayerParticipatedTournamentIds(playerId, games)
     .map((id) => (tournaments ?? []).find((t) => t.id === id))
-    .filter((t): t is Tournament => t != null)
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .filter((t): t is Tournament => t != null);
+
+  return sortTournamentsByDateDesc(list);
 }

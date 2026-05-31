@@ -20,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { TeamBadge } from './TeamBadge';
 
 interface RecentGamesProps {
   games: Game[];
@@ -36,17 +37,6 @@ export function RecentGames({
 }: RecentGamesProps) {
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  
-  // Team logo mapping
-  const getTeamLogo = (teamName: string) => {
-    const logoMap: { [key: string]: string } = {
-      'Thunder Bolts': 'https://images.unsplash.com/photo-1682084037329-45a11d86cce7?w=200&h=200&fit=crop',
-      'Soaring Eagles': 'https://images.unsplash.com/photo-1761325970487-05c2541653eb?w=200&h=200&fit=crop',
-      'City Warriors': 'https://images.unsplash.com/photo-1743105351315-540bce258f1d?w=200&h=200&fit=crop',
-      'Rising Phoenix': 'https://images.unsplash.com/photo-1644721133152-55a3a4aa37d2?w=200&h=200&fit=crop'
-    };
-    return logoMap[teamName] || null;
-  };
   
   // Sort games by date (most recent first)
   const sortedGames = [...games].sort((a, b) => 
@@ -123,8 +113,6 @@ export function RecentGames({
           </Card>
         ) : (
           filteredGames.map((game) => {
-            const homeTeamLogo = getTeamLogo(game.homeTeam.name);
-            const awayTeamLogo = getTeamLogo(game.awayTeam.name);
             const homeScore = resolveTeamScore(game, game.homeTeam.id);
             const awayScore = resolveTeamScore(game, game.awayTeam.id);
             const inProgress = isGameInProgress(game);
@@ -149,13 +137,7 @@ export function RecentGames({
                               <div className="text-2xl font-bold tabular-nums mt-1">{homeScore}</div>
                             )}
                           </div>
-                          {homeTeamLogo && (
-                            <img 
-                              src={homeTeamLogo} 
-                              alt={game.homeTeam.name}
-                              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-                            />
-                          )}
+                          <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="lg" />
                         </div>
                         
                         {/* Status */}
@@ -173,13 +155,7 @@ export function RecentGames({
                         
                         {/* Away Team */}
                         <div className="flex-1 flex items-start gap-2">
-                          {awayTeamLogo && (
-                            <img 
-                              src={awayTeamLogo} 
-                              alt={game.awayTeam.name}
-                              className="w-10 h-10 rounded-full object-cover flex-shrink-0"
-                            />
-                          )}
+                          <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="lg" />
                           <div className="text-left">
                             <div className="font-medium">{game.awayTeam.name}</div>
                             {game.isCompleted && (

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Badge } from '../ui/badge';
-import { TeamAvatar } from '../TeamAvatar';
+import { TeamBadge } from '../TeamBadge';
 import type { Game } from '../../App';
 import { resolveTeamScore } from '../../utils/gameDisplay';
 
@@ -47,11 +47,11 @@ export function DashboardGamePreview({
             </p>
             <p className="text-xl sm:text-2xl font-bold tabular-nums mt-1">{homeScore}</p>
           </div>
-          <TeamAvatar team={game.homeTeam} size="md" />
+          <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="md" />
         </div>
 
         <div className="flex flex-1 min-w-0 items-start gap-3">
-          <TeamAvatar team={game.awayTeam} size="md" />
+          <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="md" />
           <div className="text-left min-w-0">
             <p className="text-sm sm:text-base font-semibold leading-snug break-words">
               {game.awayTeam.name}

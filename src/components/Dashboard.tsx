@@ -1,10 +1,11 @@
 import React, { useMemo } from 'react';
+import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
-import { Avatar, AvatarFallback } from './ui/avatar';
 import { Trophy, Users, Calendar, ChevronRight } from 'lucide-react';
 import { Tournament, Team, Game } from '../App';
-import { TeamAvatar } from './TeamAvatar';
+import { TeamBadge } from './TeamBadge';
+import { TournamentBadge } from './TournamentBadge';
 import { DashboardStatCard } from './dashboard/DashboardStatCard';
 import { DashboardGamePreview } from './dashboard/DashboardGamePreview';
 
@@ -51,7 +52,7 @@ export function Dashboard({
   onNavigateToRecentGames,
 }: DashboardProps) {
   const recentTournaments = useMemo(
-    () => sortByMostRecent(tournaments).slice(0, 3),
+    () => sortTournamentsByDateDesc(tournaments).slice(0, 3),
     [tournaments]
   );
   const recentTeams = useMemo(
@@ -92,11 +93,11 @@ export function Dashboard({
                   }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <Avatar className="w-7 h-7 flex-shrink-0">
-                      <AvatarFallback className="text-xs">
-                        {tournament.icon || tournament.name.substring(0, 2).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
+                    <TournamentBadge
+                      tournament={tournament}
+                      tournamentId={tournament.id}
+                      size="sm"
+                    />
                     <span className="text-sm font-medium truncate">{tournament.name}</span>
                   </div>
                   <Badge variant="outline" className="text-xs flex-shrink-0">
@@ -127,7 +128,7 @@ export function Dashboard({
                   }}
                 >
                   <div className="flex items-center gap-2 min-w-0">
-                    <TeamAvatar team={team} size="sm" />
+                    <TeamBadge team={team} teamId={team.id} size="sm" />
                     <span className="text-sm font-medium truncate">{team.name}</span>
                   </div>
                   <Badge variant="outline" className="text-xs flex-shrink-0">

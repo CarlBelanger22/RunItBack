@@ -165,6 +165,7 @@ function TeamDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoutesP
     <ErrorBoundary>
       <TeamPage
         team={team}
+        teams={teams}
         games={games}
         tournaments={tournaments}
         activeTab={tab}
@@ -230,6 +231,7 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoute
       <PlayerPage
         player={player}
         team={team}
+        teams={teams}
         games={games}
         tournaments={tournaments}
         activeTab={tab}

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -12,14 +12,22 @@ import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
 import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
 import {
   buildPlayerTournamentSeasonRows,
   getFoulStatCoverage,
   getShotDataCoverage,
 } from '../utils/playerSeasonStats';
 import { getPlayerParticipatedTournaments } from '../utils/teamTournaments';
+import {
+  getPlayerRosterEntries,
+  getTeamsForPlayer,
+  resolvePlayerTeamInGame,
+} from '../utils/rosterPlayers';
 import { PlayerStatsTable } from './PlayerStatsTable';
-import { TeamAvatar } from './TeamAvatar';
+import { PlayerJerseyGrid } from './PlayerJerseyGrid';
+import { PlayerJerseyNumbersEditor } from './PlayerJerseyNumbersEditor';
+import { PlayerTeamBadges } from './PlayerTeamBadges';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -31,9 +39,6 @@ import {
   Target,
   Activity,
   TrendingUp,
-  Ruler,
-  Weight,
-  MapPin,
   Star,
   Medal,
   Crown,
@@ -44,6 +49,7 @@ import {
 interface PlayerPageProps {
   player: Player;
   team: Team;
+  teams: Team[];
   games: Game[];
   tournaments: Tournament[];
   activeTab: 'overview' | 'gamelog' | 'stats' | 'advanced';
@@ -69,6 +75,7 @@ export const formatPlayerPositionLabel = (primaryPosition: string, secondaryPosi
 export function PlayerPage({ 
   player, 
   team,
+  teams = [],
   games, 
   tournaments,
   activeTab, 
@@ -81,10 +88,75 @@ export function PlayerPage({
 }: PlayerPageProps) {
   const [selectedTournament, setSelectedTournament] = useState<string>('all');
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [jerseyDraft, setJerseyDraft] = useState<Record<string, string>>({});
+
+  const playerRosterEntries = useMemo(
+    () => getPlayerRosterEntries(player.id, teams),
+    [player.id, teams]
+  );
+  const isMultiTeam = playerRosterEntries.length > 1;
+  const jerseyGridEntries = useMemo(
+    () =>
+      playerRosterEntries.map(({ team: rosterTeam, player: rosterPlayer }) => ({
+        team: rosterTeam,
+        number: rosterPlayer.number,
+      })),
+    [playerRosterEntries]
+  );
+  const rosterTeams = useMemo(
+    () => playerRosterEntries.map(({ team: rosterTeam }) => rosterTeam),
+    [playerRosterEntries]
+  );
+
+  useEffect(() => {
+    if (!isEditDialogOpen) return;
+    const draft: Record<string, string> = {};
+    for (const { team: rosterTeam, player: rosterPlayer } of playerRosterEntries) {
+      draft[rosterTeam.id] = String(rosterPlayer.number ?? '');
+    }
+    setJerseyDraft(draft);
+  }, [isEditDialogOpen, playerRosterEntries]);
+
+  const sortedTournaments = useMemo(
+    () => sortTournamentsByDateDesc(tournaments),
+    [tournaments]
+  );
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
   
-  const isNumberTaken = useCallback((_number: string, _teamId: string) => false, []);
+  const isNumberTaken = useCallback(
+    (number: string, teamId: string, excludePlayerId?: string) => {
+      const target = teams.find((t) => t.id === teamId);
+      const num = parseInt(number, 10);
+      if (!Number.isFinite(num)) return false;
+      return (target?.players ?? []).some(
+        (p) => p.number === num && p.id !== (excludePlayerId ?? player.id)
+      );
+    },
+    [teams, player.id]
+  );
+
+  const jerseyEditorRows = useMemo(
+    () =>
+      playerRosterEntries.map(({ team: rosterTeam, player: rosterPlayer }) => ({
+        teamId: rosterTeam.id,
+        teamName: rosterTeam.name,
+        teamAbbreviation: rosterTeam.abbreviation,
+        team: rosterTeam,
+        number: jerseyDraft[rosterTeam.id] ?? String(rosterPlayer.number ?? ''),
+      })),
+    [playerRosterEntries, jerseyDraft]
+  );
+
+  const jerseyDraftHasConflict = useMemo(
+    () =>
+      jerseyEditorRows.some(
+        (row) =>
+          row.number.trim() !== '' &&
+          isNumberTaken(row.number, row.teamId, player.id)
+      ),
+    [jerseyEditorRows, isNumberTaken, player.id]
+  );
   
   const handleUpdatePlayer = useCallback((data: { 
     name: string; 
@@ -95,10 +167,10 @@ export function PlayerPage({
     weight: string;
     dateOfBirth?: string;
   }) => {
-    if (!player || !team) return;
+    if (!player) return;
+    if (jerseyDraftHasConflict) return;
     
-    // Calculate age from date of birth if provided
-    let age = player.age || 0; // Keep existing age if no date of birth provided
+    let age = player.age || 0;
     if (data.dateOfBirth) {
       const birthDate = new Date(data.dateOfBirth);
       const today = new Date();
@@ -108,27 +180,37 @@ export function PlayerPage({
         age--;
       }
     }
-    
-    const updatedPlayer: Player = {
-      ...player,
+
+    const profilePatch = {
       name: data.name,
-      number: parseInt(data.number),
       position: data.position,
       secondaryPosition: data.secondaryPosition || undefined,
       height: data.height || '',
       weight: data.weight || '',
-      age: age,
-      dateOfBirth: data.dateOfBirth || undefined
+      age,
+      dateOfBirth: data.dateOfBirth || undefined,
     };
-    
-    const updatedTeam = {
-      ...team,
-      players: (team.players || []).map(p => p.id === player.id ? updatedPlayer : p)
-    };
-    
-    onUpdateTeam(updatedTeam);
+
+    const teamsWithPlayer = getTeamsForPlayer(player.id, teams);
+    for (const rosterTeam of teamsWithPlayer) {
+      const jerseyNum = parseInt(
+        jerseyDraft[rosterTeam.id] ??
+          String(rosterTeam.players.find((p) => p.id === player.id)?.number ?? 0),
+        10
+      );
+      const updatedPlayers = (rosterTeam.players ?? []).map((p) => {
+        if (p.id !== player.id) return p;
+        return {
+          ...p,
+          ...profilePatch,
+          number: Number.isFinite(jerseyNum) ? jerseyNum : p.number,
+        };
+      });
+      onUpdateTeam({ ...rosterTeam, players: updatedPlayers });
+    }
+
     setIsEditDialogOpen(false);
-  }, [player, team, onUpdateTeam]);
+  }, [player, teams, jerseyDraft, jerseyDraftHasConflict, onUpdateTeam]);
   
   // Get player games and stats
   if (!player || !team || !games) {
@@ -207,7 +289,10 @@ export function PlayerPage({
     () => getPlayerParticipatedTournaments(player.id, games, tournaments),
     [player.id, games, tournaments]
   );
-  const displayPosition = formatPlayerPositionLabel(player.position, player.secondaryPosition);
+  const displayPosition = formatPlayerPositionLabel(
+    player.position,
+    player.secondaryPosition
+  );
   const displayHeight = player.height ? formatHeightForDisplay(player.height) : '';
   const displayWeight = player.weight ? formatWeightForDisplay(player.weight) : '';
   const displayAge = Number(player.age);
@@ -261,46 +346,57 @@ export function PlayerPage({
   };
   
   const tournamentStats = getStatsByTournament();
+
+  const getGameTeamContext = useCallback(
+    (game: Game) => {
+      const playerTeam = resolvePlayerTeamInGame(player.id, game, teams) ?? team;
+      const isHome = game.homeTeamId === playerTeam.id;
+      const opponent = isHome ? game.awayTeam : game.homeTeam;
+      return { playerTeam, isHome, opponent };
+    },
+    [player.id, teams, team]
+  );
   
   const OverviewTab = () => (
     <div className="space-y-6">
       {/* Player Info */}
       <Card>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-6">
-            <Avatar className="w-24 h-24">
+          <div className="flex items-start gap-4 sm:gap-6">
+            <Avatar className="w-24 h-24 shrink-0">
               <AvatarFallback className="text-2xl">
                 {player.name ? player.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??'}
               </AvatarFallback>
             </Avatar>
-            <div className="flex-1">
-              <h2 className="text-2xl font-bold">{player.name}</h2>
-              <div className="flex items-center gap-4 mt-2 text-muted-foreground">
-                <span>#{player.number}</span>
-                <span>{displayPosition}</span>
-                {displayHeight && (
-                  <span className="flex items-center gap-1">
-                    <Ruler className="w-3 h-3" />
-                    {displayHeight}
-                  </span>
-                )}
-                {displayWeight && (
-                  <span className="flex items-center gap-1">
-                    <Weight className="w-3 h-3" />
-                    {displayWeight}
-                  </span>
-                )}
-                {Number.isFinite(displayAge) && displayAge > 0 && <span>{displayAge} years old</span>}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="text-2xl font-bold">{player.name}</h2>
+                  {displayPosition && (
+                    <p className="text-muted-foreground mt-1">{displayPosition}</p>
+                  )}
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {[displayHeight, displayWeight, Number.isFinite(displayAge) && displayAge > 0 ? `${displayAge} years old` : null]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+                <PlayerJerseyGrid
+                  entries={jerseyGridEntries}
+                  onTeamClick={onNavigateToTeam}
+                  size="lg"
+                  className="shrink-0"
+                />
               </div>
-              <div className="flex flex-wrap items-center gap-3 mt-3">
-                <Badge
-                  variant="outline"
-                  className="cursor-pointer flex items-center gap-2"
-                  onClick={() => onNavigateToTeam(team.id)}
-                >
-                  <TeamAvatar team={team} size="sm" />
-                  {team.name}
-                </Badge>
+              {rosterTeams.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2 mt-3">
+                  <PlayerTeamBadges
+                    teams={rosterTeams}
+                    onNavigateToTeam={onNavigateToTeam}
+                  />
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-2 mt-2">
                 <ParticipatedTournamentBadges
                   tournaments={participatedTournaments}
                   onNavigateToTournament={onNavigateToTournament}
@@ -373,7 +469,7 @@ export function PlayerPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{advanced.efficiency.toFixed(1)}</div>
+            <div className="text-2xl font-bold">{(advanced.efficiency / (gamesPlayed || 1)).toFixed(1)}</div>
             <p className="text-xs text-muted-foreground mt-1">
               Points + Rebounds + Assists + Steals + Blocks - Misses - Turnovers
             </p>
@@ -388,7 +484,7 @@ export function PlayerPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{advanced.gameScore.toFixed(1)}</div>
+            <div className="text-2xl font-bold">{(advanced.gameScore / (gamesPlayed || 1)).toFixed(1)}</div>
             <p className="text-xs text-muted-foreground mt-1">
               Hollinger's comprehensive performance metric
             </p>
@@ -412,8 +508,7 @@ export function PlayerPage({
         <CardContent>
           <div className="space-y-3">
             {recentGames.map(({ game, stats }) => {
-              const isHome = game.homeTeamId === team.id;
-              const opponent = isHome ? game.awayTeam : game.homeTeam;
+              const { playerTeam, isHome, opponent } = getGameTeamContext(game);
               if (!opponent || !opponent.name) return null;
               const gameAdvanced = MetricsCalculator.calculateAdvancedMetrics(stats);
               
@@ -428,6 +523,11 @@ export function PlayerPage({
                       {new Date(game.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                     </div>
                     <div className="text-sm font-medium leading-snug break-words">
+                      {isMultiTeam && (
+                        <span className="text-muted-foreground mr-1">
+                          {playerTeam.abbreviation}:
+                        </span>
+                      )}
                       {isHome ? 'vs' : '@'} {opponent.name}
                     </div>
                   </div>
@@ -471,6 +571,7 @@ export function PlayerPage({
             <TableHeader>
               <TableRow>
                 <TableHead>Date</TableHead>
+                {isMultiTeam && <TableHead>Team</TableHead>}
                 <TableHead>Opponent</TableHead>
                 <TableHead className="text-center">MIN</TableHead>
                 <TableHead className="text-center">PTS</TableHead>
@@ -488,8 +589,7 @@ export function PlayerPage({
             </TableHeader>
             <TableBody>
               {playerGameStats.map(({ game, stats }) => {
-                const isHome = game.homeTeamId === team.id;
-                const opponent = isHome ? game.awayTeam : game.homeTeam;
+                const { playerTeam, isHome, opponent } = getGameTeamContext(game);
                 if (!opponent || !opponent.name) return null;
                 const gameAdvanced = MetricsCalculator.calculateAdvancedMetrics(stats);
                 const tournament = game.tournamentId ? tournaments.find(t => t.id === game.tournamentId) : null;
@@ -508,6 +608,9 @@ export function PlayerPage({
                         )}
                       </div>
                     </TableCell>
+                    {isMultiTeam && (
+                      <TableCell>{playerTeam.abbreviation}</TableCell>
+                    )}
                     <TableCell>
                       {isHome ? 'vs' : '@'} {opponent.name}
                     </TableCell>
@@ -551,8 +654,8 @@ export function PlayerPage({
 
   const PlayerStatsTab = () => {
     const allRows = useMemo(
-      () => buildPlayerTournamentSeasonRows(player, team, games, tournaments),
-      [player, team, games, tournaments]
+      () => buildPlayerTournamentSeasonRows(player, teams, games, tournaments),
+      [player, teams, games, tournaments]
     );
 
     const displayRows = useMemo(() => {
@@ -563,6 +666,10 @@ export function PlayerPage({
         (row) => row.scopeId === selectedTournament && !row.isSummaryRow
       );
     }, [allRows, selectedTournament]);
+
+    const showStatsTeamColumn =
+      isMultiTeam ||
+      new Set(allRows.filter((r) => !r.isSummaryRow).map((r) => r.team.id)).size > 1;
 
     const coverageGames = useMemo(() => {
       const playerCompletedGames = games.filter(
@@ -610,7 +717,8 @@ export function PlayerPage({
         <PlayerStatsTable
           rows={displayRows}
           layout="tournament-breakdown"
-          showTeamColumn={false}
+          showTeamColumn={showStatsTeamColumn}
+          showAgeColumn
           disableRowNavigation
           shotDataCoverage={shotDataCoverage}
           foulStatCoverage={foulStatCoverage}
@@ -678,7 +786,7 @@ export function PlayerPage({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Tournaments</SelectItem>
-                    {tournaments.map(tournament => (
+                    {sortedTournaments.map(tournament => (
                       <SelectItem key={tournament.id} value={tournament.id}>
                         {tournament.name}
                       </SelectItem>
@@ -865,9 +973,6 @@ export function PlayerPage({
             </Avatar>
             <div>
               <h1 className="text-2xl font-bold">{player.name}</h1>
-              <p className="text-sm text-muted-foreground">
-                #{player.number} • {displayPosition} • {team.name}
-              </p>
             </div>
           </div>
         </div>
@@ -889,10 +994,21 @@ export function PlayerPage({
               </DialogDescription>
             </DialogHeader>
             <ErrorBoundary>
+              {playerRosterEntries.length > 0 && (
+                <PlayerJerseyNumbersEditor
+                  rows={jerseyEditorRows}
+                  onNumberChange={(teamId, value) =>
+                    setJerseyDraft((prev) => ({ ...prev, [teamId]: value }))
+                  }
+                  isNumberTaken={isNumberTaken}
+                  excludePlayerId={player.id}
+                />
+              )}
               <PlayerForm
+                key={String(isEditDialogOpen)}
                 initialData={{
                   name: player.name || '',
-                  number: String(player.number || ''),
+                  number: '',
                   position: player.position || '',
                   secondaryPosition: player.secondaryPosition || '',
                   height: player.height || '',
@@ -902,6 +1018,7 @@ export function PlayerPage({
                 selectedTeam={team}
                 positions={positions}
                 isNumberTaken={isNumberTaken}
+                hideJerseyNumber={playerRosterEntries.length > 0}
                 onSubmit={handleUpdatePlayer}
                 onCancel={() => setIsEditDialogOpen(false)}
               />
