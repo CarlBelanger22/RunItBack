@@ -123,18 +123,6 @@ export function PlayerPage({
   );
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
-  
-  const isNumberTaken = useCallback(
-    (number: string, teamId: string, excludePlayerId?: string) => {
-      const target = teams.find((t) => t.id === teamId);
-      const num = parseInt(number, 10);
-      if (!Number.isFinite(num)) return false;
-      return (target?.players ?? []).some(
-        (p) => p.number === num && p.id !== (excludePlayerId ?? player.id)
-      );
-    },
-    [teams, player.id]
-  );
 
   const jerseyEditorRows = useMemo(
     () =>
@@ -148,16 +136,6 @@ export function PlayerPage({
     [playerRosterEntries, jerseyDraft]
   );
 
-  const jerseyDraftHasConflict = useMemo(
-    () =>
-      jerseyEditorRows.some(
-        (row) =>
-          row.number.trim() !== '' &&
-          isNumberTaken(row.number, row.teamId, player.id)
-      ),
-    [jerseyEditorRows, isNumberTaken, player.id]
-  );
-  
   const handleUpdatePlayer = useCallback((data: { 
     name: string; 
     number: string; 
@@ -168,8 +146,7 @@ export function PlayerPage({
     dateOfBirth?: string;
   }) => {
     if (!player) return;
-    if (jerseyDraftHasConflict) return;
-    
+
     let age = player.age || 0;
     if (data.dateOfBirth) {
       const birthDate = new Date(data.dateOfBirth);
@@ -210,7 +187,7 @@ export function PlayerPage({
     }
 
     setIsEditDialogOpen(false);
-  }, [player, teams, jerseyDraft, jerseyDraftHasConflict, onUpdateTeam]);
+  }, [player, teams, jerseyDraft, onUpdateTeam]);
   
   // Get player games and stats
   if (!player || !team || !games) {
@@ -1000,8 +977,6 @@ export function PlayerPage({
                   onNumberChange={(teamId, value) =>
                     setJerseyDraft((prev) => ({ ...prev, [teamId]: value }))
                   }
-                  isNumberTaken={isNumberTaken}
-                  excludePlayerId={player.id}
                 />
               )}
               <PlayerForm
@@ -1017,7 +992,6 @@ export function PlayerPage({
                 }}
                 selectedTeam={team}
                 positions={positions}
-                isNumberTaken={isNumberTaken}
                 hideJerseyNumber={playerRosterEntries.length > 0}
                 onSubmit={handleUpdatePlayer}
                 onCancel={() => setIsEditDialogOpen(false)}

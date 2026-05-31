@@ -35,6 +35,7 @@ export interface AddPlayerDialogProps {
   team: Team;
   teams: Team[];
   tournaments: Tournament[];
+  orphanPlayers?: Player[];
   positions?: string[];
   onSubmit: (player: Player) => void;
 }
@@ -81,6 +82,7 @@ export function AddPlayerDialog({
   team,
   teams,
   tournaments,
+  orphanPlayers = [],
   positions = ['PG', 'SG', 'SF', 'PF', 'C'],
   onSubmit,
 }: AddPlayerDialogProps) {
@@ -92,10 +94,10 @@ export function AddPlayerDialog({
 
   const availablePool = useMemo(
     () =>
-      getLeaguePlayerPool(teams).filter(
+      getLeaguePlayerPool(teams, orphanPlayers).filter(
         (entry) => !isPlayerOnTeam(entry.player.id, team.id, teams)
       ),
-    [teams, team.id]
+    [teams, orphanPlayers, team.id]
   );
 
   const selectedEntry = useMemo(
@@ -112,20 +114,6 @@ export function AddPlayerDialog({
       tournaments
     );
   }, [selectedPlayerId, team.id, teams, tournaments]);
-
-  const isNumberTaken = useCallback(
-    (number: string, teamId: string) => {
-      const target = teams.find((t) => t.id === teamId);
-      const num = parseInt(number, 10);
-      if (!Number.isFinite(num)) return false;
-      return (target?.players ?? []).some((p) => p.number === num);
-    },
-    [teams]
-  );
-
-  const existingNumberTaken = existingNumber
-    ? isNumberTaken(existingNumber, team.id)
-    : false;
 
   useEffect(() => {
     if (open) {
@@ -200,7 +188,6 @@ export function AddPlayerDialog({
               key={formKey}
               selectedTeam={team}
               positions={positions}
-              isNumberTaken={isNumberTaken}
               onSubmit={handleNewSubmit}
               onCancel={() => onOpenChange(false)}
             />
@@ -287,11 +274,6 @@ export function AddPlayerDialog({
                     placeholder="0-99"
                     required
                   />
-                  {existingNumberTaken && (
-                    <p className="text-xs text-destructive">
-                      This number is already taken
-                    </p>
-                  )}
                   {selectedEntry && (
                     <p className="text-xs text-muted-foreground">
                       Position:{' '}
@@ -317,7 +299,6 @@ export function AddPlayerDialog({
                     disabled={
                       !selectedPlayerId ||
                       !existingNumber.trim() ||
-                      existingNumberTaken ||
                       overlapViolation?.violates
                     }
                   >

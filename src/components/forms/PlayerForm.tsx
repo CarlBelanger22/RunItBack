@@ -18,7 +18,6 @@ interface PlayerFormProps {
   };
   selectedTeam: Team | null;
   positions: string[];
-  isNumberTaken: (number: string, teamId: string) => boolean;
   onSubmit: (data: { 
     name: string; 
     number: string; 
@@ -37,7 +36,6 @@ export const PlayerForm = React.memo(({
   initialData,
   selectedTeam,
   positions = ['PG', 'SG', 'SF', 'PF', 'C'],
-  isNumberTaken,
   onSubmit,
   onCancel,
   hideJerseyNumber = false,
@@ -73,14 +71,6 @@ export const PlayerForm = React.memo(({
     setSecondaryPosition(value);
   }, []);
 
-  // Track number value for validation (only update on change, not during render)
-  const [numberValue, setNumberValue] = useState<string>(initialData?.number || '');
-
-  const handleNumberChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setNumberValue(value);
-  }, []);
-
   const handleSubmit = useCallback((e: React.FormEvent) => {
     e.preventDefault();
     const name = nameRef.current?.value || '';
@@ -101,11 +91,6 @@ export const PlayerForm = React.memo(({
       });
     }
   }, [onSubmit, position, secondaryPosition, hideJerseyNumber]);
-
-  // Defensive check: ensure isNumberTaken function exists and selectedTeam is valid
-  const numberTaken = selectedTeam && numberValue && isNumberTaken && selectedTeam.id
-    ? isNumberTaken(numberValue, selectedTeam.id)
-    : false;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" onKeyDown={(e) => {
@@ -139,11 +124,7 @@ export const PlayerForm = React.memo(({
               defaultValue={initialData?.number || ''}
               placeholder="0-99"
               required
-              onChange={handleNumberChange}
             />
-            {numberTaken && (
-              <p className="text-xs text-destructive">This number is already taken</p>
-            )}
           </div>
         )}
         
@@ -231,7 +212,6 @@ export const PlayerForm = React.memo(({
         </Button>
         <Button 
           type="submit"
-          disabled={numberTaken}
         >
           {initialData?.name ? 'Update Player' : 'Add Player'}
         </Button>

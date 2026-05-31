@@ -55,11 +55,16 @@ export async function detectPlayerStorageSchema(): Promise<PlayerStorageSchema> 
   return cachedPlayerStorageSchema;
 }
 
+export const MIGRATION_004_HINT =
+  'Run supabase/migrations/004_allow_duplicate_jersey_numbers.sql in Supabase SQL Editor, or: npm run db:migrate:004';
+
 export interface LoadedAppData {
   teams: Team[];
   tournaments: Tournament[];
   games: Game[];
   darkMode: boolean;
+  /** League player profiles not linked to any team roster. */
+  orphanPlayers: Player[];
   /** True when legacy height/weight values were normalized on load. */
   playerMeasurementsMigrationPending?: boolean;
   playerStorageSchema?: PlayerStorageSchema;
@@ -344,6 +349,54 @@ function assertCanSaveWithLegacySchema(teams: Team[]): void {
       `Multi-team rosters require database migration 002 before saving. ${MIGRATION_002_HINT}`
     );
   }
+}
+
+function enrichTeamsWithStatReferencedPlayers(
+  teams: Team[],
+  games: Game[],
+  orphanPlayers: Player[]
+): Team[] {
+  const orphanById = new Map(orphanPlayers.map((p) => [p.id, p]));
+  const allRosterPlayers = new Map<string, Player>();
+  for (const team of teams) {
+    for (const player of team.players ?? []) {
+      allRosterPlayers.set(player.id, player);
+    }
+  }
+
+  return teams.map((team) => {
+    const rosterIds = new Set((team.players ?? []).map((p) => p.id));
+    const extras: Player[] = [];
+
+    for (const game of games) {
+      if (!game.isCompleted) continue;
+      const onTeam =
+        game.homeTeamId === team.id
+          ? game.homeTeam
+          : game.awayTeamId === team.id
+            ? game.awayTeam
+            : null;
+      if (!onTeam) continue;
+
+      for (const stat of game.gameStats ?? []) {
+        if ((stat.minutes_played ?? 0) <= 0) continue;
+        const playerId = stat.playerId;
+        if (rosterIds.has(playerId)) continue;
+
+        const profile =
+          onTeam.players?.find((p) => p.id === playerId) ??
+          allRosterPlayers.get(playerId) ??
+          orphanById.get(playerId);
+        if (!profile || extras.some((p) => p.id === playerId)) continue;
+
+        extras.push({ ...profile });
+        rosterIds.add(playerId);
+      }
+    }
+
+    if (extras.length === 0) return team;
+    return { ...team, players: [...(team.players ?? []), ...extras] };
+  });
 }
 
 async function savePlayersWithSchema(
@@ -665,6 +718,28 @@ export async function loadAppDataFromSupabase(
     migrateTeamsPlayerMeasurements(teamsRaw);
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
+  const rosterPlayerIds = new Set<string>();
+  if (useLegacyRoster) {
+    for (const row of playerRows) {
+      if (row.team_id && teamIdSet.has(row.team_id)) {
+        rosterPlayerIds.add(row.id);
+      }
+    }
+  } else {
+    for (const row of teamPlayerRows) {
+      if (teamIdSet.has(row.team_id)) {
+        rosterPlayerIds.add(row.player_id);
+      }
+    }
+  }
+
+  const orphanPlayers: Player[] = [];
+  for (const [id, profile] of profileById) {
+    if (rosterPlayerIds.has(id)) continue;
+    orphanPlayers.push(dbPlayerToPlayer(profile));
+  }
+  orphanPlayers.sort((a, b) => a.name.localeCompare(b.name));
+
   const games: Game[] = [];
   for (const row of gameRows) {
     try {
@@ -702,6 +777,7 @@ export async function loadAppDataFromSupabase(
     tournaments,
     games,
     darkMode: prefsRes.data?.dark_mode ?? false,
+    orphanPlayers,
     playerMeasurementsMigrationPending,
     playerStorageSchema: await detectPlayerStorageSchema(),
   };
@@ -732,17 +808,23 @@ export async function saveAppDataToSupabase(
   tournaments: Tournament[],
   games: Game[],
   darkMode: boolean,
-  leagueId = DEFAULT_LEAGUE_ID
+  leagueId = DEFAULT_LEAGUE_ID,
+  orphanPlayers: Player[] = []
 ): Promise<void> {
   if (!supabase) return;
 
   await upsertChunks('leagues', [{ id: leagueId, name: 'My League' }], 'id');
 
-  const teamRows = teams.map((t) => teamToDbRow(t, leagueId));
+  const teamsWithStatPlayers = enrichTeamsWithStatReferencedPlayers(
+    teams,
+    games,
+    orphanPlayers
+  );
+  const teamRows = teamsWithStatPlayers.map((t) => teamToDbRow(t, leagueId));
   const schema = await detectPlayerStorageSchema();
 
   await upsertChunks('teams', teamRows, 'id');
-  await savePlayersWithSchema(teams, leagueId, schema);
+  await savePlayersWithSchema(teamsWithStatPlayers, leagueId, schema);
 
   const tournamentRows = tournaments.map((t) => ({
     id: t.id,

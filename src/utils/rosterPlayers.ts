@@ -133,7 +133,10 @@ export function validateTeamRosterUpdate(
 }
 
 /** All unique players in the league (for existing-player picker). */
-export function getLeaguePlayerPool(teams: Team[]): Array<{
+export function getLeaguePlayerPool(
+  teams: Team[],
+  orphanPlayers: Player[] = []
+): Array<{
   player: Player;
   teamIds: string[];
   teamNames: string[];
@@ -157,6 +160,15 @@ export function getLeaguePlayerPool(teams: Team[]): Array<{
         });
       }
     }
+  }
+
+  for (const player of orphanPlayers) {
+    if (byId.has(player.id)) continue;
+    byId.set(player.id, {
+      player,
+      teamIds: [],
+      teamNames: ['No team'],
+    });
   }
 
   return [...byId.values()].sort((a, b) =>

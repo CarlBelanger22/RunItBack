@@ -16,6 +16,7 @@ import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamBadge } from './TeamBadge';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { TournamentScopeSelect } from './TournamentScopeSelect';
+import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import {
   aggregatePlayerSeasonStats,
   filterTeamScopeGames,
@@ -306,6 +307,7 @@ interface TeamPageProps {
   teams: Team[];
   games: Game[];
   tournaments: Tournament[];
+  orphanPlayers?: Player[];
   activeTab: 'overview' | 'roster' | 'stats' | 'games';
   onTabChange: (tab: 'overview' | 'roster' | 'stats' | 'games') => void;
   onBack: () => void;
@@ -320,6 +322,7 @@ export function TeamPage({
   teams = [],
   games = [], 
   tournaments = [],
+  orphanPlayers = [],
   activeTab, 
   onTabChange, 
   onBack,
@@ -356,9 +359,17 @@ export function TeamPage({
     setIsAddPlayerDialogOpen(false);
   }, [team, onUpdateTeam]);
   
-  // Get team games
-  const teamGames = games.filter(game => 
-    game.homeTeamId === team.id || game.awayTeamId === team.id
+  // Get team games (newest first for display)
+  const teamGames = useMemo(
+    () =>
+      games.filter(
+        (game) => game.homeTeamId === team.id || game.awayTeamId === team.id
+      ),
+    [games, team.id]
+  );
+  const sortedTeamGames = useMemo(
+    () => sortGamesByDateDesc(teamGames),
+    [teamGames]
   );
 
   const statsTournamentOptions = useMemo(
@@ -736,7 +747,7 @@ export function TeamPage({
         </CardHeader>
         <CardContent>
           <div className="space-y-2">
-            {teamGames.slice().reverse().slice(0, 5).map(game => {
+            {sortedTeamGames.slice(0, 5).map(game => {
               const isHome = game.homeTeamId === team.id;
               const opponent = isHome ? game.awayTeam : game.homeTeam;
               const teamScore = game.finalScore && (isHome ? game.finalScore.home : game.finalScore.away);
@@ -1153,7 +1164,7 @@ export function TeamPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {teamGames.slice().reverse().map(game => {
+              {sortedTeamGames.map(game => {
                 const isHome = game.homeTeamId === team.id;
                 const opponent = isHome ? game.awayTeam : game.homeTeam;
                 const teamScore = game.finalScore && (isHome ? game.finalScore.home : game.finalScore.away);
@@ -1260,6 +1271,7 @@ export function TeamPage({
         team={team}
         teams={teams}
         tournaments={tournaments}
+        orphanPlayers={orphanPlayers}
         positions={positions}
         onSubmit={handleAddPlayerToRoster}
       />

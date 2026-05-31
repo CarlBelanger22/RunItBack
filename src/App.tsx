@@ -895,6 +895,7 @@ export default function App() {
   const [games, setGames] = useState<Game[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
+  const [loadedOrphanPlayers, setLoadedOrphanPlayers] = useState<Player[]>([]);
   const [darkMode, setDarkMode] = useState(false);
 
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -943,6 +944,7 @@ export default function App() {
           games: data.games.length,
         });
         setTeams(data.teams);
+        setLoadedOrphanPlayers(data.orphanPlayers);
         setTournaments(data.tournaments);
         const { games: dedupedGames, active, changed } = dedupeActiveGames(data.games);
         const orphanIds = dedupedGames
@@ -967,7 +969,9 @@ export default function App() {
             data.teams,
             data.tournaments,
             cleanedGames,
-            data.darkMode
+            data.darkMode,
+            undefined,
+            data.orphanPlayers
           ).catch((err: Error) => {
             console.error('Active game dedupe save failed:', err);
             setSaveError(formatCloudSaveError(err.message));
@@ -989,7 +993,9 @@ export default function App() {
             data.teams,
             data.tournaments,
             data.games,
-            data.darkMode
+            data.darkMode,
+            undefined,
+            data.orphanPlayers
           ).catch((err: Error) => {
             console.error('Player measurements migration save failed:', err);
             setSaveError(formatCloudSaveError(err.message));
@@ -1014,6 +1020,13 @@ export default function App() {
       cancelled = true;
     };
   }, []);
+
+  const orphanPlayers = useMemo(() => {
+    const onRoster = new Set(
+      teams.flatMap((team) => (team.players ?? []).map((player) => player.id))
+    );
+    return loadedOrphanPlayers.filter((player) => !onRoster.has(player.id));
+  }, [teams, loadedOrphanPlayers]);
 
   // Use refs to track previous values and prevent unnecessary saves
   const prevTeamsRef = useRef(teams);
@@ -1060,7 +1073,7 @@ export default function App() {
           : games;
 
       saveTimeoutRef.current = setTimeout(() => {
-        saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
+        saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode, undefined, orphanPlayers)
           .then(() => setSaveError(null))
           .catch((err: Error) => {
             console.error('Supabase save failed:', err);
@@ -1082,7 +1095,7 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, isDataLoading]);
+  }, [teams, tournaments, games, darkMode, orphanPlayers, isDataLoading]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
@@ -1097,7 +1110,7 @@ export default function App() {
         ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
         : games;
 
-    saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
+    saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode, undefined, orphanPlayers).catch((err: Error) =>
       setSaveError(formatCloudSaveError(err.message))
     );
   };
@@ -1184,7 +1197,9 @@ export default function App() {
               nextTeams,
               nextTournaments,
               nextGames,
-              darkMode
+              darkMode,
+              undefined,
+              orphanPlayers
             );
             setSaveError(null);
           } catch (err) {
@@ -1200,7 +1215,7 @@ export default function App() {
         finishDeleteSave();
       }
     },
-    [games, currentGame, teams, tournaments, darkMode]
+    [games, currentGame, teams, tournaments, darkMode, orphanPlayers]
   );
 
   const handleGameUpdate = useCallback((game: Game) => {
@@ -1428,7 +1443,9 @@ export default function App() {
               nextTeams,
               nextTournaments,
               nextGames,
-              darkMode
+              darkMode,
+              undefined,
+              orphanPlayers
             );
             setSaveError(null);
           } catch (err) {
@@ -1444,7 +1461,7 @@ export default function App() {
         finishDeleteSave();
       }
     },
-    [teams, tournaments, games, darkMode]
+    [teams, tournaments, games, darkMode, orphanPlayers]
   );
 
   // Search functionality
@@ -1704,6 +1721,7 @@ export default function App() {
           teams={teams}
           tournaments={tournaments}
           games={games}
+          orphanPlayers={orphanPlayers}
           currentGame={currentGame}
           setCurrentGame={setCurrentGame}
           onCreateTournament={handleCreateTournament}

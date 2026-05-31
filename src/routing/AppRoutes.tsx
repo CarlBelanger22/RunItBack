@@ -37,6 +37,7 @@ export interface AppRoutesProps {
   teams: Team[];
   tournaments: Tournament[];
   games: Game[];
+  orphanPlayers: Player[];
   currentGame: Game | null;
   setCurrentGame: (game: Game | null) => void;
   onCreateTournament: (data: Omit<Tournament, 'id'>) => void;
@@ -131,7 +132,7 @@ function TournamentDetailRoute({
   );
 }
 
-function TeamDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoutesProps) {
+function TeamDetailRoute({ teams, games, tournaments, orphanPlayers, onUpdateTeam }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -168,6 +169,7 @@ function TeamDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoutesP
         teams={teams}
         games={games}
         tournaments={tournaments}
+        orphanPlayers={orphanPlayers}
         activeTab={tab}
         onTabChange={handleTabChange}
         onBack={() => navigateBack(navigate, location, paths.teams)}

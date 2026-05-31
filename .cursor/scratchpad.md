@@ -3407,6 +3407,117 @@ New table prop: `showAgeColumn?: boolean` — `true` from `PlayerStatsTab` only.
 
 ---
 
+## C13 — Restore Yuanyang Tan + allow duplicate jersey numbers (Designer, 2026-06-01)
+
+### Background
+
+User reports **Yuanyang Tan** missing from app. Investigation (live Supabase query):
+
+| Asset | Status |
+|-------|--------|
+| `players` row `player-sunig-ntu-12` | **Exists** — Yuanyang Tan, C, DOB 1994-12-18, 186cm/90kg |
+| `team_players` link to NTU | **Missing** — orphaned profile |
+| Game stats | **Present** in `game-sunig-2025-09-19-ntu-sutd`, `game-sunig-2025-09-29-ntu-suss` |
+| NTU jersey #12 today | **Haniel Muze** (`player-ivp-ntu-12`) |
+
+**Why Add Existing shows "No players found":** `getLeaguePlayerPool()` only includes players **currently on a team roster in memory**. Orphans in `players` with no `team_players` row are invisible — not a search bug, a data-model gap.
+
+**Why he vanished:** `savePlayersWithSchema` deletes all `team_players` for league teams and re-inserts only the in-memory roster. Stats-only imports don't refresh rosters; later saves persisted NTU without Yuanyang (Haniel took #12 for IVP).
+
+Name note: data spells **Yuanyang** (one `u`); user said Yuanyuang.
+
+### Duplicate jersey numbers — current state (not fully loosened)
+
+| Layer | Enforces unique # per team? |
+|-------|----------------------------|
+| **Postgres** `team_players_team_number_uidx` on `(team_id, number)` | **YES** — blocks Yuanyang #12 while Haniel has #12 |
+| **UI** `isNumberTaken()` in AddPlayerDialog, PlayerForm, PlayerPage | **YES** — blocks save in app |
+| **`hasDuplicateJerseyNumbers()`** | **NO** — always returns `false` (comment says allowed; GameSetup dupe message is effectively dead) |
+
+User assumption partially correct at app-logic level, but **DB + form validation still enforce uniqueness**. Must fix both for Haniel + Yuanyang both wearing #12.
+
+### Restoration scope
+
+Once back on NTU roster, these **auto-fix** (stats already keyed by `player-sunig-ntu-12`):
+
+- NTU roster table
+- Tournament Players tab (via roster)
+- Player profile page / game log / stats
+- Box scores (iterates `team.players` with minutes &gt; 0)
+
+No game JSON or `game_stats` edits required.
+
+### Target end state
+
+- Yuanyang on **NTU roster**, jersey **#12**, position **C** (global on profile)
+- Haniel Muze **keeps #12** on same team (duplicate allowed)
+- Add Existing search finds **orphaned league players** (not only rostered ones)
+- Future saves less likely to silently orphan stat-backed players
+
+---
+
+### High-level task breakdown
+
+#### C13.1 — Allow duplicate jersey numbers (DB + UI)
+
+| Step | Work |
+|------|------|
+| **C13.1a** | Migration `004_allow_duplicate_jersey_numbers.sql` — `DROP INDEX IF EXISTS team_players_team_number_uidx` |
+| **C13.1b** | Remove blocking `isNumberTaken` checks (AddPlayerDialog, PlayerForm, PlayerPage edit) — optional soft warning only |
+| **C13.1c** | Update GameSetup copy (remove contradictory dupe error if any paths remain) |
+| **C13.1d** | `npm run db:migrate:004` script (mirror 002/003) |
+
+**Success:** Two NTU players can both be #12; save succeeds in Supabase.
+
+#### C13.2 — Restore Yuanyang to NTU
+
+| Step | Work |
+|------|------|
+| **C13.2a** | Script `scripts/restore-player-roster.ts` (or one-off SQL) — upsert `team_players(team-sunig-ntu, player-sunig-ntu-12, number=12)` after 004 |
+| **C13.2b** | Run against user's Supabase; hard-refresh app |
+
+**Success:** Yuanyang visible on NTU roster; Sunig box scores show his lines; player page loads.
+
+#### C13.3 — Orphan player pool (fix Add Existing)
+
+| Step | Work |
+|------|------|
+| **C13.3a** | `loadAppDataFromSupabase` — compute `orphanPlayers`: league `players` rows with no `team_players` link |
+| **C13.3b** | Extend `getLeaguePlayerPool(teams, orphanPlayers?)` or merge in App / AddPlayerDialog |
+| **C13.3c** | Picker shows orphans with label e.g. "Not on a team" |
+
+**Success:** Searching "yuan" finds Yuanyang even if orphan again.
+
+#### C13.4 — Roster save safeguard (recommended)
+
+| Step | Work |
+|------|------|
+| **C13.4a** | Before `team_players` delete in `savePlayersWithSchema`, merge in players referenced by `game_stats` in completed games for each team (read profiles from DB or in-memory games) |
+| **C13.4b** | Or: warn in console when save would drop a player_id still in game stats |
+
+**Success:** Re-saving roster after stats-only import doesn't orphan Yuanyang-class players again.
+
+---
+
+### Executor order
+
+1. **C13.1** (migration 004 + UI) — user runs SQL in Supabase  
+2. **C13.2** (restore Yuanyang) — verify in app  
+3. **C13.3** (orphan pool) — Add Existing works for edge cases  
+4. **C13.4** (safeguard) — prevent recurrence  
+
+One executor step at a time per workflow; C13.1+2 may ship together since restore blocked without 004.
+
+### Open decision
+
+**Yuanyang jersey #:** Restore at **#12** (historical Sunig number) with duplicate allowed — **default**. Alternative: assign #12 to Haniel only and put Yuanyang on another # — reject unless user prefers.
+
+**Designer confidence: ~96%** — ready for Executor on user OK.
+
+**Awaiting user “Executor mode” for C13.1.**
+
+---
+
 ### ~~C11 v1 draft (superseded)~~
 
 ~~Roster chips with abbrev + # + position~~ — replaced by BBR jersey grid + global position above.
@@ -3419,6 +3530,7 @@ New table prop: `showAgeColumn?: boolean` — `true` from `PlayerStatsTab` only.
 
 ## Project Status Board
 
+- [ ] **C13 Restore Yuanyang + duplicate jersey #s** — C13.1–C13.4 code complete; **awaiting user: run migration 004 + restore script + QA**
 - [ ] **C12 Player Stats age-at-tournament column** — C12.1–C12.4 done; awaiting user QA
 - [ ] **C11 Player identity (BBR jerseys + global position)** — C11.1–C11.7 + C11.9 done; awaiting C11.8/C11.9 user QA
 - [ ] **C10 Global players + multi-team rosters** — C10.1–C10.7 complete; migration 002 applied; C10.8 folded into C11 QA
@@ -3485,3 +3597,24 @@ New table prop: `showAgeColumn?: boolean` — `true` from `PlayerStatsTab` only.
   - Player detail Back now routes directly to `teamPath(team)` (single click).
   - Removed dependency on browser history depth for these two Back buttons.
   - **Known regression:** Tournament → Team → Back lands on Team Manager instead of tournament tab. N1 plan addresses this with `navigateWithReturnTo` / `navigateBack`.
+
+---
+
+## Executor's Feedback or Assistance Requests (C13 — 2026-05-29)
+
+**C13.1–C13.4 implemented.** `npm run build` passes.
+
+**User action required (no `SUPABASE_DB_URL` in `.env.local`):**
+1. Apply migration: `npm run db:migrate:004` (or paste `supabase/migrations/004_allow_duplicate_jersey_numbers.sql` in Supabase SQL Editor)
+2. Restore Yuanyang: `npm run restore:yuanyang`
+3. Hard-refresh app and QA:
+   - Yuanyang Tan on NTU roster at #12 (alongside Haniel Muze #12)
+   - Sunig box scores show Yuanyang stats
+   - NTU → Add Player → Existing → search "yuan" finds Yuanyang before restore; after restore he won't appear (already on roster)
+   - Duplicate jersey numbers save without error
+
+**Changes summary:**
+- Migration 004 drops `team_players_team_number_uidx`
+- UI no longer blocks duplicate jersey numbers (`AddPlayerDialog`, `PlayerForm`, `PlayerPage`, `PlayerJerseyNumbersEditor`)
+- `loadAppDataFromSupabase` returns `orphanPlayers`; wired to Add Existing picker via `getLeaguePlayerPool(teams, orphanPlayers)`
+- `saveAppDataToSupabase` merges stat-referenced orphan players onto rosters before `team_players` delete/re-insert
