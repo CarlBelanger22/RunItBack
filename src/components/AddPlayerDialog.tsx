@@ -210,10 +210,13 @@ export function AddPlayerDialog({
                     <PopoverContent
                       className="w-[var(--radix-popover-trigger-width)] p-0"
                       align="start"
+                      side="bottom"
+                      sideOffset={4}
+                      avoidCollisions={false}
                     >
                       <Command>
                         <CommandInput placeholder="Search by name or team" />
-                        <CommandList>
+                        <CommandList className="max-h-[min(240px,40vh)]">
                           <CommandEmpty>No players found.</CommandEmpty>
                           <CommandGroup>
                             {availablePool.map(({ player, teamNames }) => (
