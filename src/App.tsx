@@ -39,6 +39,8 @@ import {
 } from './utils/activeGame';
 import { generateTeamAbbreviation } from './utils/teamAbbreviation';
 import {
+  dedupeTeamPlayers,
+  dedupeTeamsById,
   validateTeamRosterUpdate,
   wouldTournamentEnrollmentViolateOverlap,
 } from './utils/rosterPlayers';
@@ -943,7 +945,8 @@ export default function App() {
           tournaments: data.tournaments.length,
           games: data.games.length,
         });
-        setTeams(data.teams);
+        const loadedTeams = dedupeTeamsById(data.teams);
+        setTeams(loadedTeams);
         setLoadedOrphanPlayers(data.orphanPlayers);
         setTournaments(data.tournaments);
         const { games: dedupedGames, active, changed } = dedupeActiveGames(data.games);
@@ -954,7 +957,7 @@ export default function App() {
         setGames(cleanedGames);
         setDarkMode(data.darkMode);
         setPlayerStorageSchema(data.playerStorageSchema ?? null);
-        prevTeamsRef.current = data.teams;
+        prevTeamsRef.current = loadedTeams;
         prevTournamentsRef.current = data.tournaments;
         prevGamesRef.current = cleanedGames;
         prevDarkModeRef.current = data.darkMode;
@@ -966,12 +969,10 @@ export default function App() {
 
         if (changed || orphanIds.length > 0) {
           saveAppDataToSupabase(
-            data.teams,
+            loadedTeams,
             data.tournaments,
             cleanedGames,
-            data.darkMode,
-            undefined,
-            data.orphanPlayers
+            data.darkMode
           ).catch((err: Error) => {
             console.error('Active game dedupe save failed:', err);
             setSaveError(formatCloudSaveError(err.message));
@@ -990,12 +991,10 @@ export default function App() {
         ) {
           localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
           saveAppDataToSupabase(
-            data.teams,
+            loadedTeams,
             data.tournaments,
             data.games,
-            data.darkMode,
-            undefined,
-            data.orphanPlayers
+            data.darkMode
           ).catch((err: Error) => {
             console.error('Player measurements migration save failed:', err);
             setSaveError(formatCloudSaveError(err.message));
@@ -1073,7 +1072,7 @@ export default function App() {
           : games;
 
       saveTimeoutRef.current = setTimeout(() => {
-        saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode, undefined, orphanPlayers)
+        saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
           .then(() => setSaveError(null))
           .catch((err: Error) => {
             console.error('Supabase save failed:', err);
@@ -1095,7 +1094,7 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, orphanPlayers, isDataLoading]);
+  }, [teams, tournaments, games, darkMode, isDataLoading]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
@@ -1110,7 +1109,7 @@ export default function App() {
         ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
         : games;
 
-    saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode, undefined, orphanPlayers).catch((err: Error) =>
+    saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
       setSaveError(formatCloudSaveError(err.message))
     );
   };
@@ -1197,9 +1196,7 @@ export default function App() {
               nextTeams,
               nextTournaments,
               nextGames,
-              darkMode,
-              undefined,
-              orphanPlayers
+              darkMode
             );
             setSaveError(null);
           } catch (err) {
@@ -1215,7 +1212,7 @@ export default function App() {
         finishDeleteSave();
       }
     },
-    [games, currentGame, teams, tournaments, darkMode, orphanPlayers]
+    [games, currentGame, teams, tournaments, darkMode]
   );
 
   const handleGameUpdate = useCallback((game: Game) => {
@@ -1353,11 +1350,16 @@ export default function App() {
 
   const handleUpdateTeam = useCallback((updatedTeam: Team) => {
     setTeams(prev => {
-      const oldTeam = prev.find(t => t.id === updatedTeam.id);
+      const normalized = dedupeTeamsById(prev);
+      const sanitizedTeam: Team = {
+        ...updatedTeam,
+        players: dedupeTeamPlayers(updatedTeam.players ?? []),
+      };
+      const oldTeam = normalized.find(t => t.id === sanitizedTeam.id);
       const violation = validateTeamRosterUpdate(
         oldTeam,
-        updatedTeam,
-        prev,
+        sanitizedTeam,
+        normalized,
         tournaments
       );
       if (violation.violates) {
@@ -1365,23 +1367,25 @@ export default function App() {
         return prev;
       }
       setSaveError(null);
-      const newTeams = prev.map(t => t.id === updatedTeam.id ? updatedTeam : t);
+      const newTeams = dedupeTeamsById(
+        normalized.map(t => (t.id === sanitizedTeam.id ? sanitizedTeam : t))
+      );
       
       // Handle tournament association changes
-      if (oldTeam && oldTeam.currentTournamentId !== updatedTeam.currentTournamentId) {
+      if (oldTeam && oldTeam.currentTournamentId !== sanitizedTeam.currentTournamentId) {
         setTournaments(tournamentPrev => tournamentPrev.map(tournament => {
           // Remove from old tournament
           if (tournament.id === oldTeam.currentTournamentId) {
             return {
               ...tournament,
-              teams: tournament.teams.filter(id => id !== updatedTeam.id)
+              teams: tournament.teams.filter(id => id !== sanitizedTeam.id)
             };
           }
           // Add to new tournament
-          if (tournament.id === updatedTeam.currentTournamentId) {
+          if (tournament.id === sanitizedTeam.currentTournamentId) {
             return {
               ...tournament,
-              teams: [...tournament.teams, updatedTeam.id]
+              teams: [...tournament.teams, sanitizedTeam.id]
             };
           }
           return tournament;
@@ -1391,6 +1395,63 @@ export default function App() {
       return newTeams;
     });
   }, [tournaments]);
+
+  const handleUpdatePlayerProfile = useCallback(
+    (
+      playerId: string,
+      profilePatch: Pick<
+        Player,
+        | 'name'
+        | 'position'
+        | 'secondaryPosition'
+        | 'height'
+        | 'weight'
+        | 'age'
+        | 'dateOfBirth'
+      >,
+      jerseyByTeamId: Record<string, number>
+    ) => {
+      setTeams((prev) => {
+        const normalized = dedupeTeamsById(prev);
+        let blocked: string | null = null;
+
+        const nextTeams = normalized.map((team) => {
+          if (!(team.players ?? []).some((p) => p.id === playerId)) return team;
+
+          const nextPlayers = dedupeTeamPlayers(
+            (team.players ?? []).map((p) => {
+              if (p.id !== playerId) return p;
+              return {
+                ...p,
+                ...profilePatch,
+                number: jerseyByTeamId[team.id] ?? p.number,
+              };
+            })
+          );
+          const nextTeam = { ...team, players: nextPlayers };
+          const violation = validateTeamRosterUpdate(
+            team,
+            nextTeam,
+            normalized,
+            tournaments
+          );
+          if (violation.violates) {
+            blocked = violation.message ?? 'Roster update blocked.';
+            return team;
+          }
+          return nextTeam;
+        });
+
+        if (blocked) {
+          setSaveError(blocked);
+          return prev;
+        }
+        setSaveError(null);
+        return dedupeTeamsById(nextTeams);
+      });
+    },
+    [tournaments]
+  );
 
   const handleDeleteTeam = useCallback(
     (teamId: string) => {
@@ -1443,9 +1504,7 @@ export default function App() {
               nextTeams,
               nextTournaments,
               nextGames,
-              darkMode,
-              undefined,
-              orphanPlayers
+              darkMode
             );
             setSaveError(null);
           } catch (err) {
@@ -1461,7 +1520,7 @@ export default function App() {
         finishDeleteSave();
       }
     },
-    [teams, tournaments, games, darkMode, orphanPlayers]
+    [teams, tournaments, games, darkMode]
   );
 
   // Search functionality
@@ -1729,6 +1788,7 @@ export default function App() {
           onDeleteTournament={handleDeleteTournament}
           onCreateTeam={handleCreateTeam}
           onUpdateTeam={handleUpdateTeam}
+          onUpdatePlayerProfile={handleUpdatePlayerProfile}
           onDeleteTeam={handleDeleteTeam}
           onAddTeamToTournament={handleAddTeamToTournament}
           onGameStart={handleGameStart}

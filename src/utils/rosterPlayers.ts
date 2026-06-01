@@ -1,5 +1,34 @@
 import type { Team, Tournament, Game, Player } from '../App';
 
+/** One roster row per player id (last entry wins). */
+export function dedupeTeamPlayers(players: Player[]): Player[] {
+  const byId = new Map<string, Player>();
+  for (const player of players) {
+    const existing = byId.get(player.id);
+    byId.set(player.id, existing ? { ...existing, ...player } : player);
+  }
+  return Array.from(byId.values());
+}
+
+/** One team per id; merges duplicate team rows and dedupes rosters. */
+export function dedupeTeamsById(teams: Team[]): Team[] {
+  const byId = new Map<string, Team>();
+  for (const team of teams) {
+    const players = dedupeTeamPlayers(team.players ?? []);
+    const existing = byId.get(team.id);
+    if (!existing) {
+      byId.set(team.id, { ...team, players });
+      continue;
+    }
+    byId.set(team.id, {
+      ...existing,
+      ...team,
+      players: dedupeTeamPlayers([...(existing.players ?? []), ...players]),
+    });
+  }
+  return Array.from(byId.values());
+}
+
 export interface RosterViolation {
   violates: boolean;
   message?: string;
@@ -12,7 +41,7 @@ export interface RosterViolation {
 }
 
 export function getTeamsForPlayer(playerId: string, teams: Team[]): Team[] {
-  return teams.filter((team) =>
+  return dedupeTeamsById(teams).filter((team) =>
     (team.players ?? []).some((p) => p.id === playerId)
   );
 }
@@ -187,7 +216,7 @@ export function getPlayerRosterEntries(
 ): Array<{ team: Team; player: Player }> {
   return getTeamsForPlayer(playerId, teams).map((team) => ({
     team,
-    player: team.players.find((p) => p.id === playerId)!,
+    player: dedupeTeamPlayers(team.players ?? []).find((p) => p.id === playerId)!,
   }));
 }
 

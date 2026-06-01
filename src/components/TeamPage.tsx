@@ -25,6 +25,7 @@ import {
   getTeamTournamentScopeOptions,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
+import { isPlayerOnTeam } from '../utils/rosterPlayers';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
 import { 
   ArrowLeft,
@@ -351,13 +352,16 @@ export function TeamPage({
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
   
   const handleAddPlayerToRoster = useCallback((player: Player) => {
+    if (isPlayerOnTeam(player.id, team.id, teams)) {
+      return;
+    }
     const updatedTeam = {
       ...team,
       players: [...(team.players || []), player],
     };
     onUpdateTeam(updatedTeam);
     setIsAddPlayerDialogOpen(false);
-  }, [team, onUpdateTeam]);
+  }, [team, teams, onUpdateTeam]);
   
   // Get team games (newest first for display)
   const teamGames = useMemo(

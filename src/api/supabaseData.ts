@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
+import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import type { Team, Tournament, Game, Player } from '../App';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
@@ -351,54 +352,6 @@ function assertCanSaveWithLegacySchema(teams: Team[]): void {
   }
 }
 
-function enrichTeamsWithStatReferencedPlayers(
-  teams: Team[],
-  games: Game[],
-  orphanPlayers: Player[]
-): Team[] {
-  const orphanById = new Map(orphanPlayers.map((p) => [p.id, p]));
-  const allRosterPlayers = new Map<string, Player>();
-  for (const team of teams) {
-    for (const player of team.players ?? []) {
-      allRosterPlayers.set(player.id, player);
-    }
-  }
-
-  return teams.map((team) => {
-    const rosterIds = new Set((team.players ?? []).map((p) => p.id));
-    const extras: Player[] = [];
-
-    for (const game of games) {
-      if (!game.isCompleted) continue;
-      const onTeam =
-        game.homeTeamId === team.id
-          ? game.homeTeam
-          : game.awayTeamId === team.id
-            ? game.awayTeam
-            : null;
-      if (!onTeam) continue;
-
-      for (const stat of game.gameStats ?? []) {
-        if ((stat.minutes_played ?? 0) <= 0) continue;
-        const playerId = stat.playerId;
-        if (rosterIds.has(playerId)) continue;
-
-        const profile =
-          onTeam.players?.find((p) => p.id === playerId) ??
-          allRosterPlayers.get(playerId) ??
-          orphanById.get(playerId);
-        if (!profile || extras.some((p) => p.id === playerId)) continue;
-
-        extras.push({ ...profile });
-        rosterIds.add(playerId);
-      }
-    }
-
-    if (extras.length === 0) return team;
-    return { ...team, players: [...(team.players ?? []), ...extras] };
-  });
-}
-
 async function savePlayersWithSchema(
   teams: Team[],
   leagueId: string,
@@ -409,7 +362,7 @@ async function savePlayersWithSchema(
   if (schema === 'global_position') {
     const playerProfileRows = collectUniquePlayerProfiles(teams, leagueId);
     const teamPlayerRows = teams.flatMap((t) =>
-      (t.players ?? []).map((p) => playerToTeamPlayerRow(p, t.id))
+      dedupeTeamPlayers(t.players ?? []).map((p) => playerToTeamPlayerRow(p, t.id))
     );
 
     await upsertChunks('players', playerProfileRows, 'id');
@@ -430,7 +383,9 @@ async function savePlayersWithSchema(
   if (schema === 'team_players') {
     const playerProfileRows = collectUniquePlayerProfileBases(teams, leagueId);
     const teamPlayerRows = teams.flatMap((t) =>
-      (t.players ?? []).map((p) => playerToTeamPlayerRowWithPosition(p, t.id))
+      dedupeTeamPlayers(t.players ?? []).map((p) =>
+        playerToTeamPlayerRowWithPosition(p, t.id)
+      )
     );
 
     await upsertChunks('players', playerProfileRows, 'id');
@@ -712,10 +667,11 @@ export async function loadAppDataFromSupabase(
   }
 
   const teamsRaw: Team[] = teamRows.map((row) =>
-    dbTeamToTeam(row, playersByTeam.get(row.id) ?? [])
+    dbTeamToTeam(row, dedupeTeamPlayers(playersByTeam.get(row.id) ?? []))
   );
-  const { teams, changed: playerMeasurementsMigrationPending } =
+  const { teams: teamsMeasured, changed: playerMeasurementsMigrationPending } =
     migrateTeamsPlayerMeasurements(teamsRaw);
+  const teams = dedupeTeamsById(teamsMeasured);
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
   const rosterPlayerIds = new Set<string>();
@@ -808,23 +764,18 @@ export async function saveAppDataToSupabase(
   tournaments: Tournament[],
   games: Game[],
   darkMode: boolean,
-  leagueId = DEFAULT_LEAGUE_ID,
-  orphanPlayers: Player[] = []
+  leagueId = DEFAULT_LEAGUE_ID
 ): Promise<void> {
   if (!supabase) return;
 
   await upsertChunks('leagues', [{ id: leagueId, name: 'My League' }], 'id');
 
-  const teamsWithStatPlayers = enrichTeamsWithStatReferencedPlayers(
-    teams,
-    games,
-    orphanPlayers
-  );
-  const teamRows = teamsWithStatPlayers.map((t) => teamToDbRow(t, leagueId));
+  const normalizedTeams = dedupeTeamsById(teams);
+  const teamRows = normalizedTeams.map((t) => teamToDbRow(t, leagueId));
   const schema = await detectPlayerStorageSchema();
 
   await upsertChunks('teams', teamRows, 'id');
-  await savePlayersWithSchema(teamsWithStatPlayers, leagueId, schema);
+  await savePlayersWithSchema(normalizedTeams, leagueId, schema);
 
   const tournamentRows = tournaments.map((t) => ({
     id: t.id,

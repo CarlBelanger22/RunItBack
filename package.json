@@ -64,6 +64,7 @@
             "db:migrate:002": "tsx scripts/apply-migration-002.ts",
             "db:migrate:003": "tsx scripts/apply-migration-003.ts",
             "db:migrate:004": "tsx scripts/apply-migration-004.ts",
-            "restore:yuanyang": "tsx scripts/restore-yuanyang-roster.ts"
+            "restore:yuanyang": "tsx scripts/restore-yuanyang-roster.ts",
+            "repair:rosters": "tsx scripts/repair-rosters.ts"
       }
 }

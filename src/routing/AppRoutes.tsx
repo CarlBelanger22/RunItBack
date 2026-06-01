@@ -45,6 +45,20 @@ export interface AppRoutesProps {
   onDeleteTournament: (tournamentId: string) => void;
   onCreateTeam: (data: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onUpdateTeam: (team: Team) => void;
+  onUpdatePlayerProfile: (
+    playerId: string,
+    profilePatch: Pick<
+      Player,
+      | 'name'
+      | 'position'
+      | 'secondaryPosition'
+      | 'height'
+      | 'weight'
+      | 'age'
+      | 'dateOfBirth'
+    >,
+    jerseyByTeamId: Record<string, number>
+  ) => void;
   onDeleteTeam: (teamId: string) => void;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onGameStart: (game: Game) => boolean;
@@ -197,7 +211,7 @@ function TeamDetailRoute({ teams, games, tournaments, orphanPlayers, onUpdateTea
   );
 }
 
-function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoutesProps) {
+function PlayerDetailRoute({ teams, games, tournaments, onUpdatePlayerProfile }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -252,7 +266,7 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdateTeam }: AppRoute
             navigateWithReturnTo(navigate, tournamentPath(tournament), returnTo);
           }
         }}
-        onUpdateTeam={onUpdateTeam}
+        onUpdatePlayerProfile={onUpdatePlayerProfile}
       />
     </ErrorBoundary>
   );

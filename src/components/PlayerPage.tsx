@@ -21,7 +21,6 @@ import {
 import { getPlayerParticipatedTournaments } from '../utils/teamTournaments';
 import {
   getPlayerRosterEntries,
-  getTeamsForPlayer,
   resolvePlayerTeamInGame,
 } from '../utils/rosterPlayers';
 import { PlayerStatsTable } from './PlayerStatsTable';
@@ -58,7 +57,20 @@ interface PlayerPageProps {
   onNavigateToTeam: (teamId: string) => void;
   onNavigateToGame: (gameId: string) => void;
   onNavigateToTournament: (tournamentId: string) => void;
-  onUpdateTeam: (team: Team) => void;
+  onUpdatePlayerProfile: (
+    playerId: string,
+    profilePatch: Pick<
+      Player,
+      | 'name'
+      | 'position'
+      | 'secondaryPosition'
+      | 'height'
+      | 'weight'
+      | 'age'
+      | 'dateOfBirth'
+    >,
+    jerseyByTeamId: Record<string, number>
+  ) => void;
 }
 
 export const formatPlayerPositionLabel = (primaryPosition: string, secondaryPosition?: string): string => {
@@ -84,7 +96,7 @@ export function PlayerPage({
   onNavigateToTeam,
   onNavigateToGame,
   onNavigateToTournament,
-  onUpdateTeam
+  onUpdatePlayerProfile,
 }: PlayerPageProps) {
   const [selectedTournament, setSelectedTournament] = useState<string>('all');
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -168,26 +180,19 @@ export function PlayerPage({
       dateOfBirth: data.dateOfBirth || undefined,
     };
 
-    const teamsWithPlayer = getTeamsForPlayer(player.id, teams);
-    for (const rosterTeam of teamsWithPlayer) {
-      const jerseyNum = parseInt(
-        jerseyDraft[rosterTeam.id] ??
-          String(rosterTeam.players.find((p) => p.id === player.id)?.number ?? 0),
-        10
-      );
-      const updatedPlayers = (rosterTeam.players ?? []).map((p) => {
-        if (p.id !== player.id) return p;
-        return {
-          ...p,
-          ...profilePatch,
-          number: Number.isFinite(jerseyNum) ? jerseyNum : p.number,
-        };
-      });
-      onUpdateTeam({ ...rosterTeam, players: updatedPlayers });
+    const jerseyByTeamId: Record<string, number> = {};
+    for (const { team: rosterTeam, player: rosterPlayer } of playerRosterEntries) {
+      const raw =
+        jerseyDraft[rosterTeam.id] ?? String(rosterPlayer.number ?? '');
+      const jerseyNum = parseInt(raw, 10);
+      if (Number.isFinite(jerseyNum)) {
+        jerseyByTeamId[rosterTeam.id] = jerseyNum;
+      }
     }
 
+    onUpdatePlayerProfile(player.id, profilePatch, jerseyByTeamId);
     setIsEditDialogOpen(false);
-  }, [player, teams, jerseyDraft, onUpdateTeam]);
+  }, [player, playerRosterEntries, jerseyDraft, onUpdatePlayerProfile]);
   
   // Get player games and stats
   if (!player || !team || !games) {
