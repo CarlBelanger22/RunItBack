@@ -26,6 +26,7 @@ import {
   isPlayerOnTeam,
   wouldRosterViolateTournamentOverlap,
 } from '../utils/rosterPlayers';
+import { getPlayerAgeAsOfToday } from '../utils/playerAge';
 import { ChevronsUpDown, Check } from 'lucide-react';
 import { cn } from './ui/utils';
 
@@ -51,16 +52,7 @@ function buildNewPlayer(data: {
 }): Player {
   let age = 0;
   if (data.dateOfBirth) {
-    const birthDate = new Date(data.dateOfBirth);
-    const today = new Date();
-    age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    if (
-      monthDiff < 0 ||
-      (monthDiff === 0 && today.getDate() < birthDate.getDate())
-    ) {
-      age--;
-    }
+    age = getPlayerAgeAsOfToday(data.dateOfBirth) ?? 0;
   }
 
   return {

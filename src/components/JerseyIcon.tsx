@@ -7,9 +7,19 @@ interface JerseyIconProps {
   className?: string;
 }
 
+const NUMBER_ANCHOR_X = 50;
+const NUMBER_TOP_Y = 37;
+const NUMBER_SCALE_X = 1.2;
+const NUMBER_SCALE_Y = 1.6;
+const NUMBER_MASK_X = 31;
+const NUMBER_MASK_Y = 37;
+const NUMBER_MASK_WIDTH = 38;
+const NUMBER_MASK_HEIGHT = 27;
+
 /**
  * Uses public/icons/jersey-icon-reference.png for the outline and overlays
  * a dynamic number (the PNG ships with "00" baked in).
+ * Numbers scale +20% width / +60% height from a top anchor so they fill downward.
  */
 export function JerseyIcon({ number, size = 'md', className }: JerseyIconProps) {
   const dim = size === 'sm' ? 40 : size === 'lg' ? 60 : 48;
@@ -24,20 +34,30 @@ export function JerseyIcon({ number, size = 'md', className }: JerseyIconProps) 
       aria-hidden
     >
       <image href="/icons/jersey-icon-reference.png" width="100" height="100" />
-      {/* Tight mask over baked-in "00" only  avoids clipping shoulder/armhole strokes */}
-      <rect x="34" y="37" width="32" height="26" fill="#ffffff" />
-      <text
-        x="50"
-        y="50"
-        textAnchor="middle"
-        dominantBaseline="middle"
-        fontSize={fontSize}
-        fontWeight="800"
-        className="fill-foreground"
-        style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' }}
+      {/* Mask over baked-in "00"  widened/tallened for scaled overlay digits */}
+      <rect
+        x={NUMBER_MASK_X}
+        y={NUMBER_MASK_Y}
+        width={NUMBER_MASK_WIDTH}
+        height={NUMBER_MASK_HEIGHT}
+        fill="#ffffff"
+      />
+      <g
+        transform={`translate(${NUMBER_ANCHOR_X}, ${NUMBER_TOP_Y}) scale(${NUMBER_SCALE_X}, ${NUMBER_SCALE_Y}) translate(${-NUMBER_ANCHOR_X}, ${-NUMBER_TOP_Y})`}
       >
-        {number}
-      </text>
+        <text
+          x={NUMBER_ANCHOR_X}
+          y={NUMBER_TOP_Y}
+          textAnchor="middle"
+          dominantBaseline="hanging"
+          fontSize={fontSize}
+          fontWeight="800"
+          className="fill-foreground"
+          style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' }}
+        >
+          {number}
+        </text>
+      </g>
     </svg>
   );
 }

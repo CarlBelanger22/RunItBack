@@ -76,3 +76,40 @@ export function getPlayerAgeAtTournamentSeason(
 
   return age >= 0 ? age : null;
 }
+
+/** Current age from YYYY-MM-DD DOB (timezone-safe via parseDateOnly). */
+export function getPlayerAgeAsOfToday(
+  dateOfBirth: string | undefined,
+  asOf: Date = new Date()
+): number | null {
+  if (!dateOfBirth) return null;
+
+  const birth = parseDateOnly(dateOfBirth);
+  if (!birth) return null;
+
+  const refYear = asOf.getFullYear();
+  const refMonth = asOf.getMonth();
+  const refDay = asOf.getDate();
+
+  let age = refYear - birth.year;
+  if (
+    refMonth < birth.monthIndex ||
+    (refMonth === birth.monthIndex && refDay < birth.day)
+  ) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+}
+
+/** Prefer DOB-derived age; fall back to stored profile age when DOB is missing. */
+export function resolvePlayerAge(
+  player: { age?: number; dateOfBirth?: string },
+  asOf: Date = new Date()
+): number | null {
+  const fromDob = getPlayerAgeAsOfToday(player.dateOfBirth, asOf);
+  if (fromDob !== null) return fromDob;
+
+  const stored = Number(player.age);
+  return Number.isFinite(stored) && stored > 0 ? stored : null;
+}

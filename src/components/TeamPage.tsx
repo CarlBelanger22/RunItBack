@@ -26,6 +26,7 @@ import {
   type TournamentScope,
 } from '../utils/playerSeasonStats';
 import { isPlayerOnTeam } from '../utils/rosterPlayers';
+import { resolvePlayerAge } from '../utils/playerAge';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
 import { 
   ArrowLeft,
@@ -418,6 +419,7 @@ export function TeamPage({
       team.players.map((player) => {
         const primary = player.position?.trim() || '';
         const secondary = player.secondaryPosition?.trim() || '';
+        const age = resolvePlayerAge(player);
         return {
           player,
           primaryPosition: primary || '-',
@@ -431,14 +433,8 @@ export function TeamPage({
             : '-',
           heightCm: parseStoredCm(player.height ?? ''),
           weightKg: parseStoredKg(player.weight ?? ''),
-          ageNum:
-            Number.isFinite(Number(player.age)) && Number(player.age) > 0
-              ? Number(player.age)
-              : null,
-          ageDisplay:
-            Number.isFinite(Number(player.age)) && Number(player.age) > 0
-              ? String(player.age)
-              : '-',
+          ageNum: age,
+          ageDisplay: age !== null ? String(age) : '-',
           ...aggregateRosterPlayerSeasonStats(player.id, teamGames),
         };
       }),

@@ -23,6 +23,7 @@ import {
   getPlayerRosterEntries,
   resolvePlayerTeamInGame,
 } from '../utils/rosterPlayers';
+import { getPlayerAgeAsOfToday, resolvePlayerAge } from '../utils/playerAge';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { PlayerJerseyGrid } from './PlayerJerseyGrid';
 import { PlayerJerseyNumbersEditor } from './PlayerJerseyNumbersEditor';
@@ -161,13 +162,7 @@ export function PlayerPage({
 
     let age = player.age || 0;
     if (data.dateOfBirth) {
-      const birthDate = new Date(data.dateOfBirth);
-      const today = new Date();
-      age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
+      age = getPlayerAgeAsOfToday(data.dateOfBirth) ?? age;
     }
 
     const profilePatch = {
@@ -277,7 +272,7 @@ export function PlayerPage({
   );
   const displayHeight = player.height ? formatHeightForDisplay(player.height) : '';
   const displayWeight = player.weight ? formatWeightForDisplay(player.weight) : '';
-  const displayAge = Number(player.age);
+  const displayAge = resolvePlayerAge(player);
   
   // Get stats by tournament
   const getStatsByTournament = () => {
@@ -358,7 +353,7 @@ export function PlayerPage({
                     <p className="text-muted-foreground mt-1">{displayPosition}</p>
                   )}
                   <p className="text-sm text-muted-foreground mt-1">
-                    {[displayHeight, displayWeight, Number.isFinite(displayAge) && displayAge > 0 ? `${displayAge} years old` : null]
+                    {[displayHeight, displayWeight, displayAge !== null ? `${displayAge} years old` : null]
                       .filter(Boolean)
                       .join(' · ')}
                   </p>
