@@ -1,0 +1,27 @@
+{
+  "game-kx-u21-2023-06-04-skudai": {
+    "kxIsHome": true,
+    "starters": ["Andre", "Haniel", "Bryan", "Carl", "Jeremy"],
+    "omit": []
+  },
+  "game-kx-u21-2023-06-12-xinshinai": {
+    "kxIsHome": true,
+    "starters": ["Jeremy", "Carl", "Andre", "Bryan", "Russell"],
+    "omit": []
+  },
+  "game-kx-u21-2023-06-13-gemilang": {
+    "kxIsHome": false,
+    "starters": ["Andre", "Bryan", "Jeremy", "Carl", "Russell"],
+    "omit": []
+  },
+  "game-kx-u21-2023-06-19-sunway": {
+    "kxIsHome": true,
+    "starters": ["Jeremy", "Carl", "Bryan", "Joseph", "Scott"],
+    "omit": []
+  },
+  "game-kx-u21-2023-06-26-dianfeng": {
+    "kxIsHome": true,
+    "starters": ["Jeremy", "Andre", "Carl", "Haniel", "Liam"],
+    "omit": ["Bryan"]
+  }
+}

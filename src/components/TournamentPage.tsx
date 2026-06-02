@@ -11,6 +11,7 @@ import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
+import { resolveGameTeam } from '../utils/gameTeams';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
   Trophy, 
@@ -384,6 +385,8 @@ export function TournamentPage({
           <CardContent>
             <div className="space-y-2">
               {tournamentGames.slice().reverse().slice(0, 5).map(game => {
+                const homeTeam = resolveGameTeam(teams, game, 'home');
+                const awayTeam = resolveGameTeam(teams, game, 'away');
                 return (
                   <div 
                     key={game.id} 
@@ -394,11 +397,11 @@ export function TournamentPage({
                     }}
                   >
                     <div className="flex items-center gap-2">
-                      <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="xs" />
-                      <span className="text-sm">{game.homeTeam.name}</span>
+                      <TeamBadge team={homeTeam} teamId={homeTeam.id} size="xs" />
+                      <span className="text-sm">{homeTeam.name}</span>
                       <span className="text-xs text-muted-foreground">vs</span>
-                      <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="xs" />
-                      <span className="text-sm">{game.awayTeam.name}</span>
+                      <TeamBadge team={awayTeam} teamId={awayTeam.id} size="xs" />
+                      <span className="text-sm">{awayTeam.name}</span>
                     </div>
                     {game.finalScore && (
                       <Badge variant="outline" className="text-xs">
@@ -811,6 +814,8 @@ export function TournamentPage({
             </Card>
           ) : (
             sortedGames.map((game) => {
+              const homeTeam = resolveGameTeam(teams, game, 'home');
+              const awayTeam = resolveGameTeam(teams, game, 'away');
               return (
                 <Card 
                   key={game.id} 
@@ -825,10 +830,10 @@ export function TournamentPage({
                           {/* Home Team */}
                           <div className="flex-1 flex items-center justify-end gap-2">
                             <div className="text-right">
-                              <div className="font-medium">{game.homeTeam.name}</div>
-                              <div className="text-xs text-muted-foreground">{game.homeTeam.abbreviation}</div>
+                              <div className="font-medium">{homeTeam.name}</div>
+                              <div className="text-xs text-muted-foreground">{homeTeam.abbreviation}</div>
                             </div>
-                            <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="lg" />
+                            <TeamBadge team={homeTeam} teamId={homeTeam.id} size="lg" />
                           </div>
                           
                           {/* Score */}
@@ -846,10 +851,10 @@ export function TournamentPage({
                           
                           {/* Away Team */}
                           <div className="flex-1 flex items-center gap-2">
-                            <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="lg" />
+                            <TeamBadge team={awayTeam} teamId={awayTeam.id} size="lg" />
                             <div className="text-left">
-                              <div className="font-medium">{game.awayTeam.name}</div>
-                              <div className="text-xs text-muted-foreground">{game.awayTeam.abbreviation}</div>
+                              <div className="font-medium">{awayTeam.name}</div>
+                              <div className="text-xs text-muted-foreground">{awayTeam.abbreviation}</div>
                             </div>
                           </div>
                         </div>

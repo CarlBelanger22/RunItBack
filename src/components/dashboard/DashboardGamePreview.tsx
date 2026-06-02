@@ -1,22 +1,27 @@
 import React from 'react';
 import { Badge } from '../ui/badge';
 import { TeamBadge } from '../TeamBadge';
-import type { Game } from '../../App';
+import type { Game, Team } from '../../App';
 import { resolveTeamScore } from '../../utils/gameDisplay';
+import { resolveGameTeam } from '../../utils/gameTeams';
 
 interface DashboardGamePreviewProps {
   game: Game;
+  teams?: Team[];
   tournamentName?: string;
   onClick: () => void;
 }
 
 export function DashboardGamePreview({
   game,
+  teams = [],
   tournamentName,
   onClick,
 }: DashboardGamePreviewProps) {
-  const homeScore = resolveTeamScore(game, game.homeTeam.id);
-  const awayScore = resolveTeamScore(game, game.awayTeam.id);
+  const homeTeam = resolveGameTeam(teams, game, 'home');
+  const awayTeam = resolveGameTeam(teams, game, 'away');
+  const homeScore = resolveTeamScore(game, homeTeam.id);
+  const awayScore = resolveTeamScore(game, awayTeam.id);
   const dateLabel = new Date(game.date).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -43,18 +48,18 @@ export function DashboardGamePreview({
         <div className="flex flex-1 min-w-0 items-start justify-end gap-3">
           <div className="text-right min-w-0">
             <p className="text-sm sm:text-base font-semibold leading-snug break-words">
-              {game.homeTeam.name}
+              {homeTeam.name}
             </p>
             <p className="text-xl sm:text-2xl font-bold tabular-nums mt-1">{homeScore}</p>
           </div>
-          <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="md" />
+          <TeamBadge team={homeTeam} teamId={homeTeam.id} size="md" />
         </div>
 
         <div className="flex flex-1 min-w-0 items-start gap-3">
-          <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="md" />
+          <TeamBadge team={awayTeam} teamId={awayTeam.id} size="md" />
           <div className="text-left min-w-0">
             <p className="text-sm sm:text-base font-semibold leading-snug break-words">
-              {game.awayTeam.name}
+              {awayTeam.name}
             </p>
             <p className="text-xl sm:text-2xl font-bold tabular-nums mt-1">{awayScore}</p>
           </div>

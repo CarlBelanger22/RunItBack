@@ -694,6 +694,8 @@ export function PlayerPage({
         <PlayerStatsTable
           rows={displayRows}
           layout="tournament-breakdown"
+          defaultSortField="Scope"
+          defaultSortOrder="desc"
           showTeamColumn={showStatsTeamColumn}
           showAgeColumn
           disableRowNavigation

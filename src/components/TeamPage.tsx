@@ -16,7 +16,12 @@ import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamBadge } from './TeamBadge';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { TournamentScopeSelect } from './TournamentScopeSelect';
-import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import {
+  aggregateTeamSeasonAverages,
+  computeScopedTeamScoring,
+  computeTeamSeasonDerived,
+  sortGamesByDateDesc,
+} from '../utils/gameDisplay';
 import {
   aggregatePlayerSeasonStats,
   filterTeamScopeGames,
@@ -200,110 +205,6 @@ function RosterSortableHead({
   );
 }
 
-type TeamStatsAverages = {
-  fg_made: number;
-  fg_attempted: number;
-  three_made: number;
-  three_attempted: number;
-  ft_made: number;
-  ft_attempted: number;
-  orb: number;
-  drb: number;
-  assists: number;
-  steals: number;
-  blocks: number;
-  turnovers: number;
-  fouls: number;
-  points_off_turnovers: number;
-  points_in_paint: number;
-  second_chance_points: number;
-  fastbreak_points: number;
-  bench_points: number;
-};
-
-function statNum(value: number | null | undefined): number {
-  return value ?? 0;
-}
-
-function calculateTeamStatsFromGames(games: Game[] | undefined, teamId: string): TeamStatsAverages {
-  const completedGames = (games ?? []).filter((g) => g.isCompleted);
-  const totalStats = completedGames.reduce(
-    (acc, game) => {
-      const side =
-        game.homeTeamId === teamId
-          ? game.teamStats?.home
-          : game.teamStats?.away;
-      return {
-        fg_made: acc.fg_made + statNum(side?.fg_made),
-        fg_attempted: acc.fg_attempted + statNum(side?.fg_attempted),
-        three_made: acc.three_made + statNum(side?.three_made),
-        three_attempted: acc.three_attempted + statNum(side?.three_attempted),
-        ft_made: acc.ft_made + statNum(side?.ft_made),
-        ft_attempted: acc.ft_attempted + statNum(side?.ft_attempted),
-        orb: acc.orb + statNum(side?.orb),
-        drb: acc.drb + statNum(side?.drb),
-        assists: acc.assists + statNum(side?.assists),
-        steals: acc.steals + statNum(side?.steals),
-        blocks: acc.blocks + statNum(side?.blocks),
-        turnovers: acc.turnovers + statNum(side?.turnovers),
-        fouls: acc.fouls + statNum(side?.fouls),
-        points_off_turnovers:
-          acc.points_off_turnovers + statNum(side?.points_off_turnovers),
-        points_in_paint: acc.points_in_paint + statNum(side?.points_in_paint),
-        second_chance_points:
-          acc.second_chance_points + statNum(side?.second_chance_points),
-        fastbreak_points:
-          acc.fastbreak_points + statNum(side?.fastbreak_points),
-        bench_points: acc.bench_points + statNum(side?.bench_points),
-      };
-    },
-    {
-      fg_made: 0,
-      fg_attempted: 0,
-      three_made: 0,
-      three_attempted: 0,
-      ft_made: 0,
-      ft_attempted: 0,
-      orb: 0,
-      drb: 0,
-      assists: 0,
-      steals: 0,
-      blocks: 0,
-      turnovers: 0,
-      fouls: 0,
-      points_off_turnovers: 0,
-      points_in_paint: 0,
-      second_chance_points: 0,
-      fastbreak_points: 0,
-      bench_points: 0,
-    }
-  );
-
-  const gamesPlayed = completedGames.length;
-  if (gamesPlayed === 0) return totalStats;
-
-  return {
-    fg_made: totalStats.fg_made / gamesPlayed,
-    fg_attempted: totalStats.fg_attempted / gamesPlayed,
-    three_made: totalStats.three_made / gamesPlayed,
-    three_attempted: totalStats.three_attempted / gamesPlayed,
-    ft_made: totalStats.ft_made / gamesPlayed,
-    ft_attempted: totalStats.ft_attempted / gamesPlayed,
-    orb: totalStats.orb / gamesPlayed,
-    drb: totalStats.drb / gamesPlayed,
-    assists: totalStats.assists / gamesPlayed,
-    steals: totalStats.steals / gamesPlayed,
-    blocks: totalStats.blocks / gamesPlayed,
-    turnovers: totalStats.turnovers / gamesPlayed,
-    fouls: totalStats.fouls / gamesPlayed,
-    points_off_turnovers: totalStats.points_off_turnovers / gamesPlayed,
-    points_in_paint: totalStats.points_in_paint / gamesPlayed,
-    second_chance_points: totalStats.second_chance_points / gamesPlayed,
-    fastbreak_points: totalStats.fastbreak_points / gamesPlayed,
-    bench_points: totalStats.bench_points / gamesPlayed,
-  };
-}
-
 interface TeamPageProps {
   team: Team;
   teams: Team[];
@@ -391,9 +292,24 @@ export function TeamPage({
     [teamGames, team.id, statsTournamentScope]
   );
 
-  const scopedTeamStats = useMemo(
-    () => calculateTeamStatsFromGames(filteredStatsGames, team.id),
+  const teamSeasonAggregate = useMemo(
+    () => aggregateTeamSeasonAverages(filteredStatsGames, team),
+    [filteredStatsGames, team]
+  );
+
+  const scopedTeamScoring = useMemo(
+    () => computeScopedTeamScoring(filteredStatsGames, team.id),
     [filteredStatsGames, team.id]
+  );
+
+  const teamSeasonDerived = useMemo(
+    () =>
+      computeTeamSeasonDerived(
+        teamSeasonAggregate.totals,
+        teamSeasonAggregate.perGame,
+        scopedTeamScoring
+      ),
+    [teamSeasonAggregate, scopedTeamScoring]
   );
 
   const playerSeasonRows = useMemo(
@@ -1011,7 +927,43 @@ export function TeamPage({
   );
 
   const StatsTab = () => {
-    const teamStats = scopedTeamStats;
+    const { totals, perGame: teamStats } = teamSeasonAggregate;
+    const derived = teamSeasonDerived;
+
+    const formatPct = (value: number | null) =>
+      value != null && Number.isFinite(value) ? `${value.toFixed(1)}%` : '—';
+
+    const formatRatio = (value: number | null) =>
+      value != null && Number.isFinite(value) ? value.toFixed(1) : '—';
+
+    const formatAdvancedPerGame = (perGameValue: number) =>
+      Number.isFinite(perGameValue) ? perGameValue.toFixed(1) : '—';
+
+    const TeamStatRow = ({
+      label,
+      value,
+    }: {
+      label: string;
+      value: string;
+    }) => (
+      <div className="flex justify-between gap-2">
+        <span className="text-sm">{label}</span>
+        <span className="text-sm font-mono tabular-nums">{value}</span>
+      </div>
+    );
+
+    const StatColumn = ({
+      title,
+      children,
+    }: {
+      title: string;
+      children: React.ReactNode;
+    }) => (
+      <div className="space-y-2">
+        <h4 className="font-medium text-sm text-muted-foreground">{title}</h4>
+        <div className="space-y-1">{children}</div>
+      </div>
+    );
 
     return (
       <div className="space-y-6">
@@ -1026,105 +978,103 @@ export function TeamPage({
           <CardHeader>
             <CardTitle>Team Statistics</CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-              <div className="space-y-2">
-                <h4 className="font-medium text-sm text-muted-foreground">Shooting</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm">FG%</span>
-                    <span className="text-sm font-mono">
-                      {teamStats.fg_attempted > 0
-                        ? ((teamStats.fg_made / teamStats.fg_attempted) * 100).toFixed(1)
-                        : '0.0'}
-                      %
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">3P%</span>
-                    <span className="text-sm font-mono">
-                      {teamStats.three_attempted > 0
-                        ? (
-                            (teamStats.three_made / teamStats.three_attempted) *
-                            100
-                          ).toFixed(1)
-                        : '0.0'}
-                      %
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">FT%</span>
-                    <span className="text-sm font-mono">
-                      {teamStats.ft_attempted > 0
-                        ? ((teamStats.ft_made / teamStats.ft_attempted) * 100).toFixed(1)
-                        : '0.0'}
-                      %
-                    </span>
-                  </div>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="rounded-lg border bg-muted/30 px-4 py-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums">
+                  {derived.gamesWithScore > 0 ? derived.ppg.toFixed(1) : '—'}
                 </div>
+                <div className="text-xs text-muted-foreground mt-1">PPG</div>
               </div>
+              <div className="rounded-lg border bg-muted/30 px-4 py-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums">
+                  {derived.gamesWithScore > 0 ? derived.papg.toFixed(1) : '—'}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">Opp PPG</div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 px-4 py-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums">
+                  {formatRatio(derived.astTo)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">AST/TO</div>
+              </div>
+              <div className="rounded-lg border bg-muted/30 px-4 py-3 text-center">
+                <div className="text-2xl font-bold font-mono tabular-nums">
+                  {formatPct(derived.efgPct)}
+                </div>
+                <div className="text-xs text-muted-foreground mt-1">eFG%</div>
+              </div>
+            </div>
 
-              <div className="space-y-2">
-                <h4 className="font-medium text-sm text-muted-foreground">Rebounds</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm">ORB</span>
-                    <span className="text-sm font-mono">{teamStats.orb.toFixed(1)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">DRB</span>
-                    <span className="text-sm font-mono">{teamStats.drb.toFixed(1)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Total</span>
-                    <span className="text-sm font-mono">
-                      {(teamStats.orb + teamStats.drb).toFixed(1)}
-                    </span>
-                  </div>
-                </div>
-              </div>
+            <div className="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-6">
+              <StatColumn title="Scoring">
+                <TeamStatRow
+                  label="FG%"
+                  value={formatPct(
+                    totals.fg_attempted > 0
+                      ? (totals.fg_made / totals.fg_attempted) * 100
+                      : null
+                  )}
+                />
+                <TeamStatRow label="2P%" value={formatPct(derived.twoPtPct)} />
+                <TeamStatRow
+                  label="3P%"
+                  value={formatPct(
+                    totals.three_attempted > 0
+                      ? (totals.three_made / totals.three_attempted) * 100
+                      : null
+                  )}
+                />
+                <TeamStatRow
+                  label="FT%"
+                  value={formatPct(
+                    totals.ft_attempted > 0
+                      ? (totals.ft_made / totals.ft_attempted) * 100
+                      : null
+                  )}
+                />
+                <TeamStatRow label="TS%" value={formatPct(derived.tsPct)} />
+              </StatColumn>
 
-              <div className="space-y-2">
-                <h4 className="font-medium text-sm text-muted-foreground">Defense</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Steals</span>
-                    <span className="text-sm font-mono">{teamStats.steals.toFixed(1)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Blocks</span>
-                    <span className="text-sm font-mono">{teamStats.blocks.toFixed(1)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Fouls</span>
-                    <span className="text-sm font-mono">{teamStats.fouls.toFixed(1)}</span>
-                  </div>
-                </div>
-              </div>
+              <StatColumn title="Playmaking">
+                <TeamStatRow label="APG" value={derived.apg.toFixed(1)} />
+                <TeamStatRow label="TOPG" value={derived.topg.toFixed(1)} />
+                <TeamStatRow label="AST/TO" value={formatRatio(derived.astTo)} />
+              </StatColumn>
 
-              <div className="space-y-2">
-                <h4 className="font-medium text-sm text-muted-foreground">Advanced</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Paint Pts</span>
-                    <span className="text-sm font-mono">
-                      {teamStats.points_in_paint.toFixed(1)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Fastbreak</span>
-                    <span className="text-sm font-mono">
-                      {teamStats.fastbreak_points.toFixed(1)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">2nd Chance</span>
-                    <span className="text-sm font-mono">
-                      {teamStats.second_chance_points.toFixed(1)}
-                    </span>
-                  </div>
-                </div>
-              </div>
+              <StatColumn title="Rebounding">
+                <TeamStatRow label="ORB" value={teamStats.orb.toFixed(1)} />
+                <TeamStatRow label="DRB" value={teamStats.drb.toFixed(1)} />
+                <TeamStatRow label="RPG" value={derived.rpg.toFixed(1)} />
+              </StatColumn>
+
+              <StatColumn title="Defense">
+                <TeamStatRow label="SPG" value={derived.spg.toFixed(1)} />
+                <TeamStatRow label="BPG" value={derived.bpg.toFixed(1)} />
+              </StatColumn>
+
+              <StatColumn title="Discipline">
+                <TeamStatRow label="FPG" value={derived.fpg.toFixed(1)} />
+              </StatColumn>
+
+              <StatColumn title="Advanced">
+                <TeamStatRow
+                  label="Paint Pts"
+                  value={formatAdvancedPerGame(derived.paintPpg)}
+                />
+                <TeamStatRow
+                  label="Fastbreak"
+                  value={formatAdvancedPerGame(derived.fastbreakPpg)}
+                />
+                <TeamStatRow
+                  label="2nd Chance"
+                  value={formatAdvancedPerGame(derived.secondChancePpg)}
+                />
+                <TeamStatRow
+                  label="Pts off TO"
+                  value={formatAdvancedPerGame(derived.pointsOffTurnoversPpg)}
+                />
+              </StatColumn>
             </div>
           </CardContent>
         </Card>

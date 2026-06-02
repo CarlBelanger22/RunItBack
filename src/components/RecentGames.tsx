@@ -21,9 +21,11 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { TeamBadge } from './TeamBadge';
+import { resolveGameTeam } from '../utils/gameTeams';
 
 interface RecentGamesProps {
   games: Game[];
+  teams?: Team[];
   onBack: () => void;
   onNavigateToGame: (gameId: string) => void;
   onDeleteActiveGame?: (gameId: string) => void;
@@ -31,6 +33,7 @@ interface RecentGamesProps {
 
 export function RecentGames({
   games,
+  teams = [],
   onBack,
   onNavigateToGame,
   onDeleteActiveGame,
@@ -113,8 +116,10 @@ export function RecentGames({
           </Card>
         ) : (
           filteredGames.map((game) => {
-            const homeScore = resolveTeamScore(game, game.homeTeam.id);
-            const awayScore = resolveTeamScore(game, game.awayTeam.id);
+            const homeTeam = resolveGameTeam(teams, game, 'home');
+            const awayTeam = resolveGameTeam(teams, game, 'away');
+            const homeScore = resolveTeamScore(game, homeTeam.id);
+            const awayScore = resolveTeamScore(game, awayTeam.id);
             const inProgress = isGameInProgress(game);
             const orphaned = isOrphanedIncompleteGame(game);
             const showIncompleteActions = canDeleteIncompleteGame(game);
@@ -132,12 +137,12 @@ export function RecentGames({
                         {/* Home Team */}
                         <div className="flex-1 flex items-start justify-end gap-2">
                           <div className="text-right">
-                            <div className="font-medium">{game.homeTeam.name}</div>
+                            <div className="font-medium">{homeTeam.name}</div>
                             {game.isCompleted && (
                               <div className="text-2xl font-bold tabular-nums mt-1">{homeScore}</div>
                             )}
                           </div>
-                          <TeamBadge team={game.homeTeam} teamId={game.homeTeam.id} size="lg" />
+                          <TeamBadge team={homeTeam} teamId={homeTeam.id} size="lg" />
                         </div>
                         
                         {/* Status */}
@@ -155,9 +160,9 @@ export function RecentGames({
                         
                         {/* Away Team */}
                         <div className="flex-1 flex items-start gap-2">
-                          <TeamBadge team={game.awayTeam} teamId={game.awayTeam.id} size="lg" />
+                          <TeamBadge team={awayTeam} teamId={awayTeam.id} size="lg" />
                           <div className="text-left">
-                            <div className="font-medium">{game.awayTeam.name}</div>
+                            <div className="font-medium">{awayTeam.name}</div>
                             {game.isCompleted && (
                               <div className="text-2xl font-bold tabular-nums mt-1">{awayScore}</div>
                             )}

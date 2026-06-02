@@ -3530,7 +3530,10 @@ One executor step at a time per workflow; C13.1+2 may ship together since restor
 
 ## Project Status Board
 
-- [ ] **C13 Restore Yuanyang + duplicate jersey #s** — C13.1–C13.4 code complete; **awaiting user: run migration 004 + restore script + QA**
+- [x] **C15 Roster contamination (C13.4 enrich bug)** — complete; QA passed; Carl on Kai Xuan (`team-1780252086140` #88) restored
+- [ ] **C16 Jersey number sizing (+20% width, +60% height, top-anchored)** — C16.1–C16.2 complete; build passes; **awaiting C16.3 user QA**
+- [x] **KX Div2 '24 full tournament import** — 13 games imported; awaiting user QA (KX.5)
+- [ ] **C13 Restore Yuanyang + duplicate jersey #s** — C13.1–C13.4 code complete; **DB may need C15.2 repair after enrich corruption**
 - [ ] **C12 Player Stats age-at-tournament column** — C12.1–C12.4 done; awaiting user QA
 - [ ] **C11 Player identity (BBR jerseys + global position)** — C11.1–C11.7 + C11.9 done; awaiting C11.8/C11.9 user QA
 - [ ] **C10 Global players + multi-team rosters** — C10.1–C10.7 complete; migration 002 applied; C10.8 folded into C11 QA
@@ -3618,3 +3621,879 @@ One executor step at a time per workflow; C13.1+2 may ship together since restor
 - UI no longer blocks duplicate jersey numbers (`AddPlayerDialog`, `PlayerForm`, `PlayerPage`, `PlayerJerseyNumbersEditor`)
 - `loadAppDataFromSupabase` returns `orphanPlayers`; wired to Add Existing picker via `getLeaguePlayerPool(teams, orphanPlayers)`
 - `saveAppDataToSupabase` merges stat-referenced orphan players onto rosters before `team_players` delete/re-insert
+
+---
+
+## C15 — Roster contamination bug from C13.4 enrich (Designer, 2026-06-01)
+
+### Background and Motivation
+
+User edited Carl Belanger's jersey (#88 test → #22) while testing jersey icon sizing. After save, **many players appear on wrong team rosters** — opponent teams (NUS, SUTD, SUSS, SIT, IVP opponents, etc.) now list NTU players. Player pages show **many duplicate jersey icons** (one per wrongly-linked team).
+
+**Expected state:**
+- **`team-sunig-ntu` (NTU):** full roster only
+- **All other teams:** **0 players**, except **Kai Xuan** on his one team (user to confirm team id + player id)
+- Players should **not** be tied to teams they merely played **against**
+
+User hypothesis (correct): *games somehow registered players on both teams*. Partially true — see root cause below.
+
+### Root cause analysis (confirmed in code)
+
+**C13.4 `enrichTeamsWithStatReferencedPlayers`** in `supabaseData.ts` runs on **every auto-save** before writing `team_players`:
+
+```tsx
+for (const stat of game.gameStats ?? []) {
+  // BUG: no filter for which SIDE this stat belongs to
+  const profile =
+    onTeam.players?.find(...) ??
+    allRosterPlayers.get(playerId) ??  // ← pulls NTU player from league memory
+    orphanById.get(playerId);
+  extras.push({ ...profile });  // ← adds to CURRENT team being processed
+}
+```
+
+For each league team, for each completed game that team played in:
+1. It loops **all** `gameStats` (both home AND away players)
+2. For opponent stats not already on roster, it falls back to **`allRosterPlayers`** (NTU players live here)
+3. It **appends NTU players to the opponent team's roster**
+
+Then **`savePlayersWithSchema` deletes ALL `team_players` for league teams and re-inserts** from the poisoned in-memory rosters → **persists corruption to Supabase**.
+
+**Why stats-only imports made this worse:** Sunig/IVP opponent teams have **`players: []`** in JSON and in game snapshots. Every stat line is NTU-only (`player-sunig-ntu-*` / `player-ivp-ntu-*`). When enrich runs for `team-sunig-nus` in the NUS vs NTU game, **all 12 NTU stat lines get added to NUS roster**.
+
+**Trigger:** Any save after C13 shipped (jersey edit → auto-save → enrich → DB write).
+
+**Secondary UI bug (reverted locally):** `handleUpdatePlayer` called `onUpdateTeam` in a loop; duplicate team rows in memory amplified jersey grid duplicates. Fix bundled into C15.3.
+
+### What is NOT corrupted
+
+- **`players` table** (global profiles) — likely fine
+- **`games` table** / `gameStats` — unchanged; stats still correct
+- **Box scores** — still keyed by `playerId`; display may look odd if roster filters wrong
+
+### Target end state
+
+| Team | Roster |
+|------|--------|
+| `team-sunig-ntu` | Canonical NTU roster (Sunig JSON + IVP `player-ivp-ntu-*` if separate, + Yuanyang #12 if desired) |
+| Sunig opponents (`team-sunig-nus`, `team-sunig-sutd`, `team-sunig-sit`, `team-sunig-suss`) | **Empty** |
+| IVP opponents (`team-ivp-*` except NTU) | **Empty** except Kai Xuan's team → **1 player** |
+| Multi-team legitimate links | Only if intentionally designed (e.g. same person on two teams in different tournaments — rare) |
+
+---
+
+### High-level task breakdown
+
+#### C15.1 — Stop the bleeding (code fix, P0)
+
+| Step | Work |
+|------|------|
+| **C15.1a** | **Remove** `enrichTeamsWithStatReferencedPlayers` from `saveAppDataToSupabase` OR rewrite to only add a player when `stat.playerId` is on **that game's side** (`game.homeTeam.players` / `game.awayTeam` snapshot for the team being saved) — **never** `allRosterPlayers` cross-team fallback |
+| **C15.1b** | Preferred v1: **delete enrich entirely**; keep Yuanyang restore as explicit script (`restore:yuanyang`) |
+| **C15.1c** | Add unit-style test or inline comment documenting invariant: *save must never assign a player to a team unless they are already on that team in app state* |
+
+**Success:** Editing Carl's jersey and saving does **not** change opponent `team_players` rows.
+
+#### C15.2 — Repair Supabase data (one-off script)
+
+| Step | Work |
+|------|------|
+| **C15.2a** | `scripts/repair-rosters.ts` (+ `npm run repair:rosters`) |
+| **C15.2b** | **Dry-run** mode: print `team_players` counts per team before/after |
+| **C15.2c** | Delete all `team_players` where `team_id != 'team-sunig-ntu'` **except** preserve Kai Xuan row (user confirms `player_id` + `team_id`) |
+| **C15.2d** | Rebuild **`team-sunig-ntu`** roster from canonical JSON: `Importingboxscores/sunig 2025/game-2025-09-19-ntu-sutd.json` (15 Sunig players) + merge IVP NTU players from `Importingboxscores/ivp 2026/game-2026-01-13-ntu-np.json` (`player-ivp-ntu-*`) + optional Yuanyang `player-sunig-ntu-12` #12 |
+| **C15.2e** | User runs script, hard-refreshes, verifies rosters |
+
+**Success:** NUS/SUTD/etc. show 0 players; NTU shows ~15–18; Carl shows **1–2 jerseys max** (Sunig + IVP if both linked); Kai Xuan only on his team.
+
+#### C15.3 — Hardening (prevent recurrence)
+
+| Step | Work |
+|------|------|
+| **C15.3a** | `dedupeTeamPlayers` / `dedupeTeamsById` on load + every `handleUpdateTeam` |
+| **C15.3b** | Batch player profile saves (`handleUpdatePlayerProfile`) — single `setTeams`, no loop |
+| **C15.3c** | `handleAddPlayerToRoster`: skip if `isPlayerOnTeam` |
+| **C15.3d** | Consider: stop delete-all `team_players` on every save (upsert-only diff) — **defer** unless needed |
+
+#### C15.4 — Verification checklist (user QA)
+
+1. Each opponent team roster page → **0 players** (except Kai Xuan team → 1)
+2. NTU roster → expected names only
+3. Carl player page → **one jersey per real team** (not 8+)
+4. Edit Carl #22 → save → opponent rosters **unchanged** (re-query `team_players`)
+5. Sunig box scores still show Carl / Yuanyang stats
+
+---
+
+### Open decisions for user (before Executor)
+
+1. **Kai Xuan** — which `team_id` and `player_id` should be preserved? (Executor can query Supabase in dry-run.)
+2. **IVP NTU players** (`player-ivp-ntu-*`) — same people as Sunig roster with different ids; confirm both sets should be on `team-sunig-ntu` or separate team entity?
+3. **Yuanyang #12** — keep on NTU after repair?
+
+### Executor order
+
+1. **C15.1** first (stop corrupting on next save)
+2. **C15.2** repair script + user runs it
+3. **C15.3** hardening
+4. **C15.4** user QA
+
+**Designer confidence: ~99%** on root cause. Ready for Executor on user OK.
+
+**Awaiting user “Executor mode” for C15.1.**
+
+---
+
+## Executor's Feedback or Assistance Requests (C15 — 2026-05-29)
+
+**C15.1–C15.3 complete.** `npm run build` passes.
+
+**C15.2 live repair executed:**
+- Before: 200 `team_players` rows (demo teams 23 each, opponents 10–16, NTU 18)
+- After repair + cleanup: **18 rows**, all on `team-sunig-ntu`
+- Repair script initially preserved Carl Belanger on `team-1780252086140` (#88) via single-player rule — **incorrect** (contamination artifact). Deleted manually; script updated to skip canonical NTU player ids when preserving single-player opponent links.
+
+**Kai Xuan:** User-created team `team-1780252086140`. Carl Belanger (`player-sunig-ntu-22`) on Kai Xuan at #88 only; repair script preserves this team and re-upserts Carl after NTU rebuild.
+
+**User QA (C15.4):** Confirmed opponent teams empty, Carl page clean. Carl intentionally on NTU (#22) + Kai Xuan (#88).
+
+---
+
+## C16 — Jersey number sizing (Designer, 2026-06-01)
+
+### Background and Motivation
+
+User wants jersey numbers on the player-page jersey grid to feel **bigger and more “filled in”** inside the tank outline — closer to real jersey typography. Screenshot shows numbers sitting small in the upper chest with empty space below.
+
+**Request (locked):**
+- **+20% wider**
+- **+60% taller (length)**
+- **Top edge locked** — numbers must **not** grow upward toward the neckline
+- Growth goes **downward** to fill the lower torso area (bottom of the number box ≈ jersey hem padding)
+
+**Scope:** `JerseyIcon.tsx` only (used by `PlayerJerseyGrid` on player overview). No PNG asset change.
+
+### Current implementation (baseline)
+
+File: `src/components/JerseyIcon.tsx`
+
+| Element | Value (md) |
+|---------|------------|
+| Icon dim | 48×48 px (`sm` 40, `lg` 60) |
+| viewBox | `0 0 100 100` |
+| White mask (covers baked `00`) | `x=34 y=37 w=32 h=26` → zone **y 37–63** |
+| Text | `x=50 y=50`, `textAnchor=middle`, `dominantBaseline=middle`, `fontSize=17` |
+| Font | system-ui, weight 800 |
+
+**Problem:** Center-anchored text scales/grows symmetrically — wrong for “fill downward” requirement. Numbers also under-use the 26-unit vertical zone.
+
+### Key challenges and analysis
+
+1. **Anchor semantics** — “Height limit locked” means the **top of the digit box stays fixed** at the current upper bound (~y=37 in viewBox), not the vertical center at y=50.
+
+2. **Independent axes** — User asked for 20% width and 60% height separately → use **`scale(1.2, 1.6)`**, not a uniform font-size bump.
+
+3. **SVG transform origin** — Wrap the `<text>` in a `<g>` with transform anchored at top-center:
+   ```svg
+   <g transform="translate(50, 37) scale(1.2, 1.6) translate(-50, -37)">
+     <text x="50" y="37" dominantBaseline="hanging" ... />
+   </g>
+   ```
+   Switch from `dominantBaseline="middle"` at y=50 → **`hanging`** at y=37 so expansion is downward-only.
+
+4. **Mask rect** — Wider digits after 1.2× scale may expose baked `00` at the sides. Widen mask ~20%: e.g. `x=31 w=38` (keep top y=37). Height may stay 26 or extend to y=64 if any bleed at bottom.
+
+5. **Clip safety (optional)** — If aggressive scale clips into neckline on certain digits, add `<clipPath id="jersey-number-zone">` matching the mask rect so numbers never draw outside the torso box.
+
+6. **What we are NOT doing** — Replacing the PNG, changing team logos, or touching roster/save logic.
+
+### High-level task breakdown
+
+#### C16.1 — Top-anchored scaled text (Executor)
+
+| Step | Work |
+|------|------|
+| **C16.1a** | Add constants in `JerseyIcon.tsx`: `NUMBER_TOP_Y = 37`, `SCALE_X = 1.2`, `SCALE_Y = 1.6`, `ANCHOR_X = 50` |
+| **C16.1b** | Wrap `<text>` in `<g transform="translate(50,37) scale(1.2,1.6) translate(-50,-37)">` |
+| **C16.1c** | Change text to `y={NUMBER_TOP_Y}`, `dominantBaseline="hanging"`, keep `textAnchor="middle"` |
+| **C16.1d** | Keep existing `fontSize` per size tier (14 / 17 / 19) — scaling applies on top |
+
+**Success:** Single change in dev; numbers visibly taller and wider; top edge aligns with pre-change upper bound; bottom sits nearer jersey hem.
+
+#### C16.2 — Mask + bleed tuning (Executor)
+
+| Step | Work |
+|------|------|
+| **C16.2a** | Widen white mask ~20%: `x=31 width=38` (tune ±1 if needed) |
+| **C16.2b** | Verify no baked `00` visible for digits **0, 1, 8, 22, 45, 88** at `sm` / `md` / `lg` |
+| **C16.2c** | If bottom bleed, extend mask height 1–2 viewBox units (max ~y=65, still inside jersey outline) |
+
+**Success:** No ghost `00` artifacts; no clipping of shoulder/armhole strokes.
+
+#### C16.3 — Visual QA (user)
+
+Hard-refresh player page (Carl or any multi-jersey player):
+
+1. Numbers fill lower torso; neckline/armholes unchanged
+2. Single-digit (#8) and double-digit (#22, #88) readable
+3. `lg` overview grid and any `sm` usages still balanced
+4. Side-by-side jerseys in grid don’t overlap
+
+### Open decision (minor — Executor may tune without asking)
+
+If strict `scale(1.6)` overshoots the bottom hem by 1–2px on wide digits (`88`), prefer **small `SCALE_Y` tweak (e.g. 1.55–1.6)** to land flush with the mask bottom rather than clipping. Width stays **1.2×**.
+
+### Executor order
+
+1. C16.1 → C16.2 → `npm run build`
+2. User C16.3 QA
+
+**Designer confidence: ~95%** — single-file SVG transform change; low regression risk.
+
+**Awaiting user “Executor mode” for C16.1.**
+
+---
+
+## Executor's Feedback or Assistance Requests (C16 — 2026-06-01)
+
+**C16.1–C16.2 complete.** `npm run build` passes.
+
+**Changes in `JerseyIcon.tsx`:**
+- Top anchor at y=37 with `dominantBaseline="hanging"`
+- `scale(1.2, 1.6)` from top-center (50, 37) — grows downward only
+- Mask widened to x=31 w=38 h=27
+
+**User QA (C16.3):** Hard-refresh player page and check #22 / #88 jerseys fill lower torso; no baked `00` bleed; neckline unchanged.
+
+---
+
+## KX Div2 '24 — Full tournament import (Designer, 2026-06-01) — LOCKED
+
+### User decisions (confirmed)
+
+| Topic | Decision |
+|-------|----------|
+| **Team** | Existing `team-1780252086140` (Kai Xuan) |
+| **Tournament** | Existing `tournament-1780251377063` — do not rename |
+| **Tournament month** | **Apr** 2024 (starting month) |
+| **Players** | **Already in DB + app roster** — **stats-only every game**, no player/roster writes |
+| **Player IDs** | Reuse existing profiles only (Carl = `player-sunig-ntu-22` #22 on both teams). Haniel = same person as NTU/IVP Haniel. Jeremy = same as NTU Jeremy. **No new `players` rows** |
+| **Opponents** | Empty roster teams; opponent stats not tracked |
+| **Home team** | Kai Xuan **home** all games; `trackBothTeams: false` |
+| **Minutes** | Spreadsheet screenshot only (not in HTML) |
+| **PM / events / shots** | Zero/empty OK |
+| **Game 9 walkover** | KX 20–0, date **2024-05-07**, no `gameStats`, no starters |
+| **Starters** | Top **5 KX players by minutes** that game (from spreadsheet) |
+| **Scope** | This tournament only; do not touch Sunig/IVP/NTU |
+
+### Opponent team IDs & abbreviations (create on import if missing)
+
+| Opponent | `team_id` (proposed) | abbrev |
+|----------|----------------------|--------|
+| Amity | `team-kx-div2-amity` | AMT |
+| KTS | `team-kx-div2-kts` | KTS |
+| Police | `team-kx-div2-police` | POL |
+| GMAC | `team-kx-div2-gmac` | GMAC |
+| Chong Ghee | `team-kx-div2-chong-ghee` | CG |
+| SAFSA | `team-kx-div2-safsa` | SAFSA |
+| Tungsan | `team-kx-div2-tungsan` | TGS |
+| Loaded | `team-kx-div2-loaded` | LOAD |
+| Tampines East | `team-kx-div2-tampines-east` | TPE |
+| Clementi | `team-kx-div2-clementi` | CLEM |
+| SinKee (SKC) | `team-kx-div2-skc` | SKC |
+
+### Game schedule (import order)
+
+| G# | `game_id` (proposed) | Date | Opponent | KX score | HTML source |
+|----|----------------------|------|----------|----------|-------------|
+| 1 | `game-kx-div2-2024-04-03-amity` | 2024-04-03 | Amity | W 68-42 | `KX vs Amity 010424.html` |
+| 2 | `game-kx-div2-2024-04-06-kts` | 2024-04-06 | KTS | W 56-47 | `KX vs KTS 050424.html` |
+| 3 | `game-kx-div2-2024-04-14-police` | 2024-04-14 | Police | L 59-67 | `KX vs Police 100424.html` |
+| 4 | `game-kx-div2-2024-04-15-gmac` | 2024-04-15 | GMAC | W 67-56 | `KX vs GMAC 140424.html` |
+| 5 | `game-kx-div2-2024-04-27-chong-ghee` | 2024-04-27 | Chong Ghee | W 55-51 | `KX vs Chong Ghee 210424.html` |
+| 6 | `game-kx-div2-2024-05-01-safsa` | 2024-05-01 | SAFSA | L 50-58 | `KX vs SAFSA 280424.html` |
+| 7 | `game-kx-div2-2024-05-06-tungsan` | 2024-05-06 | Tungsan | L 54-69 | `KX vs Tungsan 020524.html` |
+| 8 | `game-kx-div2-2024-05-04-loaded` | 2024-05-04 | Loaded | L 61-67 | `KX vs Loaded 040524.html` |
+| 9 | `game-kx-div2-2024-05-07-tampines-east` | **2024-05-07** | Tampines East | W 20-0 | **Walkover — no HTML** |
+| 10 | `game-kx-div2-2024-05-12-clementi` | 2024-05-12 | Clementi | W 52-41 | `KX vs Clementi 110524.html` |
+| 11 | `game-kx-div2-2024-05-30-skc` | 2024-05-30 | SKC (SinKee) | W 71-67 | `KX vs SinKee 150524.html` |
+| 12 | `game-kx-div2-2024-06-03-tungsan` | 2024-06-03 | Tungsan | L 45-87 | `Tungsan vs KaiXuan box-scores-18 may 2024.html` |
+| 13 | `game-kx-div2-2024-05-31-clementi` | 2024-05-31 | Clementi | W 57-56 | `KX vs Clementi 3:4 200524.html` |
+
+### Minutes source (spreadsheet → decimal `minutes_played`)
+
+Executor transcribes `Importingboxscores/KX Div2 '24/kx-div2-minutes.json` from screenshot. Format: `{ "game-kx-div2-...": { "Ram": 29.9, ... } }` using first-name keys matching HTML. Convert `H:MM:SS` → `hours*60 + minutes + seconds/60`. Grey/DNP = omit from that game's stats (unless HTML has box score line — then 0 min only if played with stats).
+
+**Game 9:** no minute entries.
+
+### HTML name → DB `player_id` mapping (Executor step 0)
+
+Query Supabase `team_players` + `players` for `team-1780252086140`. Map HTML first names:
+
+`Ram, Jeremy, Chenbin, Atif, Haniel, Enmao, Vernen, Stuwat, Sean, Wilbur, Zhanxian, Russell, Carl, Liam, Bryan`
+
+Known cross-team links (user): **Carl** → `player-sunig-ntu-22`; **Jeremy** → NTU Jeremy Chew; **Haniel** → IVP/NTU Haniel Muze. Others: match by `players.name` on KX roster.
+
+**Gate:** All 15 names resolve to existing `player_id` before any import. If any fail, stop and ask user.
+
+### JSON bundle shape (every game)
+
+- `tournament`: `{ id: tournament-1780251377063, name: <from DB>, year: 2024, month: "Apr", teamIds: [KX, ...all 11 opponents] }`
+- `teams`: KX + opponent rows, **`players: []`** always
+- `game`: `homeTeamId` = KX, `trackBothTeams: false`, `gameStats` = KX players only (from HTML + minutes), `homeStarters` = top 5 by minutes
+- Import flag: **`--stats-only` for all 13 games**
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **KX.0** | Query DB: tournament name, KX roster name→`player_id` map | 15/15 players mapped; printed table for user |
+| **KX.1** | Add `kx-div2-minutes.json` (spreadsheet) | 12 games with minutes; game 9 absent |
+| **KX.2** | `scripts/parse-easystats-html.ts` + generate 12 JSON bundles | Dry-run stats counts match HTML pts totals |
+| **KX.3** | Hand-build game 9 walkover JSON | Score 20-0, empty stats |
+| **KX.4** | `npm run import:boxscore -- --stats-only` × 13 (chronological) | No player upserts; games visible under tournament |
+| **KX.5** | Verify: KX team page, player pages, box scores, minutes column | User QA checklist |
+
+### Verification checklist (user QA)
+
+1. Tournament shows **13 games** with correct W/L scores
+2. Game 9 = 20-0, no box score lines
+3. Each played game: KX player stats + **minutes** match spreadsheet
+4. Carl / Jeremy / Haniel stats on **one player profile** each (multi-team jerseys OK)
+5. Opponent teams have **0 roster players**
+6. NTU / Sunig data unchanged
+
+**Designer confidence: ~98%** — ready for **Executor mode** on user OK.
+
+**Status:** Import complete (KX.0–KX.4). **KX.M** minutes discrepancy investigation below (Designer, 2026-06-01).
+
+---
+
+### KX.M — Minutes discrepancy investigation (Designer, 2026-06-01)
+
+**User report:** Box score minutes in app don’t match spreadsheet (`Screenshot 2026-06-01 at 6.14.22 PM.png`).
+
+#### Findings (verified)
+
+| Check | Result |
+|-------|--------|
+| `kx-div2-minutes.json` vs screenshot (12 games) | **0 mismatches** — transcription is correct |
+| Generated `json/*.json` bundles vs `kx-div2-minutes.json` | **0 mismatches** — builder applies sheet values |
+| Easy Stats HTML box scores vs minutes | Minutes are **not** in HTML; only counting stats. No conflict expected. |
+| Root cause of “slight” differences | **Import rounds to 1 decimal** + **UI `formatTime` reconstructs MM:SS from rounded decimal** |
+
+**Mechanism (example — Game 1 Haniel):**
+
+- Spreadsheet: `0:20:55` → exact decimal **20.9167** min  
+- Import stores: `Math.round(20.9167 * 10) / 10` → **20.9**  
+- `BoxScore.formatTime(20.9)`: floor 20 min + `round(0.9 × 60)` sec → **20:54** (not 20:55)
+
+Automated check: **~90 / ~120** player-game rows show ±1s display gap vs spreadsheet when comparing MM:SS; only **9** have >0.05 min numeric gap from 1-decimal rounding (max 0.05 min).
+
+**Not a data/transcription bug.** Supabase should match import JSON (same rounding).
+
+**Spreadsheet footnote:** Summary row shows **16:00:00** total team minutes; 12 × 3:20:00 = **40:00:00**. That’s a spreadsheet formula error — ignore for import QA.
+
+#### Recommended fix (Executor — two small changes)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **KX.M1** | `build-kx-div2-imports.ts`: store **full precision** minutes from H:MM:SS (remove `*10/10` round) | JSON `minutes_played` equals `h+m/60+s/3600` to ≥4 decimals |
+| **KX.M2** | `BoxScore.formatTime`: derive display from **total seconds** — `Math.round(minutes * 60)` then format `M:SS` | All 12 games: every played cell matches spreadsheet MM:SS (automated script) |
+| **KX.M3** | `npm run build:kx-div2` + re-import all 13 with `--stats-only` | Supabase `game_stats.minutes_played` updated |
+| **KX.M4** | User spot-check: Game 1 Amity, Game 13 Clementi (Ram 40:00) | Minutes column matches screenshot |
+
+**Scope note:** KX.M2 affects **all** box scores app-wide (display only). Prefer this over KX-only hack — fixes any future imports with fractional minutes.
+
+**Out of scope:** Changing counting stats from HTML; adding `seconds_played` DB column (unnecessary if float + display fix suffice).
+
+**Designer confidence: 95%** — user discrepancies explained; ready for **Executor mode** on KX.M1.
+
+---
+
+## Executor's Feedback or Assistance Requests (KX Div2 — 2026-06-01)
+
+**KX.0–KX.4 complete.**
+
+- Mapped 15/15 KX roster players to existing `player_id` (Vernon in DB = “Vernen” in HTML).
+- Added `kx-div2-minutes.json`, `scripts/build-kx-div2-imports.ts`, 13 JSON bundles under `Importingboxscores/KX Div2 '24/json/`.
+- Imported all games with `--stats-only` (no new players).
+- Supabase verify: **13 games** on `tournament-1780251377063`; walkover **20–0** with **0** stat lines; KX roster still **15** players.
+
+**Re-import:** `npm run build:kx-div2` then import each JSON with `--stats-only`.
+
+**User QA (KX.5):** Hard-refresh → tournament → 13 games; spot-check box scores, minutes (Ram ~29.9 min game 1), Carl profile has Div2 stats on games 4+.
+
+**KX.M (Executor, 2026-06-01):** KX.M1–M3 done.
+
+- Removed 1-decimal round in `build-kx-div2-imports.ts`; `formatTime` uses `Math.round(minutes * 60)` in `BoxScore.tsx`.
+- Rebuilt 13 JSON bundles; automated check: **0** storage/display mismatches vs spreadsheet.
+- Re-imported all 13 games `--stats-only` (all succeeded).
+- **KX.M4:** Awaiting user spot-check (Game 1 Amity Haniel **20:55**, Game 13 Ram **40:00**).
+
+---
+
+## U21 Gemilang Cup — Kai Xuan import (Designer, 2026-06-02)
+
+### Background
+
+- **Tournament already in DB:** `tournament-1780333884144` — **Gemilang Cup U21**, year **2023**, month **Jun**.
+- **Team:** Kai Xuan `team-1780252086140` (already on tournament; **no opponent teams** linked yet).
+- **Sources:** 5 Easy Stats HTML files in `Importingboxscores/U21 Gemilang Cup/` + screenshot **average MPG** (decimal).
+- **Minutes strategy (user):** Per game, each player who **played** gets `minutes_played = tournament_avg_mpg` from screenshot → season MPG matches screenshot.
+- **Home/away:** KX **home** all games **except vs Gemilang** (KX **away**).
+- **Roster:** Players already created on KX team (~28 `team_players` rows; some duplicate jersey #s from Div2 + U21).
+
+### Games (from HTML titles + dates)
+
+| G# | Date | Opponent | Score (KX–Opp) | HTML file | KX side |
+|----|------|----------|----------------|-----------|---------|
+| 1 | 2023-06-04 | Skudai | **86–41** W | `Kaixuan U21 vs Skudai 030623.html` | Home |
+| 2 | 2023-06-12 | 新士乃 (XinShiNai) | **69–71** L | `Kaixuan U21 vs 新士乃 110623.html` | Home |
+| 3 | 2023-06-13 | Gemilang | **92–75** W | `Kaixuan U21 vs Gemilang 110623.html` | **Away** |
+| 4 | 2023-06-19 | Sunway | **99–30** W | `Kaixuan U21 vs Sunway 180623.html` | Home |
+| 5 | 2023-06-26 | DianFeng | **61–62** L | `Kaixuan U21 vs DianFeng 240623.html` | Home |
+
+**0 games imported** on this tournament so far.
+
+### User overrides
+
+| Game | Rule |
+|------|------|
+| **vs DianFeng** | **Exclude Bryan** — HTML has 0-stat line; user confirms DNP |
+| **Starters (KX)** | See table below |
+
+| Game | Starters (5) |
+|------|----------------|
+| DianFeng | Jeremy, Andre, Carl, Haniel, Liam |
+| Sunway | Jeremy, Carl, Bryan, Joseph, Scott |
+| @ Gemilang | Andre, Bryan, Jeremy, Carl, Russell |
+| 新士乃 | Jeremy, Carl, Andre, Bryan, Russell |
+| Skudai | Andre, Haniel, Bryan, Carl, Jeremy |
+
+### Tournament average minutes (screenshot → `kx-u21-gemilang-mpg.json`)
+
+Map by **jersey # from HTML** (not DB jersey if they differ):
+
+| # | Name | GP | Avg MP |
+|---|------|-----|--------|
+| 2 | Joseph | 1 | 22.0 |
+| 4 | Haniel | 2 | 26.5 |
+| 88 | Andre | 4 | 26.8 |
+| 22 | Carl | 5 | 26.2 |
+| 10 | Jeremy | 5 | 31.7 |
+| 87 | Bryan | 4 | 20.5 |
+| 45 | Jeffers | 2 | 8.3 |
+| 7 | Jacque | 1 | 10.0 |
+| 0 | Leyang | 4 | 13.4 |
+| 1 | Liam | 3 | 22.3 |
+| 77 | William | 1 | 17.0 |
+| 6 | Jaiganesh | 5 | 15.8 |
+| 12 | Russell | 2 | 16.5 |
+| 11 | Scott | 3 | 15.3 |
+| 21 | Siuchun | 1 | 13.0 |
+| 27 | Clarence | 3 | 10.7 |
+| 14 | Terrell | 5 | 11.5 |
+| 13 | Collin | 3 | 6.7 |
+| 9 | Mingyao | 1 | 2.0 |
+
+**Per-game minutes:** `minutes_played = avg_mp` for each included stat line.
+
+### HTML → `player_id` (Executor KX.U21.0 gate)
+
+Resolve each row by `(jersey #, first name)` against `team_players` + `players.name` on `team-1780252086140`. Known links: Carl **#22**, Jeremy **#10**, Haniel **#4**.
+
+**HTML quirks:**
+
+- Bryan listed as **#87** in HTML; DB roster may show Bryan as **#1** — match by **name**, not DB number.
+- Skudai / 新士乃: Liam appears as **#16** in HTML — likely same player as **#1 Liam**; confirm with user.
+- Names: `Ming Yao` / `Mingyao`, `Siu Chun` / `Siuchun`, `Jaiganesh` — normalize when matching.
+
+### “Actually played” rule (user-confirmed, 2026-06-02)
+
+**Screenshot GP is authoritative.** Many HTML rows are roster/scoresheet placeholders (name listed, no real participation).
+
+**Include stat line only if** (after parsing):
+
+1. Not an explicit per-game omit (Bryan @ DianFeng).
+2. **Not** Liam jersey **#16** (wrong number; user: didn’t play those games).
+3. **Meaningful box score activity:** at least one of — points, FG/3P/FTA attempted, ORB+DRB, AST, STL, BLK — is &gt; 0.  
+   - Excludes all-dash rows and **all-zero** lines (e.g. Bryan @ DianFeng, Ming Yao 0-0 @ DianFeng).
+
+**Validation:** This rule reproduces screenshot GP for **17/19** players. Remaining gaps below.
+
+### GP validation (strict rule vs screenshot)
+
+| Player | Screenshot GP | Games included (strict rule) | Status |
+|--------|---------------|------------------------------|--------|
+| Jeremy, Carl, Bryan*, Haniel, Andre, Russell, Jacque, Jeffers, Joseph, Leyang, Jaiganesh, Scott, Siuchun, Clarence, Collin, Terrell, William | per screenshot | match | OK |
+| **Liam** | **3** | **2** — DianFeng, Gemilang only (Sunway #1 all-dash; #16 rows skipped) | **ASK** |
+| **Mingyao** | **1** | **0** — only rows: Sunway all-dash, DianFeng 0-0 | **ASK** |
+
+\*Bryan: omit DianFeng only.
+
+**Inferred Liam candidates for game 3:** 新士乃 has `#16 Liam` with 2 pts — if that row **is** Liam (jersey typo) and only Skudai #16 should be ignored, GP becomes **3**. User said “ignore Liam #16” — clarify scope.
+
+### Opponent teams (auto abbreviations)
+
+| Opponent | Proposed `team_id` | Abbr |
+|----------|-------------------|------|
+| Skudai | `team-kx-u21-skudai` | SKD |
+| 新士乃 | `team-kx-u21-xinshinai` | XSN |
+| Gemilang | `team-kx-u21-gemilang` | GEM |
+| Sunway | `team-kx-u21-sunway` | SUN |
+| DianFeng | `team-kx-u21-dianfeng` | DF |
+
+Empty rosters; linked to `tournament-1780333884144`.
+
+### Player matching (user-confirmed)
+
+- Match HTML → DB by **first name** (normalize `Ming Yao`→Mingyao, `Siu Chun`→Siuchun).
+- **Bryan** → DB jersey **#1** (HTML may show #87).
+
+### Proposed import shape (mirror KX Div2)
+
+- `scripts/build-kx-u21-gemilang-imports.ts` — parse HTML, apply omit lists + starters, attach constant MPG, write `json/*.json`.
+- `Importingboxscores/U21 Gemilang Cup/kx-u21-gemilang-mpg.json` — jersey → avg minutes.
+- `Importingboxscores/U21 Gemilang Cup/kx-u21-game-config.json` — per-game `omitPlayers`, `starters`, `homeAway`.
+- 5× opponent placeholder teams (`players: []`), abbreviations e.g. SKD, XSN, GEM, SUN, DF.
+- `trackBothTeams: false`, `--stats-only` (no new players).
+- `teamStats`: score-only shells (same as Div2); team page season card still needs aggregation fix (KX.M2 pattern) if not done globally.
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **U21.0** | Query DB: KX roster name/# → `player_id`; print mapping table | All HTML names resolve; flag duplicates |
+| **U21.1** | Add `kx-u21-gemilang-mpg.json` + `kx-u21-game-config.json` | Matches screenshot + user starters/omit |
+| **U21.2** | Build script + 5 JSON bundles | KX pts per game match HTML team totals |
+| **U21.3** | Link opponent teams to tournament; import 5 games `--stats-only` | 5 games visible; 0 new players |
+| **U21.4** | Verify MPG on player profiles + box scores | Spot-check Carl/Jeremy/Bryan |
+| **U21.5** | User QA | Tournament standings, game log, minutes |
+
+### User clarifications (2026-06-02, final)
+
+1. **Liam — option A:** Ignore `#16 Liam` **only on Skudai**. Count 新士乃 `#16 Liam` (2 pts) as Liam (jersey typo). → **3 GP** (DianFeng, Gemilang, 新士乃).
+2. **Mingyao:** Played **DianFeng** — box score is not empty (0 pts but **2 DRB, 1 STL, 1 TO**). Include that game; **1 GP**, **2.0 MPG**.
+
+### “Actually played” rule (final)
+
+Include row if **any** counting stat &gt; 0: PTS, FGA (fg/3p/ft attempted), ORB, DRB, AST, STL, BLK, **TO**.
+
+Plus:
+
+- Explicit omit: **Bryan @ DianFeng**
+- Skip: **Liam #16 on Skudai only**
+- Name match to DB (Bryan by name → jersey #1 in DB)
+
+**Validation:** All **19/19** screenshot GP counts match under this rule. KX team points per game match HTML finals (61, 92, 86, 99, 69).
+
+### Minutes
+
+`kx-u21-gemilang-mpg.json` — map normalized first name → `{ gp, mpg }` from screenshot.  
+Each imported game for that player: `minutes_played = mpg` (decimal).
+
+### Home / away + score (Gemilang game)
+
+| Game | `homeTeamId` | `awayTeamId` | `finalScore` |
+|------|--------------|--------------|--------------|
+| KX home (4 games) | KX | opponent | `{ home: kxPts, away: oppPts }` |
+| @ Gemilang | Gemilang (`team-kx-u21-gemilang`) | KX | `{ home: 75, away: 92 }` |
+
+KX starters go in `homeStarters` when KX home, else `awayStarters` when KX away (`trackBothTeams: false`).
+
+### Starters (user-provided — not top-5-by-minutes)
+
+| Game | KX starters (`player_id` via name) |
+|------|-----------------------------------|
+| Skudai | Andre, Haniel, Bryan, Carl, Jeremy |
+| 新士乃 | Jeremy, Carl, Andre, Bryan, Russell |
+| @ Gemilang | Andre, Bryan, Jeremy, Carl, Russell |
+| Sunway | Jeremy, Carl, Bryan, Joseph, Scott |
+| DianFeng | Jeremy, Andre, Carl, Haniel, Liam |
+
+Stored in `kx-u21-game-config.json` per `game_id`.
+
+### Liam games (reference)
+
+| Game | Liam row | Import? |
+|------|----------|---------|
+| Skudai | #16 (ignore) | No |
+| 新士乃 | #16, 2 pts | **Yes** |
+| Gemilang | #1, 12 pts | Yes |
+| Sunway | #1, all `-` | No |
+| DianFeng | #1, 5 pts | Yes |
+
+### Files / script (Executor)
+
+- `Importingboxscores/U21 Gemilang Cup/kx-u21-gemilang-mpg.json`
+- `Importingboxscores/U21 Gemilang Cup/kx-u21-game-config.json`
+- `scripts/build-kx-u21-gemilang-imports.ts` (fork Div2 parser + played filter + away-game score flip)
+- `Importingboxscores/U21 Gemilang Cup/json/*.json` (5 games)
+- `package.json`: `npm run build:kx-u21-gemilang`
+- Import: `npm run import:boxscore -- --file … --stats-only` × 5
+
+### Executor gate U21.0
+
+Print name → `player_id` for all **19** MPG players; halt if any unresolved (watch duplicate jersey #s on KX roster — **name wins**).
+
+### Out of scope (this task)
+
+- Opponent player stats / rosters
+- Per-game real minutes (only tournament avg proxy)
+- Team-page season “Team Statistics” card (still reads empty `teamStats` unless separate TeamPage aggregation fix)
+
+### Final check — one optional confirm
+
+**Starters:** The five names you listed each game are **Kai Xuan starters only** (not opponent). Assumed **yes** — reply only if wrong.
+
+**Designer confidence: ~98%** — ready for **Executor mode** on your go.
+
+**Status:** Plan complete; say **Executor mode** to start U21.0.
+
+### Executor progress (2026-06-02)
+
+**U21.0–U21.3 complete.**
+
+- Mapped 19/19 MPG players to `player_id` (name match on KX roster).
+- Added `kx-u21-gemilang-mpg.json`, `kx-u21-game-config.json`, `scripts/build-kx-u21-gemilang-imports.ts`, `npm run build:kx-u21-gemilang`.
+- Built 5 JSON bundles; point totals match HTML (86, 69, 92, 99, 61); all 19 GP counts match screenshot.
+- Imported all 5 games `--stats-only`; created 5 opponent teams (SKD, XSN, GEM, SUN, DF).
+- Gemilang game: KX away (`home_team_id` = Gemilang); Bryan omitted @ DianFeng.
+
+**U21.4 / U21.5:** User QA — hard-refresh → Gemilang Cup U21 → 5 games; spot-check Carl/Jeremy/Liam MPG; DianFeng no Bryan line.
+
+**Re-import:** `npm run build:kx-u21-gemilang` then import each JSON in `Importingboxscores/U21 Gemilang Cup/json/` with `--stats-only`.
+
+---
+
+## Team page — Team Statistics aggregation (Designer, 2026-06-02)
+
+### User concern (valid)
+
+Summing **each player’s per-game average** (e.g. add all players’ RPG) is **wrong** when not everyone plays every game. You double-count “slots” as if 15 players each averaged 3 rebounds meant the team gets 45 RPG.
+
+**Toy example:**
+
+| Game | Player A steals | Player B steals |
+|------|----------------|-----------------|
+| 1 | 5 | (DNP) |
+| 2 | (DNP) | 5 |
+
+| Method | Result |
+|--------|--------|
+| **Correct team SPG** | (5 + 5) / 2 games = **5.0** |
+| **Wrong: Σ player SPG** | A avg 5 + B avg 5 = **10.0** (inflated) |
+
+Same logic applies to ORB, DRB, fouls, etc.
+
+### Correct definition (target)
+
+For scoped team games:
+
+1. **Per game *g*:** `teamStat(g)` = sum of box-score rows for **that game only** (roster `playerId`s who have a line in *g*).
+2. **Team season average** = `Σ teamStat(g) / G` where **G** = team games in scope that have a usable box score (not Σ player averages).
+
+Shooting %: recompute from **totaled** FGM/FGA across games (not average of player FG%).
+
+### Current code audit (post-fix)
+
+`TeamPage.calculateTeamStatsFromGames` (2026-06-02) **intends** the correct formula:
+
+- Loop each completed scoped game → `sumPlayerStatsForRoster(game, rosterIds)` → divide by `completedGames.length`.
+
+**Not** summing `aggregatePlayerSeasonStats` rows.
+
+If UI still *looks* inflated, causes to check in Executor:
+
+| Risk | Mitigation |
+|------|------------|
+| Denominator includes games with **no** box score (walkover) | Use only games where `rosterHasPlayerBoxScore` for **G** |
+| User mentally sums **Player Stats table** RPG column | Add UI note: team card ≠ sum of player averages |
+| Stale build before per-game fix | Hard refresh |
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **TS.1** | Extract `aggregateTeamSeasonAverages(team, games)` → `gameDisplay.ts` | Unit test: alternating-DNP example → team SPG = 5, sum of player SPG = 10 |
+| **TS.2** | Denominator = games with roster box score only | Walkover excluded from **G** |
+| **TS.3** | Wire `TeamPage` + subtitle: “Per team game (N games)” | Label matches formula |
+| **TS.4** | Manual QA: Kai Xuan all tournaments — team RPG ≈ reasonable vs eyeballing box scores | User confirms |
+
+**Designer confidence: 95%** on problem definition; **90%** current code is already per-game-sum (verify with TS.1 test).
+
+**Status (Executor 2026-06-02):** TS.1–TS.3 done.
+
+- `aggregateTeamSeasonAverages` + `teamGameCountsForSeasonAverages` in `src/utils/gameDisplay.ts`
+- `TeamPage` uses `totals` for FG%/3P%/FT%, `perGame` for counting stats; CardDescription with game count
+- Denominator excludes completed games with no box score / no persisted counting stats (walkovers)
+- `npm run test:team-season-aggregate` — alternating-DNP steals: team 5.0 ≠ player-sum 10.0
+
+**Project Status Board:** [x] TS.1 [x] TS.2 [x] TS.3 — [ ] TS.4 user QA on Kai Xuan team page
+
+### Designer audit — NTU (`team-sunig-ntu`) not “applying” (2026-06-02)
+
+**Finding: The webapp does use the new logic for NTU on Team → Stats tab.** There is only one code path: `TeamPage` → `aggregateTeamSeasonAverages(filteredStatsGames, team)` (same for every team id, including NTU).
+
+**Sanity check on import JSON (10 NTU games, SUNIG + IVP):**
+
+| Metric | Correct (team per-game) | Wrong (Σ player per-game avgs) |
+|--------|-------------------------|--------------------------------|
+| Steals | **11.8** | 16.4 |
+| Rebounds | **46.6** | 65.3 |
+
+User-reported ~**11.4 steals** / **~42 RPG** aligns with the **correct** column, not the inflated sum-of-player-rows. So the card may already be fixed while still *feeling* high vs NBA or vs mentally adding the Player Stats table.
+
+**How to confirm in browser (NTU team page → Stats):**
+
+1. Subtitle under “Team Statistics”: *“Per team game from box scores (N games). Not the sum of player averages below.”*
+2. If that text is **missing** → stale bundle: hard refresh or `npm run dev` / rebuild.
+3. Optional check: add RPG column in Player Stats mentally — sum of rows ≈ **65**, not **42**; team card should be closer to **42–47**.
+
+**Not yet wired (other surfaces):**
+
+| Surface | Current logic | Needs TS.5? |
+|---------|---------------|-------------|
+| Team → **Stats** → Team Statistics card | `aggregateTeamSeasonAverages` | Done |
+| Team → **Overview** (leaders) | Per-player GP averages | OK for leaders |
+| **Tournament** standings extended stats (RPG, APG, %) | `game.teamStats.home/away` persisted only | Yes if user expects same formula there |
+
+**Hypotheses if user still disagrees after seeing subtitle:**
+
+| # | Hypothesis | Check |
+|---|------------|-------|
+| H1 | Comparing team card to **sum of Player Stats table** | Sum steals ≈ 16+, not 11 |
+| H2 | Viewing **Tournament** page, not Team Stats | Different code path |
+| H3 | Stale frontend | Subtitle absent |
+| H4 | Supabase roster/game mismatch | `gamesInSample` &lt; expected game count |
+| H5 | Expecting lower “real” basketball norms | One NTU game had 17 team steals, 40 reb (verified in import) |
+
+**Recommended Executor (only if user confirms subtitle missing or wants parity):**
+
+| Step | Task |
+|------|------|
+| TS.5 | Reuse `aggregateTeamSeasonAverages` in `TournamentPage` extended standings |
+| TS.6 | Optional: show “Σ player avgs would be X” debug/tooltip on Team Stats card |
+
+**Designer:** Do **not** re-implement NTU-only logic; issue is likely **expectation / wrong surface / stale build**, not a missing NTU branch.
+
+---
+
+## Team Statistics card — basketball UX redesign (Designer, 2026-06-02)
+
+### Problem (user feedback)
+
+Current **Team → Stats → Team Statistics** card is weak from a hoops perspective:
+
+| Issue | Detail |
+|-------|--------|
+| **Missing core box-score stats** | **APG**, **TOPG**, **PPG** exist in `TeamSeasonStatBucket` but are **not rendered** |
+| **Mis-grouped stats** | “Defense” shows steals/blocks/fouls — fouls are not defensive metrics; assists/turnovers are playmaking, not shown |
+| **Misleading “Advanced” column** | Paint / fastbreak / 2nd chance always **0.0** for Easy Stats imports → looks broken |
+| **No efficiency metrics** | Per-game box score (`TeamStats.tsx`) shows eFG%, TS%, AST/TO; season card does not |
+| **Inconsistent with player table** | Player Stats below has PPG, RPG, APG, SPG, BPG, TOPG — team card doesn’t mirror |
+
+Data layer is fine (`aggregateTeamSeasonAverages` already sums assists, turnovers per team game). This is a **presentation + derived-metrics** gap.
+
+### Design principles
+
+1. **Team season = sum each game’s team line ÷ games** (keep current aggregation; no sum-of-player-avgs).
+2. **Mirror what coaches expect**: box score categories + a few efficiency rates.
+3. **Don’t show fake zeros**: optional team-level fields only when recorded (same rule as `TeamStats.tsx` / `OptionalStatBadge`).
+4. **Stay scoped**: respect tournament filter; optional hook to Overview PPG/PAPG for consistency.
+
+### Proposed layout (recommended)
+
+Replace 4-column grid with **5 logical groups** (responsive: 2 cols mobile → 3–5 desktop).
+
+#### Row A — Headline (4 compact KPIs, optional)
+
+| KPI | Source | Notes |
+|-----|--------|-------|
+| **PPG** | Sum `resolveTeamScore(game, teamId)` per scoped game ÷ G | Matches Overview |
+| **Opp PPG** | Opponent scores from `finalScore` ÷ G | Same as Overview `papg` |
+| **AST/TO** | `totals.assists / totals.turnovers` | Show “—” if TO = 0 |
+| **eFG%** | `(FGM + 0.5×3PM) / FGA` from `totals` | Standard |
+
+#### Row B — Detail columns
+
+| Column | Stats | Type |
+|--------|-------|------|
+| **Scoring** | FG%, 3P%, FT%, **2P%** (derived), FGM/G, FGA/G (optional) | % from totals; volume per-game from `perGame` |
+| **Playmaking** | **APG**, **TOPG**, **AST/TO** | Per-game from `perGame` |
+| **Rebounding** | ORB/G, DRB/G, **RPG** (total) | Already have; keep |
+| **Defense** | SPG, BPG, **SPG+BPG** optional | Remove **fouls** from this column |
+| **Discipline** | **FPG** (fouls per game) | Own small group — not “defense” |
+| **Advanced** *(conditional)* | Paint, FB, 2nd chance, Pts off TO | Only if `getTeamAdvancedStatCoverage(games)` &gt; 0; else **hide column** or single line “Not tracked in this scope” |
+
+**Remove** fouls from “Defense”. **Add** assists + turnovers prominently.
+
+### Derived metrics (add helper in `gameDisplay.ts`)
+
+```ts
+export function computeTeamSeasonDerived(totals: TeamSeasonStatBucket, perGame: TeamSeasonStatBucket) {
+  return {
+    ppg: /* from points totals — see TS.7 */,
+    efgPct, tsPct, twoPtPct, astTo,
+    rpg: perGame.orb + perGame.drb,
+    apg: perGame.assists,
+    topg: perGame.turnovers,
+    spg: perGame.steals,
+    bpg: perGame.blocks,
+    fpg: perGame.fouls,
+  };
+}
+```
+
+**TS.7:** Extend `TeamSeasonStatBucket` with `points` (sum player points per game in contribution fn) OR compute PPG in `TeamPage` from `filteredStatsGames` + `resolveTeamScore` (no schema change).
+
+**TS%:** `totals` need total points — use sum of `resolveTeamScore` across sample games for numerator.
+
+### Advanced stats coverage
+
+New helper (parallel to `getShotDataCoverage`):
+
+- `getTeamAdvancedStatCoverage(games, teamId)` → count games where persisted `points_in_paint` / `fastbreak_points` / `second_chance_points` / `points_off_turnovers` is non-null and &gt; 0.
+- If **0 games**, omit Advanced section entirely (fixes NTU/KX import UX).
+
+### Optional stretch (later)
+
+| Item | Value | Effort |
+|------|-------|--------|
+| Mini comparison vs league avg | High | Needs league aggregates |
+| Link “View game breakdown” | Medium | Reuse `TeamStats` per game |
+| TS.5 Tournament standings same aggregation | Medium | Already noted |
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **TS.7** | Add `points` to season bucket OR scoped PPG helper | PPG matches Overview for same scope |
+| **TS.8** | `computeTeamSeasonDerived` + `getTeamAdvancedStatCoverage` in `gameDisplay.ts` | Unit test for eFG%, AST/TO |
+| **TS.9** | Refactor `TeamPage` Stats card to new column layout | APG, TOPG visible; fouls under Discipline |
+| **TS.10** | Hide Advanced when coverage = 0 | NTU/KX imports: no 0.0 paint column |
+| **TS.11** | Optional headline KPI row (PPG, Opp PPG, AST/TO, eFG%) | Matches screenshot tournaments |
+
+**Out of scope:** Changing aggregation math (already correct).
+
+**Designer confidence:** 95% on layout; 90% PPG should come from `resolveTeamScore` per game for walkover/score-only edge cases.
+
+**Status (Executor 2026-06-02):** TS.7–TS.11 done.
+
+- `TeamSeasonStatBucket.points`; `computeScopedTeamScoring`, `getTeamAdvancedStatCoverage`, `computeTeamSeasonDerived` in `gameDisplay.ts`
+- Team Stats card: KPI row (PPG, Opp PPG, AST/TO, eFG%); columns Scoring / Playmaking / Rebounding / Defense / Discipline; Advanced only when persisted data exists
+- Tests extended in `npm run test:team-season-aggregate`
+
+**Project Status Board:** [x] TS.7–TS.11
+
+### TS% NaN + Advanced column restore (2026-06-02)
+
+**Root cause TS% NaN:**
+1. `totals.points` could become **NaN** when any `gameStats` row had missing numeric fields (`undefined + number` in `sumPlayerStatsForRoster`).
+2. `formatPct` used `value != null` — **NaN passes** that check → renders `NaN%`.
+3. TS% used box-score point sum while PPG used **final scores** (83.4 PPG) — mismatch when points sum was 0/NaN but FGA existed.
+
+**Fix:** Safe numeric adds in roster sum; TS% uses `ppg × gamesWithScore` when available; `Number.isFinite` in `formatPct`; Advanced column always visible (TS%, Paint, Fastbreak, 2nd Chance, Pts off TO).
+
+---

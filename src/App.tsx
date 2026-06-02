@@ -1392,6 +1392,25 @@ export default function App() {
         }));
       }
       
+      setGames((prevGames) =>
+        prevGames.map((g) => {
+          let next = g;
+          if (g.homeTeamId === sanitizedTeam.id) {
+            next = {
+              ...next,
+              homeTeam: { ...g.homeTeam, ...sanitizedTeam, players: g.homeTeam.players },
+            };
+          }
+          if (g.awayTeamId === sanitizedTeam.id) {
+            next = {
+              ...next,
+              awayTeam: { ...g.awayTeam, ...sanitizedTeam, players: g.awayTeam.players },
+            };
+          }
+          return next;
+        })
+      );
+
       return newTeams;
     });
   }, [tournaments]);

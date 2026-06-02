@@ -530,7 +530,7 @@ export function PlayerStatsTable({
                       )}
                       {showTeamColumn && (
                         <TableCell className={`text-sm ${cellHighlight('Team')}`}>
-                          {playerData.team.abbreviation}
+                          {isSummaryRow ? '-' : playerData.team.abbreviation}
                         </TableCell>
                       )}
                       {isBreakdown && showAgeColumn && (

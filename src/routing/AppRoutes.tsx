@@ -482,6 +482,7 @@ export function AppRoutes(props: AppRoutesProps) {
         element={
           <RecentGames
             games={games}
+            teams={teams}
             onBack={() => navigate(paths.home)}
             onNavigateToGame={(gameId) => {
               const game = games.find((g) => g.id === gameId);

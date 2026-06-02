@@ -9,6 +9,7 @@ import {
   resolvePlayerTeamIdForGames,
 } from './rosterPlayers';
 import { getPlayerAgeAtTournamentSeason } from './playerAge';
+import { getTournamentDateMs } from './tournamentSort';
 
 export type TournamentScope = 'all' | string;
 
@@ -31,6 +32,8 @@ export interface PlayerSeasonRow {
   isSummaryRow?: boolean;
   /** Age during tournament season; null for summary / unknown. */
   ageAtScope?: number | null;
+  /** Tournament season start (ms) for Scope column sort; newest first when desc. */
+  scopeSortDateMs?: number;
 }
 
 export interface ShotDataCoverage {
@@ -357,6 +360,12 @@ export function buildPlayerTournamentSeasonRows(
     return tournaments.find((t) => t.id === tournamentId)?.name ?? tournamentId;
   };
 
+  const tournamentSortDateMs = (tournamentId: string): number => {
+    if (tournamentId === 'no-tournament') return 0;
+    const tournament = tournaments.find((t) => t.id === tournamentId);
+    return tournament ? getTournamentDateMs(tournament) : 0;
+  };
+
   const ageAtTournament = (tournamentId: string): number | null => {
     if (tournamentId === 'no-tournament' || tournamentId === 'all-time') {
       return null;
@@ -397,8 +406,8 @@ export function buildPlayerTournamentSeasonRows(
   };
 
   const rows: PlayerSeasonRow[] = [...byTournament.entries()]
-    .sort(([aId], [bId]) =>
-      tournamentLabel(aId).localeCompare(tournamentLabel(bId))
+    .sort(
+      ([aId], [bId]) => tournamentSortDateMs(bId) - tournamentSortDateMs(aId)
     )
     .map(([tournamentId, scopedGames]) => {
       const team = teamForScope(scopedGames);
@@ -408,6 +417,7 @@ export function buildPlayerTournamentSeasonRows(
         scopeLabel: tournamentLabel(tournamentId),
         scopeId: tournamentId,
         ageAtScope: ageAtTournament(tournamentId),
+        scopeSortDateMs: tournamentSortDateMs(tournamentId),
       };
     });
 
@@ -442,8 +452,16 @@ export function sortPlayerSeasonRows(
 
     switch (sortField) {
       case 'Scope':
-        aValue = (a.scopeLabel ?? a.player.name).toLowerCase();
-        bValue = (b.scopeLabel ?? b.player.name).toLowerCase();
+        if (
+          a.scopeSortDateMs !== undefined ||
+          b.scopeSortDateMs !== undefined
+        ) {
+          aValue = a.scopeSortDateMs ?? 0;
+          bValue = b.scopeSortDateMs ?? 0;
+        } else {
+          aValue = (a.scopeLabel ?? a.player.name).toLowerCase();
+          bValue = (b.scopeLabel ?? b.player.name).toLowerCase();
+        }
         break;
       case 'Player':
         aValue = a.player.name.toLowerCase();
@@ -697,8 +715,10 @@ export function sortPlayerSeasonRows(
 export function defaultSortOrderForField(
   field: PlayerStatsSortField
 ): 'asc' | 'desc' {
+  if (field === 'Scope') {
+    return 'desc';
+  }
   if (
-    field === 'Scope' ||
     field === 'Player' ||
     field === 'Team' ||
     field === 'Age' ||

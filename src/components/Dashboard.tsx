@@ -167,6 +167,7 @@ export function Dashboard({
               <DashboardGamePreview
                 key={game.id}
                 game={game}
+                teams={teams}
                 tournamentName={
                   game.tournamentId
                     ? tournamentNameById.get(game.tournamentId)

@@ -65,6 +65,9 @@
             "db:migrate:003": "tsx scripts/apply-migration-003.ts",
             "db:migrate:004": "tsx scripts/apply-migration-004.ts",
             "restore:yuanyang": "tsx scripts/restore-yuanyang-roster.ts",
-            "repair:rosters": "tsx scripts/repair-rosters.ts"
+            "repair:rosters": "tsx scripts/repair-rosters.ts",
+            "build:kx-div2": "tsx scripts/build-kx-div2-imports.ts",
+            "build:kx-u21-gemilang": "tsx scripts/build-kx-u21-gemilang-imports.ts",
+            "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts"
       }
 }
