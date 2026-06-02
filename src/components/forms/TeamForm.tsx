@@ -2,6 +2,7 @@ import React, { useRef, useCallback, useMemo, useState } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
+import { Textarea } from '../ui/textarea';
 import { Checkbox } from '../ui/checkbox';
 import { Tournament } from '../../App';
 import {
@@ -16,6 +17,7 @@ import { TeamIconField } from '../TeamIconField';
 export interface TeamFormValues {
   name: string;
   abbreviation: string;
+  description?: string;
   icon?: string;
   tournamentIds: string[];
 }
@@ -23,6 +25,7 @@ export interface TeamFormValues {
 interface TeamFormProps {
   initialName?: string;
   initialAbbreviation?: string;
+  initialDescription?: string;
   initialIcon?: string;
   initialTournamentIds?: string[];
   teamId?: string;
@@ -38,6 +41,7 @@ interface TeamFormProps {
 export const TeamForm = React.memo(({
   initialName = '',
   initialAbbreviation = '',
+  initialDescription = '',
   initialIcon,
   initialTournamentIds = [],
   teamId,
@@ -50,6 +54,7 @@ export const TeamForm = React.memo(({
 }: TeamFormProps) => {
   const nameRef = useRef<HTMLInputElement>(null);
   const abbreviationRef = useRef<HTMLInputElement>(null);
+  const descriptionRef = useRef<HTMLTextAreaElement>(null);
   const abbrevManuallyEditedRef = useRef(isEditing);
   const [icon, setIcon] = useState<string | undefined>(initialIcon);
   const [teamNamePreview, setTeamNamePreview] = useState(initialName);
@@ -118,6 +123,7 @@ export const TeamForm = React.memo(({
       onSubmit({
         name,
         abbreviation,
+        description: descriptionRef.current?.value.trim() || undefined,
         icon,
         tournamentIds: isEditing
           ? []
@@ -181,6 +187,17 @@ export const TeamForm = React.memo(({
         abbreviation={abbrevPreview}
         teamId={teamId}
       />
+
+      <div className="space-y-2">
+        <Label htmlFor="teamDescription">Description (Optional)</Label>
+        <Textarea
+          ref={descriptionRef}
+          id="teamDescription"
+          defaultValue={initialDescription}
+          placeholder="Enter team description"
+          rows={3}
+        />
+      </div>
 
       {!isEditing && !hideTournamentPicker && (
         <div className="space-y-2">

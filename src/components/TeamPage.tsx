@@ -8,6 +8,10 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Team, Game, Player, GameStats, Tournament } from '../App';
 import { MetricsCalculator } from './MetricsCalculator';
 import { AddPlayerDialog } from './AddPlayerDialog';
+import { TeamForm, type TeamFormValues } from './forms/TeamForm';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { ErrorBoundary } from './ErrorBoundary';
+import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
 import {
   formatHeightForDisplay,
   formatWeightForDisplay,
@@ -30,6 +34,11 @@ import {
   getTeamTournamentScopeOptions,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
+import {
+  getPlayersForTeamInTournament,
+  getTeamRosterScopeOptions,
+  type TournamentRosterEntry,
+} from '../utils/tournamentRosters';
 import { isPlayerOnTeam } from '../utils/rosterPlayers';
 import { resolvePlayerAge } from '../utils/playerAge';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
@@ -47,6 +56,7 @@ import {
   Star,
   MapPin,
   Plus,
+  Edit,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -211,6 +221,7 @@ interface TeamPageProps {
   games: Game[];
   tournaments: Tournament[];
   orphanPlayers?: Player[];
+  tournamentRosters?: TournamentRosterEntry[];
   activeTab: 'overview' | 'roster' | 'stats' | 'games';
   onTabChange: (tab: 'overview' | 'roster' | 'stats' | 'games') => void;
   onBack: () => void;
@@ -226,6 +237,7 @@ export function TeamPage({
   games = [], 
   tournaments = [],
   orphanPlayers = [],
+  tournamentRosters = [],
   activeTab, 
   onTabChange, 
   onBack,
@@ -246,12 +258,41 @@ export function TeamPage({
   
   // Player creation dialog state
   const [isAddPlayerDialogOpen, setIsAddPlayerDialogOpen] = useState(false);
+  const [isEditTeamDialogOpen, setIsEditTeamDialogOpen] = useState(false);
   const [rosterSortField, setRosterSortField] = useState<RosterSortField>('number');
   const [rosterSortOrder, setRosterSortOrder] = useState<'asc' | 'desc'>('asc');
   const [statsTournamentScope, setStatsTournamentScope] =
     useState<TournamentScope>('all');
+  const [rosterTournamentScope, setRosterTournamentScope] =
+    useState<TournamentScope>('all');
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+
+  const takenAbbreviations = useMemo(
+    () =>
+      teams
+        .filter((t) => t.id !== team.id)
+        .map((t) => t.abbreviation)
+        .filter(Boolean),
+    [teams, team.id]
+  );
+
+  const handleEditTeamSubmit = useCallback(
+    ({ name, abbreviation, description, icon }: TeamFormValues) => {
+      const resolvedAbbrev =
+        abbreviation.trim().toUpperCase() ||
+        generateTeamAbbreviation(name, takenAbbreviations);
+      onUpdateTeam({
+        ...team,
+        name,
+        abbreviation: resolvedAbbrev,
+        description,
+        icon,
+      });
+      setIsEditTeamDialogOpen(false);
+    },
+    [team, onUpdateTeam, takenAbbreviations]
+  );
   
   const handleAddPlayerToRoster = useCallback((player: Player) => {
     if (isPlayerOnTeam(player.id, team.id, teams)) {
@@ -283,8 +324,14 @@ export function TeamPage({
     [team.id, teamGames, tournaments]
   );
 
+  const rosterScopeOptions = useMemo(
+    () => getTeamRosterScopeOptions(team.id, teamGames, tournaments),
+    [team.id, teamGames, tournaments]
+  );
+
   useEffect(() => {
     setStatsTournamentScope('all');
+    setRosterTournamentScope('all');
   }, [team.id]);
 
   const filteredStatsGames = useMemo(
@@ -330,9 +377,36 @@ export function TeamPage({
     [filteredStatsGames]
   );
 
+  const rosterStatsGames = useMemo(
+    () =>
+      rosterTournamentScope === 'all'
+        ? teamGames
+        : filterTeamScopeGames(teamGames, team.id, rosterTournamentScope),
+    [teamGames, team.id, rosterTournamentScope]
+  );
+
+  const rosterPlayers = useMemo(() => {
+    if (rosterTournamentScope === 'all') {
+      return team.players;
+    }
+    return getPlayersForTeamInTournament(
+      team.id,
+      rosterTournamentScope,
+      teams,
+      tournamentRosters
+    );
+  }, [rosterTournamentScope, team.id, team.players, teams, tournamentRosters]);
+
+  const selectedRosterScopeLabel = useMemo(
+    () =>
+      rosterScopeOptions.find((option) => option.value === rosterTournamentScope)
+        ?.label ?? '',
+    [rosterScopeOptions, rosterTournamentScope]
+  );
+
   const rosterRows = useMemo(
     () =>
-      team.players.map((player) => {
+      rosterPlayers.map((player) => {
         const primary = player.position?.trim() || '';
         const secondary = player.secondaryPosition?.trim() || '';
         const age = resolvePlayerAge(player);
@@ -351,10 +425,10 @@ export function TeamPage({
           weightKg: parseStoredKg(player.weight ?? ''),
           ageNum: age,
           ageDisplay: age !== null ? String(age) : '-',
-          ...aggregateRosterPlayerSeasonStats(player.id, teamGames),
+          ...aggregateRosterPlayerSeasonStats(player.id, rosterStatsGames),
         };
       }),
-    [team.players, teamGames]
+    [rosterPlayers, rosterStatsGames]
   );
 
   const handleRosterSort = useCallback((field: RosterSortField) => {
@@ -704,33 +778,64 @@ export function TeamPage({
   );
 
   const RosterTab = () => (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="w-full space-y-4">
+      <div className="flex items-center gap-3">
         <h3 className="text-lg font-medium">Team Roster</h3>
-        <div className="flex items-center gap-3">
-          <Badge variant="secondary">{team.players.length} Players</Badge>
-          <Button 
-            size="sm"
-            onClick={() => setIsAddPlayerDialogOpen(true)}
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Add Player
-          </Button>
-        </div>
+        <Badge variant="secondary">
+          {rosterPlayers.length}{' '}
+          {rosterPlayers.length === 1 ? 'Player' : 'Players'}
+        </Badge>
       </div>
+
+      <div className="flex w-full items-center justify-between gap-3">
+        <TournamentScopeSelect
+          options={rosterScopeOptions}
+          value={rosterTournamentScope}
+          onChange={setRosterTournamentScope}
+          id="team-roster-tournament-scope"
+        />
+        <Button
+          size="sm"
+          className="shrink-0"
+          onClick={() => setIsAddPlayerDialogOpen(true)}
+        >
+          <Plus className="h-4 w-4 mr-2" />
+          Add Player
+        </Button>
+      </div>
+
+      {rosterTournamentScope !== 'all' && (
+        <p className="text-sm text-muted-foreground max-w-xl">
+          Showing players who played for this team in {selectedRosterScopeLabel}.
+          Club roster has {team.players.length}{' '}
+          {team.players.length === 1 ? 'player' : 'players'}.
+        </p>
+      )}
       
-      {team.players.length === 0 ? (
+      {rosterPlayers.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <Users className="h-16 w-16 text-muted-foreground mb-4" />
-            <h3 className="text-lg font-medium mb-2">No players yet</h3>
-            <p className="text-sm text-muted-foreground mb-4 text-center">
-              Start building your roster by adding players to the team.
-            </p>
-            <Button onClick={() => setIsAddPlayerDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-2" />
-              Add First Player
-            </Button>
+            {rosterTournamentScope === 'all' ? (
+              <>
+                <h3 className="text-lg font-medium mb-2">No players yet</h3>
+                <p className="text-sm text-muted-foreground mb-4 text-center">
+                  Start building your roster by adding players to the team.
+                </p>
+                <Button onClick={() => setIsAddPlayerDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add First Player
+                </Button>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-medium mb-2">No tournament roster yet</h3>
+                <p className="text-sm text-muted-foreground mb-4 text-center max-w-md">
+                  No players recorded for {selectedRosterScopeLabel}. Import a box
+                  score or switch to Club roster (all) to see the full squad list.
+                </p>
+              </>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -1055,6 +1160,7 @@ export function TeamPage({
 
               <StatColumn title="Discipline">
                 <TeamStatRow label="FPG" value={derived.fpg.toFixed(1)} />
+                <TeamStatRow label="FDPG" value={derived.fdpg.toFixed(1)} />
               </StatColumn>
 
               <StatColumn title="Advanced">
@@ -1173,20 +1279,31 @@ export function TeamPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={onBack}>
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Back
-        </Button>
-        <div className="flex items-center gap-3">
-          <TeamBadge team={team} teamId={team.id} size="hero" />
-          <div>
-            <h1 className="text-2xl font-bold">{team.name}</h1>
-            <p className="text-sm text-muted-foreground">
-              {record.wins}-{record.losses} • {team.players.length} Players
-            </p>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" onClick={onBack}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
+          <div className="flex items-center gap-3">
+            <TeamBadge team={team} teamId={team.id} size="hero" />
+            <div>
+              <h1 className="text-2xl font-bold">{team.name}</h1>
+              <p className="text-sm text-muted-foreground">
+                {record.wins}-{record.losses} • {team.players.length} Players
+              </p>
+            </div>
           </div>
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setIsEditTeamDialogOpen(true)}
+        >
+          <Edit className="w-4 h-4 mr-2" />
+          Edit Team
+        </Button>
       </div>
 
       {/* Tabs */}
@@ -1202,7 +1319,7 @@ export function TeamPage({
           <OverviewTab />
         </TabsContent>
 
-        <TabsContent value="roster">
+        <TabsContent value="roster" className="w-full">
           <RosterTab />
         </TabsContent>
 
@@ -1225,6 +1342,31 @@ export function TeamPage({
         positions={positions}
         onSubmit={handleAddPlayerToRoster}
       />
+
+      <Dialog open={isEditTeamDialogOpen} onOpenChange={setIsEditTeamDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Team Details</DialogTitle>
+            <DialogDescription>
+              Update team information and details.
+            </DialogDescription>
+          </DialogHeader>
+          <ErrorBoundary>
+            <TeamForm
+              key={String(isEditTeamDialogOpen)}
+              initialName={team.name}
+              initialAbbreviation={team.abbreviation}
+              initialDescription={team.description || ''}
+              initialIcon={team.icon}
+              teamId={team.id}
+              takenAbbreviations={takenAbbreviations}
+              onSubmit={handleEditTeamSubmit}
+              onCancel={() => setIsEditTeamDialogOpen(false)}
+              isEditing
+            />
+          </ErrorBoundary>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

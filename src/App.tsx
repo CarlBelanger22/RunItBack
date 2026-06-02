@@ -46,6 +46,7 @@ import {
   resolveTeamsToDeleteWithGame,
 } from './utils/activeGame';
 import { generateTeamAbbreviation } from './utils/teamAbbreviation';
+import { buildTournamentRostersFromGames } from './utils/tournamentRosters';
 import {
   dedupeTeamPlayers,
   dedupeTeamsById,
@@ -906,6 +907,9 @@ export default function App() {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [loadedOrphanPlayers, setLoadedOrphanPlayers] = useState<Player[]>([]);
+  const [tournamentRosters, setTournamentRosters] = useState<
+    import('./utils/tournamentRosters').TournamentRosterEntry[]
+  >([]);
   const [darkMode, setDarkMode] = useState(false);
 
   const [isDataLoading, setIsDataLoading] = useState(true);
@@ -918,10 +922,23 @@ export default function App() {
   const [playerStorageSchema, setPlayerStorageSchema] =
     useState<PlayerStorageSchema | null>(null);
   const skipSaveRef = useRef(true);
+  const localMutatedSinceMountRef = useRef(false);
 
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
   const currentGameRef = useRef<Game | null>(null);
   currentGameRef.current = currentGame;
+  const teamsRef = useRef(teams);
+  teamsRef.current = teams;
+  const tournamentsRef = useRef(tournaments);
+  tournamentsRef.current = tournaments;
+  const gamesRef = useRef(games);
+  gamesRef.current = games;
+  const darkModeRef = useRef(darkMode);
+  darkModeRef.current = darkMode;
+  const loadedOrphanPlayersRef = useRef(loadedOrphanPlayers);
+  loadedOrphanPlayersRef.current = loadedOrphanPlayers;
+  const tournamentRostersRef = useRef(tournamentRosters);
+  tournamentRostersRef.current = tournamentRosters;
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
   const location = useLocation();
@@ -943,11 +960,13 @@ export default function App() {
     setTournaments(processed.tournaments);
     setGames(processed.games);
     setDarkMode(processed.darkMode);
+    setTournamentRosters(processed.tournamentRosters);
     setPlayerStorageSchema(processed.playerStorageSchema ?? null);
     prevTeamsRef.current = processed.teams;
     prevTournamentsRef.current = processed.tournaments;
     prevGamesRef.current = processed.games;
     prevDarkModeRef.current = processed.darkMode;
+    prevTournamentRostersRef.current = processed.tournamentRosters;
 
     if (processed.activeGame) {
       setCurrentGame(processed.activeGame);
@@ -959,7 +978,46 @@ export default function App() {
       games: processed.games,
       darkMode: processed.darkMode,
       orphanPlayers: processed.orphanPlayers,
+      tournamentRosters: processed.tournamentRosters,
     });
+  }, []);
+
+  const persistCurrentAppData = useCallback(() => {
+    const activeGame = currentGameRef.current;
+    const currentGames = gamesRef.current;
+    const gamesToSave =
+      activeGame?.isActive
+        ? [...currentGames.filter((g) => g.id !== activeGame.id), activeGame]
+        : currentGames;
+
+    return saveAppDataToSupabase(
+      teamsRef.current,
+      tournamentsRef.current,
+      gamesToSave,
+      darkModeRef.current,
+      undefined,
+      tournamentRostersRef.current
+    )
+      .then(() => {
+        setSaveError(null);
+        saveAppDataSnapshot({
+          teams: teamsRef.current,
+          tournaments: tournamentsRef.current,
+          games: gamesToSave,
+          darkMode: darkModeRef.current,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: tournamentRostersRef.current,
+        });
+        prevTeamsRef.current = teamsRef.current;
+        prevTournamentsRef.current = tournamentsRef.current;
+        prevGamesRef.current = gamesToSave;
+        prevDarkModeRef.current = darkModeRef.current;
+        prevTournamentRostersRef.current = tournamentRostersRef.current;
+      })
+      .catch((err: Error) => {
+        console.error('Supabase save failed:', err);
+        setSaveError(formatCloudSaveError(err.message));
+      });
   }, []);
 
   const runCloudLoadSideEffects = useCallback(
@@ -972,7 +1030,9 @@ export default function App() {
           processed.teams,
           processed.tournaments,
           processed.games,
-          processed.darkMode
+          processed.darkMode,
+          undefined,
+          processed.tournamentRosters
         ).catch((err: Error) => {
           console.error('Active game dedupe save failed:', err);
           setSaveError(formatCloudSaveError(err.message));
@@ -994,7 +1054,9 @@ export default function App() {
           processed.teams,
           processed.tournaments,
           data.games,
-          processed.darkMode
+          processed.darkMode,
+          undefined,
+          processed.tournamentRosters
         ).catch((err: Error) => {
           console.error('Player measurements migration save failed:', err);
           setSaveError(formatCloudSaveError(err.message));
@@ -1045,7 +1107,15 @@ export default function App() {
         .then((data) => {
           if (cancelled) return;
           const processed = processLoadedAppData(data);
-          applyProcessedToState(processed);
+          if (localMutatedSinceMountRef.current) {
+            if (import.meta.env.DEV) {
+              console.info(
+                '[RunItBack] skipped cloud state apply — local edits made during sync'
+              );
+            }
+          } else {
+            applyProcessedToState(processed);
+          }
           runCloudLoadSideEffects(data, processed);
           setDataLoadError(null);
           setCloudSyncStatus('idle');
@@ -1070,7 +1140,13 @@ export default function App() {
         })
         .finally(() => {
           if (!cancelled) {
+            const hadLocalEdits = localMutatedSinceMountRef.current;
             skipSaveRef.current = false;
+            if (hadLocalEdits) {
+              queueMicrotask(() => {
+                persistCurrentAppData();
+              });
+            }
             if (!hadCache) {
               setIsDataLoading(false);
             }
@@ -1084,7 +1160,7 @@ export default function App() {
       cancelled = true;
       if (retryTimeout) clearTimeout(retryTimeout);
     };
-  }, [applyProcessedToState, runCloudLoadSideEffects]);
+  }, [applyProcessedToState, runCloudLoadSideEffects, persistCurrentAppData]);
 
   const orphanPlayers = useMemo(() => {
     const onRoster = new Set(
@@ -1098,6 +1174,7 @@ export default function App() {
   const prevTournamentsRef = useRef(tournaments);
   const prevGamesRef = useRef(games);
   const prevDarkModeRef = useRef(darkMode);
+  const prevTournamentRostersRef = useRef(tournamentRosters);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const idleCallbackRef = useRef<number | null>(null);
 
@@ -1121,8 +1198,17 @@ export default function App() {
         JSON.stringify(prevTournamentsRef.current) !== JSON.stringify(tournaments);
       const gamesChanged = JSON.stringify(prevGamesRef.current) !== JSON.stringify(games);
       const darkModeChanged = prevDarkModeRef.current !== darkMode;
+      const tournamentRostersChanged =
+        JSON.stringify(prevTournamentRostersRef.current) !==
+        JSON.stringify(tournamentRosters);
 
-      if (!teamsChanged && !tournamentsChanged && !gamesChanged && !darkModeChanged) {
+      if (
+        !teamsChanged &&
+        !tournamentsChanged &&
+        !gamesChanged &&
+        !darkModeChanged &&
+        !tournamentRostersChanged
+      ) {
         return;
       }
 
@@ -1130,6 +1216,7 @@ export default function App() {
       prevTournamentsRef.current = tournaments;
       prevGamesRef.current = games;
       prevDarkModeRef.current = darkMode;
+      prevTournamentRostersRef.current = tournamentRosters;
 
       const activeGame = currentGameRef.current;
       const gamesToSave =
@@ -1138,7 +1225,14 @@ export default function App() {
           : games;
 
       saveTimeoutRef.current = setTimeout(() => {
-        saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
+        saveAppDataToSupabase(
+          teams,
+          tournaments,
+          gamesToSave,
+          darkMode,
+          undefined,
+          tournamentRosters
+        )
           .then(() => {
             setSaveError(null);
             saveAppDataSnapshot({
@@ -1147,6 +1241,7 @@ export default function App() {
               games: gamesToSave,
               darkMode,
               orphanPlayers: loadedOrphanPlayers,
+              tournamentRosters,
             });
           })
           .catch((err: Error) => {
@@ -1169,7 +1264,7 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, isDataLoading, loadedOrphanPlayers]);
+  }, [teams, tournaments, games, darkMode, isDataLoading, loadedOrphanPlayers, tournamentRosters]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
@@ -1184,7 +1279,14 @@ export default function App() {
         ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
         : games;
 
-    saveAppDataToSupabase(teams, tournaments, gamesToSave, newDarkMode).catch((err: Error) =>
+    saveAppDataToSupabase(
+      teams,
+      tournaments,
+      gamesToSave,
+      newDarkMode,
+      undefined,
+      tournamentRosters
+    ).catch((err: Error) =>
       setSaveError(formatCloudSaveError(err.message))
     );
   };
@@ -1237,6 +1339,10 @@ export default function App() {
         teams: t.teams.filter((id) => !teamIdsToDelete.includes(id)),
         games: t.games.filter((id) => id !== gameId),
       }));
+      const nextTournamentRosters = buildTournamentRostersFromGames(
+        nextGames,
+        nextTeams
+      ).entries;
 
       skipSaveRef.current = true;
       if (saveTimeoutRef.current) {
@@ -1248,12 +1354,14 @@ export default function App() {
       setCurrentGame((prev) => (prev?.id === gameId ? null : prev));
       setTournaments(nextTournaments);
       setTeams(nextTeams);
+      setTournamentRosters(nextTournamentRosters);
 
       const finishDeleteSave = () => {
         prevTeamsRef.current = nextTeams;
         prevTournamentsRef.current = nextTournaments;
         prevGamesRef.current = nextGames;
         prevDarkModeRef.current = darkMode;
+        prevTournamentRostersRef.current = nextTournamentRosters;
         skipSaveRef.current = false;
       };
 
@@ -1271,7 +1379,9 @@ export default function App() {
               nextTeams,
               nextTournaments,
               nextGames,
-              darkMode
+              darkMode,
+              undefined,
+              nextTournamentRosters
             );
             setSaveError(null);
           } catch (err) {
@@ -1291,11 +1401,47 @@ export default function App() {
   );
 
   const handleGameUpdate = useCallback((game: Game) => {
-    setCurrentGame(game);
+    localMutatedSinceMountRef.current = true;
     if (game.isActive) {
-      setGames((prev) => [...prev.filter((g) => g.id !== game.id), game]);
+      setCurrentGame(game);
+    } else if (currentGame?.id === game.id) {
+      setCurrentGame(null);
     }
-  }, []);
+
+    setGames((prev) => {
+      const previous = prev.find((g) => g.id === game.id);
+      const nextGames = [...prev.filter((g) => g.id !== game.id), game];
+
+      if (
+        previous?.tournamentId &&
+        previous.tournamentId !== game.tournamentId
+      ) {
+        setTournaments((tournamentPrev) =>
+          tournamentPrev.map((tournament) =>
+            tournament.id === previous.tournamentId
+              ? {
+                  ...tournament,
+                  games: tournament.games.filter((gid) => gid !== game.id),
+                }
+              : tournament
+          )
+        );
+      }
+
+      if (game.tournamentId) {
+        setTournaments((tournamentPrev) =>
+          tournamentPrev.map((tournament) =>
+            tournament.id === game.tournamentId &&
+            !tournament.games.includes(game.id)
+              ? { ...tournament, games: [...tournament.games, game.id] }
+              : tournament
+          )
+        );
+      }
+
+      return nextGames;
+    });
+  }, [currentGame?.id]);
 
   const handleGameComplete = useCallback((game: Game) => {
     // Calculate final score
@@ -1338,19 +1484,27 @@ export default function App() {
 
   // Tournament management functions - memoized
   const handleCreateTournament = useCallback((tournamentData: Omit<Tournament, 'id'>) => {
+    localMutatedSinceMountRef.current = true;
     const tournament: Tournament = {
       ...tournamentData,
       id: `tournament-${Date.now()}`,
-      teams: [],
-      games: [],
-      standings: [],
+      teams: tournamentData.teams ?? [],
+      games: tournamentData.games ?? [],
+      standings: tournamentData.standings ?? [],
       createdAt: new Date().toISOString(),
     };
     setTournaments(prev => [...prev, tournament]);
   }, []);
 
   const handleUpdateTournament = useCallback((updatedTournament: Tournament) => {
-    setTournaments(prev => prev.map(t => t.id === updatedTournament.id ? updatedTournament : t));
+    localMutatedSinceMountRef.current = true;
+    setTournaments((prev) => {
+      const next = prev.map((t) =>
+        t.id === updatedTournament.id ? updatedTournament : t
+      );
+      tournamentsRef.current = next;
+      return next;
+    });
   }, []);
 
   const handleDeleteTournament = useCallback((tournamentId: string) => {
@@ -1560,6 +1714,10 @@ export default function App() {
         teams: tournament.teams.filter((id) => id !== teamId),
         games: tournament.games.filter((id) => !gameIdsToDelete.includes(id)),
       }));
+      const nextTournamentRosters = buildTournamentRostersFromGames(
+        nextGames,
+        nextTeams
+      ).entries;
 
       skipSaveRef.current = true;
       if (saveTimeoutRef.current) {
@@ -1570,6 +1728,7 @@ export default function App() {
       setTeams(nextTeams);
       setGames(nextGames);
       setTournaments(nextTournaments);
+      setTournamentRosters(nextTournamentRosters);
       setCurrentGame((prev) => {
         if (!prev) return prev;
         const touchesTeam =
@@ -1584,6 +1743,7 @@ export default function App() {
         prevTournamentsRef.current = nextTournaments;
         prevGamesRef.current = nextGames;
         prevDarkModeRef.current = darkMode;
+        prevTournamentRostersRef.current = nextTournamentRosters;
         skipSaveRef.current = false;
       };
 
@@ -1598,7 +1758,9 @@ export default function App() {
               nextTeams,
               nextTournaments,
               nextGames,
-              darkMode
+              darkMode,
+              undefined,
+              nextTournamentRosters
             );
             setSaveError(null);
           } catch (err) {
@@ -1882,6 +2044,7 @@ export default function App() {
           tournaments={tournaments}
           games={games}
           orphanPlayers={orphanPlayers}
+          tournamentRosters={tournamentRosters}
           currentGame={currentGame}
           setCurrentGame={setCurrentGame}
           onCreateTournament={handleCreateTournament}

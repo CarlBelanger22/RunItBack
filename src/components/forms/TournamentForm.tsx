@@ -53,15 +53,15 @@ export const TournamentForm = React.memo(({
     new Set(initialData?.selectedTeams || [])
   );
 
-  const handleTeamToggleWithState = useCallback((teamId: string) => {
-    setSelectedTeams(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(teamId)) {
-        newSet.delete(teamId);
+  const handleTeamCheckedChange = useCallback((teamId: string, checked: boolean | 'indeterminate') => {
+    setSelectedTeams((prev) => {
+      const next = new Set(prev);
+      if (checked === true) {
+        next.add(teamId);
       } else {
-        newSet.add(teamId);
+        next.delete(teamId);
       }
-      return newSet;
+      return next;
     });
   }, []);
 
@@ -168,7 +168,7 @@ export const TournamentForm = React.memo(({
                 <Checkbox
                   id={`team-${team.id}`}
                   checked={selectedTeams.has(team.id)}
-                  onCheckedChange={() => handleTeamToggleWithState(team.id)}
+                  onCheckedChange={(checked) => handleTeamCheckedChange(team.id, checked)}
                 />
                 <Label 
                   htmlFor={`team-${team.id}`} 

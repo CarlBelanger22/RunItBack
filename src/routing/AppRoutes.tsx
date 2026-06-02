@@ -17,6 +17,7 @@ import { getActiveGame } from '../utils/activeGame';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
 import type { Game, Team, Tournament, Player, CreateTeamOptions } from '../App';
+import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { parseSlugId, slugify } from './slugs';
 import {
   gamePath,
@@ -38,6 +39,7 @@ export interface AppRoutesProps {
   tournaments: Tournament[];
   games: Game[];
   orphanPlayers: Player[];
+  tournamentRosters: TournamentRosterEntry[];
   currentGame: Game | null;
   setCurrentGame: (game: Game | null) => void;
   onCreateTournament: (data: Omit<Tournament, 'id'>) => void;
@@ -83,6 +85,7 @@ function TournamentDetailRoute({
   onCreateTeam,
   onAddTeamToTournament,
   onUpdateTeam,
+  onUpdateTournament,
   onDeleteTeam,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
@@ -141,12 +144,20 @@ function TournamentDetailRoute({
       onCreateTeam={onCreateTeam}
       onAddTeamToTournament={onAddTeamToTournament}
       onUpdateTeam={onUpdateTeam}
+      onUpdateTournament={onUpdateTournament}
       onDeleteTeam={onDeleteTeam}
     />
   );
 }
 
-function TeamDetailRoute({ teams, games, tournaments, orphanPlayers, onUpdateTeam }: AppRoutesProps) {
+function TeamDetailRoute({
+  teams,
+  games,
+  tournaments,
+  orphanPlayers,
+  tournamentRosters,
+  onUpdateTeam,
+}: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -184,6 +195,7 @@ function TeamDetailRoute({ teams, games, tournaments, orphanPlayers, onUpdateTea
         games={games}
         tournaments={tournaments}
         orphanPlayers={orphanPlayers}
+        tournamentRosters={tournamentRosters}
         activeTab={tab}
         onTabChange={handleTabChange}
         onBack={() => navigateBack(navigate, location, paths.teams)}
@@ -275,7 +287,9 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdatePlayerProfile }:
 function GameSummaryRoute({
   games,
   teams,
-}: Pick<AppRoutesProps, 'games' | 'teams'>) {
+  tournaments,
+  onGameUpdate,
+}: Pick<AppRoutesProps, 'games' | 'teams' | 'tournaments' | 'onGameUpdate'>) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -290,7 +304,9 @@ function GameSummaryRoute({
   return (
     <GameSummary
       game={game}
+      tournaments={tournaments}
       onBack={() => navigateBack(navigate, location, paths.home)}
+      onGameUpdate={onGameUpdate}
       onNavigateToPlayer={(playerId, teamIdHint) => {
         const found = findPlayer(teams, playerId);
         if (found) {
@@ -315,6 +331,7 @@ function GameSummaryRoute({
 
 function LiveGameRoute({
   games,
+  tournaments,
   currentGame,
   setCurrentGame,
   onGameUpdate,
@@ -356,6 +373,7 @@ function LiveGameRoute({
       </Button>
       <LiveGameEntry
         game={liveGame}
+        tournaments={tournaments}
         onGameUpdate={onGameUpdate}
         onGameComplete={onGameComplete}
         onDeleteGame={() => {
@@ -500,7 +518,14 @@ export function AppRoutes(props: AppRoutesProps) {
 
       <Route
         path="/games/:gameId"
-        element={<GameSummaryRoute games={games} teams={teams} />}
+        element={
+          <GameSummaryRoute
+            games={games}
+            teams={teams}
+            tournaments={tournaments}
+            onGameUpdate={onGameUpdate}
+          />
+        }
       />
 
       <Route

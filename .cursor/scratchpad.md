@@ -4660,3 +4660,712 @@ New helper (parallel to `getShotDataCoverage`):
 **Fix:** Safe numeric adds in roster sum; TS% uses `ppg × gamesWithScore` when available; `Number.isFinite` in `formatPct`; Advanced column always visible (TS%, Paint, Fastbreak, 2nd Chance, Pts off TO).
 
 ---
+
+## Tournament-Scoped Rosters (Designer, 2026-06-03)
+
+### Background and Motivation
+
+**User problem:** Carl Belanger played for SAFSA Arion in **NBL Div 2 2023** and Kai Xuan in **NBL Div 2 2024**. Both clubs also participated in both years’ tournaments. The app blocks adding Carl to SAFSA because he is on Kai Xuan and both teams share **NBL Div 2 2024** — even though the intent is **cross-year**, not **same-season dual roster**.
+
+**Root cause (data model):** Rosters live on `Team.players` / `team_players` (club-level, league-wide). Tournament enrollment (`tournament_teams`) only links **teams** to tournaments, not **which players** represent that team in that season. The overlap rule (`wouldRosterViolateTournamentOverlap`) is a band-aid: it prevents impossible *same-tournament* states but cannot express legitimate *different-tournament* club moves.
+
+**Goal:** First-class **tournament-season roster membership** so a player can be on Team A in Tournament X and Team B in Tournament Y (including consecutive years), while still blocking “two teams in the same tournament.”
+
+**Example that must work after this project:**
+
+| Player | Tournament | Team | Jersey |
+|--------|------------|------|--------|
+| Carl Belanger | NBL Div 2 2023 | SAFSA Arion | (2023 #) |
+| Carl Belanger | NBL Div 2 2024 | Kai Xuan | (2024 #) |
+
+**Must still block:**
+
+| Player | Tournament | Teams | Why |
+|--------|------------|-------|-----|
+| Anyone | NBL Div 2 2024 | Kai Xuan **and** SAFSA | Same season, two clubs |
+
+---
+
+### Key Challenges and Analysis
+
+#### 1. Source of truth hierarchy
+
+| Layer | Today | Proposed |
+|-------|-------|----------|
+| Player identity | `players` (global profile) | unchanged |
+| Club template roster | `team_players` | **optional template** — not used for game/stats authority |
+| Tournament roster | *missing* | **`tournament_rosters`** — authoritative for games + display in that tournament |
+| Who played | `games.game_stats` by `playerId` | unchanged; roster validates / drives UI |
+| Team in tournament | `tournament_teams` | unchanged |
+
+**Principle:** For any game with `tournament_id`, roster eligibility and jersey/position display come from `tournament_rosters`, not `team.players`.
+
+#### 2. Assumptions to challenge
+
+| Assumption | Verdict |
+|------------|---------|
+| “Removing overlap check is enough” | **False** — without tournament rosters, club-level membership still lies about 2024 SAFSA. |
+| “Stats will figure it out from games alone” | **Partially true** for player totals, **false** for team roster UI, game setup, and overlap prevention. |
+| “One `team_players` row per player per team is enough” | **False** for multi-year club moves with one global player id. |
+| “Tournament = season” | **Confirmed** — one tournament row per season (e.g. NBL Div 2 2023 vs 2024). No multi-year single tournament entity. |
+
+#### 2b. Players not on a tournament roster (Q2 clarification)
+
+When a team is enrolled in a tournament, **club template** (`team_players`) and **tournament roster** (`tournament_rosters`) are separate lists.
+
+| Player state | Club template | Tournament roster | Game setup (that tournament) | Tournament-scoped team page | Player profile |
+|--------------|---------------|-------------------|------------------------------|----------------------------|----------------|
+| On template, **not** copied to tournament | Yes | No | **Not offered** | **Not listed** for that season | Global profile exists; no affiliation row for that tournament |
+| Copied then **removed** from tournament roster | Yes | No | Not offered | Not listed | Same as above |
+| Added manually later via “Manage roster” | Optional | Yes | Offered | Listed | Affiliation row appears |
+| Appears in **imported box score** only (Q5) | Optional | **Auto-created** by import/backfill | Offered after import | Listed after import | Affiliation + stats from games |
+
+**Copy prompt behavior (locked decision):**
+
+When enrolling a team (or via “Copy club roster to tournament”):
+
+> “Copy **N** players from club roster into **{Tournament name}**?”  
+> **Copy all** · **Start empty** · **Cancel**
+
+- **Copy all** — every `team_players` row → `tournament_rosters` for `(tournament, team)`. Admin **prunes** players not in that season (expected workflow).
+- **Start empty** — no tournament roster rows. Only players you add manually or who appear in imports get tournament membership.
+- **Cancel** — no roster change (enrollment may still proceed).
+
+**Players left off the tournament roster are not deleted.** They remain on the club template and in the global player pool. They simply **do not exist for that season** until added or imported.
+
+**Non-tournament games (Q1):** Those players **are** available via club template when `tournament_id` is null.
+
+#### 2c. No mid-season transfers (Q3 — locked, stricter than draft default)
+
+**Human decision:** Mid-season transfers **do not exist** in any tournament. Not modeled, not supported.
+
+**Rules:**
+
+1. **DB:** `unique (tournament_id, player_id)` — at most one team per player per tournament, forever.
+2. **No team change within a tournament:** Once a player has a `tournament_rosters` row for `(T, team A)`, they **cannot** get a row for `(T, team B)` — even after delete. App blocks add to B if player ever had stats or roster entry for another team in T.
+3. **Remove from roster:** Allowed only as **pre-season correction** — player has **zero completed games** in that tournament. If `game_stats` exist for that player in T, removal is **blocked** (or soft-block with admin override out of scope for v1).
+4. **Cross-tournament moves (Carl case):** Allowed — different `tournament_id` (2023 vs 2024).
+
+**UI copy:** “Players cannot change teams during a tournament. Remove only before they appear in any game.”
+
+**Out of scope:** Transfer workflow, waiver wire, two-stint same-tournament history.
+
+#### 3. Downstream systems affected
+
+| Area | Change needed |
+|------|----------------|
+| `AddPlayerDialog` / overlap validation | Validate against **target tournament**, not shared club tournaments |
+| `GameSetup` | Load `players` from tournament roster for selected `tournamentId` |
+| `TeamPage` roster + stats | Scope roster/stats by tournament (reuse existing stats tournament filter) |
+| `TournamentPage` | Per-team roster management (primary UX for season rosters) |
+| `PlayerPage` | Affiliations table: Team × Tournament × Jersey |
+| `aggregatePlayerSeasonStats` / `buildPlayerTournamentSeasonRows` | Resolve team via **game.tournamentId + tournament roster**, not `getTeamsForPlayer` |
+| `resolvePlayerTeamInGame` | Prefer roster entry for `game.tournamentId` |
+| `supabaseData` load/save | New table read/write |
+| Import scripts | Map historical box scores → tournament roster entries |
+| `TournamentManager` team checkboxes | Enroll **teams** only; rosters managed separately |
+
+#### 4. Recommended architecture (Option A — preferred)
+
+**New table: `tournament_rosters`**
+
+```sql
+create table public.tournament_rosters (
+  tournament_id text not null references public.tournaments (id) on delete cascade,
+  team_id text not null references public.teams (id) on delete cascade,
+  player_id text not null references public.players (id) on delete cascade,
+  number integer not null check (number >= 0 and number <= 99),
+  position text not null default '',
+  secondary_position text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (tournament_id, team_id, player_id),
+  -- Player may only represent ONE team per tournament (core basketball rule)
+  unique (tournament_id, player_id)
+);
+
+-- team must be enrolled in tournament
+-- enforce via app layer + optional FK trigger on tournament_teams
+create index tournament_rosters_team_idx on public.tournament_rosters (tournament_id, team_id);
+create index tournament_rosters_player_idx on public.tournament_rosters (player_id);
+```
+
+**Keep `team_players` as “club template” (optional UX):**
+
+- Used to **seed** tournament rosters (“Copy club roster into this tournament”).
+- Not authoritative for overlap checks across teams.
+- Can diverge from any tournament (2024 Kai Xuan template ≠ 2023 SAFSA tournament roster).
+
+**Why not add `tournament_id` to `team_players`?**
+
+- Nullable tournament column mixes two concepts in one table, complicates unique constraints and queries.
+- Separate table keeps migration/backfill isolated and makes “one player, one team per tournament” a DB constraint.
+
+**In-memory shape (app layer):**
+
+```ts
+interface TournamentRosterEntry {
+  tournamentId: string;
+  teamId: string;
+  playerId: string;
+  number: number;
+  position: string;
+  secondaryPosition?: string;
+}
+
+// Loaded alongside teams/tournaments; helper merges profile + roster fields into Player view
+function getPlayersForTeamInTournament(
+  teamId: string,
+  tournamentId: string,
+  teams: Team[],
+  profiles: Map<string, PlayerProfile>,
+  rosters: TournamentRosterEntry[]
+): Player[]
+```
+
+`Team.players` may remain during transition as **derived default** (union of all template rosters or latest tournament — TBD in R.2) but new code paths must accept explicit `tournamentId`.
+
+#### 5. Overlap rule (replacement)
+
+**Remove:** `wouldRosterViolateTournamentOverlap` (club shared-tournament check).
+
+**Add:** `wouldTournamentRosterViolate(playerId, tournamentId, teamId, rosters)`:
+
+- Violates if ∃ entry where `entry.tournamentId === tournamentId && entry.playerId === playerId && entry.teamId !== teamId`.
+- Message: “Carl Belanger is already on Kai Xuan for NBL Div 2 2024.”
+
+**Allow:** Same player on SAFSA (2023 tournament id) and Kai Xuan (2024 tournament id) — different `tournament_id` values.
+
+#### 6. Migration / backfill strategy
+
+**Phase R0 — schema + game-derived backfill (no UX break yet):**
+
+##### Backfill rule (Locked — Human 2026-06-03)
+
+> **Tournament roster membership = played in at least one completed game for that `(team, tournament)` pair.**  
+> **Club template (`team_players`) does NOT imply tournament roster.**
+
+| Source | Creates `tournament_rosters` row? |
+|--------|----------------------------------|
+| Player in `game_stats` for team X in tournament T (completed game) | **Yes** |
+| Player on club template for team X, enrolled in T, **zero games** in T | **No** |
+| “Copy all” prompt (R1.5, forward-only) | Yes — explicit admin action |
+| Box-score import (R3.1) | Yes — when stats written |
+
+**Acceptance example — Ram Sunda Putra (`player-1780304603336`):**
+
+| Context | On club template (Kai Xuan)? | Has games? | On tournament roster? |
+|---------|------------------------------|------------|------------------------|
+| **NBL Div 2 2024** | Yes | Yes (Div2 import games) | **Yes** |
+| **Gemilang Cup U21** | Yes | **No** | **No** |
+
+Ram stays on Kai Xuan club template but must **not** appear on Gemilang U21 tournament roster or U21 game setup after backfill.
+
+**Second acceptance example — Carl Belanger:**
+
+| Tournament | Team | Games? | Tournament roster after backfill |
+|------------|------|--------|----------------------------------|
+| NBL Div 2 2023 | SAFSA | Yes (if imported) | Yes |
+| NBL Div 2 2024 | Kai Xuan | Yes (if imported) | Yes |
+| Same tournament, two teams | — | — | **Blocked** by `unique (tournament_id, player_id)` |
+
+##### Backfill algorithm (`npm run backfill:tournament-rosters`)
+
+```
+INPUT:  all completed games, all teams (for jersey lookup), optional --dry-run
+
+FOR EACH game G WHERE G.isCompleted AND G.tournamentId IS NOT NULL:
+  FOR EACH distinct playerId P IN G.gameStats:
+    teamId := resolvePlayerTeamSideInGame(P, G)  // home or away; see below
+    IF teamId IS NULL: LOG warn; CONTINUE
+    UPSERT tournament_rosters (G.tournamentId, teamId, P)
+      number, position, secondary_position FROM team_players(teamId, P)
+      OR defaults (0, '', null)
+
+DO NOT:
+  - Copy team_players → tournament_rosters for enrolled (T, team) pairs
+  - Create rows for players with only club-template membership
+
+POST-RUN REPORT:
+  - rows inserted / updated / skipped
+  - conflicts: same P on both home AND away in same T (data error — log for human)
+  - sample assertions: Ram ∈ NBL2024 KX, Ram ∉ Gemilang U21 KX
+```
+
+**`resolvePlayerTeamSideInGame` (backfill disambiguation):**
+
+1. If `P` appears only on `G.homeTeamId` side in `team_players` → `homeTeamId`.
+2. Else if only on away side in `team_players` → `awayTeamId`.
+3. Else if `P` in `G.homeStarters` or home roster snapshot → `homeTeamId`.
+4. Else if `P` in away starters → `awayTeamId`.
+5. Else default `homeTeamId` if stat row exists (log ambiguous).
+
+**Scope:** Run against **Supabase** (production data) after R0.1–R0.2; also runnable against local backup JSON for dry-run.
+
+**Idempotent:** Re-run safe; rows not in game-derived set are **not** auto-deleted in R0 (see prune policy below).
+
+##### Prune policy (R0 vs R1)
+
+| Phase | Orphan tournament roster rows (no games)? |
+|-------|------------------------------------------|
+| **R0 backfill** | **Do not delete** existing manual rows; **do not create** club-only rows |
+| **R0.6 optional `--prune`** | Delete `tournament_rosters` rows where player has 0 completed games in `(T, team)` — use after human confirms |
+| **Steady state (R1+)** | Manual remove allowed only if 0 GP in T (already locked) |
+
+Human request implies initial population is **insert-only from games**. Recommend **`--prune` off by default** on first run; human verifies Ram case, then optional prune pass if any erroneous rows exist.
+
+##### R0 deliverables (unchanged + expanded)
+
+1. Add `tournament_rosters` table + RLS dev policy (**R0.1**).
+2. Load/save in `supabaseData.ts` (**R0.2**).
+3. App state + snapshot version bump (**R0.3**).
+4. Helpers + unit tests (**R0.4**).
+5. Backfill script + dry-run + report (**R0.5**).
+6. **Verification script** `npm run verify:tournament-rosters` (**R0.6**): asserts Ram rule + counts per `(tournament, team)` vs distinct players in game stats.
+
+**Phase R1 — read path switch:**
+
+- Game setup, tournament team lists, player affiliation display read tournament rosters when `tournamentId` known.
+- Team page “All tournaments” roster falls back to union or template with clear label.
+
+**Phase R2 — write path switch:**
+
+- Add/remove player from **tournament roster** (primary UX).
+- Club template updates optional / secondary.
+
+**Phase R3 — deprecate club overlap checks; keep `team_players` as template only.**
+
+#### 7. UX design (high level)
+
+| Screen | Behavior |
+|--------|----------|
+| **Tournament detail → Teams tab** | Each enrolled team shows roster count; “Manage roster” opens scoped editor |
+| **Tournament roster editor** | Add existing player / create new; jersey + position per tournament; remove from this tournament only |
+| **Team detail → Roster tab** | Tournament scope dropdown (default: latest participated or “Club template”) |
+| **Add Player dialog** | Requires `tournamentId` context when opened from tournament; overlap check uses that tournament only |
+| **Game setup** | Selecting existing team snapshots **tournament roster** for chosen tournament |
+| **Player profile** | “Career” section: rows per (Tournament, Team, #, GP from games) |
+
+**Carl workflow after R2:**
+
+1. Open **NBL Div 2 2023** → SAFSA Arion → Manage roster → Add Carl (no conflict).
+2. Open **NBL Div 2 2024** → Kai Xuan → Carl already on roster (or add there).
+3. No block because checks are per `tournament_id`.
+
+#### 8. Stats integrity
+
+| Scenario | Expected behavior |
+|----------|-------------------|
+| Player page, per-tournament row | Team badge = roster team for that tournament (from `tournament_rosters`) |
+| Team page stats, scoped to 2023 | Only players on **2023 tournament roster** appear in roster table |
+| **Backfill / historical** | Roster row **only** if ≥1 completed game for `(team, tournament)` — Ram rule |
+| **Manual add pre-season** (R1+) | On roster with 0 GP until first game — forward workflow only |
+| Game already imported with `playerId` | Backfill creates roster row from game stats |
+| Player on **club template**, no games in T | **Not** on tournament roster (Ram / Gemilang U21) |
+| Player has games but not on roster (pre-R0) | Backfill adds row; stats unchanged |
+
+**Recommendation:** Games are canonical for stats; roster is canonical for **eligibility, display, and prevention of invalid same-tournament dual membership**.
+
+#### 9. Alternatives considered
+
+| Option | Pros | Cons | Verdict |
+|--------|------|------|---------|
+| **A. `tournament_rosters` table** | Clear model, DB constraint, clean overlap | New table + backfill | **Recommended** |
+| B. `tournament_id` on `team_players` | Fewer tables | Messy null semantics, harder migration | Reject |
+| C. Remove overlap only | Zero schema work | Misleading rosters, game-setup bugs | Reject |
+| D. Duplicate player profiles per stint | No schema change | Breaks all-time identity | Reject |
+| E. Historical “inactive” flag on club roster | Small change | Still club-scoped, doesn’t scale | Reject as primary |
+
+---
+
+### Human Decisions (Locked — 2026-06-03)
+
+| # | Question | Decision |
+|---|----------|----------|
+| 1 | Non-tournament games use club template? | **Yes** (default) |
+| 2 | Copy club roster when enrolling team? | **Prompt:** Copy all / Start empty / Cancel — see §2b for players left off |
+| 3 | Mid-season transfers? | **Not allowed.** One team per player per tournament for life; no team changes after roster/stats exist |
+| 4 | Keep club template long-term? | **Yes** (default) |
+| 5 | Import auto-creates tournament roster rows? | **Yes**, idempotent upsert (default) |
+| 6 | One tournament row per season? | **Yes** — confirmed |
+| 7 | **Initial backfill for all existing data?** | **Yes — game-stats only.** Player on tournament roster iff ≥1 completed game for that `(team, tournament)`. Club template alone never backfills. Ram rule. |
+
+**Designer review:** Complete (incl. backfill spec 2026-06-03). Executor may begin **R0.1** immediately; **R1+** unblocked.
+
+---
+
+### Open Questions for Human ~~(need answers before Executor R2+)~~
+
+~~Resolved — see Human Decisions above.~~
+
+<details>
+<summary>Original questions (archived)</summary>
+
+1. **Non-tournament games** — **Yes** (club template).
+2. **Copy on enroll** — **Prompt** (Copy all / Start empty / Cancel).
+3. **Mid-season transfers** — **Not allowed** (stricter than draft).
+4. **Club template** — **Keep**.
+5. **Import auto-roster** — **Yes**.
+
+</details>
+
+---
+
+### High-Level Task Breakdown (Executor)
+
+Each step = one PR-sized unit. **Human decisions locked — R0 may start.**
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **R0.1** | Migration `005_tournament_rosters.sql` + types | Table exists in Supabase; dev RLS policy |
+| **R0.2** | Load/save `tournament_rosters` in `supabaseData.ts` | Round-trip without losing rows |
+| **R0.3** | App state: `tournamentRosters[]` + snapshot cache version bump | Refresh preserves roster data |
+| **R0.4** | `getPlayersForTeamInTournament` + unit tests | Returns correct jersey per tournament |
+| **R0.5** | Backfill script: **game-stats-only** for all existing teams/tournaments | Every `(T, team)` row has a matching completed game stat; no club-template-only rows |
+| **R0.6** | `verify:tournament-rosters` + backfill report | Ram ∈ NBL Div2 2024 KX ✓; Ram ∉ Gemilang U21 KX ✓; counts logged |
+| **R1.1** | Tournament-scoped overlap + **no-transfer** guard | Same-`tournament_id` block; cannot add to team B if ever on team A in T |
+| **R1.2** | `GameSetup` uses tournament roster | Selecting SAFSA in 2023 game shows 2023 roster only |
+| **R1.3** | `TournamentPage` — manage roster per team | Add/remove (remove only if 0 GP in T) |
+| **R1.4** | `AddPlayerDialog` accepts optional `tournamentId` | Error names tournament + conflicting team |
+| **R1.5** | Enroll-team **copy prompt** (Copy all / Start empty / Cancel) | Left-off players stay on template only |
+| **R2.1** | `TeamPage` roster scoped by tournament dropdown | 2024 view doesn’t show 2023-only players |
+| **R2.2** | `PlayerPage` career affiliations (tournament × team) | Carl shows two rows |
+| **R2.3** | Update `resolvePlayerTeamInGame` + season stats helpers | No “Multiple teams” within single tournament scope |
+| **R2.4** | “Copy club roster to tournament” action (same prompt as R1.5) | Bulk seed + prune workflow documented |
+| **R3.1** | Import scripts create tournament roster rows | HTML/JSON import path covered |
+| **R3.2** | Remove legacy club overlap checks; document template vs tournament roster | `wouldRosterViolateTournamentOverlap` deleted or deprecated |
+| **R3.3** | Manual QA checklist + scratchpad sign-off | Designer confirms Carl scenario + head-to-head game |
+
+**Out of scope (v1):** Mid-season transfers; changing a player’s team within a tournament after games exist; league-wide free agency pool; auth/RLS per league member.
+
+---
+
+### Success Criteria (Designer sign-off)
+
+- [ ] Carl on SAFSA **NBL Div 2 2023** and Kai Xuan **NBL Div 2 2024** without bypassing rules.
+- [ ] Cannot add Carl to SAFSA **and** Kai Xuan both in **NBL Div 2 2024**.
+- [ ] Game setup for 2024 Kai Xuan game does not offer Carl on SAFSA side for that tournament.
+- [ ] Team/player stats match existing imported box scores after backfill.
+- [ ] **Ram Sunda Putra:** on KX roster for NBL Div 2 2024, **not** on KX roster for Gemilang Cup U21 (despite club template).
+- [ ] Refresh + Supabase save preserves tournament rosters.
+- [x] Human answers to Open Questions documented below.
+- [ ] No mid-season transfer path exists in UI or API.
+
+---
+
+### Project Status Board — Tournament Rosters
+
+- [x] **Human:** Answer Open Questions 1–5 (+ tournament-per-season)
+- [x] **Human:** Backfill = game-stats-only for all existing data (Ram rule)
+- [x] **Designer:** Review plan after human answers; Q2/Q3 + backfill spec expanded
+- [x] **Executor:** R0.1–R0.6 (schema + game-derived backfill + verify) — code complete; **human must run migration 005 + backfill**
+- [ ] **Human:** Apply `005_tournament_rosters.sql` (Dashboard or `npm run db:migrate:005` with DB URL)
+- [ ] **Human:** `npm run backfill:tournament-rosters` then `npm run verify:tournament-rosters`
+- [ ] **Human:** Verify backfill on real data (Carl, SAFSA, Kai Xuan, **Ram / Gemilang U21**)
+- [x] **Executor:** R1.6 (Team Roster tournament filter) — **default: Club roster (all)**; build passes; **awaiting human QA**
+- [ ] **Human:** Manual QA R1.6 — Kai Xuan → Club all = 28; NBL 2024 = 15 (Ram); Gemilang U21 = no Ram
+- [ ] **Executor:** R1.1–R1.5 (overlap + game setup + tournament manage + copy prompt)
+- [ ] **Human:** Manual test Carl workflow
+- [ ] **Executor:** R2.1–R2.4 (team/player pages + copy roster)
+- [ ] **Executor:** R3.1–R3.3 (import + cleanup)
+- [ ] **Designer:** Final cross-check and mark project complete
+
+### Executor's Feedback or Assistance Requests
+
+- **R0 code complete (2026-06-03).** Dry-run backfill: 64 roster rows from 28 games; Ram on NBL 2024 yes, Gemilang U21 no (expected).
+- **Human action required:** No `SUPABASE_DB_URL` in `.env.local` — apply migration 005 in Supabase SQL Editor, then run `npm run backfill:tournament-rosters` and `npm run verify:tournament-rosters`.
+- **Note:** Snapshot cache version bumped to **2** (invalidates v1 local cache on refresh).
+- **R1.6 complete (2026-06-03):** Team → Roster has `TournamentScopeSelect` with default **Club roster (all)**; tournament scope filters rows via `getPlayersForTeamInTournament` and scopes PPG/RPG/etc. via `filterTeamScopeGames`. Add Player still adds to club template (R1.5 unchanged).
+- **R1.1–R1.5 not started** — overlap rules, game setup, tournament manage UI still use club `team.players`.
+
+### Lessons
+- **R0 backfill (locked):** Insert `tournament_rosters` **only** from completed `game_stats` grouped by `(tournament_id, team_id, player_id)`. Never seed from `team_players` for historical data.
+- **R0.6:** Hard-code or lookup Ram’s player id in verify script as regression guard.
+- **R1.5:** Copy prompt remains for **new** enrollments only — distinct from one-time backfill.
+
+### Lessons
+
+- Club-level rosters cannot express season/club transfers; tournament-scoped membership is required for multi-year leagues with stable team entities.
+- Overlap validation must use the same granularity as the business rule: **per tournament**, not per shared enrollment graph on teams.
+- Players not on a tournament roster are **intentionally invisible** for that season — not deleted, still on club template and available for non-tournament games and future adds/imports.
+- **No transfers:** Track `player ever rostered or played in (tournament)` to block team B assignment, not just current roster row.
+- **Played ≠ listed:** Club template is superset; tournament roster is subset defined by actual game participation (backfill) or explicit admin add (forward).
+
+---
+
+## Team Roster — Tournament Filter (Designer, 2026-06-03)
+
+### Background and Motivation
+
+User on **Team → Roster** (e.g. Kai Xuan) sees **28 players** — the full **club template** (`team.players`). After R0 backfill, **tournament rosters** exist in DB (e.g. **15** for NBL Div 2 2024, Ram included; Gemilang U21 excludes Ram) but the UI has no way to view them.
+
+**Team Stats** already has a **Tournament** dropdown (`TournamentScopeSelect` + `getTeamTournamentScopeOptions`). **Roster** should get the same pattern, scoped to **`tournament_rosters`**, not club template.
+
+### Goal
+
+On Team → Roster, user can switch between:
+
+| Scope | Kai Xuan example | Data source |
+|-------|------------------|-------------|
+| **Club roster (all)** | 28 players | `team.players` |
+| **NBL Div 2 2024** | 15 players | `tournamentRosters` for `(teamId, tournamentId)` |
+| **Gemilang Cup U21** | ~19 (no Ram) | same |
+
+PPG / RPG / APG / shooting columns should use **games in the selected tournament** when a tournament is selected (consistent with Stats tab).
+
+### UX design (recommended)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Team Roster                                                 │
+│ Tournament  [ NBL Div 2 2024 ▼ ]          15 Players  + Add│
+├─────────────────────────────────────────────────────────────┤
+│  #  Player  Primary  …  PPG  RPG  APG  FG%  …               │
+│  … (only tournament roster rows)                            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Dropdown options** (reuse `getTeamTournamentScopeOptions`):
+
+1. **Club roster (all)** — value `all` — shows full `team.players`; badge = club count.
+2. **One row per tournament** the team participated in (from games + enrollment), sorted newest first — value = `tournamentId`.
+
+**Default when opening Roster tab:** **Most recent tournament** the team has games in (not `all`). Rationale: user is verifying season squads; Kai Xuan should open on NBL 2024 (15), not 28. If no tournaments, default `all`.
+
+**Independent from Stats tab scope** — separate state `rosterTournamentScope` vs `statsTournamentScope` so switching tabs does not surprise.
+
+**Helper text** (muted, one line under dropdown when not `all`):
+
+> Showing players who played for this team in {Tournament name}. Club roster has {N} players.
+
+**Empty state** (tournament selected, 0 roster rows):
+
+> No players in this tournament roster yet. Import a box score or add players from the tournament page.
+
+(No “Add Player” path to tournament roster in this task — still R1.3.)
+
+**Add Player button (this task):** Unchanged — always adds to **club template**. Optional tooltip: “Adds to club roster; use tournament page to manage season roster” (stretch).
+
+**Overview header** (“28 Players”): Keep **club count** on Overview; Roster tab badge reflects **filtered count**.
+
+### Data / implementation notes
+
+| Piece | Change |
+|-------|--------|
+| `AppRoutes` → `TeamPage` | Pass `tournamentRosters` prop from `App` |
+| `TeamPage` | New state `rosterTournamentScope`; reset to latest tournament on `team.id` change |
+| Player list | `all` → `team.players`; else `getPlayersForTeamInTournament(team.id, scope, teams, tournamentRosters)` |
+| Stats columns | `all` → `teamGames`; else `filterTeamScopeGames(teamGames, team.id, scope)` for `aggregateRosterPlayerSeasonStats` |
+| Component reuse | `TournamentScopeSelect` with extended options (prepend “Club roster (all)”) OR shared helper `getTeamRosterScopeOptions` |
+
+**Option list builder** (new helper in `tournamentRosters.ts` or extend existing):
+
+```ts
+getTeamRosterScopeOptions(teamId, teamGames, tournaments): TournamentScopeOption[]
+// [{ value: 'all', label: 'Club roster (all)' }, ...tournament rows from getTeamTournamentScopeOptions minus duplicate 'all']
+```
+
+**Default scope helper:**
+
+```ts
+getDefaultRosterTournamentScope(options): TournamentScope
+// first option where value !== 'all', else 'all'
+```
+
+### Acceptance criteria (Kai Xuan manual QA)
+
+- [ ] Roster dropdown visible on Team → Roster
+- [ ] **Club roster (all)** → 28 players
+- [ ] **NBL Div 2 2024** → 15 players; Ram listed
+- [ ] **Gemilang Cup U21** → Ram **not** listed
+- [ ] PPG/RPG for Ram (NBL scope) match his NBL games only
+- [ ] Stats tab tournament filter unchanged / independent
+
+### Task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **R1.6a** | Wire `tournamentRosters` to `TeamPage` | Prop flows App → AppRoutes → TeamPage |
+| **R1.6b** | Roster scope dropdown + default to latest tournament | UI matches mockup |
+| **R1.6c** | Filter rows + scoped stat columns | Counts match verify script per tournament |
+| **R1.6d** | Empty state + helper copy | 0-row tournament shows message |
+
+**Scope:** Read-only filter only. Overlap fix, game setup, tournament manage UI remain R1.1–R1.5.
+
+**Designer recommendation:** Pull **R1.6** ahead of full R1 overlap work — low risk, immediate value, uses R0 data already backfilled.
+
+### Open question for human (optional)
+
+Default to **latest tournament** vs **Club roster (all)** on first visit? **Human chose Club roster (all)** as default (2026-06-03).
+
+---
+
+## Entity Edit Buttons — Team / Tournament / Game (Designer, 2026-06-03)
+
+### Background and Motivation
+
+**Player page** already has a top-right **Edit Player** button (outline, pencil icon) opening a dialog with `PlayerForm` + jersey editor. User wants the **same placement and pattern** on:
+
+| Page | Route | Component today |
+|------|-------|-----------------|
+| **Team** | `/teams/:slugId` | `TeamPage` — no edit button |
+| **Tournament** | `/tournaments/:slugId` | `TournamentPage` — no edit button |
+| **Game** | `/games/:gameId` (completed) | `GameSummary` — no edit button |
+| **Game (live)** | `/live/:gameId` | `LiveGameEntry` — no metadata edit |
+
+Edit flows **already exist** on list/manager pages (`TeamManager`, `TournamentManager`) but are **not reachable from detail pages** — user must go back to managers to edit. Goal: edit in context without leaving the page you're viewing.
+
+### Reference pattern (PlayerPage — copy exactly)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ ← Back   [avatar] Carl Belanger              [Edit Player]  │
+├──────────────────────────────────────────────────────────────┤
+│ Overview | Game Log | Player Stats | Advanced Stats          │
+└──────────────────────────────────────────────────────────────┘
+```
+
+- Header: `flex items-center justify-between`
+- Button: `variant="outline" size="sm"` + `Edit` icon + label
+- Dialog: `max-w-2xl max-h-[80vh] overflow-y-auto`, `DialogTitle` + `DialogDescription`, existing form component, Cancel + Submit
+
+### What already exists (reuse, don't rebuild)
+
+| Entity | Form | Edit logic today | Detail page has handler? |
+|--------|------|------------------|------------------------|
+| **Team** | `TeamForm` (`isEditing`) | `TeamManager` edit dialog | ✅ `onUpdateTeam` on `TeamPage` |
+| **Tournament** | `TournamentForm` (`isEditing`) | `TournamentManager` edit dialog | ❌ `onUpdateTournament` **not** passed to `TournamentPage` |
+| **Game** | ❌ none | none | ❌ no `handleUpdateGame` for completed games |
+
+**TeamForm edit fields:** name, abbreviation, icon. Tournament picker hidden when `isEditing` (by design — enrollment managed on tournament page).
+
+**TournamentForm edit fields:** name, icon, description, year, month, enrolled teams (checkbox list).
+
+**Team.description** exists on model + shown on Team overview, but **not in TeamForm** — gap to close in E1.2.
+
+### Key Challenges and Analysis
+
+1. **Game has two surfaces** — completed (`GameSummary`) vs in-progress (`LiveGameEntry`). Same `GameForm` can serve both with `mode: 'completed' | 'live'` and field locks.
+2. **No `handleUpdateGame` for completed games** — `handleGameUpdate` only persists when `game.isActive`. Need new `handleUpdateGame` that updates `games[]`, syncs `tournament.games[]` when `tournamentId` changes, and saves to Supabase.
+3. **Dangerous edits** — changing home/away teams or deleting stats after a game is played breaks box scores, tournament rosters, standings. **Metadata-only** for v1; teams read-only once game has stats.
+4. **Tournament team checkbox changes** — adding/removing teams on tournament edit can hit overlap rules (`wouldTournamentEnrollmentViolateOverlap`). Reuse validation from `handleAddTeamToTournament` or warn on save.
+5. **Tournament roster R1** — editing tournament teams from tournament form is separate from tournament-scoped rosters; no roster copy prompt needed here (existing enrollment only).
+
+### UX design — fields per entity
+
+#### Edit Team (TeamPage header)
+
+| Field | Editable? | Notes |
+|-------|-----------|-------|
+| Name | ✅ | |
+| Abbreviation | ✅ | uniqueness validated |
+| Icon | ✅ | `TeamIconField` |
+| Description | ✅ **add to form** | optional textarea; shown on overview |
+| Tournament membership | ❌ | use Tournament page / Add team flows |
+| Roster / players | ❌ | Add Player on Roster tab |
+
+Dialog title: **Edit Team Details**
+
+#### Edit Tournament (TournamentPage header)
+
+| Field | Editable? | Notes |
+|-------|-----------|-------|
+| Name | ✅ | |
+| Icon | ✅ | `TournamentIconField` |
+| Description | ✅ | optional |
+| Year / Month | ✅ | |
+| Enrolled teams | ✅ | checkbox list; validate overlap on add |
+| Standings / games | ❌ | derived |
+
+Dialog title: **Edit Tournament Details**
+
+Replace top-right **Teams • Games badge** with **Edit Tournament** button (badge can move to Home tab or stay as subtitle — recommend keeping count on Home tab only to mirror Player page simplicity).
+
+#### Edit Game — completed (`GameSummary` header)
+
+| Field | Editable? | Notes |
+|-------|-----------|-------|
+| Date | ✅ | |
+| Start time | ✅ | optional `HH:MM`; field exists on model, not in GameSetup yet |
+| Tournament | ✅ | dropdown; on change, move game id between `tournament.games[]` |
+| Home / Away teams | ❌ read-only | display names only — changing breaks stats linkage |
+| Final score | ✅ optional | manual override for import corrections; show warning if differs from computed stat totals |
+| Stats / box score | ❌ | separate future "Edit box score" scope |
+
+Dialog title: **Edit Game Details**
+
+Header layout: match Player — Back + matchup summary left, **Edit Game** top right (above or beside "Recent Game" badge).
+
+#### Edit Game — live (`LiveGameEntry`)
+
+Same **Edit Game** button in a compact header row (live UI is dense — place next to existing controls or top bar).
+
+| Field | Editable? | Notes |
+|-------|-----------|-------|
+| Date | ✅ | |
+| Start time | ✅ | |
+| Tournament | ✅ | if no stats entered yet; warn if events exist |
+| Teams | ❌ | locked after start |
+| Track both teams | ❌ read-only | |
+
+### Proposed new component
+
+**`GameForm`** (`src/components/forms/GameForm.tsx`) — extract metadata slice from `GameSetup`:
+
+- Props: `initialData`, `tournaments`, `teams` (for read-only team labels), `isCompleted`, `onSubmit`, `onCancel`
+- Fields: date, start time (optional), tournament select, final score (home/away numbers, only when `isCompleted`)
+- Read-only row: `Home vs Away` team names with badges
+
+Later: GameSetup can import shared date/tournament fields from `GameForm` (optional refactor, not required for v1).
+
+### High-level Task Breakdown
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **E1.1** | TeamPage — Edit Team button + dialog | Header matches Player layout; opens `TeamForm isEditing`; save calls `onUpdateTeam`; name/icon/abbrev update on page |
+| **E1.2** | TeamForm — add optional **description** | Edit + create show description; Team overview reflects after save |
+| **E1.3** | TournamentPage — wire `onUpdateTournament` + Edit button + dialog | AppRoutes → TournamentPage prop; reuses `TournamentForm isEditing`; save updates header name/date/teams |
+| **E1.4** | Tournament edit — overlap validation on team checkbox save | Adding team that violates overlap shows error, no save (same message as add-team flow) |
+| **E1.5** | `GameForm` component | Renders metadata fields; unit-testable submit payload |
+| **E1.6** | `handleUpdateGame` in App + Supabase save | Updates game in state; moves game between tournaments; persists |
+| **E1.7** | GameSummary — Edit Game button + dialog | Completed games editable metadata; teams read-only in form |
+| **E1.8** | LiveGameEntry — Edit Game button + dialog | Live game metadata editable; calls `onGameUpdate` |
+| **E1.9** | Manual QA | Edit each entity from detail page; refresh; verify Supabase round-trip |
+
+**Recommended execution order:** E1.1–E1.2 (Team, quick win) → E1.3–E1.4 (Tournament) → E1.5–E1.8 (Game, most new code) → E1.9.
+
+### Out of scope (v1)
+
+- Edit roster from Team edit dialog (use Roster tab Add Player)
+- Change game teams after stats recorded
+- Edit individual box score lines from Game edit dialog
+- Delete entity from detail page (keep on manager pages only)
+- Tournament roster management (R1.5)
+
+### Open questions for human
+
+1. **Team description** — include in Edit Team form? **Designer recommends yes** (field already on model).
+2. **Final score override** on completed games — allow manual edit when imported score ≠ computed stats? **Designer recommends yes** with inline warning.
+3. **Live game tournament change** — allow after events logged? **Designer recommends block** if `game.events.length > 0`.
+4. **Tournament enrolled teams** in edit dialog — keep full checkbox list (same as manager)? **Designer recommends yes** for parity.
+
+### Project Status Board — Entity Edit (E1)
+
+- [x] **Human:** Confirm open questions 1–4 (or accept Designer defaults) — **defaults accepted via Executor proceed**
+- [x] **Executor:** E1.1 — TeamPage Edit Team
+- [x] **Executor:** E1.2 — TeamForm description field
+- [x] **Executor:** E1.3 — TournamentPage Edit Tournament + wire handler
+- [x] **Executor:** E1.4 — Tournament overlap validation on edit save
+- [x] **Executor:** E1.5 — GameForm component
+- [x] **Executor:** E1.6 — handleUpdateGame + save (via enhanced `handleGameUpdate`)
+- [x] **Executor:** E1.7 — GameSummary Edit Game
+- [x] **Executor:** E1.8 — LiveGameEntry Edit Game
+- [ ] **Human:** E1.9 manual QA
+- [ ] **Designer:** Cross-check and mark E1 complete
+
+### Executor's Feedback or Assistance Requests
+
+- **E1 complete (2026-06-03):** Edit buttons on Team/Tournament/Game detail pages. `TeamForm` + description; `TournamentForm` with overlap check; new `GameForm` + `gameMetadata` helpers; `handleGameUpdate` persists all games and syncs tournament membership.
+- **Awaiting human:** E1.9 manual QA on each detail page.
+
+---

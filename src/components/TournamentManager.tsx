@@ -123,7 +123,12 @@ export function TournamentManager({
 
       {/* Edit Tournament Dialog */}
       {editingTournament && (
-        <Dialog open={!!editingTournament} onOpenChange={() => setEditingTournament(null)}>
+        <Dialog
+          open={!!editingTournament}
+          onOpenChange={(open) => {
+            if (!open) setEditingTournament(null);
+          }}
+        >
           <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle>Edit Tournament</DialogTitle>
@@ -132,6 +137,7 @@ export function TournamentManager({
               </DialogDescription>
             </DialogHeader>
             <TournamentForm
+              key={editingTournament.id}
               initialData={{
                 name: editingTournament.name,
                 description: editingTournament.description || '',

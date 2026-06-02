@@ -1,36 +1,62 @@
-import React from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
-import { Game } from '../App';
-import { ArrowLeft, Calendar, Clock } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import { Game, Tournament } from '../App';
+import { ArrowLeft, Calendar, Clock, Edit } from 'lucide-react';
 import { BoxScore } from './BoxScore';
 import { ShotChart } from './ShotChart';
 import { TeamStats } from './TeamStats';
 import { GameLeadersSection } from './GameLeadersSection';
 import { GameTeamLink } from './GameTeamLink';
 import { TeamBadge } from './TeamBadge';
+import { GameForm } from './forms/GameForm';
+import { ErrorBoundary } from './ErrorBoundary';
 import { resolveTeamScore } from '../utils/gameDisplay';
+import {
+  buildGameMetadataPatch,
+  getFinalScoreMismatchWarning,
+} from '../utils/gameMetadata';
 
 interface GameSummaryProps {
   game: Game;
+  tournaments: Tournament[];
   onBack: () => void;
+  onGameUpdate: (game: Game) => void;
   onNavigateToPlayer?: (playerId: string, teamId: string) => void;
   onNavigateToTeam?: (teamId: string) => void;
 }
 
 export function GameSummary({
   game,
+  tournaments,
   onBack,
+  onGameUpdate,
   onNavigateToPlayer,
   onNavigateToTeam,
 }: GameSummaryProps) {
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
   const homeScore = resolveTeamScore(game, game.homeTeam.id);
   const awayScore = resolveTeamScore(game, game.awayTeam.id);
 
   const gameDate = new Date(game.date);
-  const isRecent = Date.now() - gameDate.getTime() < 7 * 24 * 60 * 60 * 1000; // Within 7 days
+  const isRecent = Date.now() - gameDate.getTime() < 7 * 24 * 60 * 60 * 1000;
+
+  const scoreMismatchWarning = useMemo(
+    () => getFinalScoreMismatchWarning(game),
+    [game]
+  );
+
+  const handleEditGameSubmit = useCallback(
+    (values: Parameters<typeof buildGameMetadataPatch>[1]) => {
+      onGameUpdate(buildGameMetadataPatch(game, values));
+      setIsEditDialogOpen(false);
+    },
+    [game, onGameUpdate]
+  );
 
   return (
     <div className="space-y-6">
@@ -40,12 +66,22 @@ export function GameSummary({
           <ArrowLeft className="h-4 w-4 mr-2" />
           Back to Dashboard
         </Button>
-        
-        {isRecent && (
-          <Badge variant="secondary" className="px-3 py-1">
-            Recent Game
-          </Badge>
-        )}
+
+        <div className="flex items-center gap-3">
+          {isRecent && (
+            <Badge variant="secondary" className="px-3 py-1">
+              Recent Game
+            </Badge>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsEditDialogOpen(true)}
+          >
+            <Edit className="w-4 h-4 mr-2" />
+            Edit Game
+          </Button>
+        </div>
       </div>
 
       {/* Game Header */}
@@ -141,6 +177,28 @@ export function GameSummary({
           </TabsContent>
         </div>
       </Tabs>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Game Details</DialogTitle>
+            <DialogDescription>
+              Update game date, time, tournament, or final score.
+            </DialogDescription>
+          </DialogHeader>
+          <ErrorBoundary>
+            <GameForm
+              key={String(isEditDialogOpen)}
+              game={game}
+              tournaments={tournaments}
+              isCompleted={game.isCompleted}
+              scoreMismatchWarning={scoreMismatchWarning}
+              onSubmit={handleEditGameSubmit}
+              onCancel={() => setIsEditDialogOpen(false)}
+            />
+          </ErrorBoundary>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

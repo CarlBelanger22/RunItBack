@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
+import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { Team, Tournament, Game, Player } from '../App';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
@@ -59,6 +60,11 @@ export async function detectPlayerStorageSchema(): Promise<PlayerStorageSchema> 
 export const MIGRATION_004_HINT =
   'Run supabase/migrations/004_allow_duplicate_jersey_numbers.sql in Supabase SQL Editor, or: npm run db:migrate:004';
 
+export const MIGRATION_005_HINT =
+  'Run supabase/migrations/005_tournament_rosters.sql in Supabase SQL Editor, or: npm run db:migrate:005';
+
+export type { TournamentRosterEntry };
+
 export interface LoadedAppData {
   teams: Team[];
   tournaments: Tournament[];
@@ -66,6 +72,8 @@ export interface LoadedAppData {
   darkMode: boolean;
   /** League player profiles not linked to any team roster. */
   orphanPlayers: Player[];
+  /** Tournament-season roster membership (authoritative for games in that tournament). */
+  tournamentRosters: TournamentRosterEntry[];
   /** True when legacy height/weight values were normalized on load. */
   playerMeasurementsMigrationPending?: boolean;
   playerStorageSchema?: PlayerStorageSchema;
@@ -132,6 +140,15 @@ interface DbTournamentTeam {
   team_id: string;
 }
 
+interface DbTournamentRoster {
+  tournament_id: string;
+  team_id: string;
+  player_id: string;
+  number: number;
+  position: string;
+  secondary_position: string | null;
+}
+
 interface DbGame {
   id: string;
   league_id: string;
@@ -187,6 +204,28 @@ function dbTeamToTeam(row: DbTeam, players: Player[]): Team {
     players,
     currentTournamentId: row.current_tournament_id ?? undefined,
     createdAt: row.created_at ?? undefined,
+  };
+}
+
+function dbTournamentRosterToEntry(row: DbTournamentRoster): TournamentRosterEntry {
+  return {
+    tournamentId: row.tournament_id,
+    teamId: row.team_id,
+    playerId: row.player_id,
+    number: row.number,
+    position: row.position ?? '',
+    secondaryPosition: row.secondary_position ?? undefined,
+  };
+}
+
+function tournamentRosterEntryToDbRow(entry: TournamentRosterEntry): DbTournamentRoster {
+  return {
+    tournament_id: entry.tournamentId,
+    team_id: entry.teamId,
+    player_id: entry.playerId,
+    number: entry.number,
+    position: entry.position ?? '',
+    secondary_position: entry.secondaryPosition ?? null,
   };
 }
 
@@ -586,6 +625,7 @@ export async function loadAppDataFromSupabase(
     teamPlayersRes,
     tournamentsRes,
     junctionRes,
+    tournamentRostersRes,
     gamesRes,
     prefsRes,
   ] = await Promise.all([
@@ -595,6 +635,7 @@ export async function loadAppDataFromSupabase(
       : Promise.resolve({ data: [], error: null }),
     supabase.from('tournaments').select('*').eq('league_id', leagueId),
     supabase.from('tournament_teams').select('tournament_id, team_id'),
+    supabase.from('tournament_rosters').select('*'),
     supabase.from('games').select('*').eq('league_id', leagueId),
     supabase.from('app_preferences').select('dark_mode').eq('league_id', leagueId).maybeSingle(),
   ]);
@@ -618,6 +659,13 @@ export async function loadAppDataFromSupabase(
   }
   if (tournamentsRes.error) throw new Error(tournamentsRes.error.message);
   if (junctionRes.error) throw new Error(junctionRes.error.message);
+  if (tournamentRostersRes.error) {
+    console.warn(
+      '[Supabase] tournament_rosters unavailable:',
+      tournamentRostersRes.error.message,
+      MIGRATION_005_HINT
+    );
+  }
   if (gamesRes.error) throw new Error(gamesRes.error.message);
   if (prefsRes.error) throw new Error(prefsRes.error.message);
 
@@ -627,7 +675,11 @@ export async function loadAppDataFromSupabase(
     : ((teamPlayersRes.data ?? []) as DbTeamPlayer[]);
   const tournamentRows = (tournamentsRes.data ?? []) as DbTournament[];
   const junctionRows = (junctionRes.data ?? []) as DbTournamentTeam[];
+  const tournamentRosterRows = tournamentRostersRes.error
+    ? []
+    : ((tournamentRostersRes.data ?? []) as DbTournamentRoster[]);
   const gameRows = (gamesRes.data ?? []) as DbGame[];
+  const leagueTournamentIds = new Set(tournamentRows.map((t) => t.id));
 
   phases.validateResponses = performance.now() - phaseStart;
   phaseStart = performance.now();
@@ -763,6 +815,10 @@ export async function loadAppDataFromSupabase(
     };
   });
 
+  const tournamentRosters: TournamentRosterEntry[] = tournamentRosterRows
+    .filter((row) => leagueTournamentIds.has(row.tournament_id))
+    .map(dbTournamentRosterToEntry);
+
   phases.buildTournaments = performance.now() - phaseStart;
   phaseStart = performance.now();
 
@@ -783,6 +839,7 @@ export async function loadAppDataFromSupabase(
     games,
     darkMode: prefsRes.data?.dark_mode ?? false,
     orphanPlayers,
+    tournamentRosters,
     playerMeasurementsMigrationPending,
     playerStorageSchema,
   };
@@ -813,7 +870,8 @@ export async function saveAppDataToSupabase(
   tournaments: Tournament[],
   games: Game[],
   darkMode: boolean,
-  leagueId = DEFAULT_LEAGUE_ID
+  leagueId = DEFAULT_LEAGUE_ID,
+  tournamentRosters: TournamentRosterEntry[] = []
 ): Promise<void> {
   if (!supabase) return;
 
@@ -860,6 +918,22 @@ export async function saveAppDataToSupabase(
     }
   }
   await upsertChunks('tournament_teams', junctionRows, 'tournament_id,team_id');
+
+  const rosterRows = tournamentRosters.map(tournamentRosterEntryToDbRow);
+  if (tournamentIds.length > 0) {
+    const { error: rosterDeleteError } = await supabase
+      .from('tournament_rosters')
+      .delete()
+      .in('tournament_id', tournamentIds);
+    if (rosterDeleteError) {
+      throw new Error(`tournament_rosters delete: ${rosterDeleteError.message}`);
+    }
+  }
+  await upsertChunks(
+    'tournament_rosters',
+    rosterRows,
+    'tournament_id,team_id,player_id'
+  );
 
   const gameRows = games.map((g) => gameToDbRow(g, leagueId));
   await upsertChunks('games', gameRows, 'id');

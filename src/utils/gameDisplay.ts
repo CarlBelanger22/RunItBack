@@ -91,7 +91,7 @@ export function getPlayersWhoPlayed(game: Game, team: Team): Player[] {
   return team.players.filter((p) => playerPlayedInGame(game, p.id));
 }
 
-/** Score for a specific team ù uses team id, not home/away slot. */
+/** Score for a specific team ÔøΩ uses team id, not home/away slot. */
 export function resolveTeamScore(game: Game, teamId: string): number {
   const team =
     game.homeTeam.id === teamId
@@ -231,6 +231,7 @@ export type TeamSeasonStatBucket = {
   blocks: number;
   turnovers: number;
   fouls: number;
+  fouls_drawn: number;
   points_off_turnovers: number;
   points_in_paint: number;
   second_chance_points: number;
@@ -261,6 +262,7 @@ export interface TeamSeasonDerivedStats {
   spg: number;
   bpg: number;
   fpg: number;
+  fdpg: number;
   paintPpg: number;
   fastbreakPpg: number;
   secondChancePpg: number;
@@ -291,6 +293,7 @@ function emptyTeamSeasonStatBucket(): TeamSeasonStatBucket {
     blocks: 0,
     turnovers: 0,
     fouls: 0,
+    fouls_drawn: 0,
     points_off_turnovers: 0,
     points_in_paint: 0,
     second_chance_points: 0,
@@ -308,6 +311,7 @@ function addTeamSeasonBuckets(
   b: TeamSeasonStatBucket
 ): TeamSeasonStatBucket {
   return {
+    points: a.points + b.points,
     fg_made: a.fg_made + b.fg_made,
     fg_attempted: a.fg_attempted + b.fg_attempted,
     three_made: a.three_made + b.three_made,
@@ -321,6 +325,7 @@ function addTeamSeasonBuckets(
     blocks: a.blocks + b.blocks,
     turnovers: a.turnovers + b.turnovers,
     fouls: a.fouls + b.fouls,
+    fouls_drawn: a.fouls_drawn + b.fouls_drawn,
     points_off_turnovers: a.points_off_turnovers + b.points_off_turnovers,
     points_in_paint: a.points_in_paint + b.points_in_paint,
     second_chance_points: a.second_chance_points + b.second_chance_points,
@@ -349,6 +354,7 @@ function divideTeamSeasonBucket(
     blocks: bucket.blocks / games,
     turnovers: bucket.turnovers / games,
     fouls: bucket.fouls / games,
+    fouls_drawn: bucket.fouls_drawn / games,
     points_off_turnovers: bucket.points_off_turnovers / games,
     points_in_paint: bucket.points_in_paint / games,
     second_chance_points: bucket.second_chance_points / games,
@@ -416,6 +422,7 @@ function teamGameSeasonContribution(
     blocks: fromPlayers?.blocks ?? seasonStatNum(persisted?.blocks),
     turnovers: fromPlayers?.turnovers ?? seasonStatNum(persisted?.turnovers),
     fouls: fromPlayers?.fouls ?? seasonStatNum(persisted?.fouls),
+    fouls_drawn: fromPlayers?.fouls_drawn ?? 0,
     points_off_turnovers: seasonStatNum(persisted?.points_off_turnovers),
     points_in_paint: seasonStatNum(persisted?.points_in_paint),
     second_chance_points: seasonStatNum(persisted?.second_chance_points),
@@ -592,6 +599,7 @@ export function computeTeamSeasonDerived(
     spg: perGame.steals,
     bpg: perGame.blocks,
     fpg: perGame.fouls,
+    fdpg: perGame.fouls_drawn,
     paintPpg: perGame.points_in_paint,
     fastbreakPpg: perGame.fastbreak_points,
     secondChancePpg: perGame.second_chance_points,
@@ -779,7 +787,7 @@ export function getGameLeaders(
   return { value: max, names, leaders };
 }
 
-/** First token of display name ù for compact chart axis labels. */
+/** First token of display name ÔøΩ for compact chart axis labels. */
 export function getPlayerFirstName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return 'Unknown';

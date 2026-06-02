@@ -40,7 +40,7 @@ export function TeamManager({
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
 
   const handleTeamSubmit = useCallback(
-    ({ name, abbreviation, icon, tournamentIds }: { name: string; abbreviation: string; icon?: string; tournamentIds: string[] }) => {
+    ({ name, abbreviation, description, icon, tournamentIds }: { name: string; abbreviation: string; description?: string; icon?: string; tournamentIds: string[] }) => {
       const resolvedAbbrev =
         abbreviation.trim().toUpperCase() ||
         generateTeamAbbreviation(
@@ -55,6 +55,7 @@ export function TeamManager({
           ...editingTeam,
           name,
           abbreviation: resolvedAbbrev,
+          description,
           icon,
         });
         setEditingTeam(null);
@@ -172,6 +173,7 @@ export function TeamManager({
               key={editingTeam.id}
               initialName={editingTeam.name}
               initialAbbreviation={editingTeam.abbreviation}
+              initialDescription={editingTeam.description || ''}
               initialIcon={editingTeam.icon}
               teamId={editingTeam.id}
               takenAbbreviations={takenAbbreviations.filter(

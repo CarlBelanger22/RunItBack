@@ -10,6 +10,7 @@ import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
+import { TournamentForm } from './forms/TournamentForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { MetricsCalculator } from './MetricsCalculator';
@@ -27,8 +28,10 @@ import {
   Crown,
   Star,
   Plus,
-  Shield
+  Shield,
+  Edit
 } from 'lucide-react';
+import { wouldTournamentEnrollmentViolateOverlap } from '../utils/rosterPlayers';
 
 interface TournamentPageProps {
   tournament: Tournament;
@@ -43,6 +46,7 @@ interface TournamentPageProps {
   onCreateTeam: (teamData: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
+  onUpdateTournament: (tournament: Tournament) => void;
   onDeleteTeam: (teamId: string) => void;
 }
 
@@ -59,6 +63,7 @@ export function TournamentPage({
   onCreateTeam,
   onAddTeamToTournament,
   onUpdateTeam,
+  onUpdateTournament,
   onDeleteTeam
 }: TournamentPageProps) {
   
@@ -259,6 +264,8 @@ export function TournamentPage({
   // Team dialogs (hoisted outside tab components to avoid remount on keystroke)
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
   const [isAddTeamDialogOpen, setIsAddTeamDialogOpen] = useState(false);
+  const [isEditTournamentDialogOpen, setIsEditTournamentDialogOpen] = useState(false);
+  const [editTournamentError, setEditTournamentError] = useState<string | null>(null);
   const [createFormKey, setCreateFormKey] = useState(0);
 
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
@@ -296,6 +303,52 @@ export function TournamentPage({
 
   const handleTeamFormCancel = useCallback(() => {
     setIsCreateTeamDialogOpen(false);
+  }, []);
+
+  const handleTournamentFormSubmit = useCallback(
+    (data: {
+      name: string;
+      description: string;
+      year: number;
+      month: string;
+      teams: string[];
+      icon?: string;
+    }) => {
+      const newlyAdded = data.teams.filter((id) => !tournament.teams.includes(id));
+
+      for (const teamId of newlyAdded) {
+        const violation = wouldTournamentEnrollmentViolateOverlap(
+          teamId,
+          tournament.id,
+          teams,
+          [{ ...tournament, teams: data.teams }]
+        );
+        if (violation.violates) {
+          setEditTournamentError(
+            violation.message ?? 'Cannot add team to tournament.'
+          );
+          return;
+        }
+      }
+
+      setEditTournamentError(null);
+      onUpdateTournament({
+        ...tournament,
+        name: data.name,
+        description: data.description,
+        year: data.year,
+        month: data.month,
+        teams: data.teams,
+        icon: data.icon,
+      });
+      setIsEditTournamentDialogOpen(false);
+    },
+    [tournament, teams, onUpdateTournament]
+  );
+
+  const handleTournamentFormCancel = useCallback(() => {
+    setEditTournamentError(null);
+    setIsEditTournamentDialogOpen(false);
   }, []);
 
   // Get teams not in tournament
@@ -905,9 +958,17 @@ export function TournamentPage({
             </div>
           </div>
         </div>
-        <Badge variant="outline" className="text-sm">
-          {tournamentTeams.length} Teams • {tournamentGames.length} Games
-        </Badge>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => {
+            setEditTournamentError(null);
+            setIsEditTournamentDialogOpen(true);
+          }}
+        >
+          <Edit className="w-4 h-4 mr-2" />
+          Edit Tournament
+        </Button>
       </div>
 
       {/* Navigation Tabs */}
@@ -992,6 +1053,36 @@ export function TournamentPage({
             onSubmit={handleTeamFormSubmit}
             onCancel={handleTeamFormCancel}
             isEditing={false}
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isEditTournamentDialogOpen} onOpenChange={setIsEditTournamentDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Tournament Details</DialogTitle>
+            <DialogDescription>
+              Update tournament information and team participation.
+            </DialogDescription>
+          </DialogHeader>
+          {editTournamentError && (
+            <p className="text-sm text-destructive">{editTournamentError}</p>
+          )}
+          <TournamentForm
+            key={tournament.id}
+            initialData={{
+              name: tournament.name,
+              description: tournament.description || '',
+              year: tournament.year,
+              month: tournament.month,
+              selectedTeams: tournament.teams,
+              icon: tournament.icon,
+            }}
+            tournamentId={tournament.id}
+            teams={teams}
+            onSubmit={handleTournamentFormSubmit}
+            onCancel={handleTournamentFormCancel}
+            isEditing
           />
         </DialogContent>
       </Dialog>

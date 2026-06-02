@@ -18,7 +18,10 @@ import { Separator } from './ui/separator';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Label } from './ui/label';
-import { Game, GameEvent, Shot, Player } from '../App';
+import { Game, GameEvent, Shot, Player, Tournament } from '../App';
+import { GameForm } from './forms/GameForm';
+import { ErrorBoundary } from './ErrorBoundary';
+import { buildGameMetadataPatch } from '../utils/gameMetadata';
 import { ActionFlowDialogs } from './ActionFlowDialogs';
 import courtImage from 'figma:asset/f65163b731043f15b81c5eb0e3f3bccc76945c97.png';
 import { 
@@ -47,6 +50,7 @@ import { GameLogic } from '../utils/GameLogic';
 
 interface LiveGameEntryProps {
   game: Game;
+  tournaments: Tournament[];
   onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void;
   onDeleteGame: () => void;
@@ -74,7 +78,7 @@ interface CourtPosition {
   y: number;
 }
 
-export function LiveGameEntry({ game, onGameUpdate, onGameComplete, onDeleteGame }: LiveGameEntryProps) {
+export function LiveGameEntry({ game, tournaments, onGameUpdate, onGameComplete, onDeleteGame }: LiveGameEntryProps) {
   // Game state
   const [currentGame, setCurrentGame] = useState<Game>(game);
   const [actionState, setActionState] = useState<ActionState>({
@@ -90,6 +94,11 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete, onDeleteGame
   const [historyExpanded, setHistoryExpanded] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<string>('all');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+
+  useEffect(() => {
+    setCurrentGame(game);
+  }, [game]);
   const [undoStack, setUndoStack] = useState<GameEvent[]>([]);
   const [isSubstituting, setIsSubstituting] = useState(false);
   const [dialogState, setDialogState] = useState<DialogState>({ isOpen: false, type: null });
@@ -196,6 +205,16 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete, onDeleteGame
   const closeDialog = () => {
     setDialogState({ isOpen: false, type: null });
   };
+
+  const handleEditGameMetadata = useCallback(
+    (values: Parameters<typeof buildGameMetadataPatch>[1]) => {
+      const updated = buildGameMetadataPatch(currentGame, values);
+      setCurrentGame(updated);
+      onGameUpdate(updated);
+      setIsEditDialogOpen(false);
+    },
+    [currentGame, onGameUpdate]
+  );
 
   const recordEvent = (eventData: Partial<GameEvent>) => {
     const event: GameEvent = {
@@ -492,6 +511,15 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete, onDeleteGame
           </div>
           
           <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditDialogOpen(true)}
+            >
+              <Edit2 className="w-4 h-4 mr-1" />
+              Edit Game
+            </Button>
+
             <Button 
               variant="outline" 
               size="sm"
@@ -819,6 +847,27 @@ export function LiveGameEntry({ game, onGameUpdate, onGameComplete, onDeleteGame
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Game Details</DialogTitle>
+            <DialogDescription>
+              Update game date, time, or tournament.
+            </DialogDescription>
+          </DialogHeader>
+          <ErrorBoundary>
+            <GameForm
+              key={String(isEditDialogOpen)}
+              game={currentGame}
+              tournaments={tournaments}
+              lockTournament={(currentGame.events?.length ?? 0) > 0}
+              onSubmit={handleEditGameMetadata}
+              onCancel={() => setIsEditDialogOpen(false)}
+            />
+          </ErrorBoundary>
+        </DialogContent>
+      </Dialog>
 
       {/* Action Flow Dialogs */}
       <ActionFlowDialogs

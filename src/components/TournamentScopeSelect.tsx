@@ -23,12 +23,12 @@ export function TournamentScopeSelect({
   id = 'tournament-scope',
 }: TournamentScopeSelectProps) {
   return (
-    <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
+    <div className="flex w-fit max-w-full flex-col sm:flex-row sm:items-center gap-2 sm:gap-3">
       <Label htmlFor={id} className="text-sm text-muted-foreground shrink-0">
         Tournament
       </Label>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id} className="w-full sm:w-[280px]">
+        <SelectTrigger id={id} className="w-[280px] max-w-full">
           <SelectValue placeholder="Select tournament" />
         </SelectTrigger>
         <SelectContent>

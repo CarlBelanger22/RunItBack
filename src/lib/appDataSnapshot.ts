@@ -1,13 +1,14 @@
 import type { Game, Player, Team, Tournament } from '../App';
 import { DEFAULT_LEAGUE_ID } from '../api/supabaseData';
 import type { LoadedAppData } from '../api/supabaseData';
+import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import {
   dedupeActiveGames,
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { dedupeTeamsById } from '../utils/rosterPlayers';
 
-export const APP_DATA_SNAPSHOT_VERSION = 1;
+export const APP_DATA_SNAPSHOT_VERSION = 2;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
 
 export interface AppDataSnapshot {
@@ -19,6 +20,7 @@ export interface AppDataSnapshot {
   games: Game[];
   darkMode: boolean;
   orphanPlayers: Player[];
+  tournamentRosters?: TournamentRosterEntry[];
 }
 
 export interface ProcessedAppData {
@@ -27,6 +29,7 @@ export interface ProcessedAppData {
   games: Game[];
   darkMode: boolean;
   orphanPlayers: Player[];
+  tournamentRosters: TournamentRosterEntry[];
   activeGame: Game | null;
   activeGameDedupeChanged: boolean;
   orphanGameIds: string[];
@@ -48,6 +51,7 @@ export function processLoadedAppData(data: LoadedAppData): ProcessedAppData {
     games,
     darkMode: data.darkMode,
     orphanPlayers: data.orphanPlayers,
+    tournamentRosters: data.tournamentRosters ?? [],
     activeGame: active,
     activeGameDedupeChanged: changed,
     orphanGameIds,
@@ -81,6 +85,7 @@ export function saveAppDataSnapshot(payload: {
   games: Game[];
   darkMode: boolean;
   orphanPlayers: Player[];
+  tournamentRosters?: TournamentRosterEntry[];
 }): void {
   try {
     const snapshot: AppDataSnapshot = {
@@ -92,6 +97,7 @@ export function saveAppDataSnapshot(payload: {
       games: payload.games,
       darkMode: payload.darkMode,
       orphanPlayers: payload.orphanPlayers,
+      tournamentRosters: payload.tournamentRosters ?? [],
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
   } catch (err) {
@@ -106,6 +112,7 @@ export function snapshotToLoadedAppData(snapshot: AppDataSnapshot): LoadedAppDat
     games: snapshot.games,
     darkMode: snapshot.darkMode,
     orphanPlayers: snapshot.orphanPlayers,
+    tournamentRosters: snapshot.tournamentRosters ?? [],
   };
 }
 
