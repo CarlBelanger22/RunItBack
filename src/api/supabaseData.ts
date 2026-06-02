@@ -542,6 +542,22 @@ async function upsertChunks<T extends Record<string, unknown>>(
   }
 }
 
+function logLoadTimings(
+  startedAt: number,
+  phases: Record<string, number>,
+  counts: Record<string, number>
+): void {
+  const totalMs = Math.round(performance.now() - startedAt);
+  const roundedPhases = Object.fromEntries(
+    Object.entries(phases).map(([key, ms]) => [key, Math.round(ms)])
+  );
+  console.info('[RunItBack] loadAppDataFromSupabase', {
+    totalMs,
+    phases: roundedPhases,
+    counts,
+  });
+}
+
 export async function loadAppDataFromSupabase(
   leagueId = DEFAULT_LEAGUE_ID
 ): Promise<LoadedAppData> {
@@ -549,11 +565,18 @@ export async function loadAppDataFromSupabase(
     throw new Error('Supabase is not configured');
   }
 
+  const loadStartedAt = performance.now();
+  const phases: Record<string, number> = {};
+  let phaseStart = loadStartedAt;
+
   const teamRowsRes = await supabase
     .from('teams')
     .select('*')
     .eq('league_id', leagueId);
   if (teamRowsRes.error) throw new Error(teamRowsRes.error.message);
+
+  phases.teamsQuery = performance.now() - phaseStart;
+  phaseStart = performance.now();
 
   const teamRows = (teamRowsRes.data ?? []) as DbTeam[];
   const teamIds = teamRows.map((t) => t.id);
@@ -575,6 +598,9 @@ export async function loadAppDataFromSupabase(
     supabase.from('games').select('*').eq('league_id', leagueId),
     supabase.from('app_preferences').select('dark_mode').eq('league_id', leagueId).maybeSingle(),
   ]);
+
+  phases.parallelQueries = performance.now() - phaseStart;
+  phaseStart = performance.now();
 
   let playersRes = playersResInitial;
   if (playersRes.error || (playersRes.data ?? []).length === 0) {
@@ -602,6 +628,9 @@ export async function loadAppDataFromSupabase(
   const tournamentRows = (tournamentsRes.data ?? []) as DbTournament[];
   const junctionRows = (junctionRes.data ?? []) as DbTournamentTeam[];
   const gameRows = (gamesRes.data ?? []) as DbGame[];
+
+  phases.validateResponses = performance.now() - phaseStart;
+  phaseStart = performance.now();
 
   const teamIdSet = new Set(teamIds);
   const profileById = new Map<string, DbPlayerProfile>();
@@ -696,6 +725,9 @@ export async function loadAppDataFromSupabase(
   }
   orphanPlayers.sort((a, b) => a.name.localeCompare(b.name));
 
+  phases.buildTeamsAndRosters = performance.now() - phaseStart;
+  phaseStart = performance.now();
+
   const games: Game[] = [];
   for (const row of gameRows) {
     try {
@@ -704,6 +736,9 @@ export async function loadAppDataFromSupabase(
       console.warn('[Supabase] Skipping game on load:', (e as Error).message);
     }
   }
+
+  phases.hydrateGames = performance.now() - phaseStart;
+  phaseStart = performance.now();
 
   const teamsByTournament = new Map<string, string[]>();
   for (const row of junctionRows) {
@@ -728,6 +763,20 @@ export async function loadAppDataFromSupabase(
     };
   });
 
+  phases.buildTournaments = performance.now() - phaseStart;
+  phaseStart = performance.now();
+
+  const playerStorageSchema = await detectPlayerStorageSchema();
+  phases.detectSchema = performance.now() - phaseStart;
+
+  logLoadTimings(loadStartedAt, phases, {
+    teams: teams.length,
+    tournaments: tournaments.length,
+    games: games.length,
+    players: playerRows.length,
+    teamPlayers: teamPlayerRows.length,
+  });
+
   return {
     teams,
     tournaments,
@@ -735,7 +784,7 @@ export async function loadAppDataFromSupabase(
     darkMode: prefsRes.data?.dark_mode ?? false,
     orphanPlayers,
     playerMeasurementsMigrationPending,
-    playerStorageSchema: await detectPlayerStorageSchema(),
+    playerStorageSchema,
   };
 }
 

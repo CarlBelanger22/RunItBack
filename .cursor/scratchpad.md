@@ -20,6 +20,169 @@
 
 ---
 
+## Refresh performance (Designer, 2026-06-02)
+
+### Background and Motivation
+
+User reports refresh takes a few seconds before UI appears.
+
+Current app blocks render on full cloud bootstrap (`isDataLoading` gate) and waits for:
+
+- `teams`
+- `players`
+- `team_players`
+- `tournaments`
+- `tournament_teams`
+- `games`
+- `app_preferences`
+
+Then it builds in-memory maps/joins before first paint.
+
+### Assumptions to challenge
+
+1. **“Network is the only bottleneck”** — likely false; payload parse + mapping cost can be material with large `games` JSON.
+2. **“Need all entities before first paint”** — false for home shell; many screens can lazy-hydrate.
+3. **“One optimized query fixes it”** — partial; biggest UX win usually comes from *showing cached snapshot immediately*.
+
+### Candidate solutions (ranked by ROI)
+
+| Option | What changes | Expected UX impact | Risk |
+|--------|--------------|--------------------|------|
+| **P1 Local snapshot + stale-while-revalidate** | Render last good dataset from localStorage/session immediately, then fetch cloud and reconcile | **Largest perceived speedup** (instant paint) | Reconcile bugs if schema drift |
+| **P2 Route-level lazy hydration** | Load minimal dashboard shell first; defer heavy `games` details for non-visible routes | High | More plumbing in route/data ownership |
+| **P3 Query shaping/pagination** | Reduce initial `games` payload (e.g., recent N for dashboard) and fetch full history on demand | Medium-high | Requires careful cache strategy |
+| **P4 Runtime profiling + memo tuning** | Instrument load phases + optimize mapping hotspots | Medium | Could over-optimize wrong stage without metrics |
+| **P5 Bundle split** | Code-split heavy routes/charts and lazy-load | Medium | Build/routing complexity |
+
+### Recommended phased plan
+
+#### Phase A (fastest win, low product risk)
+
+1. Add **load-phase timing logs** (`loadAppDataFromSupabase` start/end and per-query timing).
+2. Add **local snapshot cache** of normalized app state + schema version + timestamp.
+3. On refresh:
+   - If snapshot exists and version matches: render immediately.
+   - Fire cloud fetch in background.
+   - Replace state on success; keep old + banner on failure.
+
+**Success criteria**
+- First meaningful paint under ~300ms on repeat refresh (warm cache)
+- Cloud sync still updates within normal network time
+- No data loss/corruption in save path
+
+#### Phase B (if still slow on cold load)
+
+4. Split bootstrap into:
+   - `loadCoreData` (teams/tournaments/prefs)
+   - `loadHeavyData` (games + optional details)
+5. Load dashboard with core, progressively hydrate heavy sections.
+
+**Success criteria**
+- Cold refresh: visible shell fast, data sections fill progressively
+- No route regressions
+
+#### Phase C (structural)
+
+6. Route-level/lazy query strategy for game history and charts.
+7. Optional server-side pre-aggregation endpoints for dashboard cards.
+
+### Data integrity safeguards
+
+- Snapshot includes `schemaVersion` + `updatedAt`; invalidate on mismatch.
+- Keep existing cloud save as source of truth.
+- Never overwrite newer cloud data with stale snapshot.
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **PF.1** | Add load timing instrumentation | Console shows query + transform timings |
+| **PF.2** | Add versioned local snapshot read path | Refresh shows UI immediately on warm cache |
+| **PF.3** | Add background revalidate + merge/update banner | Snapshot replaced after cloud load |
+| **PF.4** | Verify no save regressions + build/test pass | Manual QA + no lint/build errors |
+| **PF.5** | Optional cold-load split if needed | Faster time-to-shell on empty cache |
+
+### User decisions (2026-06-02)
+
+| Question | Answer |
+|----------|--------|
+| Stale OK on refresh? | **Yes** |
+| Freshness policy | **Designer recommendation** (see below) |
+| Users | Mostly **single-user** now; **multi-user later** |
+| On fetch failure | **Retry** (keep showing last good data while retrying) |
+| UX pattern | **Immediate shell + progressive sections**; “Updating…” OK |
+| Priority screens | **Dashboard** → Team page → Recent games; **current route** wins on deep link |
+| Target | **&lt;1s** to usable UI |
+| Offline mode | **Not required** |
+| Engineering depth | **Designer picks** best ROI path |
+
+### Stale window — industry context (recommendation)
+
+There is no single NBA-style rule for a stats archive app. Common patterns:
+
+| App type | Typical “show stale” behavior |
+|----------|-------------------------------|
+| Live scores | 5–30s before forcing refresh |
+| News / dashboards | 30s–5min; background poll |
+| Internal tools / CRM | Minutes to hours; refresh on navigation |
+| **Your app (historical box scores, single editor)** | **Instant snapshot + background sync** |
+
+**Recommended policy for RunItBack:**
+
+1. **On refresh:** always paint from **last local snapshot** immediately (no wait).
+2. **Background:** fetch full league from Supabase; swap state when done (&lt;3s typical).
+3. **“Stale” label:** only if snapshot age **&gt; 60s** *and* sync still in flight — show subtle “Updating…” (not scary).
+4. **Trust line (optional):** “Synced just now” / “Couldn’t sync — retrying” in header when useful.
+5. **Future multi-user:** add `league_updated_at` or row versions later; on conflict, **cloud wins** after successful fetch (simplest v1).
+
+This hits **&lt;1s perceived load** on repeat visits while staying honest. True cold load (first visit, no cache) may still take 2–4s until we add Phase B split queries.
+
+### Approved architecture (Executor path)
+
+**Pattern:** Stale-while-revalidate (SWR) + route-aware hydration priority.
+
+```
+Refresh
+  ├─ Read versioned snapshot from localStorage → set state → isDataLoading=false (<300ms goal)
+  ├─ Render shell + current route skeleton filled from cache
+  ├─ Parallel: loadAppDataFromSupabase() with timing logs
+  │     └─ On success: replace state, write new snapshot, clear “Updating…”
+  │     └─ On failure: keep cache, show banner, exponential retry (e.g. 2s, 5s, 10s)
+  └─ Optional Phase B: split games payload / lazy load non-dashboard routes
+```
+
+**Route priority on hydrate (after cache paint):**
+
+1. Current URL (team/tournament/game if deep-linked)
+2. Dashboard aggregates (recent games, standings teasers)
+3. Rest of league in background
+
+**Out of scope for v1:** true offline mode, WebSocket live sync.
+
+### High-level task breakdown (updated)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **PF.1** | Instrument `loadAppDataFromSupabase` (per-query ms + total) | Dev console shows breakdown |
+| **PF.2** | `appDataSnapshot.ts`: versioned save/load of `{ teams, tournaments, games, darkMode, savedAt }` | Repeat refresh paints without waiting on network |
+| **PF.3** | App bootstrap: cache-first, then revalidate; `syncStatus`: idle \| syncing \| error | No full-screen block when cache exists |
+| **PF.4** | Header/banner: “Updating…” / retry on failure | User sees progress; failed sync retries |
+| **PF.5** | Write snapshot after successful cloud load + after local saves | Cache stays fresh |
+| **PF.6** (if cold load still &gt;1s) | Split initial fetch: core vs games list metadata | Dashboard usable before all gameStats parsed |
+
+**Designer confidence: 95%** — matches user goals and single-user reality; PF.6 only if metrics show cold path still slow.
+
+**Status (Executor 2026-06-02):** PF.1–PF.5 implemented.
+
+- `src/lib/appDataSnapshot.ts` — versioned localStorage snapshot + `processLoadedAppData`
+- `loadAppDataFromSupabase` — per-phase timing logs (`[RunItBack] loadAppDataFromSupabase`)
+- `App.tsx` — cache-first paint, background cloud revalidate, retry backoff (2s/5s/10s), “Updating…” / sync error banners
+- Snapshot refreshed after successful cloud load and after successful auto-save
+
+**Project Status Board:** [x] PF.1–PF.5 — [ ] PF.6 only if cold load still slow after user QA
+
+---
+
 ## 2) Active Plan (Now)
 
 ### **C6 — Team icon image: create/edit UI + real logos for existing teams (Designer, 2026-05-31)**

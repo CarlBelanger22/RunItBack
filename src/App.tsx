@@ -27,6 +27,14 @@ import {
   type PlayerStorageSchema,
 } from './api/supabaseData';
 import { PLAYER_MEASUREMENTS_MIGRATION_KEY } from './lib/playerMeasurements';
+import {
+  getSnapshotAgeMs,
+  processLoadedAppData,
+  readAppDataSnapshot,
+  saveAppDataSnapshot,
+  snapshotToLoadedAppData,
+  type ProcessedAppData,
+} from './lib/appDataSnapshot';
 import { AppRoutes } from './routing/AppRoutes';
 import { gamePath, liveGamePath, paths, playerPath, teamPath } from './routing/paths';
 import { currentLocationPath, navigateWithReturnTo } from './routing/navigation';
@@ -901,6 +909,10 @@ export default function App() {
   const [darkMode, setDarkMode] = useState(false);
 
   const [isDataLoading, setIsDataLoading] = useState(true);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<
+    'idle' | 'syncing' | 'error'
+  >('idle');
+  const [showedCachedSnapshot, setShowedCachedSnapshot] = useState(false);
   const [dataLoadError, setDataLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [playerStorageSchema, setPlayerStorageSchema] =
@@ -925,7 +937,76 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Load from Supabase on mount
+  const applyProcessedToState = useCallback((processed: ProcessedAppData) => {
+    setTeams(processed.teams);
+    setLoadedOrphanPlayers(processed.orphanPlayers);
+    setTournaments(processed.tournaments);
+    setGames(processed.games);
+    setDarkMode(processed.darkMode);
+    setPlayerStorageSchema(processed.playerStorageSchema ?? null);
+    prevTeamsRef.current = processed.teams;
+    prevTournamentsRef.current = processed.tournaments;
+    prevGamesRef.current = processed.games;
+    prevDarkModeRef.current = processed.darkMode;
+
+    if (processed.activeGame) {
+      setCurrentGame(processed.activeGame);
+    }
+
+    saveAppDataSnapshot({
+      teams: processed.teams,
+      tournaments: processed.tournaments,
+      games: processed.games,
+      darkMode: processed.darkMode,
+      orphanPlayers: processed.orphanPlayers,
+    });
+  }, []);
+
+  const runCloudLoadSideEffects = useCallback(
+    (
+      data: Awaited<ReturnType<typeof loadAppDataFromSupabase>>,
+      processed: ProcessedAppData
+    ) => {
+      if (processed.activeGameDedupeChanged || processed.orphanGameIds.length > 0) {
+        saveAppDataToSupabase(
+          processed.teams,
+          processed.tournaments,
+          processed.games,
+          processed.darkMode
+        ).catch((err: Error) => {
+          console.error('Active game dedupe save failed:', err);
+          setSaveError(formatCloudSaveError(err.message));
+        });
+      }
+
+      if (processed.orphanGameIds.length > 0) {
+        deleteGamesFromSupabase(processed.orphanGameIds).catch((err: Error) => {
+          console.error('Orphan game cleanup failed:', err);
+        });
+      }
+
+      if (
+        data.playerMeasurementsMigrationPending &&
+        !localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)
+      ) {
+        localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
+        saveAppDataToSupabase(
+          processed.teams,
+          processed.tournaments,
+          data.games,
+          processed.darkMode
+        ).catch((err: Error) => {
+          console.error('Player measurements migration save failed:', err);
+          setSaveError(formatCloudSaveError(err.message));
+        });
+      } else if (!localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)) {
+        localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
+      }
+    },
+    []
+  );
+
+  // Cache-first load, then revalidate from Supabase
   useEffect(() => {
     if (!isSupabaseConfigured) {
       setDataLoadError(
@@ -936,89 +1017,74 @@ export default function App() {
     }
 
     let cancelled = false;
+    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let retryAttempt = 0;
 
-    loadAppDataFromSupabase()
-      .then((data) => {
-        if (cancelled) return;
-        console.log('Loaded from Supabase:', {
-          teams: data.teams.length,
-          tournaments: data.tournaments.length,
-          games: data.games.length,
+    const snapshot = readAppDataSnapshot();
+    const hadCache = snapshot != null;
+
+    if (snapshot && !cancelled) {
+      const processed = processLoadedAppData(snapshotToLoadedAppData(snapshot));
+      applyProcessedToState(processed);
+      setShowedCachedSnapshot(true);
+      setIsDataLoading(false);
+      if (import.meta.env.DEV) {
+        console.info('[RunItBack] painted from snapshot', {
+          ageMs: getSnapshotAgeMs(snapshot),
+          teams: processed.teams.length,
+          games: processed.games.length,
         });
-        const loadedTeams = dedupeTeamsById(data.teams);
-        setTeams(loadedTeams);
-        setLoadedOrphanPlayers(data.orphanPlayers);
-        setTournaments(data.tournaments);
-        const { games: dedupedGames, active, changed } = dedupeActiveGames(data.games);
-        const orphanIds = dedupedGames
-          .filter(isOrphanedIncompleteGame)
-          .map((g) => g.id);
-        const cleanedGames = dedupedGames.filter((g) => !orphanIds.includes(g.id));
-        setGames(cleanedGames);
-        setDarkMode(data.darkMode);
-        setPlayerStorageSchema(data.playerStorageSchema ?? null);
-        prevTeamsRef.current = loadedTeams;
-        prevTournamentsRef.current = data.tournaments;
-        prevGamesRef.current = cleanedGames;
-        prevDarkModeRef.current = data.darkMode;
-        setDataLoadError(null);
+      }
+    }
 
-        if (active) {
-          setCurrentGame(active);
-        }
+    const fetchFromCloud = () => {
+      if (cancelled) return;
+      setCloudSyncStatus('syncing');
 
-        if (changed || orphanIds.length > 0) {
-          saveAppDataToSupabase(
-            loadedTeams,
-            data.tournaments,
-            cleanedGames,
-            data.darkMode
-          ).catch((err: Error) => {
-            console.error('Active game dedupe save failed:', err);
-            setSaveError(formatCloudSaveError(err.message));
-          });
-        }
+      loadAppDataFromSupabase()
+        .then((data) => {
+          if (cancelled) return;
+          const processed = processLoadedAppData(data);
+          applyProcessedToState(processed);
+          runCloudLoadSideEffects(data, processed);
+          setDataLoadError(null);
+          setCloudSyncStatus('idle');
+          retryAttempt = 0;
 
-        if (orphanIds.length > 0) {
-          deleteGamesFromSupabase(orphanIds).catch((err: Error) => {
-            console.error('Orphan game cleanup failed:', err);
-          });
-        }
+          if (import.meta.env.DEV) {
+            console.info('[RunItBack] cloud revalidate complete', {
+              teams: processed.teams.length,
+              games: processed.games.length,
+            });
+          }
+        })
+        .catch((err: Error) => {
+          if (cancelled) return;
+          console.error('Supabase load failed:', err);
+          setDataLoadError(err.message);
+          setCloudSyncStatus('error');
 
-        if (
-          data.playerMeasurementsMigrationPending &&
-          !localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)
-        ) {
-          localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
-          saveAppDataToSupabase(
-            loadedTeams,
-            data.tournaments,
-            data.games,
-            data.darkMode
-          ).catch((err: Error) => {
-            console.error('Player measurements migration save failed:', err);
-            setSaveError(formatCloudSaveError(err.message));
-          });
-        } else if (!localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)) {
-          localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
-        }
-      })
-      .catch((err: Error) => {
-        if (cancelled) return;
-        console.error('Supabase load failed:', err);
-        setDataLoadError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          skipSaveRef.current = false;
-          setIsDataLoading(false);
-        }
-      });
+          const delayMs = [2000, 5000, 10000][Math.min(retryAttempt, 2)] ?? 10000;
+          retryAttempt += 1;
+          retryTimeout = setTimeout(fetchFromCloud, delayMs);
+        })
+        .finally(() => {
+          if (!cancelled) {
+            skipSaveRef.current = false;
+            if (!hadCache) {
+              setIsDataLoading(false);
+            }
+          }
+        });
+    };
+
+    fetchFromCloud();
 
     return () => {
       cancelled = true;
+      if (retryTimeout) clearTimeout(retryTimeout);
     };
-  }, []);
+  }, [applyProcessedToState, runCloudLoadSideEffects]);
 
   const orphanPlayers = useMemo(() => {
     const onRoster = new Set(
@@ -1073,7 +1139,16 @@ export default function App() {
 
       saveTimeoutRef.current = setTimeout(() => {
         saveAppDataToSupabase(teams, tournaments, gamesToSave, darkMode)
-          .then(() => setSaveError(null))
+          .then(() => {
+            setSaveError(null);
+            saveAppDataSnapshot({
+              teams,
+              tournaments,
+              games: gamesToSave,
+              darkMode,
+              orphanPlayers: loadedOrphanPlayers,
+            });
+          })
           .catch((err: Error) => {
             console.error('Supabase save failed:', err);
             setSaveError(formatCloudSaveError(err.message));
@@ -1094,7 +1169,7 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, isDataLoading]);
+  }, [teams, tournaments, games, darkMode, isDataLoading, loadedOrphanPlayers]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
@@ -1613,10 +1688,17 @@ export default function App() {
           {' '}(saves work until then; hard-refresh after running).
         </div>
       )}
+      {cloudSyncStatus === 'syncing' && !isDataLoading && (
+        <div className="bg-muted/60 text-muted-foreground text-sm text-center py-1.5 px-4">
+          Updating league data…
+        </div>
+      )}
       {(dataLoadError || saveError) && (
         <div className="bg-destructive/10 text-destructive text-sm text-center py-2 px-4">
           {dataLoadError
-            ? `Could not load from cloud (${dataLoadError}). Showing local backup.`
+            ? showedCachedSnapshot
+              ? `Could not sync from cloud (${dataLoadError}). Showing cached data — retrying.`
+              : `Could not load from cloud (${dataLoadError}). Retrying…`
             : `Could not save to cloud: ${saveError}`}
         </div>
       )}
