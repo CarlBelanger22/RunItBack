@@ -483,6 +483,7 @@ export function AppRoutes(props: AppRoutesProps) {
           <TeamManager
             teams={teams}
             tournaments={tournaments}
+            games={games}
             onCreateTeam={onCreateTeam}
             onUpdateTeam={onUpdateTeam}
             onDeleteTeam={onDeleteTeam}

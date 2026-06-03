@@ -5,14 +5,30 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
-import { Team, Player, Tournament, CreateTeamOptions } from '../App';
+import { Team, Player, Tournament, CreateTeamOptions, Game } from '../App';
 import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
+import {
+  evaluatePlayerRemovalFromTeam,
+  playerRemovalBlockMessage,
+  playerRemovalConfirmMessage,
+} from '../utils/rosterPlayerRemoval';
 import { TeamBadge } from './TeamBadge';
 import { Plus, Users, ArrowLeft, Trash2, Edit, UserPlus } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 interface TeamManagerProps {
   teams: Team[];
   tournaments: Tournament[];
+  games: Game[];
   onCreateTeam: (team: Omit<Team, 'id'>, options?: CreateTeamOptions) => void;
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
@@ -23,6 +39,7 @@ interface TeamManagerProps {
 export function TeamManager({
   teams,
   tournaments,
+  games,
   onCreateTeam,
   onUpdateTeam,
   onDeleteTeam,
@@ -34,6 +51,14 @@ export function TeamManager({
   const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
   const [isPlayerDialogOpen, setIsPlayerDialogOpen] = useState(false);
   const [createFormKey, setCreateFormKey] = useState(0);
+  const [removePlayerTarget, setRemovePlayerTarget] = useState<{
+    team: Team;
+    player: Player;
+  } | null>(null);
+  const [removeBlockedInfo, setRemoveBlockedInfo] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
 
@@ -93,13 +118,34 @@ export function TeamManager({
     setEditingTeam(team);
   }, []);
 
-  const handleRemovePlayer = useCallback((team: Team, playerId: string) => {
-    const updatedTeam = {
+  const handleRemovePlayer = useCallback(
+    (team: Team, player: Player, event: React.MouseEvent) => {
+      event.stopPropagation();
+      const evaluation = evaluatePlayerRemovalFromTeam(
+        team.id,
+        player.id,
+        games
+      );
+      if (!evaluation.allowed) {
+        setRemoveBlockedInfo(
+          playerRemovalBlockMessage(evaluation, player.name, team.name)
+        );
+        return;
+      }
+      setRemovePlayerTarget({ team, player });
+    },
+    [games]
+  );
+
+  const handleConfirmRemovePlayer = useCallback(() => {
+    if (!removePlayerTarget) return;
+    const { team, player } = removePlayerTarget;
+    onUpdateTeam({
       ...team,
-      players: team.players.filter(player => player.id !== playerId)
-    };
-    onUpdateTeam(updatedTeam);
-  }, [onUpdateTeam]);
+      players: team.players.filter((p) => p.id !== player.id),
+    });
+    setRemovePlayerTarget(null);
+  }, [removePlayerTarget, onUpdateTeam]);
 
   const handleTeamFormCancel = useCallback(() => {
     if (editingTeam) {
@@ -276,7 +322,21 @@ export function TeamManager({
               <CardContent className="space-y-4">
                 {team.players.length > 0 ? (
                   <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {team.players.map((player) => (
+                    {team.players.map((player) => {
+                      const removalCheck = evaluatePlayerRemovalFromTeam(
+                        team.id,
+                        player.id,
+                        games
+                      );
+                      const blockTitle = !removalCheck.allowed
+                        ? playerRemovalBlockMessage(
+                            removalCheck,
+                            player.name,
+                            team.name
+                          ).description
+                        : `Remove ${player.name}`;
+
+                      return (
                       <div key={player.id} className="flex items-center justify-between text-sm border rounded p-2">
                         <div className="flex items-center space-x-2">
                           <Badge variant="outline" className="text-xs w-8 h-6 justify-center">
@@ -290,16 +350,18 @@ export function TeamManager({
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleRemovePlayer(team, player.id);
-                          }}
-                          className="h-6 w-6 p-0 text-destructive hover:text-destructive"
+                          className={`h-6 w-6 p-0 text-destructive hover:text-destructive ${
+                            !removalCheck.allowed ? 'opacity-40' : ''
+                          }`}
+                          title={blockTitle}
+                          aria-label={blockTitle}
+                          onClick={(e) => handleRemovePlayer(team, player, e)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <p className="text-sm text-muted-foreground text-center py-4">
@@ -325,6 +387,64 @@ export function TeamManager({
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={removePlayerTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setRemovePlayerTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {removePlayerTarget
+                ? playerRemovalConfirmMessage(
+                    removePlayerTarget.player.name,
+                    removePlayerTarget.team.name
+                  ).title
+                : 'Remove player'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removePlayerTarget
+                ? playerRemovalConfirmMessage(
+                    removePlayerTarget.player.name,
+                    removePlayerTarget.team.name
+                  ).description
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmRemovePlayer}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={removeBlockedInfo != null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveBlockedInfo(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {removeBlockedInfo?.title ?? 'Cannot remove player'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeBlockedInfo?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

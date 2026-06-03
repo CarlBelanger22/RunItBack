@@ -5369,3 +5369,104 @@ Later: GameSetup can import shared date/tournament fields from `GameForm` (optio
 - **Awaiting human:** E1.9 manual QA on each detail page.
 
 ---
+
+## Remove Player from Team — Club Roster (Designer, 2026-06-03)
+
+### Background and Motivation
+
+User on **Team → Roster** (e.g. NTU, Club roster (all), 18 players) can **Add Player** but cannot **remove** someone mistakenly added. **Team Manager** (`/teams` grid) already has a per-player trash icon via `handleRemovePlayer` → `onUpdateTeam`; **TeamPage** never got the same affordance.
+
+This is separate from **tournament-scoped roster** management (R1.5): removing from the club template is not the same as removing someone from “NBL Div 2 2024 only.”
+
+### What “remove” means in this app (locked for v1)
+
+| Layer | Remove action |
+|-------|----------------|
+| **Club template** (`team.players` / `team_players`) | **This feature** — player no longer on squad list for future adds/setup |
+| **Tournament roster** (`tournament_rosters`) | **Out of scope** — derived from games + future R1.5 admin; rows stay for players who actually played |
+| **Game stats / box scores** | **Never deleted** by this action — historical record preserved |
+| **Global `players` row** | **Not deleted** — profile becomes **orphan** if this was their only team (re-addable via Add Player → existing) |
+
+### Key Challenges and Analysis
+
+1. **Two roster UIs** — TeamPage Roster tab has **Club roster (all)** vs **tournament filter**. Remove must only apply to **club template** editing, not the read-only tournament view.
+2. **Player with game history** — Removing from club template should still be allowed (mistaken duplicate add, player left club, etc.) with a **stronger confirm**, not a hard block.
+3. **Save path exists** — `onUpdateTeam` + Supabase `team_players` upsert already sync roster membership on save; no new API shape required.
+4. **Active game** — If player is on an **in-progress** game for this team, removing from template could confuse live entry; **block or warn** when `isGameInProgress` and player on that game’s roster snapshot.
+5. **Overlap rules** — `validateTeamRosterUpdate` only guards **adds**; removes do not need overlap checks.
+6. **Don’t conflate with delete player** — Game delete path can `deletePlayersFromSupabase` for setup-added ids; club remove is **unlink only**.
+
+### UX recommendation (match Team Manager + Roster table)
+
+**Where:** Team → Roster, scope = **Club roster (all)** only.
+
+**Row action:** Narrow **Actions** column (or icon at row end) with trash button — same ghost/destructive pattern as Team Manager.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ Team Roster  [18 Players]                    [+ Add Player]     │
+│ Tournament [ Club roster (all) ▼ ]                              │
+├────┬──────────┬─────┬ ... ────────────────────────────┬────────┤
+│ #  │ Player   │ ... │                                   │  🗑   │
+│ 22 │ Carl B.  │ ... │                                   │  🗑   │
+└────┴──────────┴─────┴ ... ────────────────────────────┴────────┘
+```
+
+**When tournament scope ≠ all:**
+
+- **Hide** row remove buttons.
+- Show one-line helper under filter: *“Switch to Club roster (all) to add or remove players from the squad list.”*
+
+**Confirmation dialogs:**
+
+| Case | Copy (summary) |
+|------|----------------|
+| **No games** for this player on this team | “Remove {name} from {team}? They can be re-added later from Add Player.” |
+| **Has completed games** | “Remove {name} from the club roster? Past games, stats, and tournament roster views for seasons they played are unchanged.” |
+| **On active live game** | Block: “Finish or delete the live game before removing this player.” |
+
+Use `AlertDialog` (destructive confirm) — consistent with delete game elsewhere.
+
+### Alternative approaches considered
+
+| Approach | Verdict |
+|----------|---------|
+| Remove only from **Edit Team** dialog | Poor discoverability; reject |
+| Remove on **Player page** (“Leave team”) | Good secondary later; not primary |
+| **Bulk select** + remove many | Overkill for v1 |
+| Auto-delete **tournament_rosters** row on remove | Wrong for historical accuracy; reject for v1 |
+| Hard **block** if any game stats | Too strict for mistaken adds; reject |
+
+### High-level Task Breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **RP1** | `getPlayerTeamGameHistory(teamId, playerId, games)` helper | Returns `{ completedCount, activeGameId? }` |
+| **RP2** | `canRemovePlayerFromTeam(...)` + messages | Active game blocks; copy strings centralized |
+| **RP3** | Roster table: Actions column + trash (club scope only) | NTU roster shows remove; NBL 2024 scope hides it |
+| **RP4** | `handleRemovePlayerFromRoster` → `onUpdateTeam` | Same as TeamManager filter; badge count updates |
+| **RP5** | Confirm `AlertDialog` wired | No games vs has-games copy; block on live game |
+| **RP6** | Optional: extract shared helper used by TeamManager + TeamPage | DRY; not required if copy-paste stays small |
+| **RP7** | Manual QA | Remove no-game player; remove with games (still in box score); re-add via Add Player |
+
+**Estimated scope:** ~1 Executor session (small; reuses existing save path).
+
+### Open questions for human
+
+1. **Remove when player has game history?** **Human chose block** (2026-06-03) — no remove if any `game_stats` for team.
+2. **Show remove on tournament-filtered roster?** **Designer recommends no** — club template only.
+3. **Also add remove on Player page** (multi-team “Remove from NTU”)? **Defer** unless you want parity in same PR.
+
+### Project Status Board — Remove Player (RP)
+
+- [x] **Human:** Block remove if player has any game stats for team
+- [x] **Executor:** RP1–RP5 (helper + TeamPage + TeamManager)
+- [ ] **Human:** RP7 manual QA
+- [ ] **Designer:** Cross-check
+
+### Relation to other work
+
+- **R1.5** — Tournament roster **admin** (copy prompt, explicit adds) is still future; this does not replace it.
+- **R1.6** — Tournament roster **view** filter stays read-only for membership edits.
+
+---

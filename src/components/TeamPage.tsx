@@ -10,6 +10,16 @@ import { MetricsCalculator } from './MetricsCalculator';
 import { AddPlayerDialog } from './AddPlayerDialog';
 import { TeamForm, type TeamFormValues } from './forms/TeamForm';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { ErrorBoundary } from './ErrorBoundary';
 import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
 import {
@@ -40,6 +50,11 @@ import {
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
 import { isPlayerOnTeam } from '../utils/rosterPlayers';
+import {
+  evaluatePlayerRemovalFromTeam,
+  playerRemovalBlockMessage,
+  playerRemovalConfirmMessage,
+} from '../utils/rosterPlayerRemoval';
 import { resolvePlayerAge } from '../utils/playerAge';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
 import { 
@@ -57,6 +72,7 @@ import {
   MapPin,
   Plus,
   Edit,
+  Trash2,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -254,6 +270,11 @@ export function TeamPage({
     useState<TournamentScope>('all');
   const [rosterTournamentScope, setRosterTournamentScope] =
     useState<TournamentScope>('all');
+  const [removePlayerTarget, setRemovePlayerTarget] = useState<Player | null>(null);
+  const [removeBlockedInfo, setRemoveBlockedInfo] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
 
   const normalizedTeam = useMemo(() => {
     if (!teamProp?.id || !teamProp?.name) return null;
@@ -553,6 +574,42 @@ export function TeamPage({
     [teamId, games, tournaments]
   );
 
+  const handleRemovePlayerClick = useCallback(
+    (player: Player, event: React.MouseEvent) => {
+      event.stopPropagation();
+      if (!normalizedTeam) return;
+
+      const evaluation = evaluatePlayerRemovalFromTeam(
+        normalizedTeam.id,
+        player.id,
+        games
+      );
+      if (!evaluation.allowed) {
+        setRemoveBlockedInfo(
+          playerRemovalBlockMessage(
+            evaluation,
+            player.name,
+            normalizedTeam.name
+          )
+        );
+        return;
+      }
+      setRemovePlayerTarget(player);
+    },
+    [normalizedTeam, games]
+  );
+
+  const handleConfirmRemovePlayer = useCallback(() => {
+    if (!normalizedTeam || !removePlayerTarget) return;
+    onUpdateTeam({
+      ...normalizedTeam,
+      players: normalizedTeam.players.filter(
+        (p) => p.id !== removePlayerTarget.id
+      ),
+    });
+    setRemovePlayerTarget(null);
+  }, [normalizedTeam, removePlayerTarget, onUpdateTeam]);
+
   if (!normalizedTeam) {
     return (
       <div className="min-h-[40vh] flex items-center justify-center text-muted-foreground">
@@ -832,7 +889,15 @@ export function TeamPage({
         <p className="text-sm text-muted-foreground max-w-xl">
           Showing players who played for this team in {selectedRosterScopeLabel}.
           Club roster has {team.players.length}{' '}
-          {team.players.length === 1 ? 'player' : 'players'}.
+          {team.players.length === 1 ? 'player' : 'players'}. Switch to Club roster
+          (all) to add or remove players from the squad list.
+        </p>
+      )}
+
+      {rosterTournamentScope === 'all' && (
+        <p className="text-sm text-muted-foreground max-w-xl">
+          Players who have appeared in a game for this team cannot be removed from the
+          club roster.
         </p>
       )}
       
@@ -984,10 +1049,33 @@ export function TeamPage({
                       className="w-14"
                       center
                     />
+                    {rosterTournamentScope === 'all' && (
+                      <TableHead className="w-12 text-center">
+                        <span className="sr-only">Remove</span>
+                      </TableHead>
+                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedRosterRows.map((row) => (
+                  {sortedRosterRows.map((row) => {
+                    const removalCheck =
+                      rosterTournamentScope === 'all'
+                        ? evaluatePlayerRemovalFromTeam(
+                            team.id,
+                            row.player.id,
+                            games
+                          )
+                        : { allowed: false as const };
+                    const removalBlocked = !removalCheck.allowed;
+                    const blockTitle = removalBlocked
+                      ? playerRemovalBlockMessage(
+                          removalCheck,
+                          row.player.name,
+                          team.name
+                        ).description
+                      : `Remove ${row.player.name}`;
+
+                    return (
                     <TableRow
                       key={row.player.id}
                       className="cursor-pointer hover:bg-muted/50"
@@ -1044,14 +1132,90 @@ export function TeamPage({
                       <TableCell className="text-center font-mono tabular-nums text-sm">
                         {row.ftPct}
                       </TableCell>
+                      {rosterTournamentScope === 'all' && (
+                        <TableCell className="text-center p-1">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className={`h-8 w-8 p-0 text-destructive hover:text-destructive ${
+                              removalBlocked ? 'opacity-40' : ''
+                            }`}
+                            title={blockTitle}
+                            aria-label={blockTitle}
+                            onClick={(e) => handleRemovePlayerClick(row.player, e)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
+                      )}
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
           </CardContent>
         </Card>
       )}
+
+      <AlertDialog
+        open={removePlayerTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setRemovePlayerTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {removePlayerTarget
+                ? playerRemovalConfirmMessage(
+                    removePlayerTarget.name,
+                    team.name
+                  ).title
+                : 'Remove player'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removePlayerTarget
+                ? playerRemovalConfirmMessage(
+                    removePlayerTarget.name,
+                    team.name
+                  ).description
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmRemovePlayer}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={removeBlockedInfo != null}
+        onOpenChange={(open) => {
+          if (!open) setRemoveBlockedInfo(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {removeBlockedInfo?.title ?? 'Cannot remove player'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeBlockedInfo?.description}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>OK</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 
