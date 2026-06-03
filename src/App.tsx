@@ -1086,16 +1086,25 @@ export default function App() {
     const hadCache = snapshot != null;
 
     if (snapshot && !cancelled) {
-      const processed = processLoadedAppData(snapshotToLoadedAppData(snapshot));
-      applyProcessedToState(processed);
-      setShowedCachedSnapshot(true);
-      setIsDataLoading(false);
-      if (import.meta.env.DEV) {
-        console.info('[RunItBack] painted from snapshot', {
-          ageMs: getSnapshotAgeMs(snapshot),
-          teams: processed.teams.length,
-          games: processed.games.length,
-        });
+      try {
+        const processed = processLoadedAppData(snapshotToLoadedAppData(snapshot));
+        applyProcessedToState(processed);
+        setShowedCachedSnapshot(true);
+        setIsDataLoading(false);
+        if (import.meta.env.DEV) {
+          console.info('[RunItBack] painted from snapshot', {
+            ageMs: getSnapshotAgeMs(snapshot),
+            teams: processed.teams.length,
+            games: processed.games.length,
+          });
+        }
+      } catch (err) {
+        console.error('[RunItBack] Invalid cached snapshot, ignoring:', err);
+        try {
+          localStorage.removeItem('runitback_app_data_snapshot_v1');
+        } catch {
+          /* ignore */
+        }
       }
     }
 
@@ -1788,7 +1797,7 @@ export default function App() {
     // Search teams
     const matchedTeams = teams.filter(team => 
       team.name.toLowerCase().includes(query) || 
-      team.abbreviation.toLowerCase().includes(query)
+      (team.abbreviation ?? '').toLowerCase().includes(query)
     ).slice(0, 5);
     
     // Search players
@@ -1797,7 +1806,7 @@ export default function App() {
       team.players.forEach(player => {
         if (player.name.toLowerCase().includes(query) || 
             player.number.toString().includes(query) ||
-            player.position.toLowerCase().includes(query)) {
+            (player.position ?? '').toLowerCase().includes(query)) {
           matchedPlayers.push({ player, team });
         }
       });
@@ -1805,11 +1814,11 @@ export default function App() {
     
     // Search games
     const matchedGames = games.filter(game => 
-      game.homeTeam.name.toLowerCase().includes(query) ||
-      game.awayTeam.name.toLowerCase().includes(query) ||
-      game.homeTeam.abbreviation.toLowerCase().includes(query) ||
-      game.awayTeam.abbreviation.toLowerCase().includes(query) ||
-      game.date.includes(query)
+      (game.homeTeam?.name ?? '').toLowerCase().includes(query) ||
+      (game.awayTeam?.name ?? '').toLowerCase().includes(query) ||
+      (game.homeTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
+      (game.awayTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
+      (game.date ?? '').includes(query)
     ).slice(0, 5);
     
     return { 

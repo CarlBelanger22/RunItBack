@@ -163,19 +163,21 @@ export function Dashboard({
         </CardHeader>
         <CardContent className="space-y-3">
           {previewGames.length > 0 ? (
-            previewGames.map((game) => (
-              <DashboardGamePreview
-                key={game.id}
-                game={game}
-                teams={teams}
-                tournamentName={
-                  game.tournamentId
-                    ? tournamentNameById.get(game.tournamentId)
-                    : undefined
-                }
-                onClick={() => onNavigateToGameSummary(game)}
-              />
-            ))
+            previewGames
+              .map((game) => (
+                <DashboardGamePreview
+                  key={game.id}
+                  game={game}
+                  teams={teams}
+                  tournamentName={
+                    game.tournamentId
+                      ? tournamentNameById.get(game.tournamentId)
+                      : undefined
+                  }
+                  onClick={() => onNavigateToGameSummary(game)}
+                />
+              ))
+              .filter((node) => node != null)
           ) : (
             <div className="py-8 text-center text-sm text-muted-foreground">
               No completed games yet.

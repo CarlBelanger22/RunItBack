@@ -232,7 +232,7 @@ interface TeamPageProps {
 }
 
 export function TeamPage({ 
-  team, 
+  team: teamProp, 
   teams = [],
   games = [], 
   tournaments = [],
@@ -246,17 +246,6 @@ export function TeamPage({
   onNavigateToTournament,
   onUpdateTeam
 }: TeamPageProps) {
-  // Early return if team is not available
-  if (!team) {
-    return <div>Team not found</div>;
-  }
-  
-  // Defensive check for required properties
-  if (!team.id || !team.name || !Array.isArray(team.players)) {
-    return <div>Invalid team data</div>;
-  }
-  
-  // Player creation dialog state
   const [isAddPlayerDialogOpen, setIsAddPlayerDialogOpen] = useState(false);
   const [isEditTeamDialogOpen, setIsEditTeamDialogOpen] = useState(false);
   const [rosterSortField, setRosterSortField] = useState<RosterSortField>('number');
@@ -265,25 +254,36 @@ export function TeamPage({
     useState<TournamentScope>('all');
   const [rosterTournamentScope, setRosterTournamentScope] =
     useState<TournamentScope>('all');
+
+  const normalizedTeam = useMemo(() => {
+    if (!teamProp?.id || !teamProp?.name) return null;
+    return {
+      ...teamProp,
+      players: Array.isArray(teamProp.players) ? teamProp.players : [],
+    };
+  }, [teamProp]);
+
+  const teamId = normalizedTeam?.id ?? '';
   
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
 
   const takenAbbreviations = useMemo(
     () =>
       teams
-        .filter((t) => t.id !== team.id)
+        .filter((t) => t.id !== teamId)
         .map((t) => t.abbreviation)
         .filter(Boolean),
-    [teams, team.id]
+    [teams, teamId]
   );
 
   const handleEditTeamSubmit = useCallback(
     ({ name, abbreviation, description, icon }: TeamFormValues) => {
+      if (!normalizedTeam) return;
       const resolvedAbbrev =
         abbreviation.trim().toUpperCase() ||
         generateTeamAbbreviation(name, takenAbbreviations);
       onUpdateTeam({
-        ...team,
+        ...normalizedTeam,
         name,
         abbreviation: resolvedAbbrev,
         description,
@@ -291,28 +291,31 @@ export function TeamPage({
       });
       setIsEditTeamDialogOpen(false);
     },
-    [team, onUpdateTeam, takenAbbreviations]
+    [normalizedTeam, onUpdateTeam, takenAbbreviations]
   );
   
   const handleAddPlayerToRoster = useCallback((player: Player) => {
-    if (isPlayerOnTeam(player.id, team.id, teams)) {
+    if (!normalizedTeam) return;
+    if (isPlayerOnTeam(player.id, normalizedTeam.id, teams)) {
       return;
     }
     const updatedTeam = {
-      ...team,
-      players: [...(team.players || []), player],
+      ...normalizedTeam,
+      players: [...normalizedTeam.players, player],
     };
     onUpdateTeam(updatedTeam);
     setIsAddPlayerDialogOpen(false);
-  }, [team, teams, onUpdateTeam]);
+  }, [normalizedTeam, teams, onUpdateTeam]);
   
   // Get team games (newest first for display)
   const teamGames = useMemo(
     () =>
-      games.filter(
-        (game) => game.homeTeamId === team.id || game.awayTeamId === team.id
-      ),
-    [games, team.id]
+      teamId
+        ? games.filter(
+            (game) => game.homeTeamId === teamId || game.awayTeamId === teamId
+          )
+        : [],
+    [games, teamId]
   );
   const sortedTeamGames = useMemo(
     () => sortGamesByDateDesc(teamGames),
@@ -320,33 +323,41 @@ export function TeamPage({
   );
 
   const statsTournamentOptions = useMemo(
-    () => getTeamTournamentScopeOptions(team.id, teamGames, tournaments),
-    [team.id, teamGames, tournaments]
+    () => getTeamTournamentScopeOptions(teamId, teamGames, tournaments),
+    [teamId, teamGames, tournaments]
   );
 
   const rosterScopeOptions = useMemo(
-    () => getTeamRosterScopeOptions(team.id, teamGames, tournaments),
-    [team.id, teamGames, tournaments]
+    () => getTeamRosterScopeOptions(teamId, teamGames, tournaments),
+    [teamId, teamGames, tournaments]
   );
 
   useEffect(() => {
     setStatsTournamentScope('all');
     setRosterTournamentScope('all');
-  }, [team.id]);
+  }, [teamId]);
 
   const filteredStatsGames = useMemo(
-    () => filterTeamScopeGames(teamGames, team.id, statsTournamentScope),
-    [teamGames, team.id, statsTournamentScope]
+    () => filterTeamScopeGames(teamGames, teamId, statsTournamentScope),
+    [teamGames, teamId, statsTournamentScope]
   );
 
   const teamSeasonAggregate = useMemo(
-    () => aggregateTeamSeasonAverages(filteredStatsGames, team),
-    [filteredStatsGames, team]
+    () =>
+      normalizedTeam
+        ? aggregateTeamSeasonAverages(filteredStatsGames, normalizedTeam)
+        : aggregateTeamSeasonAverages([], {
+            id: '',
+            name: '',
+            abbreviation: '',
+            players: [],
+          }),
+    [filteredStatsGames, normalizedTeam]
   );
 
   const scopedTeamScoring = useMemo(
-    () => computeScopedTeamScoring(filteredStatsGames, team.id),
-    [filteredStatsGames, team.id]
+    () => computeScopedTeamScoring(filteredStatsGames, teamId),
+    [filteredStatsGames, teamId]
   );
 
   const teamSeasonDerived = useMemo(
@@ -361,10 +372,12 @@ export function TeamPage({
 
   const playerSeasonRows = useMemo(
     () =>
-      aggregatePlayerSeasonStats(filteredStatsGames, [team], {
-        restrictTeamId: team.id,
-      }),
-    [filteredStatsGames, team]
+      normalizedTeam
+        ? aggregatePlayerSeasonStats(filteredStatsGames, [normalizedTeam], {
+            restrictTeamId: teamId,
+          })
+        : [],
+    [filteredStatsGames, normalizedTeam, teamId]
   );
 
   const playerStatsShotCoverage = useMemo(
@@ -381,21 +394,22 @@ export function TeamPage({
     () =>
       rosterTournamentScope === 'all'
         ? teamGames
-        : filterTeamScopeGames(teamGames, team.id, rosterTournamentScope),
-    [teamGames, team.id, rosterTournamentScope]
+        : filterTeamScopeGames(teamGames, teamId, rosterTournamentScope),
+    [teamGames, teamId, rosterTournamentScope]
   );
 
   const rosterPlayers = useMemo(() => {
+    if (!normalizedTeam) return [];
     if (rosterTournamentScope === 'all') {
-      return team.players;
+      return normalizedTeam.players;
     }
     return getPlayersForTeamInTournament(
-      team.id,
+      teamId,
       rosterTournamentScope,
       teams,
       tournamentRosters
     );
-  }, [rosterTournamentScope, team.id, team.players, teams, tournamentRosters]);
+  }, [rosterTournamentScope, teamId, normalizedTeam, teams, tournamentRosters]);
 
   const selectedRosterScopeLabel = useMemo(
     () =>
@@ -535,9 +549,19 @@ export function TeamPage({
   
   // Tournaments this team has participated in (games + roster)
   const participatedTournaments = useMemo(
-    () => getParticipatedTournaments(team.id, games, tournaments),
-    [team.id, games, tournaments]
+    () => getParticipatedTournaments(teamId, games, tournaments),
+    [teamId, games, tournaments]
   );
+
+  if (!normalizedTeam) {
+    return (
+      <div className="min-h-[40vh] flex items-center justify-center text-muted-foreground">
+        Team not found
+      </div>
+    );
+  }
+
+  const team = normalizedTeam;
   
   // Calculate team record
   const calculateRecord = () => {

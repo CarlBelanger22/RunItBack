@@ -20,6 +20,9 @@ export function DashboardGamePreview({
 }: DashboardGamePreviewProps) {
   const homeTeam = resolveGameTeam(teams, game, 'home');
   const awayTeam = resolveGameTeam(teams, game, 'away');
+  if (!homeTeam?.id || !awayTeam?.id) {
+    return null;
+  }
   const homeScore = resolveTeamScore(game, homeTeam.id);
   const awayScore = resolveTeamScore(game, awayTeam.id);
   const dateLabel = new Date(game.date).toLocaleDateString('en-US', {
