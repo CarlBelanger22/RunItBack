@@ -24,7 +24,6 @@ import { Team, Player, Tournament } from '../App';
 import {
   getLeaguePlayerPool,
   isPlayerOnTeam,
-  wouldRosterViolateTournamentOverlap,
 } from '../utils/rosterPlayers';
 import { getPlayerAgeAsOfToday } from '../utils/playerAge';
 import { ChevronsUpDown, Check } from 'lucide-react';
@@ -97,16 +96,6 @@ export function AddPlayerDialog({
     [availablePool, selectedPlayerId]
   );
 
-  const overlapViolation = useMemo(() => {
-    if (!selectedPlayerId) return null;
-    return wouldRosterViolateTournamentOverlap(
-      selectedPlayerId,
-      team.id,
-      teams,
-      tournaments
-    );
-  }, [selectedPlayerId, team.id, teams, tournaments]);
-
   useEffect(() => {
     if (open) {
       setFormKey((k) => k + 1);
@@ -136,7 +125,7 @@ export function AddPlayerDialog({
   const handleExistingSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      if (!selectedEntry || !existingNumber.trim() || overlapViolation?.violates) {
+      if (!selectedEntry || !existingNumber.trim()) {
         return;
       }
       onSubmit({
@@ -148,7 +137,6 @@ export function AddPlayerDialog({
     [
       selectedEntry,
       existingNumber,
-      overlapViolation,
       onSubmit,
       onOpenChange,
     ]
@@ -251,12 +239,6 @@ export function AddPlayerDialog({
                   </Popover>
                 </div>
 
-                {overlapViolation?.violates && (
-                  <p className="text-sm text-destructive">
-                    {overlapViolation.message}
-                  </p>
-                )}
-
                 <div className="space-y-2">
                   <Label htmlFor="existingNumber">Jersey Number</Label>
                   <Input
@@ -291,11 +273,7 @@ export function AddPlayerDialog({
                   </Button>
                   <Button
                     type="submit"
-                    disabled={
-                      !selectedPlayerId ||
-                      !existingNumber.trim() ||
-                      overlapViolation?.violates
-                    }
+                    disabled={!selectedPlayerId || !existingNumber.trim()}
                   >
                     Add to roster
                   </Button>

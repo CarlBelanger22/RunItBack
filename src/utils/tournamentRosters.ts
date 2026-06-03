@@ -16,6 +16,10 @@ export interface TournamentRosterEntry {
   secondaryPosition?: string;
 }
 
+export function tournamentRosterEntryKey(entry: TournamentRosterEntry): string {
+  return `${entry.tournamentId}:${entry.teamId}:${entry.playerId}`;
+}
+
 export interface TeamPlayerJersey {
   number: number;
   position: string;
@@ -173,6 +177,83 @@ export function buildTournamentRostersFromGames(
   };
 }
 
+/** One player per tournament (DB unique on tournament_id + player_id). */
+export function findTournamentPlayerTeamConflict(
+  tournamentId: string,
+  playerId: string,
+  teamId: string,
+  entries: TournamentRosterEntry[]
+): TournamentRosterEntry | undefined {
+  return entries.find(
+    (r) =>
+      r.tournamentId === tournamentId &&
+      r.playerId === playerId &&
+      r.teamId !== teamId
+  );
+}
+
+/**
+ * Union stored DB/manual rows with game-derived membership.
+ * Game-derived rows always included; stored jersey/position overlay same triple;
+ * manual-only rows kept unless they conflict with another team in the same tournament.
+ */
+export function mergeTournamentRosters(
+  stored: TournamentRosterEntry[],
+  fromGames: TournamentRosterEntry[]
+): TournamentRosterEntry[] {
+  const byKey = new Map<string, TournamentRosterEntry>();
+
+  for (const entry of fromGames) {
+    byKey.set(tournamentRosterEntryKey(entry), entry);
+  }
+
+  const mergedSoFar = (): TournamentRosterEntry[] => [...byKey.values()];
+
+  for (const entry of stored) {
+    const key = tournamentRosterEntryKey(entry);
+    const existing = byKey.get(key);
+    if (existing) {
+      byKey.set(key, {
+        ...existing,
+        number: entry.number ?? existing.number,
+        position: entry.position || existing.position,
+        secondaryPosition: entry.secondaryPosition ?? existing.secondaryPosition,
+      });
+      continue;
+    }
+
+    const gameConflict = findTournamentPlayerTeamConflict(
+      entry.tournamentId,
+      entry.playerId,
+      entry.teamId,
+      fromGames
+    );
+    if (gameConflict) continue;
+
+    const mergeConflict = findTournamentPlayerTeamConflict(
+      entry.tournamentId,
+      entry.playerId,
+      entry.teamId,
+      mergedSoFar()
+    );
+    if (mergeConflict) continue;
+
+    byKey.set(key, entry);
+  }
+
+  return [...byKey.values()];
+}
+
+/** Reconcile in-memory/DB rosters with completed game stats. */
+export function reconcileTournamentRostersFromGames(
+  games: Game[],
+  teams: Team[],
+  stored: TournamentRosterEntry[] = []
+): TournamentRosterEntry[] {
+  const { entries } = buildTournamentRostersFromGames(games, teams);
+  return mergeTournamentRosters(stored, entries);
+}
+
 export function getPlayersForTeamInTournament(
   teamId: string,
   tournamentId: string,
@@ -254,4 +335,123 @@ export function getTeamRosterScopeOptions(
   ).filter((option) => option.value !== 'all');
 
   return [{ value: 'all', label: 'Club roster (all)' }, ...tournamentOpts];
+}
+
+export function getEnrolledTournamentsForTeam(
+  teamId: string,
+  tournaments: Tournament[]
+): Tournament[] {
+  return tournaments.filter((t) => (t.teams ?? []).includes(teamId));
+}
+
+export function getPlayerTournamentRosterEntries(
+  teamId: string,
+  playerId: string,
+  rosters: TournamentRosterEntry[]
+): TournamentRosterEntry[] {
+  return rosters.filter(
+    (r) => r.teamId === teamId && r.playerId === playerId
+  );
+}
+
+export interface TournamentRosterAddViolation {
+  violates: boolean;
+  message?: string;
+  conflictingTeamId?: string;
+  conflictingTeamName?: string;
+}
+
+export function wouldAddPlayerToTournamentRosterViolate(
+  playerId: string,
+  playerName: string,
+  tournamentId: string,
+  teamId: string,
+  teams: Team[],
+  tournaments: Tournament[],
+  rosters: TournamentRosterEntry[]
+): TournamentRosterAddViolation {
+  const existing = rosters.find(
+    (r) => r.tournamentId === tournamentId && r.playerId === playerId
+  );
+  if (existing && existing.teamId !== teamId) {
+    const otherTeam = teams.find((t) => t.id === existing.teamId);
+    const tournament = tournaments.find((t) => t.id === tournamentId);
+    return {
+      violates: true,
+      conflictingTeamId: existing.teamId,
+      conflictingTeamName: otherTeam?.name,
+      message: `${playerName} is already on ${otherTeam?.name ?? 'another team'} for ${tournament?.name ?? 'this tournament'}.`,
+    };
+  }
+  return { violates: false };
+}
+
+export function evaluateTournamentRosterRemoval(
+  teamId: string,
+  playerId: string,
+  tournamentId: string,
+  games: Game[]
+): { gameCount: number } {
+  let gameCount = 0;
+  for (const game of games) {
+    if (!game.isCompleted || game.tournamentId !== tournamentId) continue;
+    const homeId = game.homeTeamId || game.homeTeam?.id;
+    const awayId = game.awayTeamId || game.awayTeam?.id;
+    if (homeId !== teamId && awayId !== teamId) continue;
+    if ((game.gameStats ?? []).some((s) => s.playerId === playerId)) {
+      gameCount++;
+    }
+  }
+  return { gameCount };
+}
+
+export function buildTournamentRosterEntryFromClub(
+  teamId: string,
+  tournamentId: string,
+  player: Player
+): TournamentRosterEntry {
+  return {
+    tournamentId,
+    teamId,
+    playerId: player.id,
+    number: player.number,
+    position: player.position || '',
+    secondaryPosition: player.secondaryPosition,
+  };
+}
+
+export function getAddableTournamentsForPlayer(
+  teamId: string,
+  playerId: string,
+  tournaments: Tournament[],
+  rosters: TournamentRosterEntry[]
+): Tournament[] {
+  return getEnrolledTournamentsForTeam(teamId, tournaments).filter(
+    (t) => !isPlayerOnTournamentRoster(playerId, t.id, teamId, rosters)
+  );
+}
+
+export function removeTournamentRosterEntry(
+  rosters: TournamentRosterEntry[],
+  tournamentId: string,
+  teamId: string,
+  playerId: string
+): TournamentRosterEntry[] {
+  return rosters.filter(
+    (r) =>
+      !(
+        r.tournamentId === tournamentId &&
+        r.teamId === teamId &&
+        r.playerId === playerId
+      )
+  );
+}
+
+export function upsertTournamentRosterEntry(
+  rosters: TournamentRosterEntry[],
+  entry: TournamentRosterEntry
+): TournamentRosterEntry[] {
+  const key = tournamentRosterEntryKey(entry);
+  const without = rosters.filter((r) => tournamentRosterEntryKey(r) !== key);
+  return [...without, entry];
 }

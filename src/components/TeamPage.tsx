@@ -8,6 +8,7 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Team, Game, Player, GameStats, Tournament } from '../App';
 import { MetricsCalculator } from './MetricsCalculator';
 import { AddPlayerDialog } from './AddPlayerDialog';
+import { TournamentRosterCell } from './TournamentRosterCell';
 import { TeamForm, type TeamFormValues } from './forms/TeamForm';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import {
@@ -47,6 +48,16 @@ import {
 import {
   getPlayersForTeamInTournament,
   getTeamRosterScopeOptions,
+  getEnrolledTournamentsForTeam,
+  getPlayerTournamentRosterEntries,
+  getAddableTournamentsForPlayer,
+  wouldAddPlayerToTournamentRosterViolate,
+  evaluateTournamentRosterRemoval,
+  buildTournamentRosterEntryFromClub,
+  upsertTournamentRosterEntry,
+  removeTournamentRosterEntry,
+  buildClubRosterByTeam,
+  resolvePlayerTeamSideInGame,
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
 import { isPlayerOnTeam } from '../utils/rosterPlayers';
@@ -73,6 +84,7 @@ import {
   Plus,
   Edit,
   Trash2,
+  Settings,
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
@@ -131,10 +143,19 @@ function formatShootingPct(made: number, attempted: number): string {
   return `${((made / attempted) * 100).toFixed(1)}%`;
 }
 
-function aggregateRosterPlayerSeasonStats(playerId: string, teamGames: Game[]) {
-  const gameStatsList = teamGames.flatMap((game) =>
-    (game.gameStats ?? []).filter((stat) => stat.playerId === playerId)
-  );
+function aggregateRosterPlayerSeasonStats(
+  playerId: string,
+  teamId: string,
+  teamGames: Game[],
+  teams: Team[]
+) {
+  const clubRosterByTeam = buildClubRosterByTeam(teams);
+  const gameStatsList = teamGames.flatMap((game) => {
+    if (resolvePlayerTeamSideInGame(playerId, game, clubRosterByTeam) !== teamId) {
+      return [];
+    }
+    return (game.gameStats ?? []).filter((stat) => stat.playerId === playerId);
+  });
   const gamesPlayed = gameStatsList.length;
   if (gamesPlayed === 0) {
     return {
@@ -245,6 +266,7 @@ interface TeamPageProps {
   onNavigateToGame: (gameId: string) => void;
   onNavigateToTournament: (tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
+  onUpdateTournamentRosters: (entries: TournamentRosterEntry[]) => void;
 }
 
 export function TeamPage({ 
@@ -260,7 +282,8 @@ export function TeamPage({
   onNavigateToPlayer,
   onNavigateToGame,
   onNavigateToTournament,
-  onUpdateTeam
+  onUpdateTeam,
+  onUpdateTournamentRosters,
 }: TeamPageProps) {
   const [isAddPlayerDialogOpen, setIsAddPlayerDialogOpen] = useState(false);
   const [isEditTeamDialogOpen, setIsEditTeamDialogOpen] = useState(false);
@@ -274,6 +297,14 @@ export function TeamPage({
   const [removeBlockedInfo, setRemoveBlockedInfo] = useState<{
     title: string;
     description: string;
+  } | null>(null);
+  const [isEditPlayersMode, setIsEditPlayersMode] = useState(false);
+  const [tournamentAddError, setTournamentAddError] = useState<string | null>(null);
+  const [tournamentRemoveTarget, setTournamentRemoveTarget] = useState<{
+    player: Player;
+    tournamentId: string;
+    tournamentName: string;
+    gameCount: number;
   } | null>(null);
 
   const normalizedTeam = useMemo(() => {
@@ -356,6 +387,10 @@ export function TeamPage({
   useEffect(() => {
     setStatsTournamentScope('all');
     setRosterTournamentScope('all');
+    setIsEditPlayersMode(false);
+    setRemovePlayerTarget(null);
+    setTournamentAddError(null);
+    setTournamentRemoveTarget(null);
   }, [teamId]);
 
   const filteredStatsGames = useMemo(
@@ -460,10 +495,15 @@ export function TeamPage({
           weightKg: parseStoredKg(player.weight ?? ''),
           ageNum: age,
           ageDisplay: age !== null ? String(age) : '-',
-          ...aggregateRosterPlayerSeasonStats(player.id, rosterStatsGames),
+          ...aggregateRosterPlayerSeasonStats(
+            player.id,
+            teamId,
+            rosterStatsGames,
+            teams
+          ),
         };
       }),
-    [rosterPlayers, rosterStatsGames]
+    [rosterPlayers, rosterStatsGames, teamId, teams]
   );
 
   const handleRosterSort = useCallback((field: RosterSortField) => {
@@ -574,6 +614,94 @@ export function TeamPage({
     [teamId, games, tournaments]
   );
 
+  const enrolledTournaments = useMemo(
+    () => getEnrolledTournamentsForTeam(teamId, tournaments),
+    [teamId, tournaments]
+  );
+
+  const handleAddToTournament = useCallback(
+    (player: Player, tournamentId: string) => {
+      if (!normalizedTeam) return;
+      const violation = wouldAddPlayerToTournamentRosterViolate(
+        player.id,
+        player.name,
+        tournamentId,
+        normalizedTeam.id,
+        teams,
+        tournaments,
+        tournamentRosters
+      );
+      if (violation.violates) {
+        setTournamentAddError(violation.message ?? 'Cannot add to tournament.');
+        return;
+      }
+      setTournamentAddError(null);
+      const entry = buildTournamentRosterEntryFromClub(
+        normalizedTeam.id,
+        tournamentId,
+        player
+      );
+      onUpdateTournamentRosters(
+        upsertTournamentRosterEntry(tournamentRosters, entry)
+      );
+    },
+    [
+      normalizedTeam,
+      teams,
+      tournaments,
+      tournamentRosters,
+      onUpdateTournamentRosters,
+    ]
+  );
+
+  const handleTournamentRemoveRequest = useCallback(
+    (player: Player, tournamentId: string, tournamentName: string) => {
+      if (!normalizedTeam) return;
+      const { gameCount } = evaluateTournamentRosterRemoval(
+        normalizedTeam.id,
+        player.id,
+        tournamentId,
+        games
+      );
+      if (gameCount > 0) {
+        setTournamentRemoveTarget({
+          player,
+          tournamentId,
+          tournamentName,
+          gameCount,
+        });
+        return;
+      }
+      onUpdateTournamentRosters(
+        removeTournamentRosterEntry(
+          tournamentRosters,
+          tournamentId,
+          normalizedTeam.id,
+          player.id
+        )
+      );
+    },
+    [normalizedTeam, games, tournamentRosters, onUpdateTournamentRosters]
+  );
+
+  const handleConfirmTournamentRemove = useCallback(() => {
+    if (!normalizedTeam || !tournamentRemoveTarget) return;
+    onUpdateTournamentRosters(
+      removeTournamentRosterEntry(
+        tournamentRosters,
+        tournamentRemoveTarget.tournamentId,
+        normalizedTeam.id,
+        tournamentRemoveTarget.player.id
+      )
+    );
+    setTournamentRemoveTarget(null);
+  }, [
+    normalizedTeam,
+    tournamentRemoveTarget,
+    tournamentRosters,
+    onUpdateTournamentRosters,
+  ]);
+
   const handleRemovePlayerClick = useCallback(
     (player: Player, event: React.MouseEvent) => {
       event.stopPropagation();
@@ -658,8 +786,10 @@ export function TeamPage({
     };
   };
   
-  // Get team leaders
+  // Get team leaders (minimum 3 games for this team)
   const getTeamLeaders = () => {
+    const MIN_GAMES = 3;
+    const clubRosterByTeam = buildClubRosterByTeam(teams);
     const playerTotals = new Map<string, { 
       player: Player; 
       totalStats: GameStats; 
@@ -668,6 +798,9 @@ export function TeamPage({
     
     teamGames.forEach(game => {
       (game.gameStats ?? []).forEach(stat => {
+        if (resolvePlayerTeamSideInGame(stat.playerId, game, clubRosterByTeam) !== team.id) {
+          return;
+        }
         const player = team.players.find(p => p.id === stat.playerId);
         if (!player) return;
         
@@ -690,7 +823,9 @@ export function TeamPage({
       });
     });
     
-    const playersArray = Array.from(playerTotals.values());
+    const playersArray = Array.from(playerTotals.values()).filter(
+      (entry) => entry.gamesPlayed >= MIN_GAMES
+    );
     
     return {
       points: playersArray.sort((a, b) => (b.totalStats.points / b.gamesPlayed) - (a.totalStats.points / a.gamesPlayed))[0],
@@ -859,31 +994,78 @@ export function TeamPage({
   );
 
   const RosterTab = () => (
-    <div className="w-full space-y-4">
-      <div className="flex items-center gap-3">
-        <h3 className="text-lg font-medium">Team Roster</h3>
-        <Badge variant="secondary">
-          {rosterPlayers.length}{' '}
-          {rosterPlayers.length === 1 ? 'Player' : 'Players'}
-        </Badge>
+    <div className="w-full space-y-3">
+      <div className="grid grid-cols-[1fr_min-content] items-start gap-x-4 gap-y-1">
+        <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-3">
+          <h3 className="text-lg font-medium">Team Roster</h3>
+          <Badge variant="secondary">
+            {rosterPlayers.length}{' '}
+            {rosterPlayers.length === 1 ? 'Player' : 'Players'}
+          </Badge>
+        </div>
+        <div className="col-start-1 row-start-2">
+          <TournamentScopeSelect
+            options={rosterScopeOptions}
+            value={rosterTournamentScope}
+            onChange={(scope) => {
+              setRosterTournamentScope(scope);
+              if (scope !== 'all') {
+                setIsEditPlayersMode(false);
+                setRemovePlayerTarget(null);
+                setTournamentAddError(null);
+              }
+            }}
+            id="team-roster-tournament-scope"
+          />
+        </div>
+        <div className="col-start-2 row-span-2 row-start-1 flex w-fit flex-col items-end gap-1.5 justify-self-end self-start">
+          <Button
+            size="sm"
+            className="w-auto"
+            onClick={() => setIsAddPlayerDialogOpen(true)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add Player
+          </Button>
+          {rosterTournamentScope === 'all' && (
+            <div className="flex w-full justify-end">
+              <Button
+                type="button"
+                size="sm"
+                variant={isEditPlayersMode ? 'secondary' : 'outline'}
+                className="h-6 px-2 text-xs leading-none gap-1 rounded-md has-[>svg]:px-2 [&_svg]:size-3"
+                aria-label={
+                  isEditPlayersMode ? 'Done editing players' : 'Edit players'
+                }
+                onClick={() => {
+                  setIsEditPlayersMode((prev) => {
+                    if (prev) {
+                      setRemovePlayerTarget(null);
+                      setTournamentAddError(null);
+                    }
+                    return !prev;
+                  });
+                }}
+              >
+                <Settings className="shrink-0" />
+                <span className="truncate">
+                  {isEditPlayersMode ? 'Done' : 'Edit Players'}
+                </span>
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
-      <div className="flex w-full items-center justify-between gap-3">
-        <TournamentScopeSelect
-          options={rosterScopeOptions}
-          value={rosterTournamentScope}
-          onChange={setRosterTournamentScope}
-          id="team-roster-tournament-scope"
-        />
-        <Button
-          size="sm"
-          className="shrink-0"
-          onClick={() => setIsAddPlayerDialogOpen(true)}
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Player
-        </Button>
-      </div>
+      {isEditPlayersMode && tournamentAddError && (
+        <p className="text-sm text-destructive">{tournamentAddError}</p>
+      )}
+
+      {isEditPlayersMode && enrolledTournaments.length === 0 && (
+        <p className="text-sm text-muted-foreground max-w-xl">
+          Enroll this team in a tournament to assign players to season rosters.
+        </p>
+      )}
 
       {rosterTournamentScope !== 'all' && (
         <p className="text-sm text-muted-foreground max-w-xl">
@@ -894,13 +1076,6 @@ export function TeamPage({
         </p>
       )}
 
-      {rosterTournamentScope === 'all' && (
-        <p className="text-sm text-muted-foreground max-w-xl">
-          Players who have appeared in a game for this team cannot be removed from the
-          club roster.
-        </p>
-      )}
-      
       {rosterPlayers.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
@@ -931,6 +1106,127 @@ export function TeamPage({
         <Card>
           <CardContent className="p-0">
             <div className="overflow-x-auto">
+              {isEditPlayersMode && rosterTournamentScope === 'all' ? (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <RosterSortableHead
+                        label="#"
+                        field="number"
+                        sortField={rosterSortField}
+                        sortOrder={rosterSortOrder}
+                        onSort={handleRosterSort}
+                        className="w-12"
+                        center
+                      />
+                      <RosterSortableHead
+                        label="Player"
+                        field="player"
+                        sortField={rosterSortField}
+                        sortOrder={rosterSortOrder}
+                        onSort={handleRosterSort}
+                        className="min-w-[160px]"
+                      />
+                      <TableHead>Tournaments</TableHead>
+                      <TableHead className="w-12 text-center">
+                        <span className="sr-only">Remove from club</span>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {sortedRosterRows.map((row) => {
+                      const removalCheck = evaluatePlayerRemovalFromTeam(
+                        team.id,
+                        row.player.id,
+                        games
+                      );
+                      const removalBlocked = !removalCheck.allowed;
+                      const blockTitle = removalBlocked
+                        ? playerRemovalBlockMessage(
+                            removalCheck,
+                            row.player.name,
+                            team.name
+                          ).description
+                        : `Remove ${row.player.name}`;
+
+                      return (
+                        <TableRow
+                          key={row.player.id}
+                          className="hover:bg-muted/50"
+                        >
+                          <TableCell className="text-center font-mono text-muted-foreground">
+                            {row.player.number}
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <Avatar className="h-8 w-8 flex-shrink-0">
+                                <AvatarFallback className="text-xs">
+                                  {row.player.name
+                                    .split(' ')
+                                    .map((n) => n[0])
+                                    .join('')
+                                    .slice(0, 2)
+                                    .toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <span className="font-medium truncate">
+                                {row.player.name}
+                              </span>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <TournamentRosterCell
+                              player={row.player}
+                              entries={getPlayerTournamentRosterEntries(
+                                team.id,
+                                row.player.id,
+                                tournamentRosters
+                              )}
+                              addableTournaments={getAddableTournamentsForPlayer(
+                                team.id,
+                                row.player.id,
+                                tournaments,
+                                tournamentRosters
+                              )}
+                              tournaments={tournaments}
+                              hasEnrolledTournaments={
+                                enrolledTournaments.length > 0
+                              }
+                              onAdd={(tournamentId) =>
+                                handleAddToTournament(row.player, tournamentId)
+                              }
+                              onRemove={(tournamentId, tournamentName) =>
+                                handleTournamentRemoveRequest(
+                                  row.player,
+                                  tournamentId,
+                                  tournamentName
+                                )
+                              }
+                            />
+                          </TableCell>
+                          <TableCell className="text-center p-1">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className={`h-8 w-8 p-0 text-destructive hover:text-destructive ${
+                                removalBlocked ? 'opacity-40' : ''
+                              }`}
+                              title={blockTitle}
+                              aria-label={blockTitle}
+                              onClick={(e) =>
+                                handleRemovePlayerClick(row.player, e)
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              ) : (
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -1049,33 +1345,10 @@ export function TeamPage({
                       className="w-14"
                       center
                     />
-                    {rosterTournamentScope === 'all' && (
-                      <TableHead className="w-12 text-center">
-                        <span className="sr-only">Remove</span>
-                      </TableHead>
-                    )}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {sortedRosterRows.map((row) => {
-                    const removalCheck =
-                      rosterTournamentScope === 'all'
-                        ? evaluatePlayerRemovalFromTeam(
-                            team.id,
-                            row.player.id,
-                            games
-                          )
-                        : { allowed: false as const };
-                    const removalBlocked = !removalCheck.allowed;
-                    const blockTitle = removalBlocked
-                      ? playerRemovalBlockMessage(
-                          removalCheck,
-                          row.player.name,
-                          team.name
-                        ).description
-                      : `Remove ${row.player.name}`;
-
-                    return (
+                  {sortedRosterRows.map((row) => (
                     <TableRow
                       key={row.player.id}
                       className="cursor-pointer hover:bg-muted/50"
@@ -1132,28 +1405,11 @@ export function TeamPage({
                       <TableCell className="text-center font-mono tabular-nums text-sm">
                         {row.ftPct}
                       </TableCell>
-                      {rosterTournamentScope === 'all' && (
-                        <TableCell className="text-center p-1">
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className={`h-8 w-8 p-0 text-destructive hover:text-destructive ${
-                              removalBlocked ? 'opacity-40' : ''
-                            }`}
-                            title={blockTitle}
-                            aria-label={blockTitle}
-                            onClick={(e) => handleRemovePlayerClick(row.player, e)}
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </TableCell>
-                      )}
                     </TableRow>
-                    );
-                  })}
+                  ))}
                 </TableBody>
               </Table>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -1189,6 +1445,39 @@ export function TeamPage({
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={handleConfirmRemovePlayer}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={tournamentRemoveTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setTournamentRemoveTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove from {tournamentRemoveTarget?.tournamentName}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {tournamentRemoveTarget
+                ? `${tournamentRemoveTarget.player.name} has played in ${
+                    tournamentRemoveTarget.gameCount
+                  } ${
+                    tournamentRemoveTarget.gameCount === 1 ? 'game' : 'games'
+                  } for ${team.name} in this tournament. Removing them from the tournament roster will not delete past box scores, but they will no longer appear on this season's roster.`
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmTournamentRemove}
             >
               Remove
             </AlertDialogAction>
@@ -1507,7 +1796,7 @@ export function TeamPage({
           <OverviewTab />
         </TabsContent>
 
-        <TabsContent value="roster" className="w-full">
+        <TabsContent value="roster" className="mt-0 w-full pt-0">
           <RosterTab />
         </TabsContent>
 

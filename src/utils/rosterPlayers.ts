@@ -70,7 +70,7 @@ function tournamentName(tournaments: Tournament[], tournamentId: string): string
   return tournaments.find((t) => t.id === tournamentId)?.name ?? tournamentId;
 }
 
-/** Block if player is already on another team that shares a tournament with targetTeam. */
+/** @deprecated Club-template check  use tournament_rosters overlap instead. */
 export function wouldRosterViolateTournamentOverlap(
   playerId: string,
   targetTeamId: string,
@@ -140,24 +140,13 @@ export function wouldTournamentEnrollmentViolateOverlap(
 
 /** Validate roster changes when updating a team (new links only). */
 export function validateTeamRosterUpdate(
-  previousTeam: Team | undefined,
-  nextTeam: Team,
-  teams: Team[],
-  tournaments: Tournament[]
+  _previousTeam: Team | undefined,
+  _nextTeam: Team,
+  _teams: Team[],
+  _tournaments: Tournament[]
 ): RosterViolation {
-  const prevIds = new Set((previousTeam?.players ?? []).map((p) => p.id));
-  const added = (nextTeam.players ?? []).filter((p) => !prevIds.has(p.id));
-
-  for (const player of added) {
-    const violation = wouldRosterViolateTournamentOverlap(
-      player.id,
-      nextTeam.id,
-      teams,
-      tournaments
-    );
-    if (violation.violates) return violation;
-  }
-
+  // Club template allows multi-team links; tournament overlap is enforced on
+  // tournament_rosters (see Tournament-Scoped Rosters plan), not here.
   return { violates: false };
 }
 

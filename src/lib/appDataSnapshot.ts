@@ -1,7 +1,10 @@
 import type { Game, Player, Team, Tournament } from '../App';
 import { DEFAULT_LEAGUE_ID } from '../api/supabaseData';
 import type { LoadedAppData } from '../api/supabaseData';
-import type { TournamentRosterEntry } from '../utils/tournamentRosters';
+import {
+  reconcileTournamentRostersFromGames,
+  type TournamentRosterEntry,
+} from '../utils/tournamentRosters';
 import {
   dedupeActiveGames,
   isOrphanedIncompleteGame,
@@ -51,7 +54,11 @@ export function processLoadedAppData(data: LoadedAppData): ProcessedAppData {
     games,
     darkMode: data.darkMode,
     orphanPlayers: data.orphanPlayers,
-    tournamentRosters: data.tournamentRosters ?? [],
+    tournamentRosters: reconcileTournamentRostersFromGames(
+      games,
+      teams,
+      data.tournamentRosters ?? []
+    ),
     activeGame: active,
     activeGameDedupeChanged: changed,
     orphanGameIds,

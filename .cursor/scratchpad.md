@@ -5470,3 +5470,497 @@ Use `AlertDialog` (destructive confirm) — consistent with delete game elsewher
 - **R1.6** — Tournament roster **view** filter stays read-only for membership edits.
 
 ---
+
+## Roster header UI polish (RU) — Designer, 2026-06-03
+
+### Background and Motivation
+
+Human iterated on Team → **Roster** toolbar layout:
+
+1. Remove awkward gap under tab bar
+2. **Add Player** above **Remove player** (stacked, right-aligned)
+3. **Remove player** visually ~half the size of **Add Player** (button + label, not text-only)
+
+Current implementation still feels wrong (see screenshot 2026-06-03 ~3:52 PM).
+
+### What’s wrong today (root cause)
+
+| Issue | Cause |
+|-------|--------|
+| Buttons float beside **Team Roster** title, filter feels orphaned below | `sm:flex-row` + `items-start`: right column aligns to **top** of left block only — buttons sit next to title row, not beside title+filter as one unit |
+| **Remove** still reads “almost full size” or awkwardly tiny | Prior `Button` bug (`className` not merged) fixed; then `h-4` / `text-[10px]` over-corrected — looks broken, not “half primary action” |
+| Gap under **Roster** tab | `Tabs` root uses `gap-2`; minor. Perceived gap is mostly the misaligned 2-column flex leaving empty vertical band beside the tournament row |
+
+**Assumption to challenge:** “Half size” ≠ literal 50% height (`h-4` = 16px). That fails tap-target and readability. Target is **half the width of Add Player** + **one step smaller** height (`h-6`, `text-xs`), not a miniature chip.
+
+### Target layout (canonical)
+
+Use a **2×2 CSS grid** so left content and right actions share one toolbar — no side-by-side title/button collision.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ Team Roster  [18 Players]              ┌───────────────────┐   │
+│                                        │    + Add Player   │   │  ← full sm button
+│ Tournament  [Club roster (all) ▼]      └───────────────────┘   │
+│                                        ┌──────────┐            │
+│                                        │ 🗑 Remove │            │  ← 50% width of Add, h-6, text-xs
+│                                        └──────────┘            │
+└────────────────────────────────────────────────────────────────┘
+│ # │ Player │ Primary │ …                                          │
+```
+
+**Rules:**
+
+- **Row 1 col 1:** title + player-count badge
+- **Row 2 col 1:** `TournamentScopeSelect` (unchanged component)
+- **Col 2 rows 1–2:** `row-span-2` action stack, `items-end`, `gap-1.5`
+- **Add Player:** `size="sm"` (unchanged)
+- **Remove player:** only when scope = `all`; `w-1/2` of action column ( = half of Add width ); `h-6`, `text-xs`, `px-2`, icon `size-3`; labels **Remove player** / **Done removing**
+- **Tab gap:** `TabsContent value="roster"` → add `className="mt-0 pt-0"` (optional: `Tabs className="gap-1"` if still tight)
+
+**Explicitly NOT doing:**
+
+- Horizontal **[Remove][Add]** on title row (conflicts with earlier “Add on top” direction)
+- Microscopic `h-4` button
+- `sm:flex-row` split for this header
+
+### Implementation notes (Executor)
+
+```tsx
+<div className="grid grid-cols-[1fr_auto] gap-x-4 gap-y-2 items-start">
+  <div className="flex items-center gap-3">…title + badge…</div>
+  <div className="row-span-2 flex flex-col items-end justify-center gap-1.5 self-stretch">
+    <Button size="sm">Add Player</Button>
+    <Button size="sm" className="w-1/2 h-6 text-xs px-2 …">Remove player</Button>
+  </div>
+  <TournamentScopeSelect … />
+</div>
+```
+
+- Action column width = intrinsic width of **Add Player**; `w-1/2` on Remove = true half-width.
+- `Button` `className` merge fix in `button.tsx` is prerequisite (already landed).
+- Remove mode / trash column / club-only scope: **no behavior change**.
+
+### Success criteria (human QA)
+
+- [ ] No large dead band between tab bar and **Team Roster** line
+- [ ] Title + badge on left; tournament filter directly below (tight `gap-y-2`)
+- [ ] **Add Player** top-right; **Remove player** below it, **~half width**, clearly smaller but readable/clickable
+- [ ] Wide desktop: buttons do **not** sit on same baseline as title only (filter no longer “orphaned”)
+- [ ] Narrow mobile: grid stacks naturally (col 2 below col 1 or same grid with full-width actions — Executor verify ≤640px)
+
+### High-level Task Breakdown
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **RU.1** | Replace roster header flex with 2×2 grid | Layout matches target mockup on desktop |
+| **RU.2** | Resize Remove button (`w-1/2`, `h-6`, `text-xs`) | Visually half of Add; text not truncated to “Remove” |
+| **RU.3** | Tighten tab → content spacing on roster tab | Gap ≤ ~8px under tab bar |
+| **RU.4** | Human QA on NTU roster (club scope) | Sign-off on screenshot |
+
+### Project Status Board — RU
+
+- [x] **Designer:** RU plan (this section)
+- [ ] **Human:** Confirm layout matches intent
+- [x] **Executor:** RU.1–RU.3 (2×2 grid header, Remove h-6/w-1/2, roster tab mt-0 pt-0)
+- [ ] **Human:** RU.4 QA
+
+### Executor's Feedback or Assistance Requests
+
+- **RU.1–RU.3 done (2026-06-03):** Roster header uses title row + filter below. Actions in `inline-flex` wrapper (width = Add Player) so Remove `w-1/2` is half of Add, not half the page. Roster `TabsContent` has `mt-0 pt-0`.
+- **RU.5 (Designer, 2026-06-03):** Human wants **tight title→filter on left**, **unchanged button gap on right** — see below.
+
+---
+
+### RU.5 — Decouple left column spacing from right (Designer, 2026-06-03)
+
+#### Problem
+
+Current DOM nests filter **outside** the title row:
+
+```
+space-y-2
+├── flex row: [Title + badge]  |  [Add / Remove stack gap-1.5]
+└── TournamentScopeSelect
+```
+
+`space-y-2` adds gap between title row and filter. Buttons only align with the title, so the filter looks detached on the left while the right side has natural button spacing.
+
+#### Target
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ Team Roster [18 Players]           ┌─────────────────────┐   │
+│ Tournament [Club roster (all) ▼]   │     + Add Player    │   │  ← gap-1.5 between buttons
+│                                    │     Remove player   │   │
+└────────────────────────────────────└─────────────────────┘───┘
+     ↑ gap-y-1 (or none) between title & filter
+```
+
+**Left:** title + filter stacked tight (`gap-y-1` or `gap-y-0.5`)  
+**Right:** action column `row-span-2`, internal `gap-1.5` **unchanged**
+
+#### Implementation (Executor — one step)
+
+Replace the `space-y-2` + flex-row wrapper with a **2-column grid**:
+
+```tsx
+<div className="grid grid-cols-[1fr_auto] items-start gap-x-4 gap-y-1">
+  {/* Left col */}
+  <div className="flex items-center gap-3">…title + badge…</div>
+  <TournamentScopeSelect className="col-start-1 row-start-2" … />
+
+  {/* Right col — spans both left rows; button gap independent of gap-y-1 */}
+  <div className="col-start-2 row-start-1 row-span-2 flex w-max flex-col gap-1.5 self-start">
+    <Button>Add Player</Button>
+    <div className="flex justify-end">
+      <Button className="w-1/2 h-6 text-xs …">Remove player</Button>
+    </div>
+  </div>
+</div>
+```
+
+**Notes:**
+- `gap-y-1` (4px) only separates **grid rows on the left**; merged right cell is unaffected.
+- Keep `w-max` + half-width Remove wrapper (fixes prior full-page width bug).
+- Mobile: same grid works at all widths; if title row feels cramped, optional `max-sm:grid-cols-1` with actions after filter — **only if QA fails**; default = single grid at all breakpoints.
+
+#### Success criteria
+
+- [ ] Title and Tournament filter visually tight on left (no `space-y-2` band)
+- [ ] Add → Remove vertical spacing unchanged (`gap-1.5`)
+- [ ] Remove still half-width of Add, below Add, right-aligned
+- [ ] No regression to side-by-side buttons
+
+#### Task
+
+| ID | Task | Owner |
+|----|------|-------|
+| **RU.5** | Grid layout with `row-span-2` actions + `gap-y-1` left rows | Executor |
+
+#### Project Status Board — RU (updated)
+
+- [x] **Designer:** RU plan
+- [x] **Executor:** RU.1–RU.3
+- [x] **Designer:** RU.5 plan (decouple left/right spacing)
+- [x] **Executor:** RU.5 (grid `gap-y-1` left, `row-span-2` actions `gap-1.5`)
+- [ ] **Human:** RU.4 / RU.5 QA
+
+---
+
+## R2 — Edit Players / tournament roster management (Designer, 2026-06-03) — **LOCKED**
+
+### Background and Motivation
+
+Human needs to manage which **club template** players appear on which **tournament roster** (`tournament_rosters`). Replace header **Remove** with **Edit Players** (Settings icon). In edit mode, table becomes `# | Player | Tournaments | 🗑` — tournament pills with per-tournament trash + `[+]`, plus **existing club-remove trash** at row end.
+
+**Prerequisites (done):** `tournament_rosters` table + load/save; club overlap check removed from Add Player dialog.
+
+---
+
+### Human decisions (locked 2026-06-03)
+
+| # | Decision |
+|---|----------|
+| **Q1** | **Keep club remove** — row-end trash still removes player from **club template** (existing rules: block if any game stats for team). Edit Players adds tournament management; does **not** drop club unlink. |
+| **Q2** | Tournament remove with game history → **warning + confirm** (not hard block). User can proceed after acknowledging. |
+| **Q3** | Add to tournament T when player already on **another team** for T → **hard block** with clear message. |
+| **Q4** | **Immediate auto-save** on each add/remove (existing debounced Supabase save). |
+| **Q5** | Edit mode: hide stat columns; show **`# | Player | Tournaments | (club 🗑)`** only. |
+| **Q6** | **`[+]` UI:** **Popover** menu of tournament names (cleaner inline with pills). |
+| **Q7** | On add: copy **jersey #** from club template; **position is global** on player profile. |
+| **Q8** | Edit mode: **disable row navigation** to player page. |
+| **Q9** | Team enrolled in zero tournaments → helper text; **`[+]` disabled**. |
+| **Q10** | Header icon: **`Settings`** (lucide). Label **Edit Players** / **Done**. |
+
+---
+
+### Target UX
+
+#### Normal mode (unchanged)
+Club roster scope → full stats table, sortable.
+
+#### Edit Players mode (club scope only)
+
+**Header button:** `[⚙ Edit Players]` → toggled → `[⚙ Done]` (secondary when active)
+
+**Table:**
+
+```
+┌────┬─────────────┬──────────────────────────────────────────┬────┐
+│ #  │ Player      │ Tournaments                              │    │
+├────┼─────────────┼──────────────────────────────────────────┼────┤
+│ 3  │ Jerel Tan   │ [+]                                      │ 🗑 │
+│ 5  │ Abel Au     │ [NBL Div 2 2023 🗑] [+]                  │ 🗑 │
+│ 22 │ Carl B.     │ [NBL Div 2 2024 🗑] [+]                  │ 🗑 │
+└────┴─────────────┴──────────────────────────────────────────┴────┘
+```
+
+- **Tournament pill:** compact chip — tournament name + small trash (removes from that tournament only).
+- **`[+]`:** Popover of enrolled tournaments not yet assigned; click → add → auto-save.
+- **Row-end 🗑:** Club remove (RP rules unchanged).
+- **Row click:** disabled in edit mode.
+
+**Zero tournaments:** helper *“Enroll this team in a tournament to assign players to season rosters.”* — all `[+]` disabled.
+
+---
+
+### Behavior rules
+
+#### Add to tournament roster
+1. Player on club template for this team (always true in this view).
+2. Team enrolled in tournament.
+3. Player not already on this team’s roster for T.
+4. **Block** if player on another team for same T — e.g. *“Carl Belanger is already on Kai Xuan for NBL Div 2 2024.”*
+5. New row: jersey # from club template; position from global player profile.
+6. Immediate save via `onUpdateTournamentRosters`.
+
+#### Remove from tournament (pill trash)
+1. If ≥1 completed game with stats for `(teamId, tournamentId)` → **AlertDialog warning** with GP count; confirm proceeds.
+2. No games → delete row immediately (no extra confirm in v1).
+3. Does not remove from club template.
+
+#### Remove from club (row-end trash)
+- Unchanged (RP): block if team game stats; confirm if allowed.
+
+#### Scope gating
+- Edit button only when `rosterTournamentScope === 'all'`.
+- Done or scope change exits edit mode.
+
+---
+
+### Architecture (Executor)
+
+**New prop:** `onUpdateTournamentRosters: (entries: TournamentRosterEntry[]) => void`  
+**App.tsx:** `handleUpdateTournamentRosters` → `setTournamentRosters` + existing debounced save.
+
+**Helpers (`tournamentRosters.ts`):**
+
+| Helper | Purpose |
+|--------|---------|
+| `getEnrolledTournamentsForTeam` | Tournaments team is in |
+| `getPlayerTournamentRosterEntries` | Pills for one row |
+| `getAddableTournamentsForPlayer` | Enrolled minus assigned |
+| `wouldAddPlayerToTournamentRosterViolate` | Q3 cross-team block |
+| `evaluateTournamentRosterRemoval` | GP count for warning |
+| `buildTournamentRosterEntryFromClub` | Jersey from club, position from player |
+
+**State renames:** `isRemovePlayerMode` → `isEditPlayersMode`; header `Settings` icon; labels Edit Players / Done. Keep club remove dialogs.
+
+**Component:** extract `TournamentRosterCell` (pills + `[+]` popover).
+
+---
+
+### Task breakdown
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **R2.1** | Helpers + evaluators | Q3 block + Q2 GP count |
+| **R2.2** | `onUpdateTournamentRosters` wiring | Persists to Supabase |
+| **R2.3** | Header: Settings, Edit Players / Done | Club scope only |
+| **R2.4** | Edit-mode table (4 cols, no row nav) | Stats hidden |
+| **R2.5** | `TournamentRosterCell` | Pills, pill trash, `[+]` popover |
+| **R2.6** | Tournament remove warning dialog | Confirm after GP warning |
+| **R2.7** | Row-end club trash in edit mode | RP rules unchanged |
+| **R2.8** | Manual QA | Carl SAFSA/Kai Xuan scenarios |
+
+---
+
+### QA checklist
+
+- [ ] Edit Players ↔ Done toggles layout
+- [ ] Jerel: only `[+]`; Abel: pill + `[+]`
+- [ ] Carl SAFSA 2023 + Kai Xuan 2024 — allowed
+- [ ] Same tournament, two teams — blocked
+- [ ] Tournament remove with games — warning, can confirm
+- [ ] Row-end trash — club remove rules
+- [ ] Immediate save (no Done required)
+
+---
+
+### Project Status Board — R2
+
+- [x] **Designer:** R2 spec locked
+- [x] **Human:** Q1–Q10 answered
+- [x] **Executor:** R2.1–R2.7 (helpers, TournamentRosterCell, Edit Players mode, save wiring)
+- [ ] **Human:** R2.8 QA
+
+### Executor notes (2026-06-03)
+
+- `tournamentRosters.ts`: add/remove helpers, cross-team violation, GP eval for tournament remove warning
+- `TournamentRosterCell.tsx`: pills + `[+]` popover
+- `TeamPage`: Settings / Edit Players toggle; edit table `# | Player | Tournaments | club 🗑`
+- `App.tsx` + routes: `onUpdateTournamentRosters` → immediate debounced save
+
+---
+
+### R2-PERSIST — `[+]` tournament add does not survive refresh (Designer, 2026-06-02)
+
+#### Symptom (human)
+
+Team → Roster → **Edit Players** → **`[+]`** → pick tournament → pill appears in session → **full page refresh** → pill gone (player not on tournament roster).
+
+#### What should happen (locked R2 / Q4)
+
+1. `TeamPage.handleAddToTournament` → `onUpdateTournamentRosters(upsertTournamentRosterEntry(...))`
+2. `App.handleUpdateTournamentRosters` → `setTournamentRosters(entries)`
+3. Debounced `saveAppDataToSupabase(..., tournamentRosters)` writes `tournament_rosters` (delete all rows for in-app tournament IDs, then upsert in-memory rows)
+4. `loadAppDataFromSupabase` reads `tournament_rosters` on next load
+
+UI is **not** game-derived in edit mode — pills come only from `tournamentRosters` state (`getPlayerTournamentRosterEntries`). So if refresh loses pills, either **save never ran**, **save failed**, or **load did not return rows**.
+
+#### Root-cause analysis (ranked)
+
+| # | Cause | Likelihood | Evidence |
+|---|--------|------------|----------|
+| **A** | **Save skipped during initial cloud load** | **High** | `skipSaveRef` starts `true` until first `loadAppDataFromSupabase` finishes. Persist `useEffect` returns early when `skipSaveRef.current` (`App.tsx` ~1192). If user adds via `[+]` while sync in flight, **no save is scheduled**. When `skipSaveRef` flips to `false`, effect **does not re-run** (deps unchanged). `handleUpdateTournamentRosters` does **not** set `localMutatedSinceMountRef`, so `finally` does **not** call `persistCurrentAppData()` (~1152–1157). Matches “works until refresh” if user acts in first ~1–3s after paint from snapshot. |
+| **B** | **Migration 005 not applied** | **High** | `loadAppDataFromSupabase`: on `tournament_rosters` query error → warn + `tournamentRosterRows = []` (~662–680). Save `delete`/`upsert` on missing table → thrown error. Console: `[Supabase] tournament_rosters unavailable` + `MIGRATION_005_HINT`. |
+| **C** | **Save failed (DB constraint) not noticed** | Medium | Table has `unique (tournament_id, player_id)`. Cross-team add blocked in UI (`wouldAddPlayerToTournamentRosterViolate`); stale state could still fail upsert. Red `saveError` banner should show — human may miss it. |
+| **D** | **Refresh before debounced save** | Low–medium | Save uses `requestIdleCallback` + **500ms** timeout (~1236–1261). Refresh &lt; ~1s after add can beat write. Q4 promised “immediate” save — implementation is debounced. |
+| **E** | **Cloud load overwrites in-session edit** | Medium (with A) | If add during sync without `localMutatedSinceMountRef`, cloud `applyProcessedToState` can replace `tournamentRosters` with DB (empty) **before** user refreshes — pill may vanish without refresh. |
+| **F** | `buildTournamentRostersFromGames` on delete game/team | N/A for this bug | Only runs in `handleDeleteActiveGame` / delete team paths (~1351, ~1734) — strips manual rows without games, not on normal refresh. |
+
+**Assumption to challenge:** “In-memory update = saved.” **False** — React state updates immediately; Supabase write is conditional on save pipeline.
+
+#### How to confirm (human / Executor, before coding)
+
+1. **Console on load:** `[Supabase] tournament_rosters unavailable` → run `npm run db:migrate:005` or SQL in `supabase/migrations/005_tournament_rosters.sql`.
+2. **Repro timing:** Add via `[+]` within 2s of opening team page vs after 5s idle → if only early add fails, **Cause A** confirmed.
+3. **Save banner:** After add, any red cloud save error?
+4. **Wait then refresh:** Add → wait 3s → refresh. If pill survives, **Cause D**; if never survives, **A or B**.
+5. **Supabase Table Editor:** After add + wait, row in `tournament_rosters` for `(tournament_id, team_id, player_id)`?
+
+#### Fix plan (Executor — one task at a time)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **R2.9a** | In `handleUpdateTournamentRosters`: set `localMutatedSinceMountRef.current = true` (same as `handleGameUpdate`) | Early add during sync triggers `persistCurrentAppData` in load `finally` |
+| **R2.9b** | When clearing `skipSaveRef` after load: if `tournamentRostersRef` ≠ `prevTournamentRostersRef`, schedule save (or call `persistCurrentAppData`) even without `localMutated` | Any roster drift during skip-save window flushes after load |
+| **R2.9c** | **Optional but matches Q4:** `handleUpdateTournamentRosters` calls `persistCurrentAppData()` directly (or dedicated `saveTournamentRosters`) — no reliance on debounced effect alone | Add → row visible in Supabase within 1s without waiting for other state churn |
+| **R2.10** | If load returns `tournament_rosters` error: non-blocking UI banner with `MIGRATION_005_HINT` | Human sees migration requirement without opening console |
+| **R2.11** | Re-run R2.8 QA: add/remove tournament, refresh, second device | Pills and Table Editor rows match |
+
+**Do not** merge game-derived rosters over DB rows on load (would hide manual adds without games) — load path already uses DB only (~818–820); keep that.
+
+#### Project Status Board — R2 (updated)
+
+- [x] **Designer:** R2-PERSIST root-cause + fix plan (this section)
+- [ ] **Human:** Confirm migration 005 applied; run confirm steps above
+- [x] **Executor:** R2.9a–c (save gating fix) — 2026-06-02
+- [ ] **Executor:** R2.10 (migration banner) — optional same PR
+- [ ] **Human:** R2.8 / R2.11 QA after fix
+
+#### Executor's Feedback or Assistance Requests
+
+- **Designer (2026-06-02):** Most likely **dual** issue: (A) skip-save window + no `localMutated` on tournament roster handler, and/or (B) migration 005 not on Supabase project. Executor should implement **R2.9a–b** first, then verify DB with human.
+- **Executor (2026-06-02) — R2.9a–c landed in `App.tsx`:**
+  - `handleUpdateTournamentRosters`: sets `localMutatedSinceMountRef`, syncs `tournamentRostersRef`, calls `persistCurrentAppData()` via microtask when not in skip-save / loading.
+  - Cloud load `finally`: also persists when `tournamentRostersRef` ≠ `prevTournamentRostersRef` (drift during skip-save).
+  - `npm run build` passes.
+  - **Human QA:** Edit Players → `[+]` add tournament → refresh (try immediately after page load and after 5s). If still missing, run migration 005 and check console for `tournament_rosters unavailable`.
+- **Human (2026-06-02):** R2.9 still not working — wants **another approach** + **DB backfill**: any player with stats in a completed tournament game → on that **team’s tournament roster**.
+
+---
+
+### R3 — Game-derived tournament rosters (Designer, 2026-06-02) — **LOCKED pivot**
+
+#### Why R2.9 was not enough
+
+Patching the debounced save path does not help if:
+
+| Blocker | Effect |
+|---------|--------|
+| **Migration 005 never applied** | Load returns `tournamentRosters: []`; every save to `tournament_rosters` throws — pills and DB stay empty no matter how fast we persist. |
+| **Save still failing** (RLS, network, constraint) | UI state ≠ DB; refresh reads empty DB. |
+| **Wrong mental model** | Human expectation: *“played in tournament → on roster.”* That is **`buildTournamentRostersFromGames`**, not manual `[+]`. DB was never backfilled; Edit Players only edits in-memory `tournamentRosters` rows that may never land in Supabase. |
+
+**Conclusion:** Stop treating manual `[+]` as the primary way to establish membership. Use **completed game stats** as the canonical rule (already implemented in `src/utils/tournamentRosters.ts` + `scripts/backfill-tournament-rosters.ts`).
+
+#### Human rule (locked)
+
+> For each **completed** game with a `tournamentId`, every `playerId` in `gameStats` is on the **tournament roster** for the **team they played for** in that game (`resolvePlayerTeamSideInGame`). Jersey/position defaults from club template at backfill time.
+
+Manual `[+]` remains for **pre-season** adds (no games yet) — optional overlay, not the main fix.
+
+#### Alternative fix (app) — “always merge from games”
+
+Do **not** rely on DB-only load for membership display or saves.
+
+| Step | Where | Behavior |
+|------|--------|----------|
+| **R3.1** | `tournamentRosters.ts` | New `mergeTournamentRosters(stored, fromGames)` — union: all game-derived rows included; keep stored row for same `(tournamentId, teamId, playerId)` but prefer stored jersey/position when present; keep stored-only rows only if they do not violate `unique (tournament_id, player_id)` vs game-derived team. |
+| **R3.2** | `processLoadedAppData` | After load: `fromGames = buildTournamentRostersFromGames(games, teams).entries`; `tournamentRosters = merge(stored, fromGames)`. **Refresh always shows correct pills for anyone who played**, even if DB table empty. |
+| **R3.3** | `saveAppDataToSupabase` (or `App` before save) | Persist **merged** rosters, not raw in-memory DB mirror — self-heals Supabase on next save. |
+| **R3.4** | `handleGameUpdate` / game complete | When a game becomes `isCompleted`, re-merge rosters into state (same as R3.2) so new box scores immediately update Edit Players + tournament scope roster. |
+| **R3.5** | Load side effect (optional) | If `verify` would show `missing > 0`, queue one `persistCurrentAppData` after load — writes merged rows without human running script. |
+
+**Revokes** R2-PERSIST note “do not merge on load” — human explicitly wants game participation to drive rosters.
+
+**What this does *not* fix alone:** Supabase table still must exist for persistence across devices; merge fixes **UI truth** from games immediately.
+
+#### DB backfill (Executor — run for human, no new script needed)
+
+Existing tooling:
+
+```bash
+# 1. Ensure table exists
+npm run db:migrate:005
+
+# 2. Preview rows derived from all completed games
+npm run backfill:tournament-rosters -- --dry-run
+
+# 3. Write merged rosters to Supabase (replaces in-app tournament_rosters for all tournaments)
+npm run backfill:tournament-rosters
+
+# 4. Confirm DB matches game-stats rule
+npm run verify:tournament-rosters
+```
+
+**What backfill does:** Loads teams/games from Supabase → `buildTournamentRostersFromGames` → `saveAppDataToSupabase(..., entries)` (full replace for league tournaments). Populates `tournament_rosters` for every player with stats in a completed tournament game.
+
+**Caveats (report in dry-run):**
+
+- `ambiguous` — player on both home/away club rosters in same game; side resolved via `resolvePlayerTeamSideInGame`.
+- `conflicts` — same player stats for two teams in one tournament; DB `unique (tournament_id, player_id)` allows only one — must resolve in data before backfill succeeds.
+
+#### Task breakdown (Executor, one at a time)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **R3.1** | `mergeTournamentRosters` + unit tests in `scripts/test-tournament-rosters.ts` | Merge tests pass |
+| **R3.2** | Wire merge in `processLoadedAppData` | After refresh, Edit Players shows pills for players with completed tournament game stats (DB empty OK) |
+| **R3.3** | Merge before cloud save | `verify:tournament-rosters` passes after one normal app save |
+| **R3.4** | Re-merge on game complete | Completing/editing box score adds roster row without `[+]` |
+| **R3.5** | Run migrate 005 + backfill + verify (needs `.env.local`) | Human sees rows in Supabase `tournament_rosters`; verify exits 0 |
+| **R3.6** | R2.10 migration banner (optional) | Console/table-missing surfaced in UI |
+
+**Order:** R3.5 first if migration never applied (unblocks DB); then R3.1–R3.4 (app self-heal); human QA.
+
+#### Success criteria (human QA)
+
+- [ ] Player with box score in **NBL Div 2 2024** shows tournament pill / appears in that tournament roster scope **without** using `[+]`
+- [ ] Refresh keeps them (from games merge even if DB was empty before backfill)
+- [ ] After backfill, Supabase Table Editor shows matching rows
+- [ ] `npm run verify:tournament-rosters` passes
+
+#### Open questions
+
+1. **Backfill overwrite:** Script saves **game-derived only** — manual `[+]` rows with no games are dropped on backfill. OK for v1? (Human focus = played → roster.)
+2. **Conflicts:** If dry-run lists conflicts, human must fix game/team data before full backfill.
+
+#### Project Status Board — R3
+
+- [x] **Designer:** R3 pivot spec (this section)
+- [x] **Executor:** R3.5 backfill — human applied migration 005; backfill wrote **64** rows; `verify:tournament-rosters` passed (2026-06-02)
+- [x] **Executor:** R3.1–R3.4 app merge (2026-06-02)
+- [ ] **Human:** QA success criteria above
+
+#### Executor notes (2026-06-02) — R3.1–R3.4
+
+- `mergeTournamentRosters`, `reconcileTournamentRostersFromGames`, `findTournamentPlayerTeamConflict` in `tournamentRosters.ts`
+- `processLoadedAppData` reconciles on every load (refresh shows players who played)
+- `App.tsx`: merge before cloud save / snapshot; re-merge on completed `handleGameUpdate` + `handleGameComplete`
+- `npm run test:tournament-rosters` + `npm run build` pass
+- **Human:** Run `005_tournament_rosters.sql` in Supabase SQL Editor (migrate script needs `DATABASE_URL`). Then retry `npm run backfill:tournament-rosters -- --dry-run` when load is fast enough, then write + `verify:tournament-rosters`
+
+---

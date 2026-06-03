@@ -47,6 +47,7 @@ export interface AppRoutesProps {
   onDeleteTournament: (tournamentId: string) => void;
   onCreateTeam: (data: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onUpdateTeam: (team: Team) => void;
+  onUpdateTournamentRosters: (entries: TournamentRosterEntry[]) => void;
   onUpdatePlayerProfile: (
     playerId: string,
     profilePatch: Pick<
@@ -157,6 +158,7 @@ function TeamDetailRoute({
   orphanPlayers,
   tournamentRosters,
   onUpdateTeam,
+  onUpdateTournamentRosters,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -218,6 +220,7 @@ function TeamDetailRoute({
           }
         }}
         onUpdateTeam={onUpdateTeam}
+        onUpdateTournamentRosters={onUpdateTournamentRosters}
       />
     </ErrorBoundary>
   );

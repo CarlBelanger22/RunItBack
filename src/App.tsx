@@ -46,7 +46,10 @@ import {
   resolveTeamsToDeleteWithGame,
 } from './utils/activeGame';
 import { generateTeamAbbreviation } from './utils/teamAbbreviation';
-import { buildTournamentRostersFromGames } from './utils/tournamentRosters';
+import {
+  buildTournamentRostersFromGames,
+  reconcileTournamentRostersFromGames,
+} from './utils/tournamentRosters';
 import {
   dedupeTeamPlayers,
   dedupeTeamsById,
@@ -990,29 +993,37 @@ export default function App() {
         ? [...currentGames.filter((g) => g.id !== activeGame.id), activeGame]
         : currentGames;
 
+    const rostersToSave = reconcileTournamentRostersFromGames(
+      gamesToSave,
+      teamsRef.current,
+      tournamentRostersRef.current
+    );
+    tournamentRostersRef.current = rostersToSave;
+
     return saveAppDataToSupabase(
       teamsRef.current,
       tournamentsRef.current,
       gamesToSave,
       darkModeRef.current,
       undefined,
-      tournamentRostersRef.current
+      rostersToSave
     )
       .then(() => {
         setSaveError(null);
+        setTournamentRosters(rostersToSave);
         saveAppDataSnapshot({
           teams: teamsRef.current,
           tournaments: tournamentsRef.current,
           games: gamesToSave,
           darkMode: darkModeRef.current,
           orphanPlayers: loadedOrphanPlayersRef.current,
-          tournamentRosters: tournamentRostersRef.current,
+          tournamentRosters: rostersToSave,
         });
         prevTeamsRef.current = teamsRef.current;
         prevTournamentsRef.current = tournamentsRef.current;
         prevGamesRef.current = gamesToSave;
         prevDarkModeRef.current = darkModeRef.current;
-        prevTournamentRostersRef.current = tournamentRostersRef.current;
+        prevTournamentRostersRef.current = rostersToSave;
       })
       .catch((err: Error) => {
         console.error('Supabase save failed:', err);
@@ -1150,8 +1161,11 @@ export default function App() {
         .finally(() => {
           if (!cancelled) {
             const hadLocalEdits = localMutatedSinceMountRef.current;
+            const tournamentRostersDrift =
+              JSON.stringify(prevTournamentRostersRef.current) !==
+              JSON.stringify(tournamentRostersRef.current);
             skipSaveRef.current = false;
-            if (hadLocalEdits) {
+            if (hadLocalEdits || tournamentRostersDrift) {
               queueMicrotask(() => {
                 persistCurrentAppData();
               });
@@ -1233,6 +1247,12 @@ export default function App() {
           ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
           : games;
 
+      const rostersToSave = reconcileTournamentRostersFromGames(
+        gamesToSave,
+        teams,
+        tournamentRosters
+      );
+
       saveTimeoutRef.current = setTimeout(() => {
         saveAppDataToSupabase(
           teams,
@@ -1240,17 +1260,20 @@ export default function App() {
           gamesToSave,
           darkMode,
           undefined,
-          tournamentRosters
+          rostersToSave
         )
           .then(() => {
             setSaveError(null);
+            setTournamentRosters(rostersToSave);
+            tournamentRostersRef.current = rostersToSave;
+            prevTournamentRostersRef.current = rostersToSave;
             saveAppDataSnapshot({
               teams,
               tournaments,
               games: gamesToSave,
               darkMode,
               orphanPlayers: loadedOrphanPlayers,
-              tournamentRosters,
+              tournamentRosters: rostersToSave,
             });
           })
           .catch((err: Error) => {
@@ -1448,6 +1471,16 @@ export default function App() {
         );
       }
 
+      if (game.isCompleted) {
+        setTournamentRosters((rosters) =>
+          reconcileTournamentRostersFromGames(
+            nextGames,
+            teamsRef.current,
+            rosters
+          )
+        );
+      }
+
       return nextGames;
     });
   }, [currentGame?.id]);
@@ -1475,11 +1508,21 @@ export default function App() {
       finalScore: { home: homeScore, away: awayScore }
     };
     
-    setGames((prev) => [
-      ...prev.filter((g) => g.id !== completedGame.id),
-      completedGame,
-    ]);
-    
+    setGames((prev) => {
+      const nextGames = [
+        ...prev.filter((g) => g.id !== completedGame.id),
+        completedGame,
+      ];
+      setTournamentRosters((rosters) =>
+        reconcileTournamentRostersFromGames(
+          nextGames,
+          teamsRef.current,
+          rosters
+        )
+      );
+      return nextGames;
+    });
+
     // Add game to tournament's games list
     setTournaments(prev => prev.map(tournament => 
       tournament.id === tournamentId
@@ -1652,6 +1695,21 @@ export default function App() {
       return newTeams;
     });
   }, [tournaments]);
+
+  const handleUpdateTournamentRosters = useCallback(
+    (entries: import('./utils/tournamentRosters').TournamentRosterEntry[]) => {
+      localMutatedSinceMountRef.current = true;
+      tournamentRostersRef.current = entries;
+      setTournamentRosters(entries);
+      setSaveError(null);
+      if (!skipSaveRef.current && !isDataLoading) {
+        queueMicrotask(() => {
+          persistCurrentAppData();
+        });
+      }
+    },
+    [isDataLoading, persistCurrentAppData]
+  );
 
   const handleUpdatePlayerProfile = useCallback(
     (
@@ -2061,6 +2119,7 @@ export default function App() {
           onDeleteTournament={handleDeleteTournament}
           onCreateTeam={handleCreateTeam}
           onUpdateTeam={handleUpdateTeam}
+          onUpdateTournamentRosters={handleUpdateTournamentRosters}
           onUpdatePlayerProfile={handleUpdatePlayerProfile}
           onDeleteTeam={handleDeleteTeam}
           onAddTeamToTournament={handleAddTeamToTournament}

@@ -8,6 +8,7 @@ import {
   buildTournamentRostersFromGames,
   getPlayersForTeamInTournament,
   isPlayerOnTournamentRoster,
+  mergeTournamentRosters,
   resolvePlayerTeamSideInGame,
   RAM_SUNDA_PUTRA_PLAYER_ID,
 } from '../src/utils/tournamentRosters';
@@ -135,6 +136,49 @@ function testGameStatsOnlyMembership(): void {
   );
 }
 
+function testMergeTournamentRosters(): void {
+  const ram = makePlayer(RAM_SUNDA_PUTRA_PLAYER_ID, 'Ram', 9);
+  const bench = makePlayer('player-bench', 'Bench');
+  const kx = makeTeam('team-kx', 'Kai Xuan', [ram, bench]);
+  const opp = makeTeam('team-opp', 'Opponent', []);
+  const nblGame = makeCompletedGame('g-nbl', 't-nbl-2024', kx, opp, [ram.id]);
+  const { entries: fromGames } = buildTournamentRostersFromGames([nblGame], [kx, opp]);
+
+  const manualOnly = [
+    {
+      tournamentId: 't-u21',
+      teamId: kx.id,
+      playerId: bench.id,
+      number: 12,
+      position: 'C',
+    },
+  ];
+  const merged = mergeTournamentRosters(manualOnly, fromGames);
+
+  assert(
+    isPlayerOnTournamentRoster(ram.id, 't-nbl-2024', kx.id, merged),
+    'merge includes game-derived Ram on NBL'
+  );
+  assert(
+    isPlayerOnTournamentRoster(bench.id, 't-u21', kx.id, merged),
+    'merge keeps manual-only bench on U21'
+  );
+  assert(merged.length === 2, 'merge has game row plus manual row');
+
+  const storedJersey = [
+    {
+      tournamentId: 't-nbl-2024',
+      teamId: kx.id,
+      playerId: ram.id,
+      number: 3,
+      position: 'SG',
+    },
+  ];
+  const withJersey = mergeTournamentRosters(storedJersey, fromGames);
+  const ramRow = withJersey.find((r) => r.playerId === ram.id);
+  assert(ramRow?.number === 3, 'stored jersey overlays game-derived row');
+}
+
 function testGetPlayersForTeamInTournament(): void {
   const ram = makePlayer(RAM_SUNDA_PUTRA_PLAYER_ID, 'Ram', 9);
   const kx = makeTeam('team-kx', 'Kai Xuan', [ram]);
@@ -156,6 +200,7 @@ function testGetPlayersForTeamInTournament(): void {
 function main(): void {
   testResolveSide();
   testGameStatsOnlyMembership();
+  testMergeTournamentRosters();
   testGetPlayersForTeamInTournament();
   console.log('All tournament roster tests passed.');
 }
