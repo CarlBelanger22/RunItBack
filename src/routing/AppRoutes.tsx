@@ -402,6 +402,7 @@ export function AppRoutes(props: AppRoutesProps) {
     onDeleteTeam,
     onAddTeamToTournament,
     onGameStart,
+    onGameUpdate,
     onGameComplete,
     onDeleteActiveGame,
   } = props;
