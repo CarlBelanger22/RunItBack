@@ -1,5 +1,9 @@
 import type { Game, GameStats, Player, Team, TeamStats } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
+import {
+  perGameAverageOrNull,
+  tournamentRecordsStat,
+} from './statRecordingCoverage';
 
 export type TeamSide = 'home' | 'away';
 
@@ -262,7 +266,7 @@ export interface TeamSeasonDerivedStats {
   spg: number;
   bpg: number;
   fpg: number;
-  fdpg: number;
+  fdpg: number | null;
   paintPpg: number;
   fastbreakPpg: number;
   secondChancePpg: number;
@@ -275,6 +279,8 @@ export interface AggregateTeamSeasonResult {
   totals: TeamSeasonStatBucket;
   /** Season totals divided by `gamesInSample` (not sum of player per-game averages). */
   perGame: TeamSeasonStatBucket;
+  foulsDrawnTotal: number;
+  gamesWithFoulsDrawnData: number;
 }
 
 function emptyTeamSeasonStatBucket(): TeamSeasonStatBucket {
@@ -443,24 +449,39 @@ export function aggregateTeamSeasonAverages(
   const rosterIds = new Set(team.players.map((p) => p.id));
   const empty = emptyTeamSeasonStatBucket();
 
-  const contributions = (games ?? [])
-    .map((game) => teamGameSeasonContribution(game, teamId, rosterIds))
-    .filter((row): row is TeamSeasonStatBucket => row !== null);
+  let totals = empty;
+  let foulsDrawnTotal = 0;
+  let gamesWithFoulsDrawnData = 0;
+  let gamesInSample = 0;
 
-  const gamesInSample = contributions.length;
-  if (gamesInSample === 0) {
-    return { gamesInSample: 0, totals: empty, perGame: empty };
+  for (const game of games ?? []) {
+    const contribution = teamGameSeasonContribution(game, teamId, rosterIds);
+    if (!contribution) continue;
+
+    gamesInSample++;
+    totals = addTeamSeasonBuckets(totals, contribution);
+    if (tournamentRecordsStat(game.tournamentId, 'fouls_drawn')) {
+      foulsDrawnTotal += contribution.fouls_drawn;
+      gamesWithFoulsDrawnData++;
+    }
   }
 
-  const totals = contributions.reduce(
-    (acc, row) => addTeamSeasonBuckets(acc, row),
-    empty
-  );
+  if (gamesInSample === 0) {
+    return {
+      gamesInSample: 0,
+      totals: empty,
+      perGame: empty,
+      foulsDrawnTotal: 0,
+      gamesWithFoulsDrawnData: 0,
+    };
+  }
 
   return {
     gamesInSample,
     totals,
     perGame: divideTeamSeasonBucket(totals, gamesInSample),
+    foulsDrawnTotal,
+    gamesWithFoulsDrawnData,
   };
 }
 
@@ -546,7 +567,8 @@ function safeTotal(value: number): number {
 export function computeTeamSeasonDerived(
   totals: TeamSeasonStatBucket,
   perGame: TeamSeasonStatBucket,
-  scoring: { ppg: number; papg: number; gamesWithScore: number }
+  scoring: { ppg: number; papg: number; gamesWithScore: number },
+  fdpgSample?: { total: number; games: number }
 ): TeamSeasonDerivedStats {
   const fgMade = safeTotal(totals.fg_made);
   const fgAttempted = safeTotal(totals.fg_attempted);
@@ -599,7 +621,10 @@ export function computeTeamSeasonDerived(
     spg: perGame.steals,
     bpg: perGame.blocks,
     fpg: perGame.fouls,
-    fdpg: perGame.fouls_drawn,
+    fdpg: perGameAverageOrNull(
+      fdpgSample?.total ?? 0,
+      fdpgSample?.games ?? 0
+    ),
     paintPpg: perGame.points_in_paint,
     fastbreakPpg: perGame.fastbreak_points,
     secondChancePpg: perGame.second_chance_points,

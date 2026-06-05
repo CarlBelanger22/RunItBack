@@ -6214,3 +6214,351 @@ Human added `Importingboxscores/SAFSA Div2 '23/` with **4 Easy Stats HTML** expo
 - **Blocked on human:** SAFSA-I.5 — open NBL Div 2 2023 in app; confirm 4 games, box scores, SAFSA player stats.
 
 ---
+
+## S2 — Tournament-scoped FDPG & +/- “not recorded” (Designer, 2026-06-06)
+
+### Background
+
+Human request: for **NBL Div 2 2024**, **Gemilang Cup U21**, and **NBL Div 2 2023**, **Fouls Drawn Per Game (FDPG)** and **+/-** were **not recorded** on source box scores. UI should show **`-`** (with existing “No stat recorded” tooltip) — same pattern as Paint/FB/BA when data is absent.
+
+**All Time** row on Player Stats must **not** dilute FDPG/+/- averages with games from tournaments where those stats were never tracked. Denominator = **only games in tournaments that recorded the stat**.
+
+Recorded tournaments (for these two stats): **IVP 2026**, **Sunig 2025**.
+
+### Locked tournament IDs
+
+| Tournament | ID | FDPG & +/- |
+|------------|-----|------------|
+| NBL Div 2 2024 | `tournament-1780251377063` | **Not recorded** |
+| Gemilang Cup U21 | `tournament-1780333884144` | **Not recorded** |
+| NBL Div 2 2023 | `tournament-1780425044074` | **Not recorded** |
+| IVP 2026 | `tournament-1768327829049` | Recorded |
+| Sunig 2025 | `tournament-sunig-2025` | Recorded |
+
+### Current behaviour (why it’s wrong)
+
+| Area | Today | Problem |
+|------|-------|---------|
+| Import JSON | `fouls_drawn: 0`, `plus_minus: 0` for Easy Stats / legacy imports | Zeros are **placeholders**, not real stats |
+| `getFoulStatCoverage` | Infers recording if **any** non-zero in scope | Never triggers for these tournaments (all zeros) |
+| `PlayerStatsTable` FDPG | Always `totalStats.fouls_drawn / gamesPlayed` | Shows `0.0` instead of `-` |
+| `PlayerStatsTable` +/- (`StandardStatCells`) | Always `totalStats.plus_minus / gamesPlayed` | Shows `+0.0` (screenshot) instead of `-` |
+| All Time row | Same `gamesPlayed` for every column | Carl: 24 GP but +/- averaged over all games → misleading `+6.9` |
+
+**Existing good pattern to copy:** Paint/FB use per-row `gamesWithShotData` + `paintPointsTotal` — average only over games where the stat exists.
+
+### Key design decision
+
+**Do not** infer “not recorded” from all-zero values (a player could legitimately have 0 fouls drawn or 0 +/- in a recorded tournament). Use an explicit **tournament-level registry** (by `tournamentId`), same spirit as shot-chart availability per game.
+
+Future tournaments default to **recorded** unless added to the exclusion set.
+
+### Proposed implementation
+
+#### S2.A — Central registry (`src/utils/statRecordingCoverage.ts`)
+
+```typescript
+export type TournamentScopedStat = 'fouls_drawn' | 'plus_minus';
+
+export function tournamentRecordsStat(
+  tournamentId: string | undefined,
+  stat: TournamentScopedStat
+): boolean;
+```
+
+- Exclusion set = the 3 tournament IDs above (both stats).
+- Name hints optional for dev logging only; IDs are source of truth.
+
+#### S2.B — Extend aggregation (`src/utils/playerSeasonStats.ts`)
+
+Add to `PlayerSeasonRow`:
+
+| Field | Purpose |
+|-------|---------|
+| `foulsDrawnTotal` | Sum only from games where `tournamentRecordsStat(..., 'fouls_drawn')` |
+| `gamesWithFoulsDrawnData` | Count of those games |
+| `plusMinusTotal` | Sum only from games where `tournamentRecordsStat(..., 'plus_minus')` |
+| `gamesWithPlusMinusData` | Count of those games |
+
+Update **`aggregateSinglePlayerSeasonStats`** (used by player tournament rows + All Time):
+
+- Keep `totalStats` / `gamesPlayed` unchanged for PPG, MPG, etc.
+- Populate the four new fields using tournament filter per game.
+- **`buildPlayerTournamentSeasonRows`** — no structural change; inherits via `aggregateSinglePlayerSeasonStats`.
+
+Update **`aggregatePlayerSeasonStats`** (team/tournament roster tables) — same loop logic when building `playerTotals`.
+
+Helper:
+
+```typescript
+export function perGameAverageOrNull(total: number, games: number): number | null
+```
+
+#### S2.C — Display (`PlayerStatsTable.tsx`)
+
+| Column | Change |
+|--------|--------|
+| **FDPG** (advanced view) | `gamesWithFoulsDrawnData > 0 ? foulsDrawnTotal / gamesWithFoulsDrawnData : null` → `OptionalStatText` |
+| **+/-** (standard view) | `gamesWithPlusMinusData > 0 ? plusMinusTotal / gamesWithPlusMinusData : null` → `OptionalStatText` with green/red when non-null |
+
+**All Time row:** automatically correct once aggregation uses filtered game counts (e.g. Carl: ~9 games for +/-, not 24).
+
+**Sort:** `sortPlayerSeasonRows` for `FDPG` / `+/-` — sort on computed average; null rows sort last (match Paint behaviour).
+
+#### S2.D — Box score & game log (same tournaments)
+
+| Surface | Change |
+|---------|--------|
+| `BoxScore.tsx` | If `!tournamentRecordsStat(game.tournamentId, 'fouls_drawn')` → FD column `-`; same for +/- |
+| `PlayerPage.tsx` game log | Per-game FD and +/- badges use `OptionalStatBadge` when not recorded |
+
+Pass `tournamentId` into BoxScore if not already available (from parent game).
+
+#### S2.E — Team page (optional in v1)
+
+`TeamPage` team-season **FDPG** row (`derived.fdpg`) — apply same tournament filter when aggregating team games. **Scope to Executor task S2.6** if timeboxed; player page is primary ask.
+
+### High-level task breakdown (Executor — one task at a time)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **S2.1** | Add `statRecordingCoverage.ts` + unit tests for the 5 tournament IDs | Tests pass: 3 excluded, 2 included |
+| **S2.2** | Extend `PlayerSeasonRow` + `aggregateSinglePlayerSeasonStats` + `aggregatePlayerSeasonStats` | Carl mock: NBL 2023 row `gamesWithPlusMinusData === 0`; IVP row > 0 |
+| **S2.3** | `PlayerStatsTable` FDPG & +/- columns use new fields + `OptionalStatText` | NBL/Gemilang/NBL23 rows show `-`; IVP/Sunig show numbers |
+| **S2.4** | All Time row QA on Carl Belanger | +/- average uses only IVP+Sunig GP (~9), not 24; FDPG same |
+| **S2.5** | `BoxScore` + `PlayerPage` game log show `-` for excluded tournaments | Open SAFSA KTS box score: +/- and FD are `-`, not `0` |
+| **S2.6** | (Optional) Team page FDPG team aggregate | Team FDPG ignores excluded tournaments |
+| **S2.7** | `npm run test:tournament-rosters` or new `test:stat-recording` script | CI-local script green |
+
+**No DB migration.** Stored `0` values remain; only presentation and averaging change.
+
+**No import script changes** unless human later wants to strip placeholder zeros from JSON (not required for S2).
+
+### Human QA checklist
+
+- [ ] Player → Carl Belanger → Player Stats: NBL Div 2 2024, Gemilang U21, NBL Div 2 2023 rows show **`-`** for FDPG (advanced) and +/- (standard)
+- [ ] IVP 2026 and Sunig 2025 rows still show numeric FDPG and +/-
+- [ ] All Time +/- and FDPG reflect **only** IVP + Sunig games (higher, not dragged down by zeros)
+- [ ] SAFSA game box score: FD and +/- columns show `-`, not `0`
+- [ ] Tooltip on `-` reads “No stat recorded”
+
+### Assumptions & challenges
+
+1. **Assumption:** IVP 2026 and Sunig 2025 always recorded FDPG and +/-. *Challenge:* if a specific game in those tournaments lacked tracking, we’d need game-level flags later — out of scope unless human says otherwise.
+2. **Assumption:** Same exclusion list applies to **both** FDPG and +/- for the three tournaments. Human grouped them together; if +/- was recorded somewhere we missed, registry is easy to adjust.
+3. **Do not** use `getFoulStatCoverage` zero-detection for FDPG — imports filled zeros by design.
+4. **GP column unchanged** — still counts all games played in tournament; only FDPG/+/- denominators shrink.
+
+### Project Status Board — S2
+
+- [x] **Designer:** S2 spec (this section)
+- [x] **Human:** Confirmed — all games in NBL 2024 / Gemilang U21 / NBL 2023 excluded; IVP 2026 + Sunig 2025 recorded
+- [x] **Executor:** S2.1 — `statRecordingCoverage.ts` + `npm run test:stat-recording`
+- [x] **Executor:** S2.2 — `PlayerSeasonRow` aggregation fields + `aggregateSinglePlayerSeasonStats` / `aggregatePlayerSeasonStats`
+- [x] **Executor:** S2.3 — `PlayerStatsTable` FDPG & +/- via `OptionalStatText` + sort nulls last
+- [x] **Executor:** S2.4–S2.6 — `BoxScore`, `PlayerPage` game log + Advanced tab filtered averages, `TeamPage` FDPG
+- [x] **Executor:** S2.7 — `test:stat-recording` (registry + Carl mock aggregation); `npm run build` passes
+- [ ] **Human:** S2 QA (Carl Player Stats, box score SAFSA KTS, Team page FDPG)
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-02):** S2.1–S2.7 complete. Key files: `statRecordingCoverage.ts`, `playerSeasonStats.ts`, `PlayerStatsTable.tsx`, `BoxScore.tsx`, `PlayerPage.tsx`, `gameDisplay.ts` (team FDPG), `TeamPage.tsx`. **Awaiting human S2 QA** before Designer marks project complete.
+
+---
+
+## R4 — Club roster integrity (Designer, 2026-06-06)
+
+### Background and Motivation
+
+Human report: **SAFSA Arion now has 0 players** on the Roster tab (Club roster all). Follow-up requirement:
+
+1. **Fix everything** — every player who has played for a team should appear on that team’s **club roster** (`team_players`).
+2. **Prevent recurrence** — stale app state / repair scripts / cloud saves must not wipe rosters again.
+
+This follows the NTU incident (7→18 players restored via `repair:rosters`) which **caused a new regression**: SAFSA’s roster was deleted in the same repair run.
+
+### Incident audit (Designer, live Supabase read 2026-06-06)
+
+| Team | `team_players` before repair | After repair | Game-stat players |
+|------|------------------------------|--------------|-------------------|
+| NTU | 7 | **18** ✓ | 18 |
+| SAFSA Arion | **15** | **0** ✗ | 25 |
+| Kai Xuan | 28 | 28 (preserved) | ~15 actual KX game players |
+| All other 25 teams | 0 | 0 | 8–22 each |
+
+**Only 2 of 28 teams** have any club roster rows (46 total `team_players` links). **26 teams** show 0 players on Club roster but have completed game stats.
+
+**Direct cause of SAFSA wipe:** `scripts/repair-rosters.ts` (C15.2) deletes **all** `team_players` rows where `team_id !== NTU` and row is not in Kai Xuan preserve set. SAFSA’s 15 links were in `deleteNonNtu` (15 rows) and were removed. Script then only re-inserted NTU’s 18 players.
+
+**Root systemic causes (not just SAFSA):**
+
+1. **Destructive save** — `savePlayersWithSchema` in `supabaseData.ts` runs `DELETE FROM team_players WHERE team_id IN (all teams in memory)` then re-inserts only in-memory `team.players`. Any partial/stale in-memory roster **overwrites DB**.
+2. **Stats-only imports** — JSON bundles ship `players: []` for opponent teams; imports never backfill `team_players` for those teams.
+3. **Stale snapshot + cloud save** — App paints from localStorage snapshot, then `hadLocalEdits` path can `persistCurrentAppData('full')` and push truncated rosters to Supabase.
+4. **Over-broad repair script** — `repair:rosters` was a one-off NTU fix but deleted unrelated team links.
+5. **Kai Xuan contamination** — 28 players on Kai Xuan club roster include many who only played **for opponents** (C13.4 enrich bug leftovers). Preserved blindly by repair script.
+
+### Product rule (locked for R4)
+
+> **Club roster membership:** If a player has a stat line in a completed game for team T, they belong on team T’s club roster. Players may be on **multiple** club rosters (multi-team junction model). Manual adds/removes still allowed, but **game-derived membership is never removed** unless the game is deleted.
+
+Tournament roster (`tournament_rosters`) remains tournament-scoped; club roster is the union across all games + manual edits.
+
+### Key Challenges and Analysis
+
+| Challenge | Notes |
+|-----------|-------|
+| Jersey / position when rebuilding | Prefer: existing `team_players` → `tournament_rosters` (per team) → import JSON → default `0` / `PG` |
+| Side resolution without club roster | Reuse `resolvePlayerTeamSideInGame` (starters, home/away snapshot, home default) — works today for backfill |
+| Kai Xuan cleanup vs Carl #88 | **Resolved:** no KX prune; Carl **#22** on Kai Xuan (R4-J) |
+| Save guard vs legitimate remove | User-initiated remove must still work; guard only blocks **bulk shrink** without explicit intent |
+| Don’t break S2 / tournament tabs | Club roster rebuild is independent of `tournament_rosters` |
+
+### High-level Task Breakdown (Executor — one task at a time)
+
+| Task | Description | Success criteria |
+|------|-------------|------------------|
+| **R4.1** | Add `buildClubRosterLinksFromGames()` in `src/utils/clubRosterIntegrity.ts` (or extend `rosterPlayers.ts`) | Unit test: SAFSA game → player linked to `team-kx-div2-safsa`; multi-team player appears on both teams |
+| **R4.2** | Add `mergeClubRosterLinks(existing, derived, jsonCanonical)` — union, never drop game-derived | Merged count ≥ max(existing, derived) per team |
+| **R4.3** | Script `scripts/rebuild-club-rosters.ts` + `npm run rebuild:club-rosters` | Dry-run lists SAFSA ~25, MOB ~12, etc.; live run restores all teams with game stats; `inspect-all-rosters` shows 0 empty teams with stats |
+| **R4.4** | Script `scripts/verify-club-rosters.ts` + `npm run verify:club-rosters` | Fails if any game-stat player not on resolved team’s club roster; passes after R4.3 |
+| **R4.5** | **Save guard** — change `savePlayersWithSchema` to **upsert-only** (no mass delete); delete single row only via explicit remove-player path | Saving app with 7 NTU players does **not** remove other 11 from DB; manual remove still works |
+| **R4.6** | **Cloud sync guard** — on load, merge cloud `team.players` with snapshot (union by player id); block auto-save if roster shrink detected without user remove | Stale snapshot cannot shrink cloud roster on revalidate |
+| **R4.7** | **Fix `repair-rosters.ts`** — scope writes to `team-sunig-ntu` only; remove `deleteNonNtu` entirely; deprecate in favour of `rebuild:club-rosters` | Running repair no longer touches SAFSA/Kai Xuan/other teams |
+| **R4.8** | **Kai Xuan prune** — optional flag on rebuild: drop club links for players with **zero** Kai Xuan game stat lines (except `KAI_XUAN_CARL` preserve) | Kai Xuan club roster ≈ actual game players (~15), not 28 contaminated |
+| **R4.9** | Human QA | SAFSA Roster shows full squad; NTU still 18; opponent teams populated; hard refresh stable |
+
+**Executor order:** R4.1 → R4.2 → R4.3 (restore data) → R4.4 → R4.5 → R4.6 → R4.7 → R4.8 → R4.9. Stop after R4.3 for human spot-check if desired.
+
+### Prevention design (R4.5 + R4.6 detail)
+
+**Today (dangerous):**
+```
+save → DELETE all team_players for all teams in memory → INSERT in-memory rows only
+```
+
+**Target (safe):**
+```
+save → UPSERT team_players rows from in-memory teams
+     → DELETE only (team_id, player_id) pairs explicitly removed in this session (track removedRosterLinks ref)
+     → Optional: refuse save if team loses >N players vs last cloud load without confirm flag
+```
+
+**Snapshot v6 (optional in R4.6):** store `rosterCountsByTeamId: Record<string, number>`; on read, if snapshot counts < cloud counts for any team, **merge cloud roster into snapshot** instead of painting snapshot alone.
+
+### Human decisions (2026-06-06)
+
+| Question | Answer |
+|----------|--------|
+| Carl on Kai Xuan jersey | **#22** (not #88) |
+| Kai Xuan prune | **No prune** — audit confirms all **28** club players have KX-side game stats across tournaments |
+| Opponent team rosters | **0 players** — single-sided imports (`trackBothTeams: false`); opponent stats not recorded |
+| Rebuild scope | **Game stats only** (tracked side per game) |
+| Live Supabase write | **Dry-run only** until human approves |
+
+**Revised rebuild targets (no club bias):** only **3 teams** get `team_players` rows:
+
+| Team | Expected players |
+|------|------------------|
+| Kai Xuan | 28 |
+| NTU | 18 |
+| SAFSA Arion | 15 |
+| All other 25 teams | **0** |
+
+### Assumptions & open questions for human
+
+1. **Club roster** = players with stat lines on the **tracked team side** of completed games (not “every team that appeared in the same fixture”).
+2. **Multi-team** still applies: Carl can be on NTU + Kai Xuan + SAFSA simultaneously with per-team jerseys.
+3. **R4.8 Kai Xuan prune:** **Cancelled** — audit script `audit-kx-roster-vs-games.ts` shows 28/28 have stats.
+4. **Jersey source for SAFSA/KX rebuild:** pull from import JSON / `tournament_rosters` where available — **still need human confirm** for SAFSA jersey numbers (see R4 open questions below).
+
+### Test plan (human QA after R4.3 + guards)
+
+- [ ] SAFSA Arion → Roster → Club roster (all): **≥15 players** (expect ~25 from game stats)
+- [ ] NTU → still **18 players**
+- [ ] Kai Xuan → roster matches players who actually played for KX (not entire league)
+- [ ] Police, KTS, Tungsan, etc. → non-zero club rosters
+- [ ] Carl Belanger appears on **NTU + SAFSA + Kai Xuan** club rosters (multi-team)
+- [ ] Hard refresh + wait for cloud sync → rosters **unchanged** (no second wipe)
+- [ ] `npm run verify:club-rosters` passes
+
+### Project Status Board — R4
+
+- [x] **Designer:** R4 spec + incident audit (this section)
+- [x] **Human:** Carl KX #22; no KX prune; opponents 0; game-stats-only; proceed all the way
+- [x] **Executor:** R4.1 — `src/utils/clubRosterIntegrity.ts`
+- [x] **Executor:** R4.2 — merge + jersey resolution (existing → tournament → import JSON)
+- [x] **Executor:** R4.3 — `npm run rebuild:club-rosters` live (61 `team_players`: KX 28, NTU 18, SAFSA 15)
+- [x] **Executor:** R4.4 — `npm run verify:club-rosters` OK
+- [x] **Executor:** R4.5 — upsert-only save + explicit `rosterDeletes` (no mass delete on normal save)
+- [x] **Executor:** R4.6 — cloud merge + unauthorized shrink block + snapshot v6
+- [x] **Executor:** R4.7 — `repair-rosters.ts` NTU-only; removed Carl #88 hardcode
+- [x] **Executor:** R4-J — Carl Kai Xuan **#22**
+- [x] **Executor:** R4.8 — Kai Xuan prune **cancelled** (28/28 verified)
+- [x] **Human:** R4.9 QA passed (2026-06-06) — SAFSA 15, NTU 18, KX 28, Carl #22, opponents 0
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-06):** R4 complete. Live rebuild + prevention guards shipped. **Human QA passed.**
+- **Do not run `repair:rosters` for league-wide fixes** — use `rebuild:club-rosters` instead.
+
+### Lessons (append)
+
+- `repair-rosters.ts` deleted SAFSA’s 15 `team_players` rows while fixing NTU — always scope roster repairs to a single `team_id`.
+- `savePlayersWithSchema` mass-delete is the underlying wipe mechanism; upsert-only + explicit removes required.
+- Stats-only imports leave opponent `team_players` empty; game-stats backfill is required for “club roster (all)” to work.
+- **Carl #88 on Kai Xuan is wrong** — came from C14 jersey-icon **#88 test**, not box scores. Never hardcode jersey numbers in repair scripts.
+
+---
+
+## R4-J — Carl #88 on Kai Xuan (Designer, 2026-06-06)
+
+### Human question
+
+> Why is Carl **#88** on Kai Xuan? He has **never worn 88**.
+
+**Answer: you are correct.** #88 is **not** from any box score or game import. It was **accidentally baked in** during C15/C16 jersey-icon testing and later hardcoded in `repair-rosters.ts`.
+
+### Root cause chain (verified from transcript + code)
+
+| Step | What happened |
+|------|----------------|
+| **C14 (jersey icon QA)** | You temporarily set Carl to **#88** to test wide digits on `JerseyIcon` (“try #88”), alongside real **#22** on NTU |
+| **C15 (roster contamination)** | Saving that jersey edit triggered the enrich bug; Carl’s link on `team-1780252086140` with **#88** was contamination at first |
+| **C15 repair** | Script **removed** Carl from Kai Xuan (correct — stray link from contamination) |
+| **Human clarification** | You said Carl **should** be on user team **Kai Xuan** (`team-1780252086140`) — **membership is valid** |
+| **Executor mistake** | Re-added Carl to Kai Xuan using **`number: 88`** — reused the **test jersey** from icon QA, **not** a real Kai Xuan number |
+| **Hardcoded in repair script** | `KAI_XUAN_CARL_NUMBER = 88` in `repair-rosters.ts` — every `repair:rosters` run **re-forces #88** |
+| **Recent `repair:rosters` (NTU fix)** | End-of-script upsert ran again → Carl still **#88** on Kai Xuan, **#22** on NTU |
+
+**Not the cause (but easy to confuse):** Carl’s **88kg** weight in Sunig import JSON — body weight, not jersey.
+
+### What the data actually says
+
+| Team | Carl's jersey in app today | Correct? | Source |
+|------|---------------------------|----------|--------|
+| **NTU** | **#22** | ✓ | Sunig / IVP import JSON |
+| **Kai Xuan** | **#88** | ✗ | Hardcoded mistake — **never worn** |
+| **Kai Xuan (game stats)** | Player id `player-sunig-ntu-22` | membership OK | KX Div2 + U21 games — no jersey in stat rows |
+
+**Designer default until you say otherwise:** Kai Xuan club roster → Carl **#22** (not 88). Multi-team junction allows **#22 on NTU** and **#22 on Kai Xuan** as separate rows.
+
+### Corrections to R4 plan
+
+| Item | Change |
+|------|--------|
+| **R4.8** | Remove “except Carl #88”; jersey from resolution chain, never hardcoded |
+| **`repair-rosters.ts`** | Delete `KAI_XUAN_CARL_NUMBER = 88` block (R4.7) |
+| **Jersey rule (R4.2b)** | `existing team_players` → `tournament_rosters` → import JSON → **never UI test values** |
+
+### Executor micro-tasks (with R4)
+
+- [ ] **R4-J.1** — Set Carl on Kai Xuan to **#22** (or human-provided #) in `team_players`
+- [ ] **R4-J.2** — Remove `KAI_XUAN_CARL_NUMBER = 88` from `repair-rosters.ts`
+- [ ] **R4-J.3** — Strike obsolete C15 note “Carl intentionally #88”
+
+### Open question
+
+**What number did Carl wear for Kai Xuan?** If unknown, we use **#22**. Confirmed: **not #88**.
+
+---

@@ -421,7 +421,11 @@ export function TeamPage({
       computeTeamSeasonDerived(
         teamSeasonAggregate.totals,
         teamSeasonAggregate.perGame,
-        scopedTeamScoring
+        scopedTeamScoring,
+        {
+          total: teamSeasonAggregate.foulsDrawnTotal,
+          games: teamSeasonAggregate.gamesWithFoulsDrawnData,
+        }
       ),
     [teamSeasonAggregate, scopedTeamScoring]
   );
@@ -1637,7 +1641,7 @@ export function TeamPage({
 
               <StatColumn title="Discipline">
                 <TeamStatRow label="FPG" value={derived.fpg.toFixed(1)} />
-                <TeamStatRow label="FDPG" value={derived.fdpg.toFixed(1)} />
+                <TeamStatRow label="FDPG" value={formatRatio(derived.fdpg)} />
               </StatColumn>
 
               <StatColumn title="Advanced">

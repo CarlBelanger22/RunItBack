@@ -1,8 +1,6 @@
 /**
- * Repair team_players contamination from C13.4 enrich bug.
- *
- * - Clears opponent team rosters (preserves Kai Xuan user team)
- * - Rebuilds team-sunig-ntu from canonical import JSON
+ * Rebuild team-sunig-ntu club roster from canonical import JSON only.
+ * Does NOT touch any other team — use rebuild:club-rosters for full league repair.
  *
  * Usage:
  *   npx tsx scripts/repair-rosters.ts --dry-run
@@ -15,9 +13,6 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const DEFAULT_LEAGUE_ID = 'league-default';
 const NTU_TEAM_ID = 'team-sunig-ntu';
-const KAI_XUAN_TEAM_ID = 'team-1780252086140';
-const KAI_XUAN_CARL_PLAYER_ID = 'player-sunig-ntu-22';
-const KAI_XUAN_CARL_NUMBER = 88;
 
 const SUNIG_ROSTER_JSON = resolve(
   process.cwd(),
@@ -42,21 +37,8 @@ interface JsonPlayer {
   dateOfBirth?: string;
 }
 
-interface JsonTeam {
-  id: string;
-  players: JsonPlayer[];
-}
-
 interface JsonBundle {
-  teams: JsonTeam[];
-}
-
-interface TeamPlayerLink {
-  team_id: string;
-  player_id: string;
-  number: number;
-  position?: string;
-  secondary_position?: string | null;
+  teams: Array<{ id: string; players: JsonPlayer[] }>;
 }
 
 function loadEnvLocal(): Record<string, string> {
@@ -88,47 +70,11 @@ function loadNtuRosterFromJson(): JsonPlayer[] {
   return [...byId.values()];
 }
 
-function isPreservedOpponentTeam(teamId: string): boolean {
-  return teamId === KAI_XUAN_TEAM_ID;
-}
-
 async function detectSchema(
   supabase: SupabaseClient
 ): Promise<'global_position' | 'team_players'> {
   const positionProbe = await supabase.from('players').select('position').limit(1);
   return positionProbe.error == null ? 'global_position' : 'team_players';
-}
-
-async function loadTeamPlayerLinks(
-  supabase: SupabaseClient,
-  schema: 'global_position' | 'team_players'
-): Promise<TeamPlayerLink[]> {
-  const select =
-    schema === 'team_players'
-      ? 'team_id, player_id, number, position, secondary_position'
-      : 'team_id, player_id, number';
-  const { data, error } = await supabase.from('team_players').select(select);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as TeamPlayerLink[];
-}
-
-async function printRosterCounts(supabase: SupabaseClient, label: string): Promise<void> {
-  const { data: rows, error } = await supabase
-    .from('team_players')
-    .select('team_id, player_id');
-  if (error) throw new Error(`team_players read: ${error.message}`);
-
-  const counts = new Map<string, number>();
-  for (const row of rows ?? []) {
-    counts.set(row.team_id, (counts.get(row.team_id) ?? 0) + 1);
-  }
-
-  console.log(`\n${label}  team_players counts:`);
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  for (const [teamId, count] of sorted) {
-    console.log(`  ${teamId}: ${count}`);
-  }
-  console.log(`  TOTAL: ${rows?.length ?? 0}`);
 }
 
 async function main() {
@@ -153,60 +99,20 @@ async function main() {
   const schema = await detectSchema(supabase);
   const ntuRoster = loadNtuRosterFromJson();
 
-  console.log('RunItBack  repair rosters (C15.2)');
+  console.log('RunItBack — repair NTU roster only');
   console.log(`Schema: ${schema}`);
   console.log(`Canonical NTU roster: ${ntuRoster.length} players from JSON`);
+  console.log('Other teams are NOT modified. Use npm run rebuild:club-rosters for full repair.\n');
 
-  await printRosterCounts(supabase, 'BEFORE');
-
-  const allLinks = await loadTeamPlayerLinks(supabase, schema);
-  const playerIds = [...new Set(allLinks.map((r) => r.player_id))];
-
-  const { data: playerRows, error: playersError } = await supabase
-    .from('players')
-    .select('id, name, height, weight, picture, date_of_birth, age, position, secondary_position')
-    .in('id', playerIds.length ? playerIds : ['__none__']);
-  if (playersError) throw new Error(playersError.message);
-
-  const nameById = new Map((playerRows ?? []).map((p) => [p.id, p.name as string]));
-
-  const preserveTeamIds = new Set([KAI_XUAN_TEAM_ID]);
-
-  const preserveRows = allLinks.filter(
-    (row) =>
-      row.team_id !== NTU_TEAM_ID && preserveTeamIds.has(row.team_id)
-  );
-  const preserveKeys = new Set(
-    preserveRows.map((r) => `${r.team_id}:${r.player_id}`)
-  );
-  const preserveRowsUnique = allLinks.filter((row) =>
-    preserveKeys.has(`${row.team_id}:${row.player_id}`)
-  );
-
-  if (preserveRowsUnique.length > 0) {
-    console.log('\nPreserving opponent roster link(s):');
-    for (const row of preserveRowsUnique) {
-      console.log(
-        `  ${nameById.get(row.player_id)} ? ${row.team_id} #${row.number}`
-      );
-    }
-  } else {
-    console.log('\nNo opponent roster links to preserve.');
-  }
-
-  const deleteNonNtu = allLinks.filter(
-    (row) =>
-      row.team_id !== NTU_TEAM_ID &&
-      !preserveKeys.has(`${row.team_id}:${row.player_id}`)
-  );
-  const deleteNtu = allLinks.filter((row) => row.team_id === NTU_TEAM_ID);
-
-  console.log(`\nWill delete ${deleteNonNtu.length} contaminated non-NTU link(s)`);
-  console.log(`Will delete ${deleteNtu.length} NTU link(s) (rebuilt from JSON)`);
-  console.log(`Will insert ${ntuRoster.length} NTU link(s)`);
+  const { data: existingNtu } = await supabase
+    .from('team_players')
+    .select('player_id, number')
+    .eq('team_id', NTU_TEAM_ID);
+  console.log(`Current NTU team_players: ${existingNtu?.length ?? 0}`);
+  console.log(`Will replace with ${ntuRoster.length} players`);
 
   if (dryRun) {
-    console.log('\nDry run  no writes performed.');
+    console.log('\nDry run — no writes performed.');
     return;
   }
 
@@ -238,17 +144,11 @@ async function main() {
     if (error) throw new Error(`players upsert ${player.id}: ${error.message}`);
   }
 
-  for (const { team_id, player_id } of [
-    ...deleteNonNtu.map((r) => ({ team_id: r.team_id, player_id: r.player_id })),
-    ...deleteNtu.map((r) => ({ team_id: r.team_id, player_id: r.player_id })),
-  ]) {
-    const { error } = await supabase
-      .from('team_players')
-      .delete()
-      .eq('team_id', team_id)
-      .eq('player_id', player_id);
-    if (error) throw new Error(`delete ${team_id}/${player_id}: ${error.message}`);
-  }
+  const { error: deleteError } = await supabase
+    .from('team_players')
+    .delete()
+    .eq('team_id', NTU_TEAM_ID);
+  if (deleteError) throw new Error(`delete NTU links: ${deleteError.message}`);
 
   for (const player of ntuRoster) {
     const row: Record<string, unknown> = {
@@ -266,36 +166,7 @@ async function main() {
     if (error) throw new Error(`insert NTU ${player.id}: ${error.message}`);
   }
 
-  for (const row of preserveRowsUnique) {
-    const upsertRow: Record<string, unknown> = {
-      team_id: row.team_id,
-      player_id: row.player_id,
-      number: row.number,
-    };
-    if (schema === 'team_players') {
-      upsertRow.position = row.position ?? 'PG';
-      upsertRow.secondary_position = row.secondary_position ?? null;
-    }
-    const { error } = await supabase
-      .from('team_players')
-      .upsert(upsertRow, { onConflict: 'team_id,player_id' });
-    if (error) throw new Error(`preserve ${row.team_id}: ${error.message}`);
-  }
-
-  const kaiXuanCarl: Record<string, unknown> = {
-    team_id: KAI_XUAN_TEAM_ID,
-    player_id: KAI_XUAN_CARL_PLAYER_ID,
-    number: KAI_XUAN_CARL_NUMBER,
-  };
-  const { error: kaiCarlError } = await supabase
-    .from('team_players')
-    .upsert(kaiXuanCarl, { onConflict: 'team_id,player_id' });
-  if (kaiCarlError) {
-    throw new Error(`ensure Carl on Kai Xuan: ${kaiCarlError.message}`);
-  }
-
-  await printRosterCounts(supabase, 'AFTER');
-  console.log('\nRepair complete. Hard-refresh RunItBack.');
+  console.log('\nNTU repair complete. Hard-refresh RunItBack.');
 }
 
 main().catch((err) => {

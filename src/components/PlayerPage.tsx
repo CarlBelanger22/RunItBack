@@ -12,6 +12,11 @@ import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
 import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import {
+  perGameAverageOrNull,
+  tournamentRecordsStat,
+} from '../utils/statRecordingCoverage';
+import { NoStatRecorded, OptionalStatBadge, OptionalStatText } from './StatDisplay';
 import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
 import {
   buildPlayerTournamentSeasonRows,
@@ -610,9 +615,13 @@ export function PlayerPage({
                       {gameAdvanced.freeThrowPercentage.toFixed(1)}%
                     </TableCell>
                     <TableCell className="text-center font-mono">
-                      <Badge variant={stats.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
-                        {stats.plus_minus >= 0 ? '+' : ''}{stats.plus_minus}
-                      </Badge>
+                      {tournamentRecordsStat(game.tournamentId, 'plus_minus') ? (
+                        <Badge variant={stats.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
+                          {stats.plus_minus >= 0 ? '+' : ''}{stats.plus_minus}
+                        </Badge>
+                      ) : (
+                        <NoStatRecorded />
+                      )}
                     </TableCell>
                     <TableCell className="text-center font-mono">
                       <Badge variant={gameAdvanced.efficiency >= 15 ? "default" : "secondary"} className="text-xs">
@@ -720,7 +729,9 @@ export function PlayerPage({
           totals: MetricsCalculator.getEmptyStats(player.id),
           averages: MetricsCalculator.getEmptyStats(player.id),
           gamesPlayed: 0,
-          advanced: MetricsCalculator.calculateAdvancedMetrics(MetricsCalculator.getEmptyStats(player.id))
+          advanced: MetricsCalculator.calculateAdvancedMetrics(MetricsCalculator.getEmptyStats(player.id)),
+          foulsDrawnPerGame: null,
+          plusMinusPerGame: null,
         };
       }
       
@@ -735,6 +746,22 @@ export function PlayerPage({
       
       const gamesPlayed = filteredTournamentStats.reduce((sum, t) => sum + t.games, 0);
       const averages = { ...totals };
+
+      let foulsDrawnTotal = 0;
+      let gamesWithFoulsDrawnData = 0;
+      let plusMinusTotal = 0;
+      let gamesWithPlusMinusData = 0;
+
+      for (const tournamentData of filteredTournamentStats) {
+        if (tournamentRecordsStat(tournamentData.tournamentId, 'fouls_drawn')) {
+          foulsDrawnTotal += tournamentData.stats.fouls_drawn;
+          gamesWithFoulsDrawnData += tournamentData.games;
+        }
+        if (tournamentRecordsStat(tournamentData.tournamentId, 'plus_minus')) {
+          plusMinusTotal += tournamentData.stats.plus_minus;
+          gamesWithPlusMinusData += tournamentData.games;
+        }
+      }
       
       // Calculate averages
       Object.keys(averages).forEach(key => {
@@ -745,7 +772,20 @@ export function PlayerPage({
       
       const advanced = MetricsCalculator.calculateAdvancedMetrics(totals, gamesPlayed);
       
-      return { totals, averages, gamesPlayed, advanced };
+      return {
+        totals,
+        averages,
+        gamesPlayed,
+        advanced,
+        foulsDrawnPerGame: perGameAverageOrNull(
+          foulsDrawnTotal,
+          gamesWithFoulsDrawnData
+        ),
+        plusMinusPerGame: perGameAverageOrNull(
+          plusMinusTotal,
+          gamesWithPlusMinusData
+        ),
+      };
     };
     
     const filteredData = getFilteredStats();
@@ -865,9 +905,14 @@ export function PlayerPage({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm">Plus/Minus</span>
-                    <Badge variant={filteredData.averages.plus_minus >= 0 ? "default" : "destructive"}>
-                      {filteredData.averages.plus_minus >= 0 ? '+' : ''}{filteredData.averages.plus_minus.toFixed(1)}
-                    </Badge>
+                    {filteredData.plusMinusPerGame !== null ? (
+                      <Badge variant={filteredData.plusMinusPerGame >= 0 ? "default" : "destructive"}>
+                        {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
+                        {filteredData.plusMinusPerGame.toFixed(1)}
+                      </Badge>
+                    ) : (
+                      <OptionalStatBadge value={null} />
+                    )}
                   </div>
                 </div>
               </div>
@@ -913,7 +958,12 @@ export function PlayerPage({
                 <div className="text-sm text-muted-foreground">Blocks per game</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">{filteredData.averages.fouls_drawn.toFixed(1)}</div>
+                <div className="text-2xl font-bold">
+                  <OptionalStatText
+                    value={filteredData.foulsDrawnPerGame}
+                    decimals={1}
+                  />
+                </div>
                 <div className="text-sm text-muted-foreground">Fouls drawn per game</div>
               </div>
               <div className="text-center">

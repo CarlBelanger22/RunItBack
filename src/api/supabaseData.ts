@@ -5,11 +5,27 @@ import {
   dedupeTournamentRostersForDb,
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
-import type { Team, Tournament, Game, Player } from '../App';
+import type { Team, Tournament, Game, GameStats, Player } from '../App';
+import { shouldPreserveExistingGameStats } from '../utils/gameStatsIntegrity';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
 export type PlayerStorageSchema = 'legacy' | 'team_players' | 'global_position';
+
+export interface RosterPlayerDelete {
+  teamId: string;
+  playerId: string;
+}
+
+export interface SaveAppDataOptions {
+  /** Explicit player removals from a team (user-initiated). */
+  rosterDeletes?: RosterPlayerDelete[];
+  /**
+   * Replace all team_players rows for these teams (scoped delete + upsert).
+   * Used by rebuild:club-rosters — not normal app saves.
+   */
+  replaceTeamPlayersForTeams?: string[];
+}
 
 export const MIGRATION_002_HINT =
   'Run supabase/migrations/002_team_players.sql in Supabase SQL Editor, or: npm run db:migrate:002';
@@ -394,12 +410,42 @@ function assertCanSaveWithLegacySchema(teams: Team[]): void {
   }
 }
 
+async function deleteTeamPlayerLinks(
+  deletes: RosterPlayerDelete[]
+): Promise<void> {
+  if (!supabase || deletes.length === 0) return;
+  for (const row of deletes) {
+    const { error } = await supabase
+      .from('team_players')
+      .delete()
+      .eq('team_id', row.teamId)
+      .eq('player_id', row.playerId);
+    if (error) {
+      throw new Error(
+        `team_players delete ${row.teamId}/${row.playerId}: ${error.message}`
+      );
+    }
+  }
+}
+
+async function replaceTeamPlayerRosters(teamIds: string[]): Promise<void> {
+  if (!supabase || teamIds.length === 0) return;
+  const { error } = await supabase
+    .from('team_players')
+    .delete()
+    .in('team_id', teamIds);
+  if (error) {
+    throw new Error(`team_players replace delete: ${error.message}`);
+  }
+}
+
 async function savePlayersWithSchema(
   teams: Team[],
   leagueId: string,
-  schema: PlayerStorageSchema
+  schema: PlayerStorageSchema,
+  options?: SaveAppDataOptions
 ): Promise<void> {
-  const teamIds = teams.map((t) => t.id);
+  const replaceTeamIds = options?.replaceTeamPlayersForTeams ?? [];
 
   if (schema === 'global_position') {
     const playerProfileRows = collectUniquePlayerProfiles(teams, leagueId);
@@ -409,16 +455,11 @@ async function savePlayersWithSchema(
 
     await upsertChunks('players', playerProfileRows, 'id');
 
-    if (teamIds.length > 0) {
-      const { error: rosterDeleteError } = await supabase!
-        .from('team_players')
-        .delete()
-        .in('team_id', teamIds);
-      if (rosterDeleteError) {
-        throw new Error(`team_players delete: ${rosterDeleteError.message}`);
-      }
+    if (replaceTeamIds.length > 0) {
+      await replaceTeamPlayerRosters(replaceTeamIds);
     }
     await upsertChunks('team_players', teamPlayerRows, 'team_id,player_id');
+    await deleteTeamPlayerLinks(options?.rosterDeletes ?? []);
     return;
   }
 
@@ -432,16 +473,11 @@ async function savePlayersWithSchema(
 
     await upsertChunks('players', playerProfileRows, 'id');
 
-    if (teamIds.length > 0) {
-      const { error: rosterDeleteError } = await supabase!
-        .from('team_players')
-        .delete()
-        .in('team_id', teamIds);
-      if (rosterDeleteError) {
-        throw new Error(`team_players delete: ${rosterDeleteError.message}`);
-      }
+    if (replaceTeamIds.length > 0) {
+      await replaceTeamPlayerRosters(replaceTeamIds);
     }
     await upsertChunks('team_players', teamPlayerRows, 'team_id,player_id');
+    await deleteTeamPlayerLinks(options?.rosterDeletes ?? []);
     return;
   }
 
@@ -568,6 +604,26 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
         ? { home: row.final_score_home, away: row.final_score_away }
         : undefined,
   };
+}
+
+async function loadExistingGameStatsById(
+  gameIds: string[]
+): Promise<Map<string, GameStats[]>> {
+  const map = new Map<string, GameStats[]>();
+  if (!supabase || gameIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('games')
+    .select('id, game_stats')
+    .in('id', gameIds);
+
+  if (error) throw new Error(`games fetch for stats preserve: ${error.message}`);
+
+  for (const row of data ?? []) {
+    const stats = (row.game_stats ?? []) as GameStats[];
+    map.set(row.id as string, stats);
+  }
+  return map;
 }
 
 async function upsertChunks<T extends Record<string, unknown>>(
@@ -908,7 +964,8 @@ export async function saveAppDataToSupabase(
   games: Game[],
   darkMode: boolean,
   leagueId = DEFAULT_LEAGUE_ID,
-  tournamentRosters: TournamentRosterEntry[] = []
+  tournamentRosters: TournamentRosterEntry[] = [],
+  options?: SaveAppDataOptions
 ): Promise<void> {
   if (!supabase) return;
 
@@ -919,7 +976,7 @@ export async function saveAppDataToSupabase(
   const schema = await detectPlayerStorageSchema();
 
   await upsertChunks('teams', teamRows, 'id');
-  await savePlayersWithSchema(normalizedTeams, leagueId, schema);
+  await savePlayersWithSchema(normalizedTeams, leagueId, schema, options);
 
   const tournamentRows = tournaments.map((t) => ({
     id: t.id,
@@ -976,7 +1033,21 @@ export async function saveAppDataToSupabase(
     'tournament_id,team_id,player_id'
   );
 
-  const gameRows = games.map((g) => gameToDbRow(g, leagueId));
+  const existingGameStats = await loadExistingGameStatsById(games.map((g) => g.id));
+  let preservedGameStats = 0;
+  const gameRows = games.map((g) => {
+    const existingStats = existingGameStats.get(g.id);
+    if (shouldPreserveExistingGameStats(g, existingStats)) {
+      preservedGameStats++;
+      return gameToDbRow({ ...g, gameStats: existingStats ?? [] }, leagueId);
+    }
+    return gameToDbRow(g, leagueId);
+  });
+  if (preservedGameStats > 0 && import.meta.env.DEV) {
+    console.warn(
+      `[RunItBack] Preserved DB box scores for ${preservedGameStats} game(s) (incoming stats were placeholders).`
+    );
+  }
   await upsertChunks('games', gameRows, 'id');
 
   const { error: prefError } = await supabase.from('app_preferences').upsert(

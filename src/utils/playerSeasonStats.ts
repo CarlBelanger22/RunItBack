@@ -10,6 +10,10 @@ import {
 } from './rosterPlayers';
 import { getPlayerAgeAtTournamentSeason } from './playerAge';
 import { getTournamentDateMs } from './tournamentSort';
+import {
+  perGameAverageOrNull,
+  tournamentRecordsStat,
+} from './statRecordingCoverage';
 
 export type TournamentScope = 'all' | string;
 
@@ -24,6 +28,12 @@ export interface PlayerSeasonRow {
   fastbreakPointsTotal: number;
   /** Games played that had shot chart tracking. */
   gamesWithShotData: number;
+  /** Sum of fouls drawn from games in tournaments that recorded FDPG. */
+  foulsDrawnTotal: number;
+  gamesWithFoulsDrawnData: number;
+  /** Sum of +/- from games in tournaments that recorded plus/minus. */
+  plusMinusTotal: number;
+  gamesWithPlusMinusData: number;
   /** Tournament or summary label for player-page breakdown rows. */
   scopeLabel?: string;
   /** Tournament id, `no-tournament`, or `all-time`. */
@@ -117,6 +127,50 @@ export type PlayerStatsSortField =
   | 'UFPG';
 
 const POSITION_ORDER = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
+
+export function foulsDrawnPerGameForRow(row: PlayerSeasonRow): number | null {
+  return perGameAverageOrNull(row.foulsDrawnTotal, row.gamesWithFoulsDrawnData);
+}
+
+export function plusMinusPerGameForRow(row: PlayerSeasonRow): number | null {
+  return perGameAverageOrNull(row.plusMinusTotal, row.gamesWithPlusMinusData);
+}
+
+function emptyPlayerSeasonRowExtras(): Pick<
+  PlayerSeasonRow,
+  | 'paintPointsTotal'
+  | 'fastbreakPointsTotal'
+  | 'gamesWithShotData'
+  | 'foulsDrawnTotal'
+  | 'gamesWithFoulsDrawnData'
+  | 'plusMinusTotal'
+  | 'gamesWithPlusMinusData'
+> {
+  return {
+    paintPointsTotal: 0,
+    fastbreakPointsTotal: 0,
+    gamesWithShotData: 0,
+    foulsDrawnTotal: 0,
+    gamesWithFoulsDrawnData: 0,
+    plusMinusTotal: 0,
+    gamesWithPlusMinusData: 0,
+  };
+}
+
+function accumulateRecordedFoulAndPlusMinus(
+  row: PlayerSeasonRow,
+  game: Game,
+  stat: GameStats
+): void {
+  if (tournamentRecordsStat(game.tournamentId, 'fouls_drawn')) {
+    row.foulsDrawnTotal += stat.fouls_drawn;
+    row.gamesWithFoulsDrawnData += 1;
+  }
+  if (tournamentRecordsStat(game.tournamentId, 'plus_minus')) {
+    row.plusMinusTotal += stat.plus_minus;
+    row.gamesWithPlusMinusData += 1;
+  }
+}
 
 function emptyGameStats(playerId: string): GameStats {
   return {
@@ -241,11 +295,18 @@ export function aggregatePlayerSeasonStats(
         team,
         totalStats: { ...stats },
         gamesPlayed: 1,
-        paintPointsTotal: 0,
-        fastbreakPointsTotal: 0,
-        gamesWithShotData: 0,
+        ...emptyPlayerSeasonRowExtras(),
       });
     }
+  });
+
+  (games ?? []).forEach((game) => {
+    if (!game.isCompleted) return;
+    (game.gameStats ?? []).forEach((stat) => {
+      const row = playerTotals.get(stat.playerId);
+      if (!row) return;
+      accumulateRecordedFoulAndPlusMinus(row, game, stat);
+    });
   });
 
   (games ?? []).forEach((game) => {
@@ -271,9 +332,7 @@ export function aggregatePlayerSeasonStats(
           team,
           totalStats: emptyGameStats(player.id),
           gamesPlayed: 0,
-          paintPointsTotal: 0,
-          fastbreakPointsTotal: 0,
-          gamesWithShotData: 0,
+          ...emptyPlayerSeasonRowExtras(),
         });
       }
     });
@@ -292,6 +351,10 @@ export function aggregateSinglePlayerSeasonStats(
   let paintPointsTotal = 0;
   let fastbreakPointsTotal = 0;
   let gamesWithShotData = 0;
+  let foulsDrawnTotal = 0;
+  let gamesWithFoulsDrawnData = 0;
+  let plusMinusTotal = 0;
+  let gamesWithPlusMinusData = 0;
 
   for (const game of games ?? []) {
     if (!game.isCompleted) continue;
@@ -314,6 +377,15 @@ export function aggregateSinglePlayerSeasonStats(
       fastbreakPointsTotal += fastbreakPoints ?? 0;
       gamesWithShotData++;
     }
+
+    if (tournamentRecordsStat(game.tournamentId, 'fouls_drawn')) {
+      foulsDrawnTotal += stat.fouls_drawn;
+      gamesWithFoulsDrawnData += 1;
+    }
+    if (tournamentRecordsStat(game.tournamentId, 'plus_minus')) {
+      plusMinusTotal += stat.plus_minus;
+      gamesWithPlusMinusData += 1;
+    }
   }
 
   return {
@@ -324,6 +396,10 @@ export function aggregateSinglePlayerSeasonStats(
     paintPointsTotal,
     fastbreakPointsTotal,
     gamesWithShotData,
+    foulsDrawnTotal,
+    gamesWithFoulsDrawnData,
+    plusMinusTotal,
+    gamesWithPlusMinusData,
   };
 }
 
@@ -604,16 +680,12 @@ export function sortPlayerSeasonRows(
         bValue = b.gamesPlayed > 0 ? b.totalStats.fouls / b.gamesPlayed : 0;
         break;
       case 'FDPG':
-        aValue =
-          a.gamesPlayed > 0 ? a.totalStats.fouls_drawn / a.gamesPlayed : 0;
-        bValue =
-          b.gamesPlayed > 0 ? b.totalStats.fouls_drawn / b.gamesPlayed : 0;
+        aValue = foulsDrawnPerGameForRow(a) ?? Number.NEGATIVE_INFINITY;
+        bValue = foulsDrawnPerGameForRow(b) ?? Number.NEGATIVE_INFINITY;
         break;
       case '+/-':
-        aValue =
-          a.gamesPlayed > 0 ? a.totalStats.plus_minus / a.gamesPlayed : 0;
-        bValue =
-          b.gamesPlayed > 0 ? b.totalStats.plus_minus / b.gamesPlayed : 0;
+        aValue = plusMinusPerGameForRow(a) ?? Number.NEGATIVE_INFINITY;
+        bValue = plusMinusPerGameForRow(b) ?? Number.NEGATIVE_INFINITY;
         break;
       case 'EFF': {
         const aEff = MetricsCalculator.calculateEfficiency(a.totalStats);

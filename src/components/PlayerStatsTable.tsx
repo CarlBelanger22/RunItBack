@@ -11,6 +11,8 @@ import {
   type PlayerStatsSortField,
   type ShotDataCoverage,
   type FoulStatCoverage,
+  foulsDrawnPerGameForRow,
+  plusMinusPerGameForRow,
 } from '../utils/playerSeasonStats';
 import { formatDecimalMinutes } from '../utils/formatMinutes';
 import { OptionalStatText, StatTooltipHead } from './StatDisplay';
@@ -501,10 +503,10 @@ export function PlayerStatsTable({
                                 onNavigateToTournament(playerData.scopeId!);
                               }}
                             >
-                              {playerData.scopeLabel ?? 'ù'}
+                              {playerData.scopeLabel ?? '?'}
                             </button>
                           ) : (
-                            playerData.scopeLabel ?? 'ù'
+                            playerData.scopeLabel ?? '?'
                           )}
                         </TableCell>
                       ) : (
@@ -563,6 +565,7 @@ export function PlayerStatsTable({
                           <StandardStatCells
                             playerData={playerData}
                             cellHighlight={cellHighlight}
+                            plusMinusPg={plusMinusPerGameForRow(playerData)}
                           />
                         </>
                       ) : (
@@ -588,9 +591,10 @@ export function PlayerStatsTable({
                               : '0.0'}
                           </TableCell>
                           <TableCell className={`${numericCellClass} ${cellHighlight('FDPG')}`}>
-                            {gamesPlayed > 0
-                              ? (totalStats.fouls_drawn / gamesPlayed).toFixed(1)
-                              : '0.0'}
+                            <OptionalStatText
+                              value={foulsDrawnPerGameForRow(playerData)}
+                              decimals={1}
+                            />
                           </TableCell>
                           <TableCell className={`${numericCellClass} ${cellHighlight('Paint')}`}>
                             <OptionalStatText value={paintPg} decimals={1} />
@@ -624,9 +628,11 @@ export function PlayerStatsTable({
 function StandardStatCells({
   playerData,
   cellHighlight,
+  plusMinusPg,
 }: {
   playerData: PlayerSeasonRow;
   cellHighlight: (field: PlayerStatsSortField) => string;
+  plusMinusPg: number | null;
 }) {
   const { totalStats, gamesPlayed } = playerData;
 
@@ -656,7 +662,6 @@ function StandardStatCells({
   const fta = gamesPlayed > 0 ? totalStats.ft_attempted / gamesPlayed : 0;
   const topg = gamesPlayed > 0 ? totalStats.turnovers / gamesPlayed : 0;
   const fpg = gamesPlayed > 0 ? totalStats.fouls / gamesPlayed : 0;
-  const plusMinus = gamesPlayed > 0 ? totalStats.plus_minus / gamesPlayed : 0;
   const eff = MetricsCalculator.calculateEfficiency(totalStats);
   const effPg = gamesPlayed > 0 ? eff / gamesPlayed : 0;
   const gameSc = MetricsCalculator.calculateGameScore(totalStats);
@@ -681,10 +686,14 @@ function StandardStatCells({
       <TableCell className={`${numericCellClass} ${cellHighlight('TOPG')}`}>{topg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('FPG')}`}>{fpg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('+/-')}`}>
-        <span className={plusMinus >= 0 ? 'text-green-600' : 'text-red-600'}>
-          {plusMinus >= 0 ? '+' : ''}
-          {plusMinus.toFixed(1)}
-        </span>
+        {plusMinusPg !== null ? (
+          <span className={plusMinusPg >= 0 ? 'text-green-600' : 'text-red-600'}>
+            {plusMinusPg >= 0 ? '+' : ''}
+            {plusMinusPg.toFixed(1)}
+          </span>
+        ) : (
+          <OptionalStatText value={null} />
+        )}
       </TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('GmSc')}`}>{gameScPg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('EFF')}`}>{effPg.toFixed(1)}</TableCell>

@@ -10,8 +10,9 @@ import {
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { dedupeTeamsById } from '../utils/rosterPlayers';
+import { gameStatsHaveBoxScoreData } from '../utils/gameStatsIntegrity';
 
-export const APP_DATA_SNAPSHOT_VERSION = 4;
+export const APP_DATA_SNAPSHOT_VERSION = 6;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
 /** Stay under typical 5MB localStorage quota. */
 const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024;
@@ -40,7 +41,7 @@ const ROSTER_ONLY_GAME_STAT: GameStats = {
   minutes_played: 0,
 };
 
-/** Compact game row for localStorage (v4). */
+/** Compact game row for localStorage (v5 includes lite box scores). */
 export interface SnapshotGame {
   id: string;
   homeTeamId: string;
@@ -49,8 +50,8 @@ export interface SnapshotGame {
   date: string;
   isActive: boolean;
   isCompleted: boolean;
-  /** Player ids with box-score rows — enough for tournament roster reconcile. */
-  playerIds: string[];
+  /** Lite player box scores — enough for player pages and roster reconcile. */
+  gameStats: GameStats[];
   homeStarters: string[];
   awayStarters: string[];
   finalScore?: { home: number; away: number };
@@ -155,6 +156,10 @@ function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
   }));
 }
 
+function toSnapshotGameStats(stats: GameStats[]): GameStats[] {
+  return stats.map((stat) => ({ ...stat }));
+}
+
 export function toSnapshotGames(games: Game[]): SnapshotGame[] {
   return games.map((game) => ({
     id: game.id,
@@ -164,11 +169,7 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
     date: game.date,
     isActive: game.isActive,
     isCompleted: game.isCompleted,
-    playerIds: [
-      ...new Set(
-        (game.gameStats ?? []).map((stat) => stat.playerId).filter(Boolean)
-      ),
-    ],
+    gameStats: toSnapshotGameStats(game.gameStats ?? []),
     homeStarters: game.homeStarters ?? [],
     awayStarters: game.awayStarters ?? [],
     finalScore: game.finalScore,
@@ -199,13 +200,12 @@ export function hydrateSnapshotGames(
     };
 
   return snapshotGames.map((row) => {
-    const legacyStats = (row as SnapshotGame & { gameStats?: GameStats[] })
-      .gameStats;
+    const legacyV4 = row as SnapshotGame & { playerIds?: string[] };
     const gameStats =
-      row.playerIds?.length > 0
-        ? playerIdsToGameStats(row.playerIds)
-        : legacyStats?.length
-          ? legacyStats
+      row.gameStats?.length > 0
+        ? row.gameStats
+        : legacyV4.playerIds?.length
+          ? playerIdsToGameStats(legacyV4.playerIds)
           : [];
 
     return {
@@ -249,7 +249,10 @@ export function isSnapshotTeamsStale(teams: Team[]): boolean {
 export function isSnapshotUsable(snapshot: AppDataSnapshot): boolean {
   if (snapshot.version !== APP_DATA_SNAPSHOT_VERSION) return false;
   if (snapshot.teams.length === 0 || snapshot.games.length === 0) return false;
-  return !isSnapshotTeamsStale(snapshot.teams);
+  if (isSnapshotTeamsStale(snapshot.teams)) return false;
+
+  const hydrated = hydrateSnapshotGames(snapshot.games, snapshot.teams);
+  return hydrated.some((game) => gameStatsHaveBoxScoreData(game.gameStats));
 }
 
 function buildSnapshotBody(payload: {

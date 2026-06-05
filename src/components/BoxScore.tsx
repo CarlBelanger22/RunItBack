@@ -10,9 +10,11 @@ import { PlayerIdentity } from './PlayerIdentity';
 import { GameTeamLink } from './GameTeamLink';
 import {
   NoStatRecorded,
+  OptionalStatBadge,
   OptionalStatTableCell,
   StatTooltipHead,
 } from './StatDisplay';
+import { tournamentRecordsStat } from '../utils/statRecordingCoverage';
 import {
   getPlayerPaintAndFastbreakPoints,
   hasAwayTeamContent,
@@ -44,6 +46,8 @@ interface PlayerBoxScore extends GameStats {
 export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScoreProps) {
   const [selectedTeam, setSelectedTeam] = useState<'home' | 'away'>('home');
   const [view, setView] = useState<'traditional' | 'advanced'>('traditional');
+  const recordsFoulsDrawn = tournamentRecordsStat(game.tournamentId, 'fouls_drawn');
+  const recordsPlusMinus = tournamentRecordsStat(game.tournamentId, 'plus_minus');
 
   const getPlayerBoxScore = (playerId: string): GameStats => {
     const stats = game.gameStats.find(s => s.playerId === playerId);
@@ -204,9 +208,13 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                 <TableCell className="text-center font-mono">{player.turnovers}</TableCell>
                 <TableCell className="text-center font-mono">{player.fouls}</TableCell>
                 <TableCell className="text-center font-mono">
-                  <Badge variant={player.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
-                    {player.plus_minus >= 0 ? '+' : ''}{player.plus_minus}
-                  </Badge>
+                  {recordsPlusMinus ? (
+                    <Badge variant={player.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
+                      {player.plus_minus >= 0 ? '+' : ''}{player.plus_minus}
+                    </Badge>
+                  ) : (
+                    <NoStatRecorded />
+                  )}
                 </TableCell>
               </TableRow>
               );
@@ -340,7 +348,9 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                 <TableCell className="text-center font-mono">{player.advanced.twoPointMade}/{player.advanced.twoPointAttempted}</TableCell>
                 <OptionalStatTableCell value={paintPoints} />
                 <OptionalStatTableCell value={fastbreakPoints} />
-                <TableCell className="text-center font-mono">{player.fouls_drawn}</TableCell>
+                <OptionalStatTableCell
+                  value={recordsFoulsDrawn ? player.fouls_drawn : null}
+                />
                 <TableCell className="text-center font-mono">{player.blocks_received}</TableCell>
                 <TableCell className="text-center font-mono">{player.tech_fouls}</TableCell>
                 <TableCell className="text-center font-mono">{player.unsportsmanlike_fouls}</TableCell>

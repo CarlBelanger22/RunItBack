@@ -59,6 +59,10 @@ import {
   validateTeamRosterUpdate,
   wouldTournamentEnrollmentViolateOverlap,
 } from './utils/rosterPlayers';
+import {
+  findRosterRemovals,
+  mergeTeamRostersUnion,
+} from './utils/clubRosterIntegrity';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -931,6 +935,9 @@ export default function App() {
     useState<PlayerStorageSchema | null>(null);
   const skipSaveRef = useRef(true);
   const localMutatedSinceMountRef = useRef(false);
+  const pendingRosterDeletesRef = useRef<
+    Array<{ teamId: string; playerId: string }>
+  >([]);
 
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
   const currentGameRef = useRef<Game | null>(null);
@@ -998,9 +1005,30 @@ export default function App() {
         activeGame?.isActive
           ? [...currentGames.filter((g) => g.id !== activeGame.id), activeGame]
           : currentGames;
-      const teamsToSave = teamsRef.current;
+      let teamsToSave = teamsRef.current;
       const tournamentsToSave = tournamentsRef.current;
       const darkModeToSave = darkModeRef.current;
+
+      const removals = findRosterRemovals(prevTeamsRef.current, teamsToSave);
+      const pendingKeys = new Set(
+        pendingRosterDeletesRef.current.map((d) => `${d.teamId}:${d.playerId}`)
+      );
+      const unauthorized = removals.filter(
+        (r) => !pendingKeys.has(`${r.teamId}:${r.playerId}`)
+      );
+      if (unauthorized.length > 0) {
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[RunItBack] Unauthorized roster shrink blocked; merging previous rosters',
+            unauthorized
+          );
+        }
+        teamsToSave = mergeTeamRostersUnion(teamsToSave, prevTeamsRef.current);
+      }
+
+      const rosterDeletes = [...pendingRosterDeletesRef.current];
+      pendingRosterDeletesRef.current = [];
+
       const rostersToSave = reconcileTournamentRostersFromGames(
         gamesToSave,
         teamsToSave,
@@ -1022,7 +1050,8 @@ export default function App() {
             gamesToSave,
             darkModeToSave,
             undefined,
-            rostersToSave
+            rostersToSave,
+            rosterDeletes.length > 0 ? { rosterDeletes } : undefined
           );
         }
 
@@ -1150,6 +1179,7 @@ export default function App() {
     const fetchFromCloud = () => {
       if (cancelled) return;
       setCloudSyncStatus('syncing');
+      let cloudApplied = false;
 
       loadAppDataFromSupabase()
         .then((data) => {
@@ -1158,11 +1188,21 @@ export default function App() {
           if (localMutatedSinceMountRef.current) {
             if (import.meta.env.DEV) {
               console.info(
-                '[RunItBack] skipped cloud state apply — local edits made during sync'
+                '[RunItBack] merging cloud rosters into local state (edits during sync)'
               );
             }
+            const mergedTeams = mergeTeamRostersUnion(
+              teamsRef.current,
+              processed.teams
+            );
+            setTeams(mergedTeams);
+            prevTeamsRef.current = mergedTeams;
+            setTournamentRosters(processed.tournamentRosters);
+            tournamentRostersRef.current = processed.tournamentRosters;
+            prevTournamentRostersRef.current = processed.tournamentRosters;
           } else {
             applyProcessedToState(processed);
+            cloudApplied = true;
           }
           runCloudLoadSideEffects(data, processed);
           setDataLoadError(null);
@@ -1173,6 +1213,7 @@ export default function App() {
             console.info('[RunItBack] cloud revalidate complete', {
               teams: processed.teams.length,
               games: processed.games.length,
+              cloudApplied,
             });
           }
         })
@@ -1192,16 +1233,24 @@ export default function App() {
             const tournamentRostersDrift =
               JSON.stringify(prevTournamentRostersRef.current) !==
               JSON.stringify(tournamentRostersRef.current);
-            skipSaveRef.current = false;
-            if (hadLocalEdits) {
-              queueMicrotask(() => {
-                persistCurrentAppData('full');
-              });
-            } else if (tournamentRostersDrift) {
-              queueMicrotask(() => {
-                persistCurrentAppData('rosters-only');
-              });
+
+            if (cloudApplied || !hadCache) {
+              skipSaveRef.current = false;
+              if (hadLocalEdits) {
+                queueMicrotask(() => {
+                  persistCurrentAppData('full');
+                });
+              } else if (tournamentRostersDrift) {
+                queueMicrotask(() => {
+                  persistCurrentAppData('rosters-only');
+                });
+              }
+            } else if (import.meta.env.DEV) {
+              console.warn(
+                '[RunItBack] Keeping cloud saves disabled — snapshot stats not merged from cloud.'
+              );
             }
+
             if (!hadCache) {
               setIsDataLoading(false);
             }
@@ -1645,6 +1694,17 @@ export default function App() {
       if (violation.violates) {
         setSaveError(violation.message ?? 'Roster update blocked.');
         return prev;
+      }
+      if (oldTeam) {
+        const newIds = new Set((sanitizedTeam.players ?? []).map((p) => p.id));
+        for (const player of oldTeam.players ?? []) {
+          if (!newIds.has(player.id)) {
+            pendingRosterDeletesRef.current.push({
+              teamId: sanitizedTeam.id,
+              playerId: player.id,
+            });
+          }
+        }
       }
       setSaveError(null);
       const newTeams = dedupeTeamsById(
