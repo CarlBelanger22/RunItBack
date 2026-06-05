@@ -135,7 +135,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 40.5
+        "minutes_played": 28.0
       },
       {
         "playerId": "player-1780483138222",
@@ -158,7 +158,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 30.4
+        "minutes_played": 18.5
       },
       {
         "playerId": "player-1780431067944",
@@ -181,7 +181,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 33.9
+        "minutes_played": 16.2
       },
       {
         "playerId": "player-1780430969043",
@@ -204,7 +204,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 18.4
+        "minutes_played": 23.1
       },
       {
         "playerId": "player-ivp-ntu-11",
@@ -227,7 +227,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 18
+        "minutes_played": 21.5
       },
       {
         "playerId": "player-sunig-ntu-1",
@@ -250,7 +250,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 18
+        "minutes_played": 14.4
       },
       {
         "playerId": "player-1780431036739",
@@ -273,7 +273,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 11.8
+        "minutes_played": 12.5
       },
       {
         "playerId": "player-1780482892675",
@@ -296,7 +296,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 13.4
+        "minutes_played": 18.8
       },
       {
         "playerId": "player-1780431100788",
@@ -319,7 +319,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 5.9
+        "minutes_played": 5.0
       },
       {
         "playerId": "player-1780482964172",
@@ -342,7 +342,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 3.9
+        "minutes_played": 19.4
       },
       {
         "playerId": "player-1780482931133",
@@ -365,7 +365,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 4
+        "minutes_played": 13.6
       },
       {
         "playerId": "player-1780483061760",
@@ -388,7 +388,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 1.8
+        "minutes_played": 9.0
       }
     ],
     "teamStats": {

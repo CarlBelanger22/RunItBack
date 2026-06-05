@@ -107,8 +107,8 @@
     },
     "homeStarters": [
       "player-1780430866865",
+      "player-sunig-ntu-22",
       "player-1780431067944",
-      "player-1780482964172",
       "player-1780430969043",
       "player-1780483138222"
     ],
@@ -135,7 +135,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 41.9
+        "minutes_played": 29.5
       },
       {
         "playerId": "player-sunig-ntu-22",
@@ -158,7 +158,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 18
+        "minutes_played": 28.4
       },
       {
         "playerId": "player-1780431067944",
@@ -181,7 +181,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 33.1
+        "minutes_played": 28.1
       },
       {
         "playerId": "player-1780430969043",
@@ -227,7 +227,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 26.4
+        "minutes_played": 17.3
       },
       {
         "playerId": "player-1780483138222",
@@ -273,7 +273,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 6.1
+        "minutes_played": 8.1
       },
       {
         "playerId": "player-sunig-ntu-1",
@@ -296,7 +296,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 18
+        "minutes_played": 22.1
       },
       {
         "playerId": "player-1780431036739",
@@ -319,7 +319,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 2.9
+        "minutes_played": 7.9
       },
       {
         "playerId": "player-1780483098031",
@@ -342,7 +342,7 @@
         "fouls_drawn": 0,
         "blocks_received": 0,
         "plus_minus": 0,
-        "minutes_played": 3.3
+        "minutes_played": 8.3
       },
       {
         "playerId": "player-1780483029327",

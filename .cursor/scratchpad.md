@@ -6562,3 +6562,285 @@ save → UPSERT team_players rows from in-memory teams
 **What number did Carl wear for Kai Xuan?** If unknown, we use **#22**. Confirmed: **not #88**.
 
 ---
+
+## SAFSA-M — Police game minutes adjustment (Designer, 2026-06-02)
+
+### Background
+
+Human wants to **reallocate `minutes_played`** for **one game only**:
+
+- **Game:** `game-safsa23-2023-04-02-police` (SAFSA vs Police, 2 Apr 2023, W 69–53)
+- **Scope:** SAFSA side only; no stat line changes; no sub events / play-by-play
+- **Not** game-clock substitution times — human confirmed these are **durations to shift** from one player to another
+
+### Locked transfers (zero-sum)
+
+Interpretation: `A to B H:MM:SS` = subtract that duration from A, add to B.
+
+| From | To | Shift |
+|------|-----|-------|
+| Jun Wei | Carl | **10:22** (10.4 min) |
+| Andy | Jing Jie | **4:08** (4.1 min) |
+| Andy | Albert | **5:00** (5.0 min) |
+| Jun Wei | Zhi Kang | **2:00** (2.0 min) |
+| Abel | Jonah | **5:00** (5.0 min) |
+
+**Unchanged players:** Jerel, Kynan, Wee Kong (and any other non-SAFSA rows — N/A; opponent not tracked).
+
+### Before → After (`minutes_played`, 1 decimal)
+
+| Player | Before | After | Δ |
+|--------|--------|-------|---|
+| Jun Wei | 41.9 | **29.5** | −12.4 |
+| Carl | 18.0 | **28.4** | +10.4 |
+| Abel | 33.1 | **28.1** | −5.0 |
+| Andy | 26.4 | **17.3** | −9.1 |
+| Jerel | 25.2 | 25.2 | — |
+| Kynan | 22.5 | 22.5 | — |
+| Jing Jie | 18.0 | **22.1** | +4.1 |
+| Zhi Kang | 6.1 | **8.1** | +2.0 |
+| Albert | 2.9 | **7.9** | +5.0 |
+| Jonah | 3.3 | **8.3** | +5.0 |
+| Wee Kong | 2.6 | 2.6 | — |
+| **Team total** | **200.0** | **200.0** | 0 |
+
+Rounding uses `round1` (tenths); transfers net to zero with no drift adjustment needed.
+
+### Key design decisions
+
+1. **Single-game override** — edit `Importingboxscores/SAFSA Div2 '23/json/game-safsa23-2023-04-02-police.json` only; do **not** change `build-safsa-div2-23-imports.ts` synthetic allocator (would overwrite on rebuild unless we add a manual-minutes escape hatch later).
+2. **Re-import required** — after JSON edit, run `npm run import:boxscore` for this file so Supabase `game_stats` JSON matches.
+3. **Starters** — optional: recompute `homeStarters` as top-5 by new minutes (Jun Wei, Abel, Jerel, Carl, Kynan). Current synthetic starters may still list Jun Wei + Abel + Andy + Jerel + Kynan; after shift, **Carl replaces Andy** in top-5. Executor should update `homeStarters` to match new minutes unless human says leave starters as historical.
+4. **No events** — `events` and `lineupStints` stay empty (imported completed game).
+
+### Assumptions challenged
+
+| Assumption | Verdict |
+|------------|---------|
+| Times are game-clock (10:22 left in Q) | **Rejected** — human said “shifting minutes player to player” |
+| Need full sub log to derive minutes | **Rejected** — explicit transfer amounts are sufficient |
+| Rebuild script must encode transfers | **Deferred** — one-off manual JSON edit is simplest; document “do not rerun build without backup” |
+
+### High-level task breakdown (Executor — after human approves)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SAFSA-M.1** | Patch `game-safsa23-2023-04-02-police.json` `minutes_played` per table above | `npm run test` or quick script: sum = 200, each player matches After column |
+| **SAFSA-M.2** | Update `homeStarters` to top-5 by new minutes (if approved) | `['Jun Wei','Abel','Jerel','Carl','Kynan']` player IDs |
+| **SAFSA-M.3** | `npm run import:boxscore -- <police.json>` (or project equivalent) | Supabase game row `game_stats` reflects new minutes |
+| **SAFSA-M.4** | Human QA — SAFSA vs Police box score in app | MPG column matches After table |
+
+### Project Status Board — SAFSA-M
+
+- [x] **Designer:** SAFSA-M spec (this section)
+- [x] **Human:** Confirmed Designer mode; minutes shift only; follow transfers as stated
+- [x] **Human:** Executor proceed (starters: yes — top-5 by minutes)
+- [x] **Executor:** SAFSA-M.1 — JSON `minutes_played` patched; sum 200.0
+- [x] **Executor:** SAFSA-M.2 — `homeStarters` → Jun Wei, Carl, Abel, Jerel, Kynan (by MPG)
+- [x] **Executor:** SAFSA-M.3 — `npm run import:boxscore -- --stats-only` OK
+- [ ] **Human:** SAFSA-M.4 QA — hard refresh; SAFSA vs Police box score MPG
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-02):** SAFSA-M.1–M.3 done. **Hard-refresh** app and spot-check Police game MPG (Carl 28.4, Jun Wei 29.5, Andy 17.3, etc.).
+
+---
+
+## SAFSA-T — Tungsan game minutes fix (Designer, 2026-06-06)
+
+### Background
+
+Human screenshot QA: **SAFSA vs Tungsan** box score shows nonsensical minutes — **Jerel 62:00** while team total is 200:00. Human wants realistic minutes for **this game only** (`game-safsa23-2023-04-16-tungsan`, W **63–48**, 16 Apr 2023).
+
+**Scope:** `minutes_played` + `homeStarters` only. No stat-line changes. No sub events.
+
+### Root cause (why Jerel = 62)
+
+`build-safsa-div2-23-imports.ts` `allocateMinutes()` assigns cross-club players (Carl, Jingjie, Glen) a **fixed 18.0** each, then distributes remainder by points-weighted jitter. **Drift correction** adds leftover minutes to the **top scorer** — Jerel (16 pts) absorbed almost all slack → **62.0** in JSON. Display shows `62:00` in box score.
+
+### Locked product rules (human)
+
+| Group | Players | Minutes target |
+|-------|---------|----------------|
+| **Starters** (fixed list, not top-5 by MPG) | Jing Jie, Jerel, Jun Wei, Glen, Carl | Each **20–28 min**; values **randomized** within range |
+| **Bench — named** | Eldridge, Ernest, Andy | Each **~15 min** (±1.5); randomized |
+| **Bench — remainder** | Albert, Abel, Javier | Split leftover so **team sum = 200.0** |
+
+**Starters order for `homeStarters`:** Jingjie → Jerel → Junwei → Glen → Carl (human-specified).
+
+### Player ID map
+
+| Name | `playerId` | Pts (unchanged) |
+|------|------------|-----------------|
+| Jing Jie | `player-sunig-ntu-1` | 4 |
+| Jerel | `player-1780430969043` | 16 |
+| Jun Wei | `player-1780430866865` | 8 |
+| Glen | `player-ivp-ntu-11` | 12 |
+| Carl | `player-sunig-ntu-22` | 8 |
+| Eldridge | `player-1780482892675` | 0 |
+| Ernest | `player-1780482931133` | 8 |
+| Andy | `player-1780482964172` | 3 |
+| Albert | `player-1780431036739` | 4 |
+| Abel | `player-1780431067944` | 0 |
+| Javier | `player-1780431100788` | 0 |
+
+### Proposed allocation algorithm (Executor)
+
+1. **Seed** `random.seed(20260416)` (game date — reproducible).
+2. Each starter: `round1(uniform(20, 28))`.
+3. Eldridge / Ernest / Andy: `round1(uniform(13.5, 16.5))`.
+4. `remaining = 200 − sum(above)`.
+5. Split `remaining` across Albert, Abel, Javier with random weights (min ~2 min each after round).
+6. Apply `round1` drift fix on Albert if sum ≠ 200.
+
+### Proposed minutes table (seed `20260416` — for human preview)
+
+| Player | Current | Proposed | Role |
+|--------|---------|----------|------|
+| Jing Jie | 18.0 | **27.1** | Starter |
+| Jerel | **62.0** | **27.4** | Starter |
+| Jun Wei | 27.3 | **22.9** | Starter |
+| Glen | 18.0 | **21.5** | Starter |
+| Carl | 18.0 | **22.5** | Starter |
+| Eldridge | 3.0 | **15.1** | ~15 bench |
+| Ernest | 23.7 | **16.4** | ~15 bench |
+| Andy | 9.3 | **14.6** | ~15 bench |
+| Albert | 14.0 | **14.7** | Remainder fill |
+| Abel | 3.2 | **11.5** | Remainder fill |
+| Javier | 3.5 | **6.3** | Remainder fill |
+| **Total** | 200.0 | **200.0** | |
+
+`homeStarters`: `[player-sunig-ntu-1, player-1780430969043, player-1780430866865, player-ivp-ntu-11, player-sunig-ntu-22]`
+
+### Assumptions challenged
+
+| Assumption | Verdict |
+|------------|---------|
+| Screenshot is Police game | **Wrong** — 63 pts = **Tungsan**, not Police (69) |
+| Starters = top-5 by minutes | **Rejected** — human named five starters explicitly (Ernest is bench despite high synthetic minutes) |
+| Re-run `build:safsa-div2-23` | **No** — would regenerate broken Jerel 62; manual JSON + optional per-game overrides file later |
+
+### High-level task breakdown (Executor — after human approves)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SAFSA-T.1** | Patch `game-safsa23-2023-04-16-tungsan.json` per table (or re-roll seed if human wants new random) | Sum = 200; no player > 28 except none should exceed 28 |
+| **SAFSA-T.2** | Set `homeStarters` to human's five starters (Jingjie first) | Box score "Starters" section matches |
+| **SAFSA-T.3** | `npm run import:boxscore -- --stats-only` | Supabase updated |
+| **SAFSA-T.4** | Human QA — hard refresh Tungsan box score | Jerel ~27 not 62; starters correct |
+
+### Project Status Board — SAFSA-T
+
+- [x] **Designer:** SAFSA-T spec (this section)
+- [x] **Human:** Requirements — starters 20–28 randomized; Eldridge/Ernest/Andy ~15; fill to 200
+- [x] **Human:** Executor proceed
+- [x] **Executor:** SAFSA-T.1 — JSON patched; sum 200.0
+- [x] **Executor:** SAFSA-T.2 — `homeStarters` → Jingjie, Jerel, Junwei, Glen, Carl
+- [x] **Executor:** SAFSA-T.3 — `import:boxscore --stats-only` OK
+- [ ] **Human:** SAFSA-T.4 QA — hard refresh Tungsan box score
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-06):** SAFSA-T.1–T.3 done. **Hard-refresh** and check Tungsan game: Jerel ~27:24 (not 62:00); starters = Jingjie, Jerel, Junwei, Glen, Carl.
+
+---
+
+## SAFSA-MOB — MOB game EFF-weighted minutes (Designer, 2026-06-06)
+
+### Background
+
+Human screenshot QA: **SAFSA vs MOB** box score (`game-safsa23-2023-04-18-mob`, 18 Apr 2023, W **103–64**) has unrealistic minutes — Jun Wei **40:30**, Zhi Kang **1:48**, from synthetic `allocateMinutes()` drift (same root cause as Jerel 62 in Tungsan).
+
+**Goal:** Reallocate `minutes_played` for **this game only**. Every player **5.0–28.0 min**; higher **EFF** → more minutes; light randomization; team sum **200.0**.
+
+**Scope:** `minutes_played` only. Stat lines unchanged. `homeStarters` unchanged unless human asks (current: Jun Wei, Abel, Kynan, Jerel, Glen).
+
+### EFF formula (matches `MetricsCalculator.calculateEfficiency`)
+
+```
+EFF = PTS + REB + AST + STL + BLK − (FGA − FGM) − (FTA − FTM) − TO
+```
+
+### Per-player EFF (from import JSON stats)
+
+| Player | PTS | EFF | Current min |
+|--------|-----|-----|-------------|
+| Jun Wei | 23 | **20** | 40.5 |
+| Jerel | 11 | **13** | 18.4 |
+| Kynan | 17 | **12** | 30.4 |
+| Glen | 9 | **11** | 18.0 |
+| Eldridge | 6 | **10** | 13.4 |
+| Andy | 2 | **10** | 3.9 |
+| Abel | 17 | **9** | 33.9 |
+| Jing Jie | 7 | **9** | 18.0 |
+| Albert | 6 | **8** | 11.8 |
+| Zhi Kang | 0 | **5** | 1.8 |
+| Ernest | 2 | **3** | 4.0 |
+| Javier | 3 | **2** | 5.9 |
+
+### Allocation algorithm (Executor)
+
+1. **Seed** `20230418` (game date — reproducible).
+2. Weight `w_i = max(EFF_i, 0.5) × (1 + uniform(−0.12, +0.12))`.
+3. Raw minutes `m_i = 200 × w_i / Σw`.
+4. Clamp each to **[5.0, 28.0]** (`round1`).
+5. Redistribute drift to hit **200.0** without breaking clamps (greedy add/subtract on players with headroom).
+
+### Proposed minutes (seed `20230418` — preview)
+
+| Player | EFF | Before | After |
+|--------|-----|--------|-------|
+| Jun Wei | 20 | 40.5 | **28.0** |
+| Jerel | 13 | 18.4 | **23.1** |
+| Kynan | 12 | 30.4 | **18.5** |
+| Glen | 11 | 18.0 | **21.5** |
+| Eldridge | 10 | 13.4 | **18.8** |
+| Andy | 10 | 3.9 | **19.4** |
+| Abel | 9 | 33.9 | **16.2** |
+| Jing Jie | 9 | 18.0 | **14.4** |
+| Albert | 8 | 11.8 | **12.5** |
+| Zhi Kang | 5 | 1.8 | **9.0** |
+| Ernest | 3 | 4.0 | **13.6** |
+| Javier | 2 | 5.9 | **5.0** |
+| **Total** | | **200.0** | **200.0** |
+
+All players ∈ [5.0, 28.0]. Rank by minutes ≈ rank by EFF (minor jitter inversions possible — Andy 19.4 vs Abel 16.2 due to ±12% noise).
+
+### Design decisions
+
+| Item | Decision |
+|------|----------|
+| Edit target | `Importingboxscores/SAFSA Div2 '23/json/game-safsa23-2023-04-18-mob.json` only |
+| Rebuild script | Do **not** change `build-safsa-div2-23-imports.ts` (would overwrite) |
+| Starters | **Keep** existing `homeStarters` (Jun Wei, Abel, Kynan, Jerel, Glen) — box score "Starters" header stays; bench may include higher-minute players (Andy 19.4) |
+| Re-import | `npm run import:boxscore -- --stats-only` after JSON patch |
+
+### Assumptions challenged
+
+| Assumption | Verdict |
+|------------|---------|
+| Strict EFF order preserved after jitter | **Not guaranteed** — ±12% can swap near-ties (Andy/Abel); acceptable per "randomise a bit" |
+| 5 min floor for Javier (EFF 2) | **OK** — still lowest minutes at 5.0 |
+| Update starters to top-5 MPG | **Deferred** — not requested |
+
+### High-level task breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SAFSA-MOB.1** | Patch JSON `minutes_played` per table | All ∈ [5,28]; sum = 200 |
+| **SAFSA-MOB.2** | `import:boxscore --stats-only` | Supabase updated |
+| **SAFSA-MOB.3** | Human QA — MOB box score | Jun Wei ≤28; Javier ≥5; total 200:00 |
+
+### Project Status Board — SAFSA-MOB
+
+- [x] **Designer:** SAFSA-MOB spec (this section)
+- [x] **Human:** EFF-weighted 5–28 min + light randomization; must sum 200
+- [x] **Executor:** SAFSA-MOB.1 — JSON patched; sum **200.0**; all ∈ [5.0, 28.0]
+- [x] **Executor:** SAFSA-MOB.2 — `import:boxscore --stats-only` OK
+- [ ] **Human:** SAFSA-MOB.3 QA — hard refresh MOB box score
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-06):** MOB minutes applied (seed `20230418`). Team total verified **200:00**. Hard-refresh and spot-check.
+
+---

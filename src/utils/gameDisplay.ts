@@ -4,6 +4,7 @@ import {
   perGameAverageOrNull,
   tournamentRecordsStat,
 } from './statRecordingCoverage';
+import { resolvePlayerTeamSideInGame } from './tournamentRosters';
 
 export type TeamSide = 'home' | 'away';
 
@@ -70,8 +71,21 @@ function isHomeTeamId(game: Game, teamId: string): boolean {
 /** True when a side has no player box score rows but a team/final score exists (e.g. SUTD). */
 export function isScoreOnlyTeam(game: Game, side: TeamSide): boolean {
   const team = getTeamForSide(game, side);
+
+  if (!game.trackBothTeams && side === 'away') {
+    const persisted = getPersistedTeamStatsForTeam(game, team.id);
+    const fromFinal = game.finalScore?.away ?? 0;
+    return (
+      (persisted?.total_points ?? 0) > 0 ||
+      fromFinal > 0 ||
+      team.players.length > 0
+    );
+  }
+
   const hasPlayerBoxScore = game.gameStats.some((s) =>
-    team.players.some((p) => p.id === s.playerId)
+    team.players.some(
+      (p) => p.id === s.playerId && playerPlayedInGame(game, p.id, team.id)
+    )
   );
   if (hasPlayerBoxScore) return false;
 
@@ -86,13 +100,23 @@ export function hasAwayTeamContent(game: Game): boolean {
   return game.awayTeam.players.length > 0 || isScoreOnlyTeam(game, 'away');
 }
 
-export function playerPlayedInGame(game: Game, playerId: string): boolean {
+export function playerPlayedInGame(
+  game: Game,
+  playerId: string,
+  forTeamId?: string
+): boolean {
   const stat = game.gameStats.find((s) => s.playerId === playerId);
-  return (stat?.minutes_played ?? 0) > 0;
+  if ((stat?.minutes_played ?? 0) <= 0) return false;
+
+  if (forTeamId) {
+    return resolvePlayerTeamSideInGame(playerId, game) === forTeamId;
+  }
+
+  return true;
 }
 
 export function getPlayersWhoPlayed(game: Game, team: Team): Player[] {
-  return team.players.filter((p) => playerPlayedInGame(game, p.id));
+  return team.players.filter((p) => playerPlayedInGame(game, p.id, team.id));
 }
 
 /** Score for a specific team � uses team id, not home/away slot. */
@@ -105,8 +129,16 @@ export function resolveTeamScore(game: Game, teamId: string): number {
         : null;
   if (!team) return 0;
 
+  const trackedTeamOnly =
+    game.trackBothTeams || teamId === game.homeTeamId;
+
   const fromPlayers = game.gameStats
-    .filter((s) => team.players.some((p) => p.id === s.playerId))
+    .filter(
+      (s) =>
+        trackedTeamOnly &&
+        team.players.some((p) => p.id === s.playerId) &&
+        resolvePlayerTeamSideInGame(s.playerId, game) === teamId
+    )
     .reduce((sum, s) => sum + s.points, 0);
   if (fromPlayers > 0) return fromPlayers;
 
@@ -215,7 +247,11 @@ export function sumPlayerStatsForTeam(
   game: Game,
   team: Team
 ): GameStats {
-  const rosterIds = new Set(team.players.map((p) => p.id));
+  const rosterIds = new Set(
+    team.players
+      .filter((p) => resolvePlayerTeamSideInGame(p.id, game) === team.id)
+      .map((p) => p.id)
+  );
   return sumPlayerStatsForRoster(game, rosterIds);
 }
 
@@ -653,9 +689,13 @@ export interface ResolvedTeamTotals {
 }
 
 export function teamHasPlayerBoxScore(game: Game, team: Team): boolean {
+  if (!game.trackBothTeams && team.id !== game.homeTeamId) {
+    return false;
+  }
   return game.gameStats.some(
     (s) =>
       team.players.some((p) => p.id === s.playerId) &&
+      resolvePlayerTeamSideInGame(s.playerId, game) === team.id &&
       (s.minutes_played > 0 || s.fg_attempted > 0 || s.points > 0)
   );
 }

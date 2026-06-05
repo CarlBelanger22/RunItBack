@@ -58,7 +58,7 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
     const team = teamType === 'home' ? game.homeTeam : game.awayTeam;
 
     return team.players
-      .filter((player) => playerPlayedInGame(game, player.id))
+      .filter((player) => playerPlayedInGame(game, player.id, team.id))
       .map((player) => {
         const stats = getPlayerBoxScore(player.id);
         const advanced = MetricsCalculator.calculateAdvancedMetrics(stats);

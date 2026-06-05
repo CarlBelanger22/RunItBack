@@ -1,4 +1,5 @@
 import type { Game, GameStats, Player, Team, Tournament } from '../App';
+import { resolvePlayerTeamSideInGame } from './tournamentRosters';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
   gameHasShotChartData,
@@ -255,7 +256,11 @@ export function aggregatePlayerSeasonStats(
 
   (games ?? []).forEach((game) => {
     (game.gameStats ?? []).forEach((stat) => {
-      const rosterMatch = rosterEntries.find(({ player }) => player.id === stat.playerId);
+      const rosterMatch = rosterEntries.find(
+        ({ player, team }) =>
+          player.id === stat.playerId &&
+          resolvePlayerTeamSideInGame(player.id, game) === team.id
+      );
       if (rosterMatch) {
         allPlayerStats.push({
           player: rosterMatch.player,

@@ -57,6 +57,13 @@ export function resolvePlayerTeamSideInGame(
   const awayId = game.awayTeamId || game.awayTeam?.id;
   if (!homeId || !awayId) return null;
 
+  const hasStatLine = (game.gameStats ?? []).some(
+    (s) => s.playerId === playerId && (s.minutes_played ?? 0) > 0
+  );
+  if (!game.trackBothTeams && hasStatLine) {
+    return homeId;
+  }
+
   const onHomeClub = clubRosterByTeam?.get(homeId)?.has(playerId) ?? false;
   const onAwayClub = clubRosterByTeam?.get(awayId)?.has(playerId) ?? false;
   if (onHomeClub && !onAwayClub) return homeId;
