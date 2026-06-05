@@ -177,6 +177,79 @@ export function buildTournamentRostersFromGames(
   };
 }
 
+function countPlayerTeamGamesInTournament(
+  games: Game[],
+  tournamentId: string,
+  playerId: string,
+  teams: Team[]
+): Map<string, number> {
+  const clubRosterByTeam = buildClubRosterByTeam(teams);
+  const counts = new Map<string, number>();
+
+  for (const game of games) {
+    if (!game.isCompleted || game.tournamentId !== tournamentId) continue;
+    if (!(game.gameStats ?? []).some((stat) => stat.playerId === playerId)) continue;
+
+    const teamId = resolvePlayerTeamSideInGame(playerId, game, clubRosterByTeam);
+    if (!teamId) continue;
+    counts.set(teamId, (counts.get(teamId) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+/**
+ * Enforce DB rule: one roster row per (tournament_id, player_id).
+ * When game data assigns a player to multiple teams in one tournament,
+ * keep the team with the most completed-game appearances.
+ */
+export function dedupeTournamentRostersForDb(
+  entries: TournamentRosterEntry[],
+  games: Game[],
+  teams: Team[]
+): TournamentRosterEntry[] {
+  const grouped = new Map<string, TournamentRosterEntry[]>();
+
+  for (const entry of entries) {
+    const key = `${entry.tournamentId}:${entry.playerId}`;
+    const group = grouped.get(key) ?? [];
+    group.push(entry);
+    grouped.set(key, group);
+  }
+
+  const deduped: TournamentRosterEntry[] = [];
+  for (const group of grouped.values()) {
+    if (group.length === 1) {
+      deduped.push(group[0]);
+      continue;
+    }
+
+    const { tournamentId, playerId } = group[0];
+    const gameCounts = countPlayerTeamGamesInTournament(
+      games,
+      tournamentId,
+      playerId,
+      teams
+    );
+
+    let winner = group[0];
+    let bestCount = gameCounts.get(winner.teamId) ?? 0;
+    for (const entry of group.slice(1)) {
+      const count = gameCounts.get(entry.teamId) ?? 0;
+      if (
+        count > bestCount ||
+        (count === bestCount && entry.teamId.localeCompare(winner.teamId) < 0)
+      ) {
+        winner = entry;
+        bestCount = count;
+      }
+    }
+    deduped.push(winner);
+  }
+
+  return deduped;
+}
+
 /** One player per tournament (DB unique on tournament_id + player_id). */
 export function findTournamentPlayerTeamConflict(
   tournamentId: string,
@@ -251,7 +324,8 @@ export function reconcileTournamentRostersFromGames(
   stored: TournamentRosterEntry[] = []
 ): TournamentRosterEntry[] {
   const { entries } = buildTournamentRostersFromGames(games, teams);
-  return mergeTournamentRosters(stored, entries);
+  const merged = mergeTournamentRosters(stored, entries);
+  return dedupeTournamentRostersForDb(merged, games, teams);
 }
 
 export function getPlayersForTeamInTournament(

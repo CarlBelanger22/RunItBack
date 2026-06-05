@@ -7,6 +7,10 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import {
+  ExistingIconDescription,
+  pickPreservedOptionalString,
+} from './lib/preserve-metadata';
 
 const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -126,8 +130,8 @@ function teamToRow(team: Team, leagueId: string) {
     abbreviation:
       team.abbreviation ||
       team.name.replace(/[^a-zA-Z0-9\s]/g, '').slice(0, 5).toUpperCase(),
-    icon: team.icon ?? null,
-    description: team.description ?? null,
+    icon: team.icon,
+    description: team.description,
     current_tournament_id: team.currentTournamentId ?? null,
   };
 }
@@ -224,6 +228,61 @@ async function upsertBatch<T extends Record<string, unknown>>(
   }
 }
 
+async function loadExistingTeamsMetadata(
+  supabase: SupabaseClient,
+  teamIds: string[]
+): Promise<Map<string, ExistingIconDescription>> {
+  const map = new Map<string, ExistingIconDescription>();
+  if (teamIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('teams')
+    .select('id, icon, description')
+    .in('id', teamIds);
+
+  if (error) throw new Error(`teams fetch failed: ${error.message}`);
+  for (const row of data ?? []) {
+    map.set(row.id as string, row as ExistingIconDescription);
+  }
+  return map;
+}
+
+async function loadExistingTournamentsMetadata(
+  supabase: SupabaseClient,
+  tournamentIds: string[]
+): Promise<Map<string, ExistingIconDescription>> {
+  const map = new Map<string, ExistingIconDescription>();
+  if (tournamentIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('id, icon, description')
+    .in('id', tournamentIds);
+
+  if (error) throw new Error(`tournaments fetch failed: ${error.message}`);
+  for (const row of data ?? []) {
+    map.set(row.id as string, row as ExistingIconDescription);
+  }
+  return map;
+}
+
+function mergeIconDescriptionRows<
+  T extends {
+    id: string;
+    icon?: string | null;
+    description?: string | null;
+  },
+>(rows: T[], existingById: Map<string, ExistingIconDescription>): T[] {
+  return rows.map((row) => {
+    const existing = existingById.get(row.id);
+    return {
+      ...row,
+      icon: pickPreservedOptionalString(row.icon, existing?.icon),
+      description: pickPreservedOptionalString(row.description, existing?.description),
+    };
+  });
+}
+
 async function main() {
   const { file, dryRun, leagueId } = parseArgs();
   const env = loadEnvLocal();
@@ -265,8 +324,8 @@ async function main() {
     id: t.id,
     league_id: leagueId,
     name: t.name,
-    icon: t.icon ?? null,
-    description: t.description ?? null,
+    icon: t.icon,
+    description: t.description,
     year: t.year,
     month: t.month,
     standings: t.standings ?? [],
@@ -328,6 +387,35 @@ async function main() {
 
   const supabase = createClient(url, key);
 
+  const [existingTeams, existingTournaments] = await Promise.all([
+    loadExistingTeamsMetadata(
+      supabase,
+      teamRows.map((row) => row.id)
+    ),
+    loadExistingTournamentsMetadata(
+      supabase,
+      tournamentRows.map((row) => row.id)
+    ),
+  ]);
+
+  const mergedTeamRows = mergeIconDescriptionRows(teamRows, existingTeams);
+  const mergedTournamentRows = mergeIconDescriptionRows(tournamentRows, existingTournaments);
+
+  let preservedMetadata = 0;
+  for (const row of teamRows) {
+    const existing = existingTeams.get(row.id);
+    if (existing?.icon && row.icon === undefined) preservedMetadata++;
+  }
+  for (const row of tournamentRows) {
+    const existing = existingTournaments.get(row.id);
+    if (existing?.icon && row.icon === undefined) preservedMetadata++;
+  }
+  if (preservedMetadata > 0) {
+    console.log(
+      `\nPreserved ${preservedMetadata} existing icon(s) omitted from localStorage backup.`
+    );
+  }
+
   console.log('\n1/6 Upserting league...');
   await upsertBatch(
     supabase,
@@ -338,7 +426,7 @@ async function main() {
   );
 
   console.log('2/6 Upserting teams...');
-  await upsertBatch(supabase, 'teams', teamRows, 'id', false);
+  await upsertBatch(supabase, 'teams', mergedTeamRows, 'id', false);
 
   console.log('3/7 Upserting player profiles...');
   await upsertBatch(supabase, 'players', playerRows, 'id', false);
@@ -347,7 +435,7 @@ async function main() {
   await upsertBatch(supabase, 'team_players', teamPlayerRows, 'team_id,player_id', false);
 
   console.log('5/7 Upserting tournaments...');
-  await upsertBatch(supabase, 'tournaments', tournamentRows, 'id', false);
+  await upsertBatch(supabase, 'tournaments', mergedTournamentRows, 'id', false);
 
   console.log('6/7 Upserting tournament_teams...');
   await upsertBatch(supabase, 'tournament_teams', tournamentTeamRows, 'tournament_id,team_id', false);

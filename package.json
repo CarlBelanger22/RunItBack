@@ -67,11 +67,14 @@
             "db:migrate:005": "tsx scripts/apply-migration-005.ts",
             "backfill:tournament-rosters": "tsx scripts/backfill-tournament-rosters.ts",
             "verify:tournament-rosters": "tsx scripts/verify-tournament-rosters.ts",
+            "count:orphans": "tsx scripts/count-orphans.ts",
+            "cleanup:orphan-players": "tsx scripts/cleanup-orphan-players.ts",
             "test:tournament-rosters": "tsx scripts/test-tournament-rosters.ts",
             "restore:yuanyang": "tsx scripts/restore-yuanyang-roster.ts",
             "repair:rosters": "tsx scripts/repair-rosters.ts",
             "build:kx-div2": "tsx scripts/build-kx-div2-imports.ts",
             "build:kx-u21-gemilang": "tsx scripts/build-kx-u21-gemilang-imports.ts",
+            "build:safsa-div2-23": "tsx scripts/build-safsa-div2-23-imports.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts"
       }
 }

@@ -70,7 +70,7 @@ function tournamentName(tournaments: Tournament[], tournamentId: string): string
   return tournaments.find((t) => t.id === tournamentId)?.name ?? tournamentId;
 }
 
-/** @deprecated Club-template check ù use tournament_rosters overlap instead. */
+/** @deprecated Club-template check ÔøΩ use tournament_rosters overlap instead. */
 export function wouldRosterViolateTournamentOverlap(
   playerId: string,
   targetTeamId: string,

@@ -22,6 +22,7 @@ import {
   deleteTeamsFromSupabase,
   loadAppDataFromSupabase,
   saveAppDataToSupabase,
+  saveTournamentRostersToSupabase,
   MIGRATION_002_HINT,
   MIGRATION_003_HINT,
   type PlayerStorageSchema,
@@ -29,12 +30,14 @@ import {
 import { PLAYER_MEASUREMENTS_MIGRATION_KEY } from './lib/playerMeasurements';
 import {
   getSnapshotAgeMs,
+  isSnapshotUsable,
   processLoadedAppData,
   readAppDataSnapshot,
   saveAppDataSnapshot,
   snapshotToLoadedAppData,
   type ProcessedAppData,
 } from './lib/appDataSnapshot';
+import { enqueueCloudSave } from './lib/cloudSaveQueue';
 import { AppRoutes } from './routing/AppRoutes';
 import { gamePath, liveGamePath, paths, playerPath, teamPath } from './routing/paths';
 import { currentLocationPath, navigateWithReturnTo } from './routing/navigation';
@@ -58,6 +61,8 @@ import {
 } from './utils/rosterPlayers';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
+
+type CloudSaveKind = 'full' | 'rosters-only';
 
 function formatCloudSaveError(message: string): string {
   if (
@@ -985,51 +990,70 @@ export default function App() {
     });
   }, []);
 
-  const persistCurrentAppData = useCallback(() => {
-    const activeGame = currentGameRef.current;
-    const currentGames = gamesRef.current;
-    const gamesToSave =
-      activeGame?.isActive
-        ? [...currentGames.filter((g) => g.id !== activeGame.id), activeGame]
-        : currentGames;
+  const runCloudPersist = useCallback(
+    (kind: CloudSaveKind) => {
+      const activeGame = currentGameRef.current;
+      const currentGames = gamesRef.current;
+      const gamesToSave =
+        activeGame?.isActive
+          ? [...currentGames.filter((g) => g.id !== activeGame.id), activeGame]
+          : currentGames;
+      const teamsToSave = teamsRef.current;
+      const tournamentsToSave = tournamentsRef.current;
+      const darkModeToSave = darkModeRef.current;
+      const rostersToSave = reconcileTournamentRostersFromGames(
+        gamesToSave,
+        teamsToSave,
+        tournamentRostersRef.current
+      );
 
-    const rostersToSave = reconcileTournamentRostersFromGames(
-      gamesToSave,
-      teamsRef.current,
-      tournamentRostersRef.current
-    );
-    tournamentRostersRef.current = rostersToSave;
+      return enqueueCloudSave(async () => {
+        if (kind === 'rosters-only') {
+          await saveTournamentRostersToSupabase(
+            tournamentsToSave,
+            rostersToSave,
+            gamesToSave,
+            teamsToSave
+          );
+        } else {
+          await saveAppDataToSupabase(
+            teamsToSave,
+            tournamentsToSave,
+            gamesToSave,
+            darkModeToSave,
+            undefined,
+            rostersToSave
+          );
+        }
 
-    return saveAppDataToSupabase(
-      teamsRef.current,
-      tournamentsRef.current,
-      gamesToSave,
-      darkModeRef.current,
-      undefined,
-      rostersToSave
-    )
-      .then(() => {
         setSaveError(null);
         setTournamentRosters(rostersToSave);
+        tournamentRostersRef.current = rostersToSave;
         saveAppDataSnapshot({
-          teams: teamsRef.current,
-          tournaments: tournamentsRef.current,
+          teams: teamsToSave,
+          tournaments: tournamentsToSave,
           games: gamesToSave,
-          darkMode: darkModeRef.current,
+          darkMode: darkModeToSave,
           orphanPlayers: loadedOrphanPlayersRef.current,
           tournamentRosters: rostersToSave,
         });
-        prevTeamsRef.current = teamsRef.current;
-        prevTournamentsRef.current = tournamentsRef.current;
+        prevTeamsRef.current = teamsToSave;
+        prevTournamentsRef.current = tournamentsToSave;
         prevGamesRef.current = gamesToSave;
-        prevDarkModeRef.current = darkModeRef.current;
+        prevDarkModeRef.current = darkModeToSave;
         prevTournamentRostersRef.current = rostersToSave;
-      })
-      .catch((err: Error) => {
+      }).catch((err: Error) => {
         console.error('Supabase save failed:', err);
         setSaveError(formatCloudSaveError(err.message));
       });
-  }, []);
+    },
+    []
+  );
+
+  const persistCurrentAppData = useCallback(
+    (kind: CloudSaveKind = 'full') => runCloudPersist(kind),
+    [runCloudPersist]
+  );
 
   const runCloudLoadSideEffects = useCallback(
     (
@@ -1094,9 +1118,10 @@ export default function App() {
     let retryAttempt = 0;
 
     const snapshot = readAppDataSnapshot();
-    const hadCache = snapshot != null;
+    const snapshotUsable = snapshot != null && isSnapshotUsable(snapshot);
+    const hadCache = snapshotUsable;
 
-    if (snapshot && !cancelled) {
+    if (snapshotUsable && snapshot && !cancelled) {
       try {
         const processed = processLoadedAppData(snapshotToLoadedAppData(snapshot));
         applyProcessedToState(processed);
@@ -1107,6 +1132,7 @@ export default function App() {
             ageMs: getSnapshotAgeMs(snapshot),
             teams: processed.teams.length,
             games: processed.games.length,
+            tournamentRosters: processed.tournamentRosters.length,
           });
         }
       } catch (err) {
@@ -1117,6 +1143,8 @@ export default function App() {
           /* ignore */
         }
       }
+    } else if (!cancelled && import.meta.env.DEV) {
+      console.info('[RunItBack] no usable snapshot; waiting for cloud');
     }
 
     const fetchFromCloud = () => {
@@ -1165,9 +1193,13 @@ export default function App() {
               JSON.stringify(prevTournamentRostersRef.current) !==
               JSON.stringify(tournamentRostersRef.current);
             skipSaveRef.current = false;
-            if (hadLocalEdits || tournamentRostersDrift) {
+            if (hadLocalEdits) {
               queueMicrotask(() => {
-                persistCurrentAppData();
+                persistCurrentAppData('full');
+              });
+            } else if (tournamentRostersDrift) {
+              queueMicrotask(() => {
+                persistCurrentAppData('rosters-only');
               });
             }
             if (!hadCache) {
@@ -1235,51 +1267,18 @@ export default function App() {
         return;
       }
 
-      prevTeamsRef.current = teams;
-      prevTournamentsRef.current = tournaments;
-      prevGamesRef.current = games;
-      prevDarkModeRef.current = darkMode;
-      prevTournamentRostersRef.current = tournamentRosters;
-
-      const activeGame = currentGameRef.current;
-      const gamesToSave =
-        activeGame?.isActive
-          ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
-          : games;
-
-      const rostersToSave = reconcileTournamentRostersFromGames(
-        gamesToSave,
-        teams,
-        tournamentRosters
-      );
+      const onlyRostersChanged =
+        tournamentRostersChanged &&
+        !teamsChanged &&
+        !tournamentsChanged &&
+        !gamesChanged &&
+        !darkModeChanged;
+      const saveKind: CloudSaveKind = onlyRostersChanged
+        ? 'rosters-only'
+        : 'full';
 
       saveTimeoutRef.current = setTimeout(() => {
-        saveAppDataToSupabase(
-          teams,
-          tournaments,
-          gamesToSave,
-          darkMode,
-          undefined,
-          rostersToSave
-        )
-          .then(() => {
-            setSaveError(null);
-            setTournamentRosters(rostersToSave);
-            tournamentRostersRef.current = rostersToSave;
-            prevTournamentRostersRef.current = rostersToSave;
-            saveAppDataSnapshot({
-              teams,
-              tournaments,
-              games: gamesToSave,
-              darkMode,
-              orphanPlayers: loadedOrphanPlayers,
-              tournamentRosters: rostersToSave,
-            });
-          })
-          .catch((err: Error) => {
-            console.error('Supabase save failed:', err);
-            setSaveError(formatCloudSaveError(err.message));
-          });
+        void runCloudPersist(saveKind);
         saveTimeoutRef.current = null;
       }, 500);
     };
@@ -1296,7 +1295,7 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, isDataLoading, loadedOrphanPlayers, tournamentRosters]);
+  }, [teams, tournaments, games, darkMode, isDataLoading, tournamentRosters, runCloudPersist]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !darkMode;
@@ -1704,7 +1703,7 @@ export default function App() {
       setSaveError(null);
       if (!skipSaveRef.current && !isDataLoading) {
         queueMicrotask(() => {
-          persistCurrentAppData();
+          persistCurrentAppData('rosters-only');
         });
       }
     },

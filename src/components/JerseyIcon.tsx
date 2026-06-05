@@ -34,7 +34,7 @@ export function JerseyIcon({ number, size = 'md', className }: JerseyIconProps) 
       aria-hidden
     >
       <image href="/icons/jersey-icon-reference.png" width="100" height="100" />
-      {/* Mask over baked-in "00"  widened/tallened for scaled overlay digits */}
+      {/* Mask over baked-in "00" ï¿½ widened/tallened for scaled overlay digits */}
       <rect
         x={NUMBER_MASK_X}
         y={NUMBER_MASK_Y}

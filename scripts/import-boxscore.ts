@@ -11,6 +11,10 @@
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import {
+  ExistingIconDescription,
+  pickPreservedOptionalString,
+} from './lib/preserve-metadata';
 
 const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -30,6 +34,8 @@ interface TeamRow {
   id: string;
   name: string;
   abbreviation: string;
+  icon?: string;
+  description?: string;
   currentTournamentId?: string;
   players: PlayerRow[];
 }
@@ -239,6 +245,21 @@ async function loadExistingTeams(
   return map;
 }
 
+async function loadExistingTournament(
+  supabase: SupabaseClient,
+  tournamentId: string
+): Promise<ExistingIconDescription | undefined> {
+  const { data, error } = await supabase
+    .from('tournaments')
+    .select('icon, description')
+    .eq('id', tournamentId)
+    .maybeSingle();
+
+  if (error) throw new Error(`tournaments fetch failed: ${error.message}`);
+  if (!data) return undefined;
+  return data as ExistingIconDescription;
+}
+
 async function loadExistingTeamIds(
   supabase: SupabaseClient,
   teamIds: string[]
@@ -297,16 +318,6 @@ async function main() {
     process.exit(1);
   }
 
-  const teamRows = bundle.teams.map((team) => ({
-    id: team.id,
-    league_id: leagueId,
-    name: team.name,
-    abbreviation: team.abbreviation,
-    icon: null as string | null,
-    description: null as string | null,
-    current_tournament_id: team.currentTournamentId ?? bundle.tournament.id,
-  }));
-
   const playerRowsRaw = bundle.teams.flatMap((team) =>
     (team.players ?? []).map((player) => ({
       id: player.id,
@@ -322,17 +333,6 @@ async function main() {
       date_of_birth: player.dateOfBirth ?? null,
     }))
   );
-
-  const tournamentRow = {
-    id: bundle.tournament.id,
-    league_id: leagueId,
-    name: bundle.tournament.name,
-    icon: bundle.tournament.icon ?? null,
-    description: bundle.tournament.description ?? null,
-    year: bundle.tournament.year,
-    month: bundle.tournament.month,
-    standings: [],
-  };
 
   const tournamentTeamRows = bundle.tournament.teamIds.map((teamId) => ({
     tournament_id: bundle.tournament.id,
@@ -378,11 +378,11 @@ async function main() {
     file,
     league: leagueId,
     tournament: bundle.tournament.name,
-    teams: teamRows.length,
+    teams: bundle.teams.length,
     players: playerRowsRaw.length,
     tournament_teams: tournamentTeamRows.length,
     game: gameRow.id,
-    score: `${homeTeam.abbreviation} ${bundle.game.finalScore.home}  ${awayTeam.abbreviation} ${bundle.game.finalScore.away}`,
+    score: `${homeTeam.abbreviation} ${bundle.game.finalScore.home} ? ${awayTeam.abbreviation} ${bundle.game.finalScore.away}`,
     game_stats_rows: bundle.game.gameStats.length,
     stats_only: statsOnly,
     add_new_players: addNewPlayers,
@@ -393,13 +393,60 @@ async function main() {
   console.log(JSON.stringify(summary, null, 2));
 
   if (dryRun) {
-    console.log('\nDry run complete  no writes performed.');
+    console.log('\nDry run complete ? no writes performed.');
     return;
   }
 
   const supabase = createClient(url, key);
 
-  const teamIds = teamRows.map((t) => t.id);
+  const teamIds = bundle.teams.map((t) => t.id);
+  const [existingTeams, existingTournament] = await Promise.all([
+    loadExistingTeams(supabase, teamIds),
+    loadExistingTournament(supabase, bundle.tournament.id),
+  ]);
+
+  const teamRows = bundle.teams.map((team) => {
+    const existing = existingTeams.get(team.id);
+    return {
+      id: team.id,
+      league_id: leagueId,
+      name: team.name,
+      abbreviation: team.abbreviation,
+      icon: pickPreservedOptionalString(team.icon, existing?.icon),
+      description: pickPreservedOptionalString(team.description, existing?.description),
+      current_tournament_id: team.currentTournamentId ?? bundle.tournament.id,
+    };
+  });
+
+  const tournamentRow = {
+    id: bundle.tournament.id,
+    league_id: leagueId,
+    name: bundle.tournament.name,
+    icon: pickPreservedOptionalString(bundle.tournament.icon, existingTournament?.icon),
+    description: pickPreservedOptionalString(
+      bundle.tournament.description,
+      existingTournament?.description
+    ),
+    year: bundle.tournament.year,
+    month: bundle.tournament.month,
+    standings: [],
+  };
+
+  let preservedIcons = 0;
+  for (const team of bundle.teams) {
+    const existing = existingTeams.get(team.id);
+    if (existing?.icon && team.icon === undefined) preservedIcons++;
+  }
+  if (existingTournament?.icon && bundle.tournament.icon === undefined) {
+    preservedIcons++;
+    console.log(
+      `\nPreserved tournament icon for "${bundle.tournament.name}" (${bundle.tournament.id}).`
+    );
+  }
+  if (preservedIcons > 0) {
+    console.log(`Preserved ${preservedIcons} existing team icon(s) omitted from import JSON.`);
+  }
+
   const existingTeamIds = statsOnly
     ? await loadExistingTeamIds(supabase, teamIds)
     : new Set<string>();
@@ -435,24 +482,11 @@ async function main() {
     }
   } else {
     const playerIds = playerRowsRaw.map((p) => p.id);
-    const [existingPlayers, existingTeams] = await Promise.all([
-      loadExistingPlayers(supabase, playerIds),
-      loadExistingTeams(supabase, teamIds),
-    ]);
+    const existingPlayers = await loadExistingPlayers(supabase, playerIds);
 
     playerRows = playerRowsRaw.map((row) =>
       mergePlayerRow(row, existingPlayers.get(row.id))
     );
-
-    mergedTeamRows = teamRows.map((row) => {
-      const existing = existingTeams.get(row.id);
-      if (!existing) return row;
-      return {
-        ...row,
-        icon: row.icon ?? existing.icon ?? null,
-        description: row.description ?? existing.description ?? null,
-      };
-    });
 
     let preservedProfileFields = 0;
     for (const raw of playerRowsRaw) {

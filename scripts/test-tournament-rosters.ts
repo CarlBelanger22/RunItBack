@@ -6,9 +6,11 @@
 import type { Game, Player, Team } from '../src/App';
 import {
   buildTournamentRostersFromGames,
+  dedupeTournamentRostersForDb,
   getPlayersForTeamInTournament,
   isPlayerOnTournamentRoster,
   mergeTournamentRosters,
+  reconcileTournamentRostersFromGames,
   resolvePlayerTeamSideInGame,
   RAM_SUNDA_PUTRA_PLAYER_ID,
 } from '../src/utils/tournamentRosters';
@@ -179,6 +181,41 @@ function testMergeTournamentRosters(): void {
   assert(ramRow?.number === 3, 'stored jersey overlays game-derived row');
 }
 
+function testDedupeTournamentRosterConflicts(): void {
+  const shared = makePlayer('player-shared', 'Shared');
+  const teamA = makeTeam('team-a', 'Team A', [shared]);
+  const teamB = makeTeam('team-b', 'Team B', [shared]);
+  const opp = makeTeam('team-opp', 'Opponent', [makePlayer('player-opp', 'Opp')]);
+
+  const gameOnA = makeCompletedGame('g-a', 't-conflict', teamA, opp, [shared.id]);
+  const gameOnB = makeCompletedGame('g-b', 't-conflict', opp, teamB, [shared.id]);
+
+  const { entries, conflicts } = buildTournamentRostersFromGames(
+    [gameOnA, gameOnB],
+    [teamA, teamB, opp]
+  );
+  assert(conflicts.length === 1, 'builder reports multi-team conflict');
+  assert(entries.length === 2, 'builder keeps both team rows before dedupe');
+
+  const deduped = dedupeTournamentRostersForDb(entries, [gameOnA, gameOnB], [
+    teamA,
+    teamB,
+    opp,
+  ]);
+  assert(deduped.length === 1, 'dedupe keeps one row per player per tournament');
+  assert(
+    deduped[0].teamId === teamA.id || deduped[0].teamId === teamB.id,
+    'dedupe keeps a team assignment'
+  );
+
+  const reconciled = reconcileTournamentRostersFromGames(
+    [gameOnA, gameOnB],
+    [teamA, teamB, opp],
+    []
+  );
+  assert(reconciled.length === 1, 'reconcile dedupes before save');
+}
+
 function testGetPlayersForTeamInTournament(): void {
   const ram = makePlayer(RAM_SUNDA_PUTRA_PLAYER_ID, 'Ram', 9);
   const kx = makeTeam('team-kx', 'Kai Xuan', [ram]);
@@ -201,6 +238,7 @@ function main(): void {
   testResolveSide();
   testGameStatsOnlyMembership();
   testMergeTournamentRosters();
+  testDedupeTournamentRosterConflicts();
   testGetPlayersForTeamInTournament();
   console.log('All tournament roster tests passed.');
 }

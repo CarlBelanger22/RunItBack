@@ -8,6 +8,7 @@
 import { loadEnvLocalIntoProcess } from './loadEnvLocal';
 import {
   buildTournamentRostersFromGames,
+  dedupeTournamentRostersForDb,
   countRosterEntriesForTeamInTournament,
   findTournamentByNameHint,
   isPlayerOnTournamentRoster,
@@ -103,13 +104,24 @@ async function main(): Promise<void> {
     return;
   }
 
+  const rosterEntries = dedupeTournamentRostersForDb(
+    entries,
+    data.games,
+    data.teams
+  );
+  if (rosterEntries.length < entries.length) {
+    console.log(
+      `\nDeduped ${entries.length - rosterEntries.length} conflicting roster row(s) before save.`
+    );
+  }
+
   await saveAppDataToSupabase(
     data.teams,
     data.tournaments,
     data.games,
     data.darkMode,
     DEFAULT_LEAGUE_ID,
-    entries
+    rosterEntries
   );
 
   console.log('\nSaved tournament_rosters to Supabase.');

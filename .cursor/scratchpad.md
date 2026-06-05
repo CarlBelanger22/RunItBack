@@ -5964,3 +5964,253 @@ npm run verify:tournament-rosters
 - **Human:** Run `005_tournament_rosters.sql` in Supabase SQL Editor (migrate script needs `DATABASE_URL`). Then retry `npm run backfill:tournament-rosters -- --dry-run` when load is fast enough, then write + `verify:tournament-rosters`
 
 ---
+
+## P1 — Load/save reliability (Designer, 2026-06-05)
+
+### Symptoms (human DevTools + UI, 2026-06-05)
+
+| Symptom | Console / UI |
+|---------|----------------|
+| **Red banner** | `Could not save to cloud: teams: canceling statement due to statement timeout` |
+| **Cache broken** | `QuotaExceededError` — `runitback_app_data_snapshot_v1` exceeds `localStorage` quota (×2–3 per refresh) |
+| **Dashboard wrong** | Teams list shows **0 Players** on every team until cloud sync finishes |
+| **Roster pills lag** | Tournament pills empty ~4–10s after refresh (same sync window) |
+| **500** | Failed resource on `tournament_id` (likely `tournament_teams` / `tournament_rosters` delete during save) |
+
+Cloud load in same session: `loadAppDataFromSupabase` **totalMs ~3948** — load is ~4s; pain is **stale cache + failed saves**, not a separate 10s roster API.
+
+### Root-cause chain (single story)
+
+```
+Refresh
+  → read localStorage snapshot (STALE — writes fail with QuotaExceeded)
+  → paint UI: teams without players, empty tournamentRosters
+  → ~4s cloud load completes → correct teams/players/rosters
+  → applyProcessedToState → saveAppDataSnapshot (FAIL quota again)
+  → state change / roster reconcile → debounced saveAppDataToSupabase (FULL LEAGUE WRITE)
+  → Supabase statement timeout on `teams` upsert (or earlier table in chain)
+  → red banner; cache still stale next refresh
+```
+
+**Assumption to challenge:** “Timeout is teams table being slow.” **Partially false** — `teams` upsert is 28 small rows; timeout is likely **DB under load from the monolithic save** (games JSON + `team_players` delete-all + `tournament_rosters` delete-all + junction deletes) on a **short `statement_timeout`** (Supabase default ~8s on some plans).
+
+### Issue A — `QuotaExceededError` (localStorage snapshot)
+
+**Cause:** `saveAppDataSnapshot` stores **entire** `games[]` with `gameStats`, `shots`, `events`, `lineupStints`, plus embedded `homeTeam`/`awayTeam` player snapshots. 28 games → multi‑MB JSON → exceeds ~5MB `localStorage` limit.
+
+**Effects:**
+- Every post-load snapshot write fails → cache **never refreshes** after backfill / R3.
+- Next refresh reads **old** snapshot (possibly teams shells, no `gameStats`, no `tournamentRosters`) → 0 players + no tournament pills until cloud.
+
+**Fix (Executor):**
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **P1.A1** | `toSnapshotPayload()` — **lite games** for cache only: keep `id`, `tournamentId`, `isCompleted`, `gameStats`, `homeTeamId`, `awayTeamId`, scores; **drop** `shots`, `events`, `lineupStints`; store team refs by id not full nested rosters | Serialized snapshot &lt; ~2MB for current league |
+| **P1.A2** | Bump `APP_DATA_SNAPSHOT_VERSION` → **3**; on read v2 try migrate or discard | Old bloated key not used |
+| **P1.A3** | Pre-write size check: if still &gt; 4MB, strip `gameStats` to `{ playerId }` only for roster reconcile (keep membership, drop counting stats in cache) | No QuotaExceeded in console after refresh |
+| **P1.A4** | (Optional v2) IndexedDB via `idb-keyval` for full cache — defer unless A1–A3 insufficient |
+
+### Issue B — Statement timeout on save
+
+**Cause:** Any state change triggers **`saveAppDataToSupabase` full rewrite**: leagues → teams → **delete all `team_players` + reinsert** → tournaments → **delete all `tournament_teams`** → **delete all `tournament_rosters`** → **upsert all games** (largest payload). R3 **reconcile on save** changes `tournamentRosters` → triggers this after every load.
+
+**Contributors:**
+- `prev*Ref` updated **before** save succeeds (`App.tsx` ~1238–1242) — failed save still looks “synced” to debounce logic.
+- Multiple overlapping saves: load `finally` → `persistCurrentAppData`, `applyProcessedToState` snapshot, debounced effect, side-effect migration saves.
+- No save mutex.
+
+**Fix (Executor):**
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **P1.B1** | **`saveTournamentRostersToSupabase(entries)`** — upsert rosters only (no teams/games touch) | Roster-only change saves in &lt;1s |
+| **P1.B2** | **Partial save routing:** tournament roster drift → B1 only; game change → `saveGame`; team/player → targeted paths; **full save** only on explicit “import” or migration | Load + reconcile does not fire full league write |
+| **P1.B3** | **Save mutex** — queue/coalesce; one in flight at a time | No parallel full saves in Network tab |
+| **P1.B4** | Move `prev*Ref` update to **after** successful save (or rollback on failure) | Failed save retries on next change |
+| **P1.B5** | Skip save when cloud load produced **identical** merged payload (hash compare) | No save immediately after read-only refresh |
+
+**Human (Supabase ops, optional):** SQL Editor → check `statement_timeout`; consider raising for project if partial saves still tight.
+
+### Issue C — Dashboard “0 Players”
+
+**Cause:** Not a Dashboard bug — `team.players.length` from **stale snapshot** where player arrays empty. Cloud apply fixes ~4s later.
+
+**Fix (Executor):**
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **P1.C1** | **Stale snapshot guard:** if snapshot teams all have `players.length === 0` but `team_players` count &gt; 0 expected (or snapshot age + empty), **skip paint** — keep loading spinner until cloud OR merge players from `orphanPlayers` heuristic | No “0 Players” flash on dashboard |
+| **P1.C2** | Depends on **P1.A** — warm cache includes full `teams[].players` | After one good save, refresh shows correct counts instantly |
+
+### Issue D — Tournament roster UI lag (ties to A + C)
+
+Already addressed in app logic (R3 reconcile); **remaining lag is cache miss**. **P1.A + P1.C** are the fix; optional **P1.E1** derive pills from `games` prop in `TeamPage` useMemo so Edit Players never waits on `tournamentRosters` state alone.
+
+### Recommended Executor order
+
+1. **P1.A1–A3** (slim snapshot) — unblocks cache, fixes refresh UX fastest  
+2. **P1.B1–B2** (partial roster save) — stops timeout banner after load  
+3. **P1.B3–B5** (mutex + ref fix + skip redundant save)  
+4. **P1.C1** (stale guard)  
+5. **P1.E1** (optional TeamPage derive)  
+
+### Success criteria (human QA)
+
+- [ ] Hard refresh: no `QuotaExceededError` in console  
+- [ ] Dashboard player counts correct **immediately** (or brief spinner, not “0 Players”)  
+- [ ] Edit Players tournament pills visible without waiting for cloud (with warm cache)  
+- [ ] No red `statement timeout` banner after idle refresh  
+- [ ] Network: refresh does not POST entire `games` table when only viewing roster  
+
+### Project Status Board — P1
+
+- [x] **Designer:** P1 spec (this section)
+- [x] **Executor:** P1.A1–A3 — lite snapshot v3, size guard, hydrate on read (`appDataSnapshot.ts`)
+- [x] **Executor:** P1.B1–B2 — `saveTournamentRostersToSupabase` + roster-only routing
+- [x] **Executor:** P1.B3–B5 — `enqueueCloudSave` mutex; prev refs after success; roster-only on drift
+- [x] **Executor:** P1.C1 — skip stale snapshot (all teams 0 players)
+- [ ] **Human:** P1 QA
+- [x] **Executor:** Restored emptied `005_tournament_rosters.sql` in repo
+
+### Executor's Feedback or Assistance Requests
+
+- **Designer (2026-06-05):** DevTools confirms ~4s load + quota + full-save timeout — treat as **one reliability epic**, not separate roster bug. Start with slim snapshot before IndexedDB or Supabase plan changes.
+
+---
+
+## SAFSA-I — NBL Div 2 2023 box score import (Designer, 2026-06-05)
+
+### Background
+
+Human added `Importingboxscores/SAFSA Div2 '23/` with **4 Easy Stats HTML** exports. Goal: load completed games + SAFSA player stats into **NBL Div 2 2023** (same pipeline as KX Div2 '24).
+
+### Human decisions (confirmed 2026-06-05)
+
+| Topic | Decision |
+|-------|----------|
+| Tournament | **NBL Div 2 2023** (`tournament-1780425044074`) |
+| Scope | **4 games only** (for now) |
+| Opponent stats | **SAFSA-side only** — opp final score, no opp player lines |
+| SAFSA team | `team-kx-div2-safsa` / **SAFSA Arion** |
+| Opponents | Reuse enrolled IDs + **DB display names** (not HTML nicknames) |
+| Dates | **Filename dates** (not HTML header dates) |
+| Home/away | **SAFSA home** all 4 games |
+| Player map | Approved (see below); Javier **#24** (KTS #22 Javier = typo) |
+| Cross-club IDs | OK for Carl, Jingjie, Glen |
+| New players | None |
+| Minutes | Synthetic (see algorithm); **total 200** per game |
+| Box score | **Full** from HTML |
+| DNP rows | **Skip** |
+| MOB opp stats row | **Ignore** — score only |
+| Import | **4 new games** (one-shot; no re-run / `--stats-only` update path) |
+| Backfill rosters | **Skip** — human says tournament rosters already correct |
+| Exclusions | None |
+
+#### F17 / F18 clarified for human
+
+- **F17 (`--stats-only`)** was only about *re-importing* if games already existed. You said create fresh games from the 4 box scores — Executor will generate **4 new `game-*` IDs** and run normal `import:boxscore` once. No duplicate-update logic needed.
+- **F18 (`backfill:tournament-rosters`)** rebuilds `tournament_rosters` rows from *who appeared in completed game stats*. Since you’ve already set tournament rosters via Edit Players, we **skip backfill** unless post-import verify shows missing rows.
+
+### Locked game table
+
+| Game ID | Date | File | Away @ Home | Score (away–home) |
+|---------|------|------|-------------|-------------------|
+| `game-safsa23-2023-03-22-kts` | 2023-03-22 | `SAFSA vs KTS Black 220323.html` | KTS NSC @ SAFSA Arion | 61–65 |
+| `game-safsa23-2023-04-02-police` | 2023-04-02 | `SAFSA vs PoliceSA 2 020423.html` | Police SA @ SAFSA Arion | 53–69 |
+| `game-safsa23-2023-04-16-tungsan` | 2023-04-16 | `SAFSA vs TungsanYH 160423.html` | Tungsan @ SAFSA Arion | 48–63 |
+| `game-safsa23-2023-04-18-mob` | 2023-04-18 | `MOB Basketball vs SAFSA Arion box-scores-18 Apr 2023.html` | Team M.O.B @ SAFSA Arion | 64–103 |
+
+### Opponent team IDs (enrolled — reuse as-is)
+
+| Opponent ID | Enrolled name |
+|-------------|---------------|
+| `team-kx-div2-kts` | KTS NSC |
+| `team-kx-div2-police` | Police Sports Association |
+| `team-kx-div2-tungsan` | Tungsan |
+| `team-1780430691078` | Team M.O.B |
+
+### Player map (HTML nickname → `player_id`)
+
+| HTML key | player_id | Notes |
+|----------|-----------|-------|
+| Jing Jie | `player-sunig-ntu-1` | cross-club — fixed MPG |
+| Jerel | `player-1780430969043` | |
+| Jun Wei | `player-1780430866865` | |
+| Glen | `player-ivp-ntu-11` | cross-club — fixed MPG |
+| Andy | `player-1780482964172` | |
+| Carl | `player-sunig-ntu-22` | cross-club — fixed MPG |
+| Zhi Kang | `player-1780483061760` | |
+| Albert | `player-1780431036739` | |
+| Abel | `player-1780431067944` | |
+| Kynan | `player-1780483138222` | |
+| Ernest | `player-1780482931133` | |
+| Eldridge | `player-1780482892675` | |
+| Jonah | `player-1780483098031` | |
+| Javier | `player-1780431100788` | always #24; skip DNP |
+| Wee Kong | `player-1780483029327` | |
+
+### Minutes algorithm (E13 — synthetic)
+
+**Constants:** `TOTAL_TEAM_MINUTES = 200` (5 players × 40).
+
+**Cross-club players** (`player-sunig-ntu-22`, `player-sunig-ntu-1`, `player-ivp-ntu-11`):
+
+1. At build time, `loadAppDataFromSupabase()` and compute **career minutes per game** = sum(`minutes_played`) / count(completed games with `minutes_played > 0`) across **all** their games in DB (same as profile MPG).
+2. If no prior games → fallback **18.0** min (document in build log).
+3. For each SAFSA 2023 game they **have box-score activity** in, assign exactly that MPG (not scaled).
+
+**All other SAFSA players with activity:**
+
+1. `remaining = 200 − sum(cross-club fixed minutes for active players this game)`.
+2. Weight each player: `w = max(pts, 1) × (1 + uniform(−0.15, +0.15))` — seeded PRNG per `gameId` for reproducibility.
+3. Allocate `remaining × (w / sum(w))`, round to 0.1 min, then **adjust largest share** so active players sum to **exactly 200**.
+
+**DNP / no activity:** excluded (per E15); no minutes row.
+
+**Starters:** top 5 SAFSA players by `minutes_played` (KX pattern).
+
+### HTML parsing rules
+
+- Reuse KX `parseHtmlStats` pattern; skip rows with no activity (`hasBoxScoreActivity`).
+- Skip team total rows (`SAFSA Arion`, `MOB Basketball`, opponent names in stats table).
+- Skip `#22 Javier` when all `-` (DNP typo row).
+- `trackBothTeams: false` — SAFSA `gameStats` only; opp `emptyTeamStats` with final score.
+- Validate SAFSA points sum = home score each game.
+
+### High-level Executor plan
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| SAFSA-I.1 | `scripts/build-safsa-div2-23-imports.ts` — parse HTML, synthetic minutes, write 4 JSON to `Importingboxscores/SAFSA Div2 '23/json/` | Dry-run logs 4 games; each JSON pts total matches score; minutes sum 200 |
+| SAFSA-I.2 | Dry-run builder + human spot-check one JSON | Carl/Jingjie/Glen MPG printed; MOB game 103 pts |
+| SAFSA-I.3 | `npm run import:boxscore -- --file …` × 4 with `--dry-run` then live | 4 games in Supabase, tournament still NBL Div 2 2023 |
+| SAFSA-I.4 | Verify script output: 4 SAFSA games, 0 orphans, skip backfill unless gaps | `list-safsa-context` shows 4 SAFSA games |
+| SAFSA-I.5 | Human QA in app | Tournament page shows 4 games, box scores + SAFSA stats |
+
+**Import flags:** use `--stats-only` on `import:boxscore` (teams/players/tournament already in DB — only upsert game rows + tournament metadata; avoids touching player profiles).
+
+### Project Status Board — SAFSA-I
+
+- [x] **Designer:** SAFSA-I discovery + question set
+- [x] **Human:** Answers A–F confirmed
+- [x] **Designer:** Revised plan + minutes algorithm + locked game table
+- [x] **Executor:** SAFSA-I.1 — `build-safsa-div2-23-imports.ts` + `npm run build:safsa-div2-23` wrote 4 JSON
+- [x] **Human:** Spot-check SAFSA-I.2 (approved via proceed)
+- [x] **Executor:** SAFSA-I.3 — `import:boxscore --stats-only` × 4 (all Import complete)
+- [x] **Executor:** SAFSA-I.4 — verify: NBL Div 2 2023 has 4 SAFSA games; backfill skipped per human
+- [ ] **Human:** SAFSA-I.5 QA in app
+
+### Executor's Feedback or Assistance Requests
+
+- **Designer (2026-06-05):** Plan ready for Executor. Start SAFSA-I.1 only; stop for human JSON spot-check before Supabase writes.
+- **Executor (2026-06-05):** SAFSA-I.1 complete. Builder output:
+  - `game-safsa23-2023-03-22-kts`: 12 lines, 65 pts, 200 min
+  - `game-safsa23-2023-04-02-police`: 11 lines, 69 pts, 200 min
+  - `game-safsa23-2023-04-16-tungsan`: 11 lines, 63 pts, 200 min
+  - `game-safsa23-2023-04-18-mob`: 12 lines, 103 pts, 200 min
+- **Executor note:** Cross-club MPG from Supabase career avg returned **18.0 fallback** for Carl, Jingjie, Glen — all their loaded `gameStats` rows have `minutes_played: 0` in DB today (pts may be present but minutes zero). Per plan, fallback used. Human may override MPG in builder constants if desired before import.
+- **Executor (2026-06-05):** SAFSA-I.3–I.4 done. DB shows 4 games in NBL Div 2 2023 (KTS 65–61, Police 69–53, Tungsan 63–48, MOB 103–64). `backfill:tournament-rosters` skipped.
+- **Blocked on human:** SAFSA-I.5 — open NBL Div 2 2023 in app; confirm 4 games, box scores, SAFSA player stats.
+
+---

@@ -1,7 +1,10 @@
 import { supabase } from '../lib/supabase';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
-import type { TournamentRosterEntry } from '../utils/tournamentRosters';
+import {
+  dedupeTournamentRostersForDb,
+  type TournamentRosterEntry,
+} from '../utils/tournamentRosters';
 import type { Team, Tournament, Game, Player } from '../App';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
@@ -865,6 +868,40 @@ export async function deletePlayersFromSupabase(playerIds: string[]): Promise<vo
   if (error) throw new Error(`players delete: ${error.message}`);
 }
 
+/** Upsert tournament roster rows only (no teams/games writes). */
+export async function saveTournamentRostersToSupabase(
+  tournaments: Tournament[],
+  tournamentRosters: TournamentRosterEntry[],
+  games: Game[] = [],
+  teams: Team[] = []
+): Promise<void> {
+  if (!supabase) return;
+
+  const leagueTournamentIds = new Set(tournaments.map((t) => t.id));
+  const rosterRows = dedupeTournamentRostersForDb(
+    tournamentRosters.filter((entry) => leagueTournamentIds.has(entry.tournamentId)),
+    games,
+    teams
+  ).map(tournamentRosterEntryToDbRow);
+
+  const tournamentIds = tournaments.map((t) => t.id);
+  if (tournamentIds.length > 0) {
+    const { error: rosterDeleteError } = await supabase
+      .from('tournament_rosters')
+      .delete()
+      .in('tournament_id', tournamentIds);
+    if (rosterDeleteError) {
+      throw new Error(`tournament_rosters delete: ${rosterDeleteError.message}`);
+    }
+  }
+
+  await upsertChunks(
+    'tournament_rosters',
+    rosterRows,
+    'tournament_id,team_id,player_id'
+  );
+}
+
 export async function saveAppDataToSupabase(
   teams: Team[],
   tournaments: Tournament[],
@@ -919,7 +956,11 @@ export async function saveAppDataToSupabase(
   }
   await upsertChunks('tournament_teams', junctionRows, 'tournament_id,team_id');
 
-  const rosterRows = tournamentRosters.map(tournamentRosterEntryToDbRow);
+  const rosterRows = dedupeTournamentRostersForDb(
+    tournamentRosters,
+    games,
+    normalizedTeams
+  ).map(tournamentRosterEntryToDbRow);
   if (tournamentIds.length > 0) {
     const { error: rosterDeleteError } = await supabase
       .from('tournament_rosters')

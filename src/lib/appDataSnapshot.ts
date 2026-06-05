@@ -1,4 +1,4 @@
-import type { Game, Player, Team, Tournament } from '../App';
+import type { Game, GameStats, Player, Team, TeamStats, Tournament } from '../App';
 import { DEFAULT_LEAGUE_ID } from '../api/supabaseData';
 import type { LoadedAppData } from '../api/supabaseData';
 import {
@@ -11,8 +11,53 @@ import {
 } from '../utils/activeGame';
 import { dedupeTeamsById } from '../utils/rosterPlayers';
 
-export const APP_DATA_SNAPSHOT_VERSION = 2;
+export const APP_DATA_SNAPSHOT_VERSION = 4;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
+/** Stay under typical 5MB localStorage quota. */
+const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024;
+
+const ROSTER_ONLY_GAME_STAT: GameStats = {
+  playerId: '',
+  points: 0,
+  fg_made: 0,
+  fg_attempted: 0,
+  three_made: 0,
+  three_attempted: 0,
+  ft_made: 0,
+  ft_attempted: 0,
+  orb: 0,
+  drb: 0,
+  assists: 0,
+  steals: 0,
+  blocks: 0,
+  turnovers: 0,
+  fouls: 0,
+  tech_fouls: 0,
+  unsportsmanlike_fouls: 0,
+  fouls_drawn: 0,
+  blocks_received: 0,
+  plus_minus: 0,
+  minutes_played: 0,
+};
+
+/** Compact game row for localStorage (v4). */
+export interface SnapshotGame {
+  id: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  tournamentId?: string;
+  date: string;
+  isActive: boolean;
+  isCompleted: boolean;
+  /** Player ids with box-score rows — enough for tournament roster reconcile. */
+  playerIds: string[];
+  homeStarters: string[];
+  awayStarters: string[];
+  finalScore?: { home: number; away: number };
+  currentPeriod: number;
+  currentGameTime: string;
+  trackBothTeams: boolean;
+}
 
 export interface AppDataSnapshot {
   version: number;
@@ -20,10 +65,9 @@ export interface AppDataSnapshot {
   leagueId: string;
   teams: Team[];
   tournaments: Tournament[];
-  games: Game[];
+  games: SnapshotGame[];
   darkMode: boolean;
-  orphanPlayers: Player[];
-  tournamentRosters?: TournamentRosterEntry[];
+  tournamentRosters: TournamentRosterEntry[];
 }
 
 export interface ProcessedAppData {
@@ -38,6 +82,194 @@ export interface ProcessedAppData {
   orphanGameIds: string[];
   playerMeasurementsMigrationPending?: boolean;
   playerStorageSchema?: LoadedAppData['playerStorageSchema'];
+}
+
+function emptyTeamStats(teamId: string): TeamStats {
+  return {
+    teamId,
+    q1_points: 0,
+    q2_points: 0,
+    q3_points: 0,
+    q4_points: 0,
+    ot_points: 0,
+    total_points: 0,
+    fg_made: 0,
+    fg_attempted: 0,
+    three_made: 0,
+    three_attempted: 0,
+    two_made: 0,
+    two_attempted: 0,
+    ft_made: 0,
+    ft_attempted: 0,
+    orb: 0,
+    drb: 0,
+    team_rebounds: 0,
+    total_rebounds: 0,
+    assists: 0,
+    steals: 0,
+    blocks: 0,
+    turnovers: 0,
+    fouls: 0,
+    points_off_turnovers: null,
+    points_in_paint: null,
+    second_chance_points: null,
+    fastbreak_points: null,
+    bench_points: null,
+    biggest_lead: null,
+    biggest_scoring_run: null,
+  };
+}
+
+function toSnapshotPlayer(player: Player): Player {
+  return {
+    id: player.id,
+    name: player.name,
+    number: player.number,
+    position: player.position,
+    secondaryPosition: player.secondaryPosition,
+    height: player.height,
+    weight: player.weight,
+    age: player.age,
+    dateOfBirth: player.dateOfBirth,
+  };
+}
+
+function toSnapshotTeams(teams: Team[]): Team[] {
+  return teams.map((team) => ({
+    ...team,
+    icon: undefined,
+    description: undefined,
+    players: (team.players ?? []).map(toSnapshotPlayer),
+  }));
+}
+
+function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
+  return tournaments.map((tournament) => ({
+    id: tournament.id,
+    name: tournament.name,
+    year: tournament.year,
+    month: tournament.month,
+    teams: tournament.teams ?? [],
+    games: tournament.games ?? [],
+    standings: [],
+  }));
+}
+
+export function toSnapshotGames(games: Game[]): SnapshotGame[] {
+  return games.map((game) => ({
+    id: game.id,
+    homeTeamId: game.homeTeamId || game.homeTeam?.id || '',
+    awayTeamId: game.awayTeamId || game.awayTeam?.id || '',
+    tournamentId: game.tournamentId,
+    date: game.date,
+    isActive: game.isActive,
+    isCompleted: game.isCompleted,
+    playerIds: [
+      ...new Set(
+        (game.gameStats ?? []).map((stat) => stat.playerId).filter(Boolean)
+      ),
+    ],
+    homeStarters: game.homeStarters ?? [],
+    awayStarters: game.awayStarters ?? [],
+    finalScore: game.finalScore,
+    currentPeriod: game.currentPeriod ?? 1,
+    currentGameTime: game.currentGameTime ?? '0:00',
+    trackBothTeams: game.trackBothTeams ?? true,
+  }));
+}
+
+function playerIdsToGameStats(playerIds: string[]): GameStats[] {
+  return playerIds.map((playerId) => ({
+    ...ROSTER_ONLY_GAME_STAT,
+    playerId,
+  }));
+}
+
+export function hydrateSnapshotGames(
+  snapshotGames: SnapshotGame[],
+  teams: Team[]
+): Game[] {
+  const teamById = new Map(teams.map((team) => [team.id, team]));
+  const shellTeam = (teamId: string): Team =>
+    teamById.get(teamId) ?? {
+      id: teamId,
+      name: teamId,
+      abbreviation: '?',
+      players: [],
+    };
+
+  return snapshotGames.map((row) => {
+    const legacyStats = (row as SnapshotGame & { gameStats?: GameStats[] })
+      .gameStats;
+    const gameStats =
+      row.playerIds?.length > 0
+        ? playerIdsToGameStats(row.playerIds)
+        : legacyStats?.length
+          ? legacyStats
+          : [];
+
+    return {
+      id: row.id,
+      homeTeamId: row.homeTeamId,
+      awayTeamId: row.awayTeamId,
+      homeTeam: shellTeam(row.homeTeamId),
+      awayTeam: shellTeam(row.awayTeamId),
+      tournamentId: row.tournamentId,
+      date: row.date,
+      gameStats,
+      teamStats: {
+        home: emptyTeamStats(row.homeTeamId),
+        away: emptyTeamStats(row.awayTeamId),
+      },
+      shots: [],
+      events: [],
+      lineupStints: [],
+      currentPeriod: row.currentPeriod,
+      currentGameTime: row.currentGameTime,
+      homeStarters: row.homeStarters ?? [],
+      awayStarters: row.awayStarters ?? [],
+      trackBothTeams: row.trackBothTeams,
+      isActive: row.isActive,
+      isCompleted: row.isCompleted,
+      finalScore: row.finalScore,
+    };
+  });
+}
+
+/** @deprecated use isSnapshotUsable */
+export function isSnapshotTeamsStale(teams: Team[]): boolean {
+  if (teams.length === 0) return true;
+  const playerCount = teams.reduce(
+    (sum, team) => sum + (team.players?.length ?? 0),
+    0
+  );
+  return playerCount === 0;
+}
+
+export function isSnapshotUsable(snapshot: AppDataSnapshot): boolean {
+  if (snapshot.version !== APP_DATA_SNAPSHOT_VERSION) return false;
+  if (snapshot.teams.length === 0 || snapshot.games.length === 0) return false;
+  return !isSnapshotTeamsStale(snapshot.teams);
+}
+
+function buildSnapshotBody(payload: {
+  leagueId?: string;
+  teams: Team[];
+  tournaments: Tournament[];
+  games: Game[];
+  darkMode: boolean;
+  tournamentRosters?: TournamentRosterEntry[];
+}): AppDataSnapshot {
+  return {
+    version: APP_DATA_SNAPSHOT_VERSION,
+    savedAt: Date.now(),
+    leagueId: payload.leagueId ?? DEFAULT_LEAGUE_ID,
+    teams: toSnapshotTeams(payload.teams),
+    tournaments: toSnapshotTournaments(payload.tournaments),
+    games: toSnapshotGames(payload.games),
+    darkMode: payload.darkMode,
+    tournamentRosters: payload.tournamentRosters ?? [],
+  };
 }
 
 export function processLoadedAppData(data: LoadedAppData): ProcessedAppData {
@@ -74,9 +306,18 @@ export function readAppDataSnapshot(
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as AppDataSnapshot;
-    if (parsed.version !== APP_DATA_SNAPSHOT_VERSION) return null;
     if (parsed.leagueId !== leagueId) return null;
     if (!Array.isArray(parsed.teams) || !Array.isArray(parsed.games)) {
+      return null;
+    }
+    if (!isSnapshotUsable(parsed)) {
+      if (import.meta.env.DEV) {
+        console.info('[RunItBack] discarding unusable snapshot', {
+          version: parsed.version,
+          teams: parsed.teams.length,
+          games: parsed.games.length,
+        });
+      }
       return null;
     }
     return parsed;
@@ -94,31 +335,44 @@ export function saveAppDataSnapshot(payload: {
   orphanPlayers: Player[];
   tournamentRosters?: TournamentRosterEntry[];
 }): void {
+  if (payload.teams.length === 0 || payload.games.length === 0) {
+    return;
+  }
+
   try {
-    const snapshot: AppDataSnapshot = {
-      version: APP_DATA_SNAPSHOT_VERSION,
-      savedAt: Date.now(),
-      leagueId: payload.leagueId ?? DEFAULT_LEAGUE_ID,
-      teams: payload.teams,
-      tournaments: payload.tournaments,
-      games: payload.games,
-      darkMode: payload.darkMode,
-      orphanPlayers: payload.orphanPlayers,
-      tournamentRosters: payload.tournamentRosters ?? [],
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot));
+    const snapshot = buildSnapshotBody(payload);
+    const serialized = JSON.stringify(snapshot);
+
+    if (serialized.length > MAX_SNAPSHOT_CHARS) {
+      console.warn(
+        '[RunItBack] Snapshot too large; skipping localStorage write.',
+        { chars: serialized.length, max: MAX_SNAPSHOT_CHARS }
+      );
+      return;
+    }
+
+    localStorage.setItem(STORAGE_KEY, serialized);
+    if (import.meta.env.DEV) {
+      console.info('[RunItBack] snapshot saved', {
+        chars: serialized.length,
+        teams: snapshot.teams.length,
+        games: snapshot.games.length,
+        tournamentRosters: snapshot.tournamentRosters.length,
+      });
+    }
   } catch (err) {
     console.warn('[RunItBack] Could not write app data snapshot:', err);
   }
 }
 
 export function snapshotToLoadedAppData(snapshot: AppDataSnapshot): LoadedAppData {
+  const games = hydrateSnapshotGames(snapshot.games, snapshot.teams);
   return {
     teams: snapshot.teams,
     tournaments: snapshot.tournaments,
-    games: snapshot.games,
+    games,
     darkMode: snapshot.darkMode,
-    orphanPlayers: snapshot.orphanPlayers,
+    orphanPlayers: [],
     tournamentRosters: snapshot.tournamentRosters ?? [],
   };
 }
