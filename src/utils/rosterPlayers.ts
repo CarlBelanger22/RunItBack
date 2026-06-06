@@ -164,12 +164,14 @@ export function getLeaguePlayerPool(
     { player: Player; teamIds: string[]; teamNames: string[] }
   >();
 
-  for (const team of teams) {
-    for (const player of team.players ?? []) {
+  for (const team of dedupeTeamsById(teams)) {
+    for (const player of dedupeTeamPlayers(team.players ?? [])) {
       const existing = byId.get(player.id);
       if (existing) {
-        existing.teamIds.push(team.id);
-        existing.teamNames.push(team.name);
+        if (!existing.teamIds.includes(team.id)) {
+          existing.teamIds.push(team.id);
+          existing.teamNames.push(team.name);
+        }
       } else {
         byId.set(player.id, {
           player,
@@ -192,6 +194,33 @@ export function getLeaguePlayerPool(
   return [...byId.values()].sort((a, b) =>
     a.player.name.localeCompare(b.player.name)
   );
+}
+
+function playerMatchesSearchQuery(player: Player, query: string): boolean {
+  const q = query.toLowerCase();
+  return (
+    player.name.toLowerCase().includes(q) ||
+    String(player.number).includes(q) ||
+    (player.position ?? '').toLowerCase().includes(q)
+  );
+}
+
+/** Dashboard search: one row per player profile, all teams in subtitle. */
+export function searchLeaguePlayers(
+  teams: Team[],
+  query: string,
+  options?: { limit?: number; orphanPlayers?: Player[] }
+): Array<{ player: Player; teamNames: string[] }> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+
+  const limit = options?.limit ?? 5;
+  const pool = getLeaguePlayerPool(teams, options?.orphanPlayers ?? []);
+
+  return pool
+    .filter(({ player }) => playerMatchesSearchQuery(player, trimmed))
+    .slice(0, limit)
+    .map(({ player, teamNames }) => ({ player, teamNames }));
 }
 
 export function isPlayerOnTeam(playerId: string, teamId: string, teams: Team[]): boolean {

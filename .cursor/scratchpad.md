@@ -6844,3 +6844,287 @@ All players ∈ [5.0, 28.0]. Rank by minutes ≈ rank by EFF (minor jitter inver
 - **Executor (2026-06-06):** MOB minutes applied (seed `20230418`). Team total verified **200:00**. Hard-refresh and spot-check.
 
 ---
+
+## SAFSA-C — Carl-only games import (Designer, 2026-06-07)
+
+### Background
+
+Human has **Mens Qualifiers '23** spreadsheet with **Carl Belanger** game logs for SAFSA Arion in **NBL Div 2 2023** (`tournament-1780425044074`). For **6 games** they have **no full team box scores** — only Carl's line + final score. Goal: import those games into RunItBack so Carl's profile / SAFSA game history is complete.
+
+**Locked so far:**
+- Carl **22–28 min/game**, randomized per game
+- Macpherson on **25 Apr 2023**
+- Carl `player-sunig-ntu-22`, SAFSA `team-kx-div2-safsa`
+
+### What already exists in app (4 full-team HTML imports)
+
+| # | Opponent | Result | Date (current JSON) | Carl in JSON | Notes |
+|---|----------|--------|---------------------|--------------|-------|
+| 1 | KTS Black | W 65–61 | 2023-03-22 | ✓ 5 pts, 21 min | Full team stats; matches spreadsheet |
+| 2 | Police SA 2 | W 69–53 | 2023-04-02 | ✓ 13 pts, 28.4 min | Full team; matches spreadsheet |
+| 3 | MOB | W 103–64 | 2023-04-18 | **No Carl row** | Spreadsheet: **Covid DNP** ✓ |
+| 4 | Tungsan YH | W 63–48 | 2023-04-16 | ✓ 8 pts, 22.5 min | Full team; Carl pts match |
+
+**No Executor work on 1–4 unless human wants Carl minutes re-rolled to 22–28 on existing games.**
+
+### Games to import (Carl-only — from spreadsheet + schedule)
+
+| # | Opponent | Result (SAFSA–Opp) | Date (proposed) | Source |
+|---|----------|-------------------|-----------------|--------|
+| 5 | Macpherson | L **48–62** | **2023-04-25** | Human confirmed |
+| 6 | Chong Ghee Team 2 | L **45–66** | 2023-05-05 (Fri 7pm) | Schedule screenshot |
+| 7 | Clementi (True Hope) | L **45–62** | 2023-05-14 (Sun 3pm) | Schedule — **away** game |
+| 8 | Sin Kee | W **84–76** | 2023-05-16 (Tue 7pm) | Schedule — **away** game |
+| 9 | SBA Gold | L **55–92** | 2023-05-21 (Sun 4:30pm) | Schedule |
+| 10 | Kai Xuan Black | L **57–85** | 2023-05-23 (Tue 8:30pm) | Schedule |
+
+### Carl stat lines to import (from spreadsheet)
+
+| Game | PTS | REB | AST | STL | BLK | TO | FG | 3PT | FT |
+|------|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+| Macpherson | 8 | 6 | 0 | 1 | 0 | 1 | 4/8 | 0/0 | 0/0 |
+| Chong Ghee | 6 | 8 | 1 | 0 | 1 | 1 | 3/7 | 0/0 | 0/0 |
+| Clementi | 8 | 13 | 1 | 0 | 0 | 1 | 4/11 | 0/4 | 0/0 |
+| Sin Kee | 12 | 12 | 1 | 1 | 2 | 3 | 4/8 | 0/0 | 4/6 |
+| SBA Gold | 8 | 11 | 1 | 0 | 2 | 2 | 4/8 | 0/0 | 0/0 |
+| Kai Xuan Black | 23 | 15 | 1 | 0 | 1 | 2 | 9/17 | 3/4 | 2/2 |
+
+### Locked human decisions (2026-06-07 — final)
+
+| # | Decision |
+|---|----------|
+| Q1 | **Kai Xuan Black** → `team-1780252086140` (Kai Xuan) |
+| Q2 | **Chong Ghee Team 2** → `team-kx-div2-chong-ghee` |
+| Q3 | **SAFSA always home** (all 6 JSON bundles) |
+| Q4 | REB split: **30% ORB / 70% DRB**, rounded (`drb = total − orb`) |
+| Q5 | Minutes **22–28** on **6 new games only** — **do not touch** KTS / Police / Tungsan / MOB |
+| Q6 | MOB DNP — **no UI marker**; keep no Carl row |
+| Q7 | **1 personal foul** per Carl game |
+| Q8 | Dates **confirmed** (see table below) |
+| Safety | **Do not overwrite** players, rosters, existing games, tournament metadata — **insert 6 new games only** |
+
+### Opponent map (locked)
+
+| Opponent | `away_team_id` | DB name |
+|----------|----------------|---------|
+| Macpherson | `team-1780430756170` | Macpherson Basketball |
+| Chong Ghee | `team-kx-div2-chong-ghee` | Chong Ghee |
+| Clementi | `team-kx-div2-clementi` | Clementi True Hope |
+| Sin Kee | `team-kx-div2-skc` | Sin Kee Basketball Club |
+| SBA Gold | `team-1780430810123` | SBA Gold |
+| Kai Xuan Black | `team-1780252086140` | Kai Xuan |
+
+**Note:** Kai Xuan is **not** in the 10-team `tournament.teamIds` enrollment list. Game row may reference it as `away_team_id`; **do not** add Kai Xuan to `tournament.teamIds` in bundles (avoids changing tournament enrollment).
+
+### REB split helper
+
+```typescript
+function splitRebounds(total: number): { orb: number; drb: number } {
+  const orb = Math.round(total * 0.3);
+  return { orb, drb: total - orb };
+}
+```
+
+### Locked game table (Executor copy-paste)
+
+Seed `20230607` for minutes: `round1(uniform(22, 28))` per game in order below.
+
+| game_id | date | Opp | W/L | SAFSA | Opp | Min | ORB/DRB | FG | 3PT | FT | AST | STL | BLK | TO | PF |
+|---------|------|-----|-----|-------|-----|-----|---------|-----|-----|-----|-----|-----|-----|-----|-----|
+| `game-safsa23-2023-04-25-macpherson` | 2023-04-25 | MAC | L | 48 | 62 | **25.3** | 2/4 | 4/8 | 0/0 | 0/0 | 0 | 1 | 0 | 1 | 1 |
+| `game-safsa23-2023-05-05-chong-ghee` | 2023-05-05 | CG | L | 45 | 66 | **27.2** | 2/6 | 3/7 | 0/0 | 0/0 | 1 | 0 | 1 | 1 | 1 |
+| `game-safsa23-2023-05-14-clementi` | 2023-05-14 | CLEM | L | 45 | 62 | **26.9** | 4/9 | 4/11 | 0/4 | 0/0 | 1 | 0 | 0 | 1 | 1 |
+| `game-safsa23-2023-05-16-sinkee` | 2023-05-16 | SKB | W | 84 | 76 | **27.7** | 4/8 | 4/8 | 0/0 | 4/6 | 1 | 1 | 2 | 3 | 1 |
+| `game-safsa23-2023-05-21-sba` | 2023-05-21 | SBA | L | 55 | 92 | **23.7** | 3/8 | 4/8 | 0/0 | 0/0 | 1 | 0 | 2 | 2 | 1 |
+| `game-safsa23-2023-05-23-kai-xuan` | 2023-05-23 | KX | L | 57 | 85 | **25.5** | 4/11 | 9/17 | 3/4 | 2/2 | 1 | 0 | 1 | 2 | 1 |
+
+Carl `playerId`: `player-sunig-ntu-22`. Home: `team-kx-div2-safsa`. `trackBothTeams: false`.
+
+### Import bundle shape (Carl-only)
+
+Per game JSON under `Importingboxscores/SAFSA Div2 '23/json/`:
+
+- `tournament` — **copy exact** `id`, `name`, `year`, `month`, `teamIds` from existing SAFSA bundle (10 teams only)
+- `teams` — **SAFSA + opponent only**, `players: []` always (no player upserts)
+- `game.gameStats` — **single row** (Carl only)
+- `game.homeStarters` — `[player-sunig-ntu-22]`
+- `game.awayStarters` — `[]`
+- Placeholders: `fouls_drawn: 0`, `plus_minus: 0`, `tech_fouls: 0`, `unsportsmanlike_fouls: 0`, `blocks_received: 0`
+- `shots: []`, `events: []`, `lineupStints: []`
+- `teamStats.home/away` — `total_points` only (rest 0), matching `finalScore`
+
+### Non-destructive import protocol (mandatory)
+
+| Rule | How |
+|------|-----|
+| No player overwrite | `teams[].players: []`; import with `--stats-only` only |
+| No roster / `team_players` touch | Import script does not write junction table |
+| No existing game overwrite | **New `game_id`s only** — dry-run first; abort if id exists |
+| No tournament edit | Reuse existing tournament fields; **do not** extend `teamIds` for Kai Xuan |
+| No re-import of games 1–4 | Do not run import on KTS / Police / Tungsan / MOB JSON |
+| Club roster | Optional post-step: `rebuild:club-rosters` adds Carl on SAFSA for new games only (game-derived); **ask human before** if concerned about merge |
+
+### Product caveat (Carl-only box score)
+
+SAFSA tab shows **Carl only**; header score correct (e.g. 48–62). Team totals row = Carl's line, not full team — **accepted**.
+
+### High-level task breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SAFSA-C.1** | `scripts/build-safsa-carl-only-imports.ts` + `npm run build:safsa-carl-only` | 6 JSON files; Carl stats + minutes match locked table |
+| **SAFSA-C.2** | Dry-run all 6: `import:boxscore -- --stats-only --dry-run` | No existing-id collision; summary shows 1 game_stat row each |
+| **SAFSA-C.3** | Live import × 6 `--stats-only` | 6 new rows in `games`; existing 4 unchanged |
+| **SAFSA-C.4** | `npm run build` | Passes |
+| **SAFSA-C.5** | Human QA | Carl 10 games in NBL 2023; MOB no Carl; new games 22–28 min |
+
+### Project Status Board — SAFSA-C
+
+- [x] **Designer:** SAFSA-C spec finalized (human Q1–Q8 locked)
+- [x] **Human:** Executor proceed
+- [x] **Executor:** SAFSA-C.1 — `build-safsa-carl-only-imports.ts` + 6 JSON files
+- [x] **Executor:** SAFSA-C.2 — dry-run × 6 OK (1 game_stat row each)
+- [x] **Executor:** SAFSA-C.3 — live `--stats-only` import × 6 OK
+- [x] **Executor:** SAFSA-C.4 — `npm run build` passes
+- [ ] **Human:** SAFSA-C.5 QA — Carl 9 NBL 2023 games (MOB DNP); hard refresh
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-07):** SAFSA-C.1–C.4 done. Games: Macpherson, Chong Ghee, Clementi, Sin Kee, SBA, Kai Xuan imported. Existing 4 games untouched. **Hard-refresh** and check Carl Player Page game log (expect 9 played + MOB without Carl).
+
+---
+
+## SEARCH-1 — Dedupe player search results (Designer, 2026-06-07)
+
+### Background
+
+Human QA: dashboard search for **"car"** shows **5× Carl Belanger #22** — one row per team affiliation (SAFSA ×2, NTU ×2, Kai Xuan ×1 in screenshot). Carl is a **single player profile** (`player-sunig-ntu-22`); search should show **one row per `player.id`**, same for all multi-team players.
+
+### Root cause (verified in code)
+
+`App.tsx` `searchResults` useMemo (~L1920):
+
+```typescript
+teams.forEach(team => {
+  team.players.forEach(player => {
+    if (matches query) matchedPlayers.push({ player, team });
+  });
+});
+```
+
+- Emits **one hit per (team, player)** roster link — multi-team players appear N times.
+- React `key={player.id}` on duplicate rows → **duplicate key warning** risk.
+- `slice(0, 5)` limits to 5 **rows**, not 5 **unique players** — multi-team players crowd out other matches.
+
+**Why 5 not 3?** Carl is on ≥3 clubs (SAFSA, NTU, Kai Xuan). Extra rows likely **duplicate team rows** in `teams` state (same club appearing twice before full dedupe in edge paths) or duplicate `team_players` hydration — **secondary data audit**, not required for UI fix.
+
+**Existing correct pattern:** `getLeaguePlayerPool()` in `rosterPlayers.ts` already dedupes by `player.id` and aggregates `teamNames[]` — used by `AddPlayerDialog`.
+
+**Navigation:** `playerPath(player)` uses **player id only** — no team context needed. `findPlayer()` returns first team match; PlayerPage is multi-team aware.
+
+### Locked product rule
+
+> Global search returns **at most one row per player profile**. Subtitle lists **all teams** (comma-separated). Jersey/position from canonical player object (profile fields; number may differ per team — display `#22` from first resolved roster or profile).
+
+### Proposed fix
+
+#### SEARCH-1.A — `searchLeaguePlayers()` helper (`rosterPlayers.ts`)
+
+```typescript
+export function searchLeaguePlayers(
+  teams: Team[],
+  query: string,
+  options?: { limit?: number; orphanPlayers?: Player[] }
+): Array<{ player: Player; teamNames: string[] }>
+```
+
+1. Build pool via same logic as `getLeaguePlayerPool(teams, orphanPlayers)` (dedupe by `player.id`).
+2. Filter where `name`, `number`, or `position` matches query (case-insensitive).
+3. Sort by name; `slice(limit ?? 5)`.
+4. Unit test: Carl on 3 teams → **1** result with `teamNames.length === 3`.
+
+#### SEARCH-1.B — `App.tsx` search UI
+
+- Replace nested `teams.forEach` loop with `searchLeaguePlayers(teams, query, { orphanPlayers: loadedOrphanPlayers, limit: 5 })`.
+- Render:
+
+```text
+#22 Carl Belanger
+C · SAFSA Arion, Nanyang Technological University, Kai Xuan
+```
+
+- `key={player.id}` (now unique).
+- Optional: dedupe `teams` with `dedupeTeamsById(teams)` before search (defensive).
+
+#### SEARCH-1.C — Tests
+
+- `scripts/test-search-league-players.ts` or vitest in `rosterPlayers` tests:
+  - Multi-team player → 1 hit
+  - Two different players matching → 2 hits
+  - Orphan player included
+
+### Out of scope
+
+- Merging duplicate `team_players` DB rows (data cleanup) — separate if audit finds duplicates
+- Tournament page / other pickers (already use `getLeaguePlayerPool`)
+- Changing player URL or PlayerPage multi-team behaviour
+
+### High-level task breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SEARCH-1.1** | Add `searchLeaguePlayers` + tests | Carl mock → 1 row, 3 team names |
+| **SEARCH-1.2** | Wire `App.tsx` dashboard search | Search "car" → **1** Carl row |
+| **SEARCH-1.3** | `npm run build` | Passes |
+| **SEARCH-1.4** | Human QA | Any multi-team player shows once |
+
+### Project Status Board — SEARCH-1
+
+- [x] **Designer:** SEARCH-1 spec (this section)
+- [x] **Human:** One row per player profile; applies to all players
+- [x] **Human:** Executor proceed
+- [x] **Executor:** SEARCH-1.1 — `searchLeaguePlayers` + `getLeaguePlayerPool` team-id dedupe
+- [x] **Executor:** SEARCH-1.2 — `App.tsx` dashboard search wired
+- [x] **Executor:** SEARCH-1.3 — `test:search-league-players` + `npm run build` OK
+- [ ] **Human:** SEARCH-1.4 QA — search "car" → 1 Carl row, all teams in subtitle
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-07):** SEARCH-1.1–1.3 done. **Hard-refresh** dashboard and search `car` — expect one Carl Belanger with teams comma-separated.
+
+---
+
+## SEARCH-2 — Team icon in search dropdown (Designer, 2026-06-07)
+
+### Background
+
+Human QA: typing **`c`** in dashboard search shows **Teams** rows displaying raw `data:image/png;base64,...` strings instead of logos or abbreviations.
+
+### Root cause
+
+`App.tsx` search team row (~L2081):
+
+```tsx
+<span className="text-lg">{team.icon || '🏀'}</span>
+```
+
+Many teams store **uploaded logos** as data-URL strings in `team.icon`. Rendering that string as **text** dumps base64 into the UI. Rest of app uses **`TeamBadge`** (`resolveTeamIconSrc` + `<img>` or abbreviation fallback).
+
+Search **matching** on `c` is expected (team names/abbrevs like Chong Ghee, Clementi, etc.) — not a bug.
+
+### Fix (locked)
+
+Replace raw `team.icon` text with **`<TeamBadge team={team} teamId={team.id} size="lg" />`** in dashboard search dropdown only.
+
+### Out of scope
+
+- Minimum query length (e.g. 2 chars) — not requested
+- Changing team search fields
+
+### Project Status Board — SEARCH-2
+
+- [x] **Designer:** SEARCH-2 spec
+- [x] **Executor:** Use `TeamBadge` in search team rows
+- [ ] **Human:** QA — search `c` shows logos/abbrevs, not base64 text
+
+---

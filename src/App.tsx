@@ -15,6 +15,7 @@ interface IdleDeadline {
 }
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
+import { TeamBadge } from './components/TeamBadge';
 import { isSupabaseConfigured } from './lib/supabase';
 import {
   deleteGamesFromSupabase,
@@ -56,6 +57,7 @@ import {
 import {
   dedupeTeamPlayers,
   dedupeTeamsById,
+  searchLeaguePlayers,
   validateTeamRosterUpdate,
   wouldTournamentEnrollmentViolateOverlap,
 } from './utils/rosterPlayers';
@@ -1917,18 +1919,11 @@ export default function App() {
       (team.abbreviation ?? '').toLowerCase().includes(query)
     ).slice(0, 5);
     
-    // Search players
-    const matchedPlayers: Array<{ player: Player; team: Team }> = [];
-    teams.forEach(team => {
-      team.players.forEach(player => {
-        if (player.name.toLowerCase().includes(query) || 
-            player.number.toString().includes(query) ||
-            (player.position ?? '').toLowerCase().includes(query)) {
-          matchedPlayers.push({ player, team });
-        }
-      });
+    const matchedPlayers = searchLeaguePlayers(teams, query, {
+      limit: 5,
+      orphanPlayers,
     });
-    
+
     // Search games
     const matchedGames = games.filter(game => 
       (game.homeTeam?.name ?? '').toLowerCase().includes(query) ||
@@ -1938,12 +1933,12 @@ export default function App() {
       (game.date ?? '').includes(query)
     ).slice(0, 5);
     
-    return { 
-      teams: matchedTeams, 
-      players: matchedPlayers.slice(0, 5), 
-      games: matchedGames 
+    return {
+      teams: matchedTeams,
+      players: matchedPlayers,
+      games: matchedGames,
     };
-  }, [searchQuery, teams, games]);
+  }, [searchQuery, teams, games, orphanPlayers]);
 
   if (isDataLoading) {
     return (
@@ -2084,7 +2079,7 @@ export default function App() {
                         }}
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
                       >
-                        <span className="text-lg">{team.icon || '🏀'}</span>
+                        <TeamBadge team={team} teamId={team.id} size="lg" />
                         <div>
                           <div className="font-medium">{team.name}</div>
                           <div className="text-xs text-muted-foreground">{team.abbreviation}</div>
@@ -2098,7 +2093,7 @@ export default function App() {
                 {searchResults.players.length > 0 && (
                   <div className="p-2 border-t">
                     <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Players</div>
-                    {searchResults.players.map(({ player, team }) => (
+                    {searchResults.players.map(({ player, teamNames }) => (
                       <button
                         key={player.id}
                         onClick={() => {
@@ -2115,7 +2110,7 @@ export default function App() {
                           #{player.number} {player.name}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {player.position} · {team.name}
+                          {player.position} · {teamNames.join(', ')}
                         </div>
                       </button>
                     ))}
