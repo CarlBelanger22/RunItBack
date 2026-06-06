@@ -1,0 +1,127 @@
+{
+  "version": "1",
+  "tournament": {
+    "id": "tournament-1780771500232",
+    "name": "ShengGong Cup",
+    "year": 2019,
+    "month": "Nov",
+    "teamIds": [
+      "team-kx-div2-safsa",
+      "team-1780252086140",
+      "team-1780771604986",
+      "team-1780771652992",
+      "team-1780430810123",
+      "team-1780771829979"
+    ]
+  },
+  "teams": [
+    {
+      "id": "team-1780252086140",
+      "name": "Kai Xuan",
+      "abbreviation": "KX",
+      "currentTournamentId": "tournament-1780771500232",
+      "players": []
+    },
+    {
+      "id": "team-1780771829979",
+      "name": "SBA Warriors",
+      "abbreviation": "SBAW",
+      "currentTournamentId": "tournament-1780771500232",
+      "players": []
+    }
+  ],
+  "game": {
+    "id": "game-shenggong19-2019-11-30-sba-warriors",
+    "homeTeamId": "team-1780252086140",
+    "awayTeamId": "team-1780771829979",
+    "tournamentId": "tournament-1780771500232",
+    "date": "2019-11-30",
+    "currentPeriod": 4,
+    "currentGameTime": "00:00",
+    "trackBothTeams": false,
+    "isActive": false,
+    "isCompleted": true,
+    "finalScore": {
+      "home": 62,
+      "away": 53
+    },
+    "homeStarters": [
+      "player-sunig-ntu-22"
+    ],
+    "awayStarters": [],
+    "gameStats": [
+      {
+        "playerId": "player-sunig-ntu-22",
+        "points": 12,
+        "fg_made": 6,
+        "fg_attempted": 12,
+        "three_made": 0,
+        "three_attempted": 2,
+        "ft_made": 0,
+        "ft_attempted": 2,
+        "orb": 5,
+        "drb": 13,
+        "assists": 1,
+        "steals": 2,
+        "blocks": 1,
+        "turnovers": 2,
+        "fouls": 2,
+        "tech_fouls": 0,
+        "unsportsmanlike_fouls": 0,
+        "fouls_drawn": 0,
+        "blocks_received": 0,
+        "plus_minus": 0,
+        "minutes_played": 35.8
+      }
+    ],
+    "teamStats": {
+      "home": {
+        "teamId": "team-1780252086140",
+        "q1_points": 0,
+        "q2_points": 0,
+        "q3_points": 0,
+        "q4_points": 0,
+        "ot_points": 0,
+        "total_points": 62,
+        "fg_made": 0,
+        "fg_attempted": 0,
+        "three_made": 0,
+        "three_attempted": 0,
+        "ft_made": 0,
+        "ft_attempted": 0,
+        "orb": 0,
+        "drb": 0,
+        "assists": 0,
+        "steals": 0,
+        "blocks": 0,
+        "turnovers": 0,
+        "fouls": 0
+      },
+      "away": {
+        "teamId": "team-1780771829979",
+        "q1_points": 0,
+        "q2_points": 0,
+        "q3_points": 0,
+        "q4_points": 0,
+        "ot_points": 0,
+        "total_points": 53,
+        "fg_made": 0,
+        "fg_attempted": 0,
+        "three_made": 0,
+        "three_attempted": 0,
+        "ft_made": 0,
+        "ft_attempted": 0,
+        "orb": 0,
+        "drb": 0,
+        "assists": 0,
+        "steals": 0,
+        "blocks": 0,
+        "turnovers": 0,
+        "fouls": 0
+      }
+    },
+    "shots": [],
+    "events": [],
+    "lineupStints": []
+  }
+}

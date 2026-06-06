@@ -7128,3 +7128,282 @@ Replace raw `team.icon` text with **`<TeamBadge team={team} teamId={team.id} siz
 - [ ] **Human:** QA — search `c` shows logos/abbrevs, not base64 text
 
 ---
+
+## SHENG-1 — Shenggong Cup 2019 Carl-only imports (Designer, 2026-06-07)
+
+### Background
+
+Human created **ShengGong Cup 2019** (`tournament-1780771500232`, Nov 2019) in the app. Goal: import **5 Carl-only game logs** for **Kai Xuan** (`team-1780252086140`), Carl `player-sunig-ntu-22`. Same pattern as SAFSA-C: single-sided box score (`trackBothTeams: false`), `--stats-only` import, no roster/player overwrites.
+
+**Verified in Supabase (Designer):**
+- Tournament enrolled: Kai Xuan, SAFSA, Novu Blaze, DT Sports, SBA 2, SBA Warriors (6 teams)
+- **0 games** in tournament yet
+- Carl **is** on Kai Xuan club roster (#22)
+
+### Human-provided schedule & minutes/fouls rules
+
+| # | Opponent | Date | Time | Result (from spreadsheet) | Min range | Fouls |
+|---|----------|------|------|---------------------------|-----------|-------|
+| 1 | Novu Blaze | 2019-11-19 | 7pm | L 51–79 | 20–28 random | 1 or 2 random |
+| 2 | SAFSA | 2019-11-20 | 7pm | L 38–71 | 13–18 random | **4** |
+| 3 | DT Sports | 2019-11-26 | 7pm | L 58–70 | 20–28 random | 1 or 2 random |
+| 4 | SBA | 2019-11-27 | 7pm | L 70–77 | 30–38 random | 2 or 3 random |
+| 5 | SBA Warriors | 2019-11-30 | 7pm | W 62–53 | 30–38 random | 2 or 3 random |
+
+### Carl stat lines (from spreadsheet screenshot — pending human confirm)
+
+| Game | PTS | REB | AST | STL | BLK | TO | FG | 3PT | FT |
+|------|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+| vs Novu Blaze | 7 | 5 | 2 | 0 | 3 | 0 | 3/3 | 0/0 | 1/1 |
+| vs SAFSA | 4 | 3 | 1 | 0 | 0 | 1 | 2/3 | 0/0 | 0/0 |
+| vs DT Sports | 4 | 12 | 1 | 0 | 0 | 2 | 2/6 | 0/2 | 0/0 |
+| vs SBA | 24 | 14 | 0 | 2 | 1 | 2 | 11/16 | 0/2 | 2/3 |
+| vs SBA Warriors | 12 | 18 | 1 | 2 | 1 | 2 | 6/12 | 0/2 | 0/2 |
+
+### Opponent ID map (from DB — locked unless human says otherwise)
+
+| Opponent | `team_id` | DB name |
+|----------|-----------|---------|
+| Novu Blaze | `team-1780771604986` | Novu Blaze |
+| SAFSA | `team-kx-div2-safsa` | SAFSA |
+| DT Sports | `team-1780771652992` | DT Sports |
+| SBA (Nov 27) | `team-1780430810123` | **SBA 2** |
+| SBA Warriors | `team-1780771829979` | SBA Warriors |
+
+### Proposed defaults (SAFSA-C parity — pending human lock)
+
+- **REB split:** 30% ORB / 70% DRB (`drb = total − orb`)
+- **Placeholders:** `fouls_drawn: 0`, `plus_minus: 0`, `tech_fouls: 0`, etc.
+- **Import:** `npm run import:boxscore -- --file "<json>" --stats-only`
+- **Build script:** `scripts/build-shenggong-carl-only-imports.ts` + `npm run build:shenggong-carl-only`
+- **JSON folder:** `Importingboxscores/Shenggong Cup 2019/json/` (or similar)
+- **Minutes/fouls RNG:** seeded PRNG (e.g. seed `20191119`) for reproducibility
+- **Date only** in JSON (no 7pm time field — app uses date string like SAFSA-C)
+
+### Open questions (need human answers before Executor)
+
+| # | Question | Answer |
+|---|----------|--------|
+| **Q1** | Scores: Kai Xuan–Opponent? | **Yes** |
+| **Q2** | Kai Xuan always home? | **Yes** |
+| **Q3** | Stat table correct? | **Yes** |
+| **Q4** | Nov 27 SBA → SBA 2? | **Yes** |
+| **Q5** | SAFSA fouls exactly 4? | **Yes** |
+| **Q6** | Seeded random fouls OK? | **Yes** |
+| **Q7** | REB split 30/70? | **Yes** |
+| **Q8** | Only these 5 games? | **Yes** |
+
+### Locked minutes/fouls (seed `20191119`)
+
+| game_id | date | Min | PF |
+|---------|------|-----|-----|
+| `game-shenggong19-2019-11-19-novu-blaze` | 2019-11-19 | 22.8 | 1 |
+| `game-shenggong19-2019-11-20-safsa` | 2019-11-20 | 16.9 | 4 |
+| `game-shenggong19-2019-11-26-dt-sports` | 2019-11-26 | 24.1 | 1 |
+| `game-shenggong19-2019-11-27-sba` | 2019-11-27 | 34.9 | 3 |
+| `game-shenggong19-2019-11-30-sba-warriors` | 2019-11-30 | 35.8 | 2 |
+
+### High-level task breakdown (Executor — after Q1–Q8 locked)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SHENG-1.1** | `build-shenggong-carl-only-imports.ts` + npm script | 5 JSON files; stats + minutes/fouls match locked table |
+| **SHENG-1.2** | Dry-run × 5 `--stats-only --dry-run` | No id collision; 1 game_stat row each |
+| **SHENG-1.3** | Live import × 5 | 5 new games in tournament; nothing else touched |
+| **SHENG-1.4** | `npm run build` | Passes |
+| **SHENG-1.5** | Human QA | Carl 5 games on Kai Xuan / Player Page; scores correct |
+
+### Project Status Board — SHENG-1
+
+- [x] **Designer:** Initial spec + DB audit
+- [x] **Human:** Answer Q1–Q8
+- [x] **Human:** Executor proceed
+- [x] **Executor:** SHENG-1.1 — `build-shenggong-carl-only-imports.ts` + 5 JSON files
+- [x] **Executor:** SHENG-1.2 — dry-run × 5 OK (1 game_stat row each)
+- [x] **Executor:** SHENG-1.3 — live `--stats-only` import × 5 OK
+- [x] **Executor:** SHENG-1.4 — `npm run build` passes
+- [ ] **Human:** SHENG-1.5 QA — Carl 5 games on Kai Xuan / Player Page; hard refresh
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-07):** SHENG-1.1–1.4 done. 5 games imported into ShengGong Cup 2019. Kai Xuan home, Carl-only box scores. **Hard-refresh** and check Carl Player Page game log + tournament page.
+
+---
+
+## TSTAT-1 — Tournament Player Stats: roster-only rows (Designer, 2026-06-07)
+
+### Background
+
+Human QA on **ShengGong Cup 2019 → Player Stats** tab: badge shows **42 Players** (all SAFSA + Kai Xuan club roster members with 0 GP), but only **Carl Belanger** should appear.
+
+**Verified in Supabase:**
+- `tournament_rosters` for `tournament-1780771500232`: **1 row** — Kai Xuan / `#22 Carl Belanger` (`player-sunig-ntu-22`)
+- 6 teams enrolled; only Carl has game stats in this tournament
+
+### Root cause
+
+`TournamentPage` `PlayersTab` calls:
+
+```typescript
+aggregatePlayerSeasonStats(tournamentGames, tournamentTeams);
+```
+
+In `playerSeasonStats.ts` `aggregatePlayerSeasonStats` (~L332–344), after aggregating from `gameStats`, it **pads every club-roster player** on enrolled teams with 0 GP:
+
+```typescript
+scopeTeams.forEach((team) => {
+  team.players.forEach((player) => {
+    if (!playerTotals.has(player.id)) {
+      playerTotals.set(player.id, { ... gamesPlayed: 0 });
+    }
+  });
+});
+```
+
+That pattern fits **Team page** (show full club roster with zeros) but is wrong for **Tournament page**, where membership should come from **`tournament_rosters`**, not club template.
+
+**Existing correct pattern:** `TeamPage` roster tab already uses `getPlayersForTeamInTournament(teamId, tournamentId, teams, tournamentRosters)` — same source of truth we need for stats.
+
+### Fix (locked)
+
+| Layer | Change |
+|-------|--------|
+| **`aggregatePlayerSeasonStats`** | Add optional `tournamentId` + `tournamentRosters` in options. When set, **replace** club-roster zero-padding with tournament-roster padding only (use roster entry's `teamId` + jersey from entry). |
+| **`TournamentPage`** | Accept `tournamentRosters` prop; pass `tournamentId` + rosters into `aggregatePlayerSeasonStats`. |
+| **`AppRoutes`** | Wire `tournamentRosters` into `TournamentDetailRoute` → `TournamentPage`. |
+
+**Behavior after fix:**
+
+| Context | Player list source |
+|---------|-------------------|
+| Team page (club scope) | Club roster + zeros (unchanged) |
+| Team page (tournament scope) | *Out of scope this task* — still uses club padding today |
+| **Tournament page Player Stats** | **`tournament_rosters` for that tournament only** |
+
+Players on tournament roster with 0 GP still show (intentional — e.g. DNP rostered). Club players not on tournament roster never appear.
+
+**Shenggong expected result:** **1 player** — Carl Belanger, KX, 5 GP.
+
+### Out of scope
+
+- Team page Player Stats when scoped to a single tournament (same underlying bug; separate ticket if human wants)
+- Rebuilding `tournament_rosters` data
+- Standings / leaders widgets (already game-stats-only)
+
+### High-level task breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **TSTAT-1.1** | Extend `aggregatePlayerSeasonStats` + unit test | Mock: 2 club players, 1 tournament roster row → 1 output row |
+| **TSTAT-1.2** | Wire `TournamentPage` + `AppRoutes` | Pass `tournamentRosters` |
+| **TSTAT-1.3** | `npm run build` + existing tests | Pass |
+| **TSTAT-1.4** | Human QA | Shenggong Player Stats → **1 player** (Carl); NBL Div 2 tournaments still list all who played |
+
+### Project Status Board — TSTAT-1
+
+- [x] **Designer:** TSTAT-1 spec + root cause
+- [x] **Human:** Only tournament-roster players on tournament Player Stats tab
+- [x] **Human:** Executor proceed (all tournaments, now and future)
+- [x] **Executor:** TSTAT-1.1 — `aggregatePlayerSeasonStats` tournament roster filter + tests
+- [x] **Executor:** TSTAT-1.2 — `TournamentPage` + `AppRoutes` wired
+- [x] **Executor:** TSTAT-1.3 — `test:tournament-player-stats`, `test:tournament-rosters`, `npm run build` OK
+- [ ] **Human:** TSTAT-1.4 QA — Shenggong → 1 player (Carl); full tournaments still correct
+
+### Executor's Feedback or Assistance Requests
+
+- **Designer (2026-06-07):** Shenggong tournament roster answer: **Carl Belanger (#22, Kai Xuan)** — only player in `tournament_rosters` for this tournament.
+- **Executor (2026-06-07):** TSTAT-1.1–1.3 done. Tournament Player Stats now uses `tournament_rosters` for every tournament page. **Hard-refresh** ShengGong Cup → Player Stats should show **1 player**.
+
+---
+
+## ENROLL-1 — Tournament enrollment vs game participation mismatch (Designer, 2026-06-07)
+
+### Background
+
+Human QA: **Kai Xuan team page** shows badge **NBL Div 2 2023**, but **NBL Div 2 2023 tournament → Teams tab** lists **10 teams** and **Kai Xuan is missing**.
+
+### Verified in Supabase
+
+| Check | Result |
+|-------|--------|
+| NBL Div 2 2023 (`tournament-1780425044074`) enrolled teams | **10** (official league list) |
+| Kai Xuan (`team-1780252086140`) in `tournament.teams` | **No** |
+| Kai Xuan games in this tournament | **1** — `game-safsa23-2023-05-23-kai-xuan` (SAFSA 57–85 Kai Xuan, Carl-only import) |
+| Unique teams appearing in tournament games | **11** — the 10 enrolled **plus Kai Xuan** |
+
+### Root cause — not a random bug, two different rules
+
+| Surface | Source of truth | Kai Xuan shown? |
+|---------|-----------------|-----------------|
+| **Team page** tournament badges | `getParticipatedTournaments()` = enrolled **OR** has a game in tournament | **Yes** (has game) |
+| **Tournament page** Teams tab | `tournament.teams` enrollment only | **No** (not enrolled) |
+
+```typescript
+// teamTournaments.ts — union of enrollment + games
+for (const game of games) {
+  if (game.homeTeamId === teamId || game.awayTeamId === teamId) ids.add(game.tournamentId);
+}
+for (const tournament of tournaments) {
+  if (tournament.teams.includes(teamId)) ids.add(tournament.id);
+}
+```
+
+```typescript
+// TournamentPage.tsx — enrollment only
+const tournamentTeams = teams.filter(team => tournament.teams.includes(team.id));
+```
+
+### Why Kai Xuan specifically
+
+SAFSA-C Carl-only import (`game-safsa23-2023-05-23-kai-xuan`) **deliberately** omitted Kai Xuan from `tournament.teamIds` in JSON (Designer note: avoid changing 10-team enrollment). Import still wrote the **game row** with `away_team_id = team-1780252086140`.
+
+Other Carl-only opponents (Macpherson, Clementi, Sin Kee, SBA) **were** already in the 10-team enrollment — only Kai Xuan is the outlier.
+
+Import script always upserts `tournament_teams` from bundle `teamIds` only — it does **not** auto-enroll home/away teams from the game.
+
+### Is anything else broken?
+
+| Area | Behavior |
+|------|----------|
+| **Games tab** | Kai Xuan game **visible** (games keyed by `tournamentId`) |
+| **Standings** | SAFSA record **includes** Kai Xuan game; Kai Xuan has **no standings row** (not enrolled) |
+| **Player Stats** | Carl stats count via game stats + tournament roster (separate from team enrollment) |
+
+So this is **enrollment drift**, not missing game data.
+
+### Fix options (need human lock)
+
+| Option | What | Pros | Cons |
+|--------|------|------|------|
+| **A — One-time data** | Add Kai Xuan to NBL 2023 `tournament_teams` | Instant fix for this case | Doesn't prevent recurrence |
+| **B — Import auto-enroll** | On any box score import, upsert `home_team_id` + `away_team_id` into `tournament_teams` if missing | Fixes all future imports | Changes enrollment when importing cross-tournament opponents |
+| **C — Tournament UI union** | Teams tab shows `enrolled ∪ teams in games` | Always consistent display | Enrollment table still stale; "Add Team" semantics blur |
+| **D — Team page strict** | Only show enrolled tournaments on team page | Matches tournament page | **Hides** NBL 2023 from Kai Xuan — wrong direction |
+
+**Designer recommendation:** **A + B** — one-time enroll Kai Xuan for NBL 2023, plus import auto-enroll for home/away on every import (stats-only and full). Keeps both pages aligned going forward without weakening enrollment as the canonical list.
+
+### Open questions
+
+| # | Question | Answer |
+|---|----------|--------|
+| **Q1** | Enroll Kai Xuan in NBL Div 2 2023? | **Yes** |
+| **Q2** | Auto-enroll home/away on future imports? | **Yes** |
+| **Q3** | Backfill all tournaments? | **No** |
+| **Q4** | Change nothing else in DB? | **Yes** — one `tournament_teams` insert only |
+
+**Locked approach:** One-time Kai Xuan enrollment + import auto-enroll (no backfill script).
+
+### Project Status Board — ENROLL-1
+
+- [x] **Designer:** ENROLL-1 spec + DB audit
+- [x] **Human:** Q1–Q4 locked
+- [x] **Executor:** ENROLL-1.1 — `tournamentEnrollment.ts` + import auto-enroll home/away
+- [x] **Executor:** ENROLL-1.2 — `enroll-kx-nbl2023.ts` (single row insert only)
+- [x] **Executor:** ENROLL-1.3 — `test:tournament-enrollment` + `npm run build` OK
+- [ ] **Human:** QA — NBL Div 2 2023 Teams tab shows Kai Xuan (11 teams); Kai Xuan page still shows tournament
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-07):** Inserted **one** row: Kai Xuan ↔ NBL Div 2 2023. No other DB writes. Future imports auto-enroll game home/away teams. **Hard-refresh** both pages to verify.
+
+---

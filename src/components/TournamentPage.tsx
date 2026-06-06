@@ -12,6 +12,7 @@ import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
 import { TournamentForm } from './forms/TournamentForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
+import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
@@ -37,6 +38,7 @@ interface TournamentPageProps {
   tournament: Tournament;
   teams: Team[];
   games: Game[];
+  tournamentRosters: TournamentRosterEntry[];
   activeTab: 'home' | 'teams' | 'standings' | 'players' | 'games';
   onTabChange: (tab: 'home' | 'teams' | 'standings' | 'players' | 'games') => void;
   onBack: () => void;
@@ -53,7 +55,8 @@ interface TournamentPageProps {
 export function TournamentPage({ 
   tournament, 
   teams, 
-  games, 
+  games,
+  tournamentRosters,
   activeTab, 
   onTabChange, 
   onBack,
@@ -782,7 +785,10 @@ export function TournamentPage({
   );
 
   const PlayersTab = () => {
-    const playersData = aggregatePlayerSeasonStats(tournamentGames, tournamentTeams);
+    const playersData = aggregatePlayerSeasonStats(tournamentGames, tournamentTeams, {
+      tournamentId: tournament.id,
+      tournamentRosters,
+    });
     const shotDataCoverage = getShotDataCoverage(tournamentGames);
     const foulStatCoverage = getFoulStatCoverage(tournamentGames);
 

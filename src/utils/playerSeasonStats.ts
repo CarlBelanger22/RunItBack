@@ -1,5 +1,9 @@
 import type { Game, GameStats, Player, Team, Tournament } from '../App';
-import { resolvePlayerTeamSideInGame } from './tournamentRosters';
+import {
+  getPlayersForTeamInTournament,
+  resolvePlayerTeamSideInGame,
+  type TournamentRosterEntry,
+} from './tournamentRosters';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
   gameHasShotChartData,
@@ -241,7 +245,12 @@ export function getTeamTournamentScopeOptions(
 export function aggregatePlayerSeasonStats(
   games: Game[] | undefined,
   teams: Team[] | undefined,
-  options?: { restrictTeamId?: string }
+  options?: {
+    restrictTeamId?: string;
+    /** When set with tournamentRosters, list only tournament-roster players (not full club rosters). */
+    tournamentId?: string;
+    tournamentRosters?: TournamentRosterEntry[];
+  }
 ): PlayerSeasonRow[] {
   const safeTeams = teams ?? [];
   const scopeTeams = options?.restrictTeamId
@@ -328,6 +337,33 @@ export function aggregatePlayerSeasonStats(
       row.gamesWithShotData += 1;
     });
   });
+
+  if (options?.tournamentId && options?.tournamentRosters) {
+    const rosterPlayerIds = new Set<string>();
+    for (const team of scopeTeams) {
+      const rosterPlayers = getPlayersForTeamInTournament(
+        team.id,
+        options.tournamentId,
+        safeTeams,
+        options.tournamentRosters
+      );
+      for (const player of rosterPlayers) {
+        rosterPlayerIds.add(player.id);
+        if (!playerTotals.has(player.id)) {
+          playerTotals.set(player.id, {
+            player,
+            team,
+            totalStats: emptyGameStats(player.id),
+            gamesPlayed: 0,
+            ...emptyPlayerSeasonRowExtras(),
+          });
+        }
+      }
+    }
+    return Array.from(playerTotals.values()).filter((row) =>
+      rosterPlayerIds.has(row.player.id)
+    );
+  }
 
   scopeTeams.forEach((team) => {
     team.players.forEach((player) => {

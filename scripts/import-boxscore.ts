@@ -15,6 +15,7 @@ import {
   ExistingIconDescription,
   pickPreservedOptionalString,
 } from './lib/preserve-metadata';
+import { buildTournamentTeamRows } from '../src/utils/tournamentEnrollment';
 
 const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -334,10 +335,12 @@ async function main() {
     }))
   );
 
-  const tournamentTeamRows = bundle.tournament.teamIds.map((teamId) => ({
-    tournament_id: bundle.tournament.id,
-    team_id: teamId,
-  }));
+  const tournamentTeamRows = buildTournamentTeamRows(
+    bundle.tournament.id,
+    bundle.tournament.teamIds,
+    bundle.game.homeTeamId,
+    bundle.game.awayTeamId
+  );
 
   const teamStatsPayload = bundle.game.startTime
     ? {
@@ -374,6 +377,15 @@ async function main() {
     lineup_stints: bundle.game.lineupStints,
   };
 
+  const autoEnrolledFromGame = buildTournamentTeamRows(
+    bundle.tournament.id,
+    [],
+    bundle.game.homeTeamId,
+    bundle.game.awayTeamId
+  )
+    .map((r) => r.team_id)
+    .filter((id) => !bundle.tournament.teamIds.includes(id));
+
   const summary = {
     file,
     league: leagueId,
@@ -381,6 +393,7 @@ async function main() {
     teams: bundle.teams.length,
     players: playerRowsRaw.length,
     tournament_teams: tournamentTeamRows.length,
+    auto_enrolled_from_game: autoEnrolledFromGame,
     game: gameRow.id,
     score: `${homeTeam.abbreviation} ${bundle.game.finalScore.home} ? ${awayTeam.abbreviation} ${bundle.game.finalScore.away}`,
     game_stats_rows: bundle.game.gameStats.length,

@@ -131,7 +131,7 @@ export const TournamentForm = React.memo(({
             id="year"
             type="number"
             defaultValue={initialData?.year || new Date().getFullYear()}
-            min="2020"
+            min="2000"
             max="2030"
             required
           />
