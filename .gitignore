@@ -41,4 +41,6 @@ lerna-debug.log*
 # Local data backups (may contain league data)
 backups/*.json
 
+# Local box score import staging (photos, HTML, JSON for DB import scripts)
+Importingboxscores/
 
