@@ -219,6 +219,31 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
               </TableRow>
               );
             })}
+
+            <TableRow className="text-sm bg-muted/20 italic">
+              <TableCell className="font-medium">Team/Coach</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">{totals.teamCoach.orb}</TableCell>
+              <TableCell className="text-center font-mono">{totals.teamCoach.drb}</TableCell>
+              <TableCell className="text-center font-mono font-medium">
+                {totals.teamCoach.orb + totals.teamCoach.drb}
+              </TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">—</TableCell>
+              <TableCell className="text-center font-mono">{totals.teamCoach.turnovers}</TableCell>
+              <TableCell className="text-center font-mono">{totals.teamCoach.fouls}</TableCell>
+              <TableCell className="text-center font-mono">
+                <NoStatRecorded />
+              </TableCell>
+            </TableRow>
             
             {/* Totals Row */}
             <TableRow className="font-medium bg-muted/50 text-sm border-t-2">

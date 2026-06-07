@@ -66,6 +66,9 @@
             "db:migrate:004": "tsx scripts/apply-migration-004.ts",
             "db:migrate:005": "tsx scripts/apply-migration-005.ts",
             "backfill:tournament-rosters": "tsx scripts/backfill-tournament-rosters.ts",
+            "backfill:team-coach": "tsx scripts/backfill-team-coach-stats.ts",
+            "patch:asg2019-team-coach": "tsx scripts/patch-asg2019-team-coach.ts",
+            "test:team-coach": "tsx scripts/test-team-coach-stats.ts",
             "verify:tournament-rosters": "tsx scripts/verify-tournament-rosters.ts",
             "count:orphans": "tsx scripts/count-orphans.ts",
             "cleanup:orphan-players": "tsx scripts/cleanup-orphan-players.ts",
@@ -85,6 +88,7 @@
             "build:safsa-div2-23": "tsx scripts/build-safsa-div2-23-imports.ts",
             "build:safsa-carl-only": "tsx scripts/build-safsa-carl-only-imports.ts",
             "build:shenggong-carl-only": "tsx scripts/build-shenggong-carl-only-imports.ts",
+            "build:asg-2019": "tsx scripts/build-asg-2019-imports.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts"
       }
 }

@@ -7407,3 +7407,472 @@ So this is **enrollment drift**, not missing game data.
 - **Executor (2026-06-07):** Inserted **one** row: Kai Xuan ↔ NBL Div 2 2023. No other DB writes. Future imports auto-enroll game home/away teams. **Hard-refresh** both pages to verify.
 
 ---
+
+## ASG-1 — ASEAN School Games 2019 imports (Designer, 2026-06-07)
+
+### Background
+
+Human created **ASG 2019** (`tournament-1780814669312`, Jul 2019) with **6 teams** enrolled and **Singapore roster (12 players)** already in DB. Folder: `Importingboxscores/ASG 2019/`.
+
+**Goal:** Import all tournament games. **3 games** have full FIBA box score photos (Singapore involved). **8 other games** have final scores only (screenshot). Create **new player profiles** for opposing-team players from box scores. **Do not modify** existing Singapore player profiles. **No other DB changes** outside this tournament.
+
+### Verified in Supabase
+
+| Item | Value |
+|------|-------|
+| Tournament | `tournament-1780814669312` — ASG 2019, Jul 2019 |
+| Teams enrolled | Singapore, Philippines, Indonesia, Vietnam, Thailand, Malaysia (all 6, 0 games so far) |
+| Singapore | `team-1780814795954` — **12 players** (human-created) |
+| Opponent teams | **0 players** each |
+
+**Singapore roster (DB — do not overwrite):**
+
+| # | DB name | player_id |
+|---|---------|-----------|
+| 2 | Jingjie Lim | `player-sunig-ntu-1` |
+| 4 | Louis Ho | `player-sunig-ntu-4` |
+| 7 | Hanqing Ming | `player-sunig-ntu-33` |
+| 8 | Glenn Tan | `player-1780816034976` |
+| 14 | Branson Tan | `player-1780816271925` |
+| 17 | Sky Chong | `player-1780816185555` |
+| 22 | Carl Belanger | `player-sunig-ntu-22` |
+| 23 | Jeremy Teo | `player-1780816148225` |
+| 25 | Samuel Chua | `player-1780815954771` |
+| 28 | Xavier Tan | `player-1780816214277` |
+| 29 | Peter Obatay | `player-1780816234770` |
+| 34 | Alpha Kelvin Issac | `player-1780816255264` |
+
+### Full box score games (3 — Singapore)
+
+| # | Date | Matchup | Score | Photo | Game label |
+|---|------|---------|-------|-------|------------|
+| 1 | **2019-07-19** | Indonesia vs Singapore | **86–43** | `PHOTO-2019-07-21-21-08-35.jpg` | Group |
+| 2 | **2019-07-21** | Singapore vs Philippines | **31–105** | `PHOTO-2019-07-21-21-08-56.jpg` | Group |
+| 3 | **2019-07-22** | Singapore vs Vietnam | **71–60** | `PHOTO-2019-07-22-14-19-54.jpg` | **5th–6th place** |
+
+*Note: photo filenames say Jul 21/22 but sheets print Jul 19 / 21 / 22 — use **printed dates**.*
+
+**Opponent players to create (from box scores):**
+- Indonesia: **12** players (game 1)
+- Philippines: **11** players (game 2)
+- Vietnam: **12** players (game 3)
+
+### Score-only games (8 — locked)
+
+| Date | Matchup | Score | Notes |
+|------|---------|-------|-------|
+| Jul 19 | Thailand vs Vietnam | 76–63 | |
+| Jul 20 | Thailand vs Malaysia | 57–45 | |
+| Jul 20 | Philippines vs Indonesia | **20–0** | was "def." |
+| Jul 21 | Malaysia vs Vietnam | **20–0** | was "def." |
+| Jul 22 | Philippines vs Malaysia | 118–62 | Semi-final |
+| Jul 22 | Thailand vs Indonesia | 55–65 | Semi-final |
+| Jul 23 | Thailand vs Malaysia | 78–69 | Bronze |
+| Jul 23 | Philippines vs Indonesia | 84–72 | Gold |
+
+**Singapore plays in exactly 3 games** (all with full box scores).
+
+### Locked human decisions (2026-06-07 — final)
+
+| # | Decision |
+|---|----------|
+| Q1 | Home = **left team on FIBA sheet** / first team in screenshot |
+| Q2 | Glenn box **#10** → existing `player-1780816034976` (**DB #8**); do not edit profile |
+| Q3 | Singapore mapping table **confirmed** |
+| Q4 | Import **all 8** score-only/def games; **"def." = 20–0** for winner |
+| Q5 | Score-only home = **first team named** |
+| Q6 | Position: DB requires `not null` → use **`PG`** for all new opponent players |
+| Q7 | Import **fouls_drawn** + **plus_minus** from FIBA sheets |
+| Q8 | Import **q1–q4** quarter scores (full games from sheets; score-only q=0) |
+| Q9 | Opponent IDs: **`player-asg19-{team}-{slug}`** |
+| Q10 | DNP = **omit** from `gameStats` |
+| Captains | **Ignore** — not tracked |
+| Starters | `*` beside jersey in box score → `homeStarters` / `awayStarters` |
+| PHI #8 spelling | **Gerry Austin T. ABADIANO** confirmed |
+
+### Team ID map (locked)
+
+| Team | `team_id` |
+|------|-----------|
+| Singapore | `team-1780814795954` |
+| Philippines | `team-1780815010233` |
+| Indonesia | `team-1780815025896` |
+| Vietnam | `team-1780815038869` |
+| Thailand | `team-1780815109150` |
+| Malaysia | `team-1780815124251` |
+
+### Locked game table (11 games — Executor copy-paste)
+
+| game_id | date | home | away | home | away | type |
+|---------|------|------|------|------|------|------|
+| `game-asg19-2019-07-19-indonesia-singapore` | 2019-07-19 | INA | SGP | 86 | 43 | **full** |
+| `game-asg19-2019-07-19-thailand-vietnam` | 2019-07-19 | THA | VIE | 76 | 63 | score-only |
+| `game-asg19-2019-07-20-thailand-malaysia` | 2019-07-20 | THA | MAS | 57 | 45 | score-only |
+| `game-asg19-2019-07-20-philippines-indonesia` | 2019-07-20 | PHI | INA | **20** | **0** | def / score-only |
+| `game-asg19-2019-07-21-malaysia-vietnam` | 2019-07-21 | MAS | VIE | **20** | **0** | def / score-only |
+| `game-asg19-2019-07-21-singapore-philippines` | 2019-07-21 | SGP | PHI | 31 | 105 | **full** |
+| `game-asg19-2019-07-22-singapore-vietnam` | 2019-07-22 | SGP | VIE | 71 | 60 | **full** (5th–6th) |
+| `game-asg19-2019-07-22-philippines-malaysia` | 2019-07-22 | PHI | MAS | 118 | 62 | score-only (SF) |
+| `game-asg19-2019-07-22-thailand-indonesia` | 2019-07-22 | THA | INA | 55 | 65 | score-only (SF) |
+| `game-asg19-2019-07-23-thailand-malaysia` | 2019-07-23 | THA | MAS | 78 | 69 | score-only (bronze) |
+| `game-asg19-2019-07-23-philippines-indonesia` | 2019-07-23 | PHI | INA | 84 | 72 | score-only (gold) |
+
+### Singapore jersey → player_id (locked — never upsert)
+
+| Box # | → `player_id` | Notes |
+|-------|---------------|-------|
+| 2 | `player-sunig-ntu-1` | |
+| 4 | `player-sunig-ntu-4` | |
+| 7 | `player-sunig-ntu-33` | |
+| 10 | `player-1780816034976` | use DB **#8** |
+| 14 | `player-1780816271925` | |
+| 17 | `player-1780816185555` | |
+| 22 | `player-sunig-ntu-22` | |
+| 23 | `player-1780816148225` | |
+| 25 | `player-1780815954771` | |
+| 28 | `player-1780816214277` | |
+| 29 | `player-1780816234770` | |
+| 34 | `player-1780816255264` | |
+
+### Quarter scores — full games (derived from FIBA sheets)
+
+**Game 1 (INA–SGP):** intervals are cumulative → Q1 INA 21 / SGP 10; Q2 21/13; Q3 28/12; Q4 16/8.
+
+**Game 2 (SGP–PHI):** quarter columns are per-quarter → Q1 4/39; Q2 5/23; Q3 15/17; Q4 7/26.
+
+**Game 3 (SGP–VIE):** per-quarter → Q1 11/21; Q2 24/8; Q3 19/14; Q4 17/17.
+
+### Opponent players to create (35 total — transcribe from photos)
+
+**Indonesia (12)** — game 1 only: Arlan SITORUS #0, Derrick MICHAEL #1, Argi Daffa REVANZA #2, Mario DAVIDSON #3, Rivaldo Pua DAWE #7, Darryl SEBASTIAN #8, Ananta DANDY #9, Rafkha Djalu PANGESTU #11, Mchelleryo MICHELLERYO #12, Sadat Saifuddin Fathoni THOHAR #13, Hendrix Xavi YONGA #21, Neo Putu J Satria PANDE #24.
+
+**Philippines (11)** — game 2: Nathaniel TULABUT #4, Jeffry Palomo MALIM #6, Menard SONGCUYA #7, Gerry Austin T. ABADIANO #8, Harold R. ALARCON #9, Terrence John S. FORTEA #10, Reyland C. TORRES #11, Ernest John FELICILDA #12, Steve Nash Rubi ENRIQUEZ #13, Aaron James C. BUENSALIDA #14, Carl Vincent C. TAMAYO #15.
+
+**Vietnam (12)** — game 3: Chan Long DUONG #0, Trieu Bao Thien LIEU #2, Tu HOANG #3, Canh Tung NGUYEN #9, Antony SUNDBERG #10, Phi Hoang Long TRAN #16, Ngoc Khanh TO #20, Van Thang NGUYEN #23, Van Thanh Khoa TRAN #25, Jan HOANG #26, Huy Hoang NGUYEN #30, Tuan Hai QUACH #36.
+
+### Import protocol (locked)
+
+| Rule | How |
+|------|-----|
+| **Scope** | Only ASG 2019 tournament games + new opponent `players` rows |
+| **Singapore** | `teams[].players: []` for Singapore; `gameStats` use locked `player_id` map; **never** include Singapore in player upsert |
+| **Opponents (full games)** | New players in bundle `teams[].players`; import with `--stats-only --add-new-players` |
+| **Full games** | `trackBothTeams: true`; all stat fields incl. `fouls_drawn`, `plus_minus`, `tech_fouls`, `blocks_received`; starters from `*` |
+| **Minutes** | Parse FIBA `MM:SS` → decimal minutes (e.g. `19:40` → 19.67) |
+| **Score-only** | `gameStats: []`, `trackBothTeams: true`, `teamStats` q1–q4 = 0, `total_points` = final; import `--stats-only` |
+| **Enrollment** | Existing auto-enroll home/away (ENROLL-1) |
+| **Non-destructive** | Dry-run first; abort if `game_id` exists; do not touch other tournaments/players |
+
+### High-level task breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **ASG-1.1** | `build-asg-2019-imports.ts` + `npm run build:asg-2019` | 11 JSON files; stats match photos |
+| **ASG-1.2** | Dry-run × 11 | No collisions; Singapore players skipped in upsert |
+| **ASG-1.3** | Live import: 3 full (`--stats-only --add-new-players`) + 8 score-only | 11 games; 35 opponent players; Singapore profiles unchanged |
+| **ASG-1.4** | `npm run build` | Passes |
+| **ASG-1.5** | Human QA | 11 games on ASG 2019; 3 full box scores; standings plausible |
+
+### Project Status Board — ASG-1
+
+- [x] **Designer:** ASG-1 spec + DB/photo audit
+- [x] **Human:** Q1–Q10 + clarifications locked
+- [x] **Human:** Executor proceed
+- [x] **Executor:** ASG-1.1 — `build-asg-2019-imports.ts`, helpers, games-data, `npm run build:asg-2019` → 11 JSON in `Importingboxscores/ASG 2019/json/`
+- [x] **Executor:** ASG-1.2 — dry-run × 11 passed (35 opponent players across 3 full games; Singapore not in upsert)
+- [x] **Executor:** ASG-1.3 — live import complete (11 games; +35 players PHI/INA/VIE; Singapore 12 unchanged)
+- [x] **Executor:** ASG-1.4 — `npm run build` passes
+- [x] **Human:** ASG-1.5 QA — confirmed good (2026-06-07)
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-07):** ASG-1.1–1.4 complete. **Blocker fixed:** `import-boxscore.ts` was upserting legacy `players` columns (`team_id`, `number`); updated to split `players` profile + `team_players` junction (global_position schema). Ran `npm run backfill:tournament-rosters` after import so opponent game-stats participants appear on tournament rosters.
+- **Verification (`list-asg2019-context.ts`):** ASG 2019 has 11 games; PHI 11 / INA 12 / VIE 12 opponent players; Singapore roster unchanged (#2–#34, same 12 `player_id`s).
+- **Human (2026-06-07):** ASG-1.5 + TC-1 QA signed off; rest of app looks fine.
+
+---
+
+## TC-1 — Team/Coach row on box scores (Designer, 2026-06-07)
+
+### Background and Motivation
+
+Human noticed FIBA official box scores include a **Team/Coach** row between player lines and **Totals**. That row holds stats not credited to any player (e.g. team rebounds, coach fouls) that **add into** the printed team totals.
+
+Example from ASG 2019 Jul 19 **Singapore** (screenshot provided):
+
+| Row | OR | DR | TR | PF | TO | … |
+|-----|----|----|-----|----|----|---|
+| **Team/Coach** | 4 | 2 | 6 | 3 | — | … |
+| **Totals** | 16 | 28 | 44 | 39 | 9 | … |
+
+Today RunItBack **only shows player rows + TEAM TOTALS**. Totals are computed by **summing `gameStats` only** (`resolveTeamTotals` in `gameDisplay.ts`), so Team/Coach adjustments are invisible and totals can disagree with the FIBA sheet.
+
+**Partial prior art:** `TeamStats` already has `team_rebounds` + `total_rebounds` (see `App.tsx`), and `GameLogic.handleRebound` increments `team_rebounds` for live events — but:
+- No OR/DR split on team rebounds
+- No `team_turnovers` / coach fouls
+- `resolveTeamTotals` **ignores** persisted `teamStats` when player box scores exist
+- `BoxScore.tsx` has **no Team/Coach row**
+- Import builders (`aggregateTeamStats`) sum players into `teamStats.orb/drb/…` — conflates player sums with official totals
+
+Human wants this **standardized on every box score** (past, present, future). **ASG 2019** must be corrected with real Team/Coach values from source photos.
+
+**Human decisions (2026-06-07, locked):**
+
+| Decision | Choice |
+|----------|--------|
+| Live entry in v1 | **Defer** (display + import + DB backfill first) |
+| `TeamCoachStats` fields | **Only** team rebounds (OR + DR), team turnovers, team fouls |
+| Row visibility | **Always show** Team/Coach row on box scores (even when all zeros) |
+| Past games in DB | `team_coach` = **all zeros** (no retroactive transcription); row still renders |
+| ASG 2019 | **Correct** all 11 games in DB — real Team/Coach on 3 full games; zeros on 8 score-only |
+| Team page stats | RPG / TOPG / FPG (and total reb) = **players + team_coach** per game, then season-aggregated |
+| DB writes | **Surgical only** — patch `team_coach` + affected `team_stats` fields; never wholesale re-import or overwrite unrelated columns |
+
+### Key Challenges and Analysis
+
+#### 1. Data model — three layers on a FIBA sheet
+
+| Layer | Storage | Purpose |
+|-------|---------|---------|
+| Player rows | `game.gameStats[]` | Per-player box score (unchanged) |
+| Team/Coach row | `teamStats.{home\|away}.team_coach` | Non-player: OR, DR, TO, PF only |
+| Totals row | `teamStats.{home\|away}` sum fields | Official team totals (authoritative for season / Team Stats tab) |
+
+**Invariant (when fully transcribed, e.g. ASG full games):**
+
+```
+players.orb + team_coach.orb === teamStats.orb
+players.drb + team_coach.drb === teamStats.drb
+players.turnovers + team_coach.turnovers === teamStats.turnovers
+players.fouls + team_coach.fouls === teamStats.fouls
+```
+
+Shooting, points, minutes, assists, steals, blocks, plus-minus → **player-only** (always blank/0 on Team/Coach row).
+
+#### 2. `TeamCoachStats` shape (final)
+
+```typescript
+interface TeamCoachStats {
+  orb: number;        // team offensive rebounds
+  drb: number;        // team defensive rebounds
+  turnovers: number;  // team turnovers
+  fouls: number;      // team/coach fouls
+}
+
+// On TeamStats — always present after backfill (default EMPTY_TEAM_COACH)
+team_coach: TeamCoachStats;
+```
+
+**Read-path default:** missing `team_coach` → `{ orb: 0, drb: 0, turnovers: 0, fouls: 0 }` (do not infer from legacy `team_rebounds` — human wants past games standardized at zero).
+
+#### 3. Legacy `team_rebounds` field
+
+`team_rebounds` on `TeamStats` is **deprecated** in favour of `team_coach.orb` + `team_coach.drb`. v1 does **not** migrate old `team_rebounds` values into `team_coach` (human: past = zeros). Leave field on type for backwards JSON compat; stop writing it in new imports.
+
+#### 4. Display logic (`resolveTeamTotals` + `BoxScore.tsx`)
+
+**Always** (any game with a traditional box score table):
+
+1. Player rows — sum `gameStats`
+2. **Team/Coach row** — label `"Team/Coach"`; show `team_coach` OR / DR / TO / PF; all other columns blank or `—`
+3. **TEAM TOTALS** — per sum-able column: `players + team_coach` (when `team_coach` all zero, equals today's player-only totals)
+
+**Score-only games:** No player rows; Team/Coach row still shown (zeros); TEAM TOTALS shows score-only persisted totals as today.
+
+**Advanced box score tab:** Team/Coach row omitted or same four fields only (no EFF/+/−).
+
+#### 5. Team page & season aggregation (critical)
+
+**TeamPage Stats tab** (`aggregateTeamSeasonAverages` → `computeTeamSeasonDerived`) currently sums **player `gameStats` only** via `teamGameSeasonContribution` when a box score exists. That misses team_coach and would under-report RPG / TOPG / FPG for ASG (and any future game with non-zero coach stats).
+
+**Single resolver rule (all consumers):**
+
+| Consumer | Must use |
+|----------|----------|
+| `BoxScore.tsx` TEAM TOTALS | `resolveTeamTotals` |
+| `TeamStats.tsx` (per-game team comparison) | `resolveTeamTotals` |
+| `teamGameSeasonContribution` | `resolveTeamTotals` for **orb, drb, turnovers, fouls** |
+| `TeamPage` RPG / TOPG / FPG | Via `aggregateTeamSeasonAverages` → above (no separate math) |
+| `TournamentPage` standings extended stats | Prefer `resolveTeamTotals` per game (or `teamStats` totals when they already equal players + coach) |
+
+**Formula per game, per team:**
+
+```
+display_orb  = sum(players.orb)  + team_coach.orb
+display_drb  = sum(players.drb)  + team_coach.drb
+display_to   = sum(players.to)   + team_coach.turnovers
+display_pf   = sum(players.pf)   + team_coach.fouls
+display_tr   = display_orb + display_drb
+```
+
+**Unchanged on Team page:** Player roster table / player season rows — still **player-only** (Team/Coach never attributed to individuals). PPG, shooting %, APG, SPG, BPG still from player sums or persisted teamStats as today.
+
+**When `team_coach` all zero:** Team page RPG/TOPG/FPG identical to current behaviour.
+
+**Test:** Unit test `aggregateTeamSeasonAverages` with one game where `team_coach.orb=4, drb=2` — RPG must include +6 total rebounds vs player-only baseline.
+
+#### 6. DB write policy — surgical only (human requirement)
+
+**Principle:** Patch the minimum JSON fields needed. No full game re-import, no touching players / rosters / tournaments / `game_stats` unless a separate bug fix demands it.
+
+| Script | Allowed writes | Forbidden |
+|--------|----------------|-----------|
+| `backfill-team-coach-stats.ts` | `games.team_stats` → add `home.team_coach` / `away.team_coach` **only if key missing** (zeros) | Change `orb/drb/turnovers/fouls`, `game_stats`, any other table |
+| `patch-asg2019-team-coach.ts` (TC-1.7) | `games.team_stats` for **11 ASG game IDs only** → set `team_coach` + update `orb/drb/turnovers/fouls` (+ `total_rebounds` derived) to FIBA Totals row | Re-import box scores; upsert players; tournament_teams; tournament_rosters |
+| App runtime / live save | Normal game save path | — |
+
+**Implementation pattern:**
+
+1. `SELECT id, team_stats FROM games WHERE …`
+2. Merge in memory: `{ ...existingSide, team_coach: {...}, orb, drb, turnovers, fouls, total_rebounds }`
+3. `UPDATE games SET team_stats = $merged WHERE id = $id` — one row at a time
+4. Dry-run flag prints diff count; no write until live flag
+
+**Idempotent:** Re-run backfill skips rows that already have `team_coach`. Re-run ASG patch overwrites only the 11 known IDs with canonical values.
+
+#### 7. DB backfill — all existing games
+
+One-time script `scripts/backfill-team-coach-stats.ts` (per §6 policy):
+
+- Every `games` row: if `team_stats.home.team_coach` or `team_stats.away.team_coach` absent → insert zeros
+- **Do not** change any other `team_stats` fields or `game_stats`
+- Idempotent (safe re-run)
+
+#### 8. Season / aggregation impact (summary)
+
+Centralize in `resolveTeamTotals` + `resolveTeamCoach()`; `teamGameSeasonContribution` delegates reb/to/foul to that resolver.
+
+Player season stats stay player-only.
+
+#### 9. Live game entry — **deferred (TC-1.4)**
+
+Not in v1. New games created before live entry ships will persist `team_coach` zeros until TC-1.4.
+
+#### 10. ASG 2019 correction plan (ASG-2)
+
+**Scope:** All 11 ASG games in tournament `tournament-1780814669312`.
+
+| Game | Type | `team_coach` action |
+|------|------|---------------------|
+| Jul 19 INA–SGP | full | Transcribe Team/Coach + Totals for **both** teams from `PHOTO-2019-07-21-21-08-35.jpg` |
+| Jul 21 SGP–PHI | full | Transcribe from `PHOTO-2019-07-21-21-08-56.jpg` |
+| Jul 22 SGP–VIE | full | Transcribe from `PHOTO-2019-07-22-14-19-54.jpg` |
+| 8 score-only games | score-only | `team_coach` zeros; ensure field present on both sides |
+
+**Per full game (×3), Executor must extract from photo:**
+
+1. Each player line (re-verify if needed)
+2. **Team/Coach row:** OR, DR, TO, PF (per team)
+3. **Totals row:** OR, DR, TO, PF, FG, 3P, FT, PTS, etc. → `teamStats` official fields
+4. Split logic in builder:
+   - `team_coach` = Team/Coach row values
+   - `teamStats.orb/drb/turnovers/fouls` = **Totals row** (not player sum)
+   - `gameStats` = player rows only (unchanged pattern)
+5. Assert `players + team_coach === teamStats` for those four fields before write
+
+**Known anchor (Jul 19 Singapore, human screenshot):**
+
+| | OR | DR | TO | PF |
+|---|----|----|----|-----|
+| Team/Coach | 4 | 2 | 0 | 3 |
+| Totals | 16 | 28 | 9 | 39 |
+
+**DB update (surgical):** `scripts/patch-asg2019-team-coach.ts` — UPDATE `team_stats` only on 11 game IDs. Also update JSON source files in `Importingboxscores/ASG 2019/json/` for reproducibility. **Do not** re-run `import:boxscore`.
+
+**Fields patched per side (full games):** `team_coach`, `orb`, `drb`, `turnovers`, `fouls`, `total_rebounds` (= orb + drb). Other `teamStats` fields (FG, 3P, FT, quarter points, advanced) re-transcribed from Totals row only if current values wrong.
+
+**Score-only games (×8):** Only ensure `team_coach` zeros present (via backfill or patch); no stat changes.
+
+**Current bad state:** Jul 19 SGP away `teamStats` has player-sum values (e.g. `turnovers: 36`) — must be replaced with FIBA Totals row.
+
+#### 11. Import path (future games)
+
+`build-*-imports.ts` / `aggregateTeamStats` refactor:
+
+- Accept explicit `teamCoach` + `officialTotals` per team
+- Never derive `teamStats.orb/drb/turnovers/fouls` from player sum when Team/Coach layer exists
+- New games default `team_coach` zeros in `emptyTeamStats` / `GameSetup`
+
+#### 12. Skeptic check
+
+| Point | Resolution |
+|-------|------------|
+| Always showing zero row feels noisy | Human explicitly wants standardization — FIBA layout always has the row |
+| Past games with legacy `team_rebounds: 2` in demo JSON | Ignored; totals stay player-sum + zero coach (slight drift from old demo intent — acceptable per human) |
+| ASG player lines may also have errors | Full-game re-transcription should re-verify players while reading Team/Coach + Totals |
+| Score-only ASG games showing Team/Coach | Row with zeros; minimal clutter |
+
+### High-level Task Breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **TC-1.1** | `TeamCoachStats` type; `team_coach` on `TeamStats`; `EMPTY_TEAM_COACH`, `resolveTeamCoach()`, `mergePlayerAndCoachTotals()` | Types compile; read default all-zero |
+| **TC-1.2** | `resolveTeamTotals` + `teamGameSeasonContribution` + `buildTeamDisplayStats`; TeamPage RPG/TOPG/FPG via shared resolver | Unit tests: zero coach = old behaviour; coach adds to reb/to/foul; `aggregateTeamSeasonAverages` reflects new RPG |
+| **TC-1.3** | `BoxScore.tsx`: **always** render Team/Coach row above TEAM TOTALS (traditional view) | Row visible on all games; 4 stat columns populated |
+| **TC-1.4** | Live entry (team rebound/foul/TO without player) | **Deferred** |
+| **TC-1.5** | `emptyTeamStats` / `GameSetup` / import builders emit `team_coach` | New games include zero coach by default |
+| **TC-1.6** | `backfill-team-coach-stats.ts` — add missing `team_coach` zeros only | No other `team_stats` / `game_stats` changes; dry-run mode |
+| **TC-1.7** | **ASG-2:** Transcribe 3 full games; `patch-asg2019-team-coach.ts` updates `team_stats` on 11 IDs only | Jul 19 SGP Team/Coach OR 4 DR 2 PF 3; Totals OR 16 DR 28 TO 9 PF 39; players untouched |
+| **TC-1.8** | Tests + `npm run build` | Pass |
+
+**Execution order:** TC-1.1 → TC-1.2 → TC-1.3 → TC-1.5 → TC-1.6 → TC-1.7 → TC-1.8.
+
+### Project Status Board — TC-1
+
+- [x] **Designer:** TC-1 spec (initial)
+- [x] **Human:** Scope locked — 4 fields only; always show row; past = zeros; ASG corrected; live entry deferred
+- [x] **Human:** Team page must use players + team_coach for RPG/TOPG/FPG; DB patches surgical only
+- [x] **Human:** Executor proceed
+- [x] **Executor:** TC-1.1–TC-1.3 — `TeamCoachStats`, `resolveTeamTotals`, always-visible Team/Coach row in `BoxScore.tsx`
+- [x] **Executor:** TC-1.5 — `team_coach` defaults in `GameSetup`, `GameLogic`, `appDataSnapshot`, `asg2019-helpers`
+- [x] **Executor:** TC-1.6 — `backfill-team-coach-stats.ts` patched 54 games (added `team_coach` zeros only)
+- [x] **Executor:** TC-1.7 — `patch-asg2019-team-coach.ts` updated 11 ASG games + JSON from FIBA photos
+- [x] **Executor:** TC-1.8 — `test-team-coach-stats.ts` passes; `npm run build` passes
+- [x] **Human:** TC-1 QA — confirmed good (2026-06-07)
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-07):** TC-1.1–1.8 complete. `teamGameSeasonContribution` delegates reb/to/foul to `resolveTeamTotals` (Team page RPG/TOPG/FPG include coach stats).
+- **DB:** `npm run backfill:team-coach` — 54 games got `team_coach` zeros (no other fields). `npm run patch:asg2019-team-coach` — 11 ASG `team_stats` only (+ JSON sync).
+- **ASG anchors:** Jul 19 SGP coach OR 4 DR 2 TO 3; totals OR 16 DR 28 TO 39. Jul 21/22 per photos in `scripts/asg2019-team-coach-data.ts`.
+- **Human (2026-06-07):** TC-1 QA complete.
+
+---
+
+## TRACK-1 — Away-team box score fix (`trackBothTeams: false`)
+
+### Background
+
+Imports with `trackBothTeams: false` but full `gameStats` on the **away** team (IVP Jan 26 NTU–SIM, Sunig NUS–NTU, Gemilang KX away) showed “No player box score” and empty game leaders.
+
+### Fix
+
+- `resolvePlayerTeamSideInGame` — starters/roster before blanket home assignment
+- `isScoreOnlyTeam` / `teamHasPlayerBoxScore` — detect away-side imported box scores
+
+### Verification (`scripts/verify-sunig-ntu-boxscores.ts`, 2026-06-07)
+
+| Game | Away score-only? | Players | Leading scorer |
+|------|------------------|---------|----------------|
+| Sunig Sep 26 NUS–NTU | false | 12 | Carl Belanger (17) |
+| Sunig Oct 3 NUS–NTU | false | 12 | Carl Belanger (23) |
+
+**Human:** Confirmed Sunig Sep 26 / Oct 3 NTU box scores and leaders correct; IVP Jan 26 same fix; audit rest OK (2026-06-07).
+
+### Project Status Board — TRACK-1
+
+- [x] **Executor:** Code fix in `tournamentRosters.ts` + `gameDisplay.ts`
+- [x] **Executor:** `verify-sunig-ntu-boxscores.ts` — both games PASS
+- [x] **Human:** Confirmed in app + audit sign-off
+
+### Lessons (append)
+
+- FIBA box scores have three layers (players, Team/Coach, Totals); storing only player sums in `teamStats` loses official totals.
+- `team_rebounds` existed but was never surfaced in `BoxScore` or merged in `resolveTeamTotals` when player stats present.
+- Human prefers **always-visible** Team/Coach row (zeros) over conditional hide — standardizes layout across all eras of data.
+- Team page season stats must use the same `resolveTeamTotals` path as box scores — avoid divergent RPG/TOPG/FPG math.
+- DB patches: merge JSON in memory and UPDATE one field (`team_stats`) per game — never wholesale re-import for schema additions.
+- `trackBothTeams: false` + away-side `gameStats` hid box scores; fix via starter/roster resolution, not only flipping the flag in JSON.
+- Score-only `teamStats` with `null` shooting fields can NaN tournament standings FG% if aggregated without guards (low priority; human did not report).
+
+---

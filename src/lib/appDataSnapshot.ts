@@ -118,6 +118,7 @@ function emptyTeamStats(teamId: string): TeamStats {
     bench_points: null,
     biggest_lead: null,
     biggest_scoring_run: null,
+    team_coach: { orb: 0, drb: 0, turnovers: 0, fouls: 0 },
   };
 }
 

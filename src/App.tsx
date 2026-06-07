@@ -190,6 +190,14 @@ export interface Shot {
   gameTime: string; // Game clock when shot was taken
 }
 
+/** Non-player box score credits (FIBA Team/Coach row). */
+export interface TeamCoachStats {
+  orb: number;
+  drb: number;
+  turnovers: number;
+  fouls: number;
+}
+
 // Team-level statistics for a game
 export interface TeamStats {
   teamId: string;
@@ -228,6 +236,8 @@ export interface TeamStats {
   bench_points: number | null;
   biggest_lead: number | null;
   biggest_scoring_run: number | null;
+  /** FIBA Team/Coach row — team rebounds (OR/DR), turnovers, fouls. */
+  team_coach?: TeamCoachStats;
 }
 
 // Event types for comprehensive tracking

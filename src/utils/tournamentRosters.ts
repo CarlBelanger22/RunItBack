@@ -57,18 +57,6 @@ export function resolvePlayerTeamSideInGame(
   const awayId = game.awayTeamId || game.awayTeam?.id;
   if (!homeId || !awayId) return null;
 
-  const hasStatLine = (game.gameStats ?? []).some(
-    (s) => s.playerId === playerId && (s.minutes_played ?? 0) > 0
-  );
-  if (!game.trackBothTeams && hasStatLine) {
-    return homeId;
-  }
-
-  const onHomeClub = clubRosterByTeam?.get(homeId)?.has(playerId) ?? false;
-  const onAwayClub = clubRosterByTeam?.get(awayId)?.has(playerId) ?? false;
-  if (onHomeClub && !onAwayClub) return homeId;
-  if (onAwayClub && !onHomeClub) return awayId;
-
   const homeStarters = game.homeStarters ?? [];
   const awayStarters = game.awayStarters ?? [];
   if (homeStarters.includes(playerId) && !awayStarters.includes(playerId)) {
@@ -77,6 +65,11 @@ export function resolvePlayerTeamSideInGame(
   if (awayStarters.includes(playerId) && !homeStarters.includes(playerId)) {
     return awayId;
   }
+
+  const onHomeClub = clubRosterByTeam?.get(homeId)?.has(playerId) ?? false;
+  const onAwayClub = clubRosterByTeam?.get(awayId)?.has(playerId) ?? false;
+  if (onHomeClub && !onAwayClub) return homeId;
+  if (onAwayClub && !onHomeClub) return awayId;
 
   const inHomeSnapshot = game.homeTeam?.players?.some((p) => p.id === playerId);
   const inAwaySnapshot = game.awayTeam?.players?.some((p) => p.id === playerId);

@@ -181,22 +181,24 @@ function hasText(value: string | null | undefined): boolean {
   return Boolean(value?.trim());
 }
 
+type RosterPlayerRow = {
+  id: string;
+  team_id: string;
+  name: string;
+  number: number;
+  position: string;
+  secondary_position: string | null;
+  picture: string | null;
+  height: string;
+  weight: string;
+  age: number;
+  date_of_birth: string | null;
+};
+
 function mergePlayerRow(
-  incoming: {
-    id: string;
-    team_id: string;
-    name: string;
-    number: number;
-    position: string;
-    secondary_position: string | null;
-    picture: string | null;
-    height: string;
-    weight: string;
-    age: number;
-    date_of_birth: string | null;
-  },
+  incoming: RosterPlayerRow,
   existing: ExistingPlayerRow | undefined
-) {
+): RosterPlayerRow {
   if (!existing) return incoming;
 
   return {
@@ -205,6 +207,29 @@ function mergePlayerRow(
     weight: hasText(incoming.weight) ? incoming.weight : (existing.weight ?? ''),
     picture: incoming.picture ?? existing.picture ?? null,
     date_of_birth: incoming.date_of_birth ?? existing.date_of_birth ?? null,
+  };
+}
+
+function toPlayerProfileRow(row: RosterPlayerRow, leagueId: string) {
+  return {
+    id: row.id,
+    league_id: leagueId,
+    name: row.name,
+    position: row.position,
+    secondary_position: row.secondary_position,
+    picture: row.picture,
+    height: row.height,
+    weight: row.weight,
+    age: row.age,
+    date_of_birth: row.date_of_birth,
+  };
+}
+
+function toTeamPlayerRow(row: RosterPlayerRow) {
+  return {
+    team_id: row.team_id,
+    player_id: row.id,
+    number: row.number,
   };
 }
 
@@ -519,9 +544,35 @@ async function main() {
   await upsertBatch(supabase, 'leagues', [{ id: leagueId, name: 'My League' }], 'id', false);
   await upsertBatch(supabase, 'teams', mergedTeamRows, 'id', false);
   if (!statsOnly) {
-    await upsertBatch(supabase, 'players', playerRows, 'id', false);
+    await upsertBatch(
+      supabase,
+      'players',
+      playerRows.map((row) => toPlayerProfileRow(row, leagueId)),
+      'id',
+      false
+    );
+    await upsertBatch(
+      supabase,
+      'team_players',
+      playerRows.map(toTeamPlayerRow),
+      'team_id,player_id',
+      false
+    );
   } else if (addNewPlayers && playerRows.length > 0) {
-    await upsertBatch(supabase, 'players', playerRows, 'id', false);
+    await upsertBatch(
+      supabase,
+      'players',
+      playerRows.map((row) => toPlayerProfileRow(row, leagueId)),
+      'id',
+      false
+    );
+    await upsertBatch(
+      supabase,
+      'team_players',
+      playerRows.map(toTeamPlayerRow),
+      'team_id,player_id',
+      false
+    );
   }
   await upsertBatch(supabase, 'tournaments', [tournamentRow], 'id', false);
   await upsertBatch(

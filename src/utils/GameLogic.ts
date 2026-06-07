@@ -229,7 +229,8 @@ export class GameLogic {
       orb: 0, drb: 0, team_rebounds: 0, total_rebounds: 0,
       assists: 0, steals: 0, blocks: 0, turnovers: 0, fouls: 0,
       points_off_turnovers: 0, points_in_paint: 0, second_chance_points: 0,
-      fastbreak_points: 0, bench_points: 0, biggest_lead: 0, biggest_scoring_run: 0
+      fastbreak_points: 0, bench_points: 0, biggest_lead: 0, biggest_scoring_run: 0,
+      team_coach: { orb: 0, drb: 0, turnovers: 0, fouls: 0 },
     };
   }
 }

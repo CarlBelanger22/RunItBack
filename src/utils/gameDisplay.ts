@@ -1,10 +1,14 @@
-import type { Game, GameStats, Player, Team, TeamStats } from '../App';
+import type { Game, GameStats, Player, Team, TeamCoachStats, TeamStats } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
   perGameAverageOrNull,
   tournamentRecordsStat,
 } from './statRecordingCoverage';
 import { resolvePlayerTeamSideInGame } from './tournamentRosters';
+import {
+  addTeamCoachToPlayerSums,
+  resolveTeamCoach,
+} from './teamCoachStats';
 
 export type TeamSide = 'home' | 'away';
 
@@ -52,6 +56,12 @@ export function getPersistedTeamStats(
   return side === 'home' ? game.teamStats?.home : game.teamStats?.away;
 }
 
+export function resolveSideForTeamId(game: Game, teamId: string): TeamSide {
+  return game.homeTeamId === teamId || game.homeTeam.id === teamId
+    ? 'home'
+    : 'away';
+}
+
 /** Team stats bucket matching `teamId` (not home/away slot). */
 export function getPersistedTeamStatsForTeam(
   game: Game,
@@ -68,18 +78,21 @@ function isHomeTeamId(game: Game, teamId: string): boolean {
   return game.homeTeamId === teamId || game.homeTeam.id === teamId;
 }
 
+function sideHasImportedPlayerBoxScore(game: Game, team: Team): boolean {
+  return game.gameStats.some(
+    (s) =>
+      (s.minutes_played ?? 0) > 0 &&
+      team.players.some((p) => p.id === s.playerId) &&
+      resolvePlayerTeamSideInGame(s.playerId, game) === team.id
+  );
+}
+
 /** True when a side has no player box score rows but a team/final score exists (e.g. SUTD). */
 export function isScoreOnlyTeam(game: Game, side: TeamSide): boolean {
   const team = getTeamForSide(game, side);
 
-  if (!game.trackBothTeams && side === 'away') {
-    const persisted = getPersistedTeamStatsForTeam(game, team.id);
-    const fromFinal = game.finalScore?.away ?? 0;
-    return (
-      (persisted?.total_points ?? 0) > 0 ||
-      fromFinal > 0 ||
-      team.players.length > 0
-    );
+  if (sideHasImportedPlayerBoxScore(game, team)) {
+    return false;
   }
 
   const hasPlayerBoxScore = game.gameStats.some((s) =>
@@ -448,6 +461,9 @@ function teamGameSeasonContribution(
       ? summedPoints
       : resolveTeamScore(game, teamId);
 
+  const side = resolveSideForTeamId(game, teamId);
+  const resolved = resolveTeamTotals(game, side);
+
   return {
     points,
     fg_made: fromPlayers?.fg_made ?? seasonStatNum(persisted?.fg_made),
@@ -457,13 +473,13 @@ function teamGameSeasonContribution(
       fromPlayers?.three_attempted ?? seasonStatNum(persisted?.three_attempted),
     ft_made: fromPlayers?.ft_made ?? seasonStatNum(persisted?.ft_made),
     ft_attempted: fromPlayers?.ft_attempted ?? seasonStatNum(persisted?.ft_attempted),
-    orb: fromPlayers?.orb ?? seasonStatNum(persisted?.orb),
-    drb: fromPlayers?.drb ?? seasonStatNum(persisted?.drb),
+    orb: fromPlayers ? resolved.orb : seasonStatNum(persisted?.orb),
+    drb: fromPlayers ? resolved.drb : seasonStatNum(persisted?.drb),
     assists: fromPlayers?.assists ?? seasonStatNum(persisted?.assists),
     steals: fromPlayers?.steals ?? seasonStatNum(persisted?.steals),
     blocks: fromPlayers?.blocks ?? seasonStatNum(persisted?.blocks),
-    turnovers: fromPlayers?.turnovers ?? seasonStatNum(persisted?.turnovers),
-    fouls: fromPlayers?.fouls ?? seasonStatNum(persisted?.fouls),
+    turnovers: fromPlayers ? resolved.turnovers : seasonStatNum(persisted?.turnovers),
+    fouls: fromPlayers ? resolved.fouls : seasonStatNum(persisted?.fouls),
     fouls_drawn: fromPlayers?.fouls_drawn ?? 0,
     points_off_turnovers: seasonStatNum(persisted?.points_off_turnovers),
     points_in_paint: seasonStatNum(persisted?.points_in_paint),
@@ -685,12 +701,13 @@ export interface ResolvedTeamTotals {
   fouls: number;
   fouls_drawn: number;
   minutes_played: number;
+  teamCoach: TeamCoachStats;
   scoreOnly: boolean;
 }
 
 export function teamHasPlayerBoxScore(game: Game, team: Team): boolean {
   if (!game.trackBothTeams && team.id !== game.homeTeamId) {
-    return false;
+    return sideHasImportedPlayerBoxScore(game, team);
   }
   return game.gameStats.some(
     (s) =>
@@ -708,6 +725,8 @@ export function resolveTeamTotals(
   const scoreOnly = isScoreOnlyTeam(game, side);
   const persisted = getPersistedTeamStats(game, side);
   const fromPlayers = sumPlayerStatsForTeam(game, team);
+
+  const teamCoach = resolveTeamCoach(persisted);
 
   if (scoreOnly) {
     return {
@@ -727,12 +746,13 @@ export function resolveTeamTotals(
       fouls: 0,
       fouls_drawn: 0,
       minutes_played: 0,
+      teamCoach,
       scoreOnly: true,
     };
   }
 
-  // Player box score rows are the source of truth for sum-able team totals.
   if (teamHasPlayerBoxScore(game, team)) {
+    const rebToFoul = addTeamCoachToPlayerSums(fromPlayers, teamCoach);
     return {
       points:
         fromPlayers.points > 0
@@ -744,20 +764,22 @@ export function resolveTeamTotals(
       three_attempted: fromPlayers.three_attempted,
       ft_made: fromPlayers.ft_made,
       ft_attempted: fromPlayers.ft_attempted,
-      orb: fromPlayers.orb,
-      drb: fromPlayers.drb,
+      orb: rebToFoul.orb,
+      drb: rebToFoul.drb,
       assists: fromPlayers.assists,
       steals: fromPlayers.steals,
       blocks: fromPlayers.blocks,
-      turnovers: fromPlayers.turnovers,
-      fouls: fromPlayers.fouls,
+      turnovers: rebToFoul.turnovers,
+      fouls: rebToFoul.fouls,
       fouls_drawn: fromPlayers.fouls_drawn,
       minutes_played: fromPlayers.minutes_played,
+      teamCoach,
       scoreOnly: false,
     };
   }
 
   if (!persisted) {
+    const rebToFoul = addTeamCoachToPlayerSums(fromPlayers, teamCoach);
     return {
       points: fromPlayers.points,
       fg_made: fromPlayers.fg_made,
@@ -766,15 +788,16 @@ export function resolveTeamTotals(
       three_attempted: fromPlayers.three_attempted,
       ft_made: fromPlayers.ft_made,
       ft_attempted: fromPlayers.ft_attempted,
-      orb: fromPlayers.orb,
-      drb: fromPlayers.drb,
+      orb: rebToFoul.orb,
+      drb: rebToFoul.drb,
       assists: fromPlayers.assists,
       steals: fromPlayers.steals,
       blocks: fromPlayers.blocks,
-      turnovers: fromPlayers.turnovers,
-      fouls: fromPlayers.fouls,
+      turnovers: rebToFoul.turnovers,
+      fouls: rebToFoul.fouls,
       fouls_drawn: fromPlayers.fouls_drawn,
       minutes_played: fromPlayers.minutes_played,
+      teamCoach,
       scoreOnly: false,
     };
   }
@@ -796,6 +819,7 @@ export function resolveTeamTotals(
     fouls: persisted.fouls ?? 0,
     fouls_drawn: 0,
     minutes_played: 0,
+    teamCoach,
     scoreOnly: false,
   };
 }
