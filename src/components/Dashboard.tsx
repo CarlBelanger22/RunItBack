@@ -9,6 +9,8 @@ import { TournamentBadge } from './TournamentBadge';
 import { DashboardStatCard } from './dashboard/DashboardStatCard';
 import { DashboardGamePreview } from './dashboard/DashboardGamePreview';
 
+const DASHBOARD_PREVIEW_LIMIT = 3;
+
 interface DashboardProps {
   tournaments: Tournament[];
   teams: Team[];
@@ -32,14 +34,6 @@ function getCreatedAtMs(item: { id: string; createdAt?: string }): number {
   return 0;
 }
 
-function sortByMostRecent<T extends { id: string; createdAt?: string }>(
-  items: T[]
-): T[] {
-  return [...items].sort(
-    (a, b) => getCreatedAtMs(b) - getCreatedAtMs(a)
-  );
-}
-
 export function Dashboard({
   tournaments,
   teams,
@@ -52,11 +46,18 @@ export function Dashboard({
   onNavigateToRecentGames,
 }: DashboardProps) {
   const recentTournaments = useMemo(
-    () => sortTournamentsByDateDesc(tournaments).slice(0, 3),
+    () => sortTournamentsByDateDesc(tournaments).slice(0, DASHBOARD_PREVIEW_LIMIT),
     [tournaments]
   );
   const recentTeams = useMemo(
-    () => sortByMostRecent(teams).slice(0, 4),
+    () =>
+      [...teams]
+        .sort((a, b) => {
+          const byPlayers = b.players.length - a.players.length;
+          if (byPlayers !== 0) return byPlayers;
+          return getCreatedAtMs(b) - getCreatedAtMs(a);
+        })
+        .slice(0, DASHBOARD_PREVIEW_LIMIT),
     [teams]
   );
   const previewGames = recentGames.slice(0, 3);

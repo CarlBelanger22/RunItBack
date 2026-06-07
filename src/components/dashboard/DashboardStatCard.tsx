@@ -39,7 +39,7 @@ export function DashboardStatCard({
           <div className="text-3xl font-bold text-primary">{count}</div>
           <p className="text-sm text-muted-foreground">{countLabel}</p>
         </div>
-        {children}
+        {children ? <div className="min-h-[8.25rem]">{children}</div> : null}
       </CardContent>
     </Card>
   );
