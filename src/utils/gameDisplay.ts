@@ -180,7 +180,13 @@ export function formatOptionalStat(value: number | null | undefined): string {
   return String(value);
 }
 
-/** Optional advanced stats: null/undefined/0 ? not recorded (not on typical box scores). */
+/** Optional advanced stats: null/undefined = not recorded; 0 = recorded zero. */
+export function isOptionalAdvancedStatRecorded(
+  value: number | null | undefined
+): boolean {
+  return value !== null && value !== undefined;
+}
+
 export function getOptionalAdvancedStatValue(
   stats: TeamStats | undefined,
   key: OptionalAdvancedTeamStatKey,
@@ -188,7 +194,7 @@ export function getOptionalAdvancedStatValue(
 ): number | null {
   if (scoreOnly) return null;
   const raw = stats?.[key];
-  if (raw === null || raw === undefined || raw === 0) return null;
+  if (!isOptionalAdvancedStatRecorded(raw)) return null;
   return raw;
 }
 
@@ -564,7 +570,7 @@ export function computeScopedTeamScoring(
 }
 
 function persistedAdvancedRecorded(value: number | null | undefined): boolean {
-  return value != null && value > 0;
+  return isOptionalAdvancedStatRecorded(value);
 }
 
 /** Whether any game in scope has team-level advanced stats on the persisted team line. */

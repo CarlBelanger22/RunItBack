@@ -16,6 +16,7 @@ interface IdleDeadline {
 import { Button } from './components/ui/button';
 import { Input } from './components/ui/input';
 import { TeamBadge } from './components/TeamBadge';
+import { TournamentBadge } from './components/TournamentBadge';
 import { isSupabaseConfigured } from './lib/supabase';
 import {
   deleteGamesFromSupabase,
@@ -40,7 +41,14 @@ import {
 } from './lib/appDataSnapshot';
 import { enqueueCloudSave } from './lib/cloudSaveQueue';
 import { AppRoutes } from './routing/AppRoutes';
-import { gamePath, liveGamePath, paths, playerPath, teamPath } from './routing/paths';
+import {
+  gamePath,
+  liveGamePath,
+  paths,
+  playerPath,
+  teamPath,
+  tournamentPath,
+} from './routing/paths';
 import { currentLocationPath, navigateWithReturnTo } from './routing/navigation';
 import {
   dedupeActiveGames,
@@ -1919,36 +1927,53 @@ export default function App() {
 
   // Search functionality
   const searchResults = useMemo(() => {
-    if (!searchQuery.trim()) return { teams: [], players: [], games: [] };
-    
+    if (!searchQuery.trim()) {
+      return { tournaments: [], teams: [], players: [], games: [] };
+    }
+
     const query = searchQuery.toLowerCase();
-    
-    // Search teams
-    const matchedTeams = teams.filter(team => 
-      team.name.toLowerCase().includes(query) || 
-      (team.abbreviation ?? '').toLowerCase().includes(query)
-    ).slice(0, 5);
-    
+
+    const matchedTournaments = tournaments
+      .filter(
+        (tournament) =>
+          tournament.name.toLowerCase().includes(query) ||
+          (tournament.description ?? '').toLowerCase().includes(query) ||
+          String(tournament.year).includes(query) ||
+          tournament.month.toLowerCase().includes(query)
+      )
+      .slice(0, 5);
+
+    const matchedTeams = teams
+      .filter(
+        (team) =>
+          team.name.toLowerCase().includes(query) ||
+          (team.abbreviation ?? '').toLowerCase().includes(query)
+      )
+      .slice(0, 5);
+
     const matchedPlayers = searchLeaguePlayers(teams, query, {
       limit: 5,
       orphanPlayers,
     });
 
-    // Search games
-    const matchedGames = games.filter(game => 
-      (game.homeTeam?.name ?? '').toLowerCase().includes(query) ||
-      (game.awayTeam?.name ?? '').toLowerCase().includes(query) ||
-      (game.homeTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
-      (game.awayTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
-      (game.date ?? '').includes(query)
-    ).slice(0, 5);
-    
+    const matchedGames = games
+      .filter(
+        (game) =>
+          (game.homeTeam?.name ?? '').toLowerCase().includes(query) ||
+          (game.awayTeam?.name ?? '').toLowerCase().includes(query) ||
+          (game.homeTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
+          (game.awayTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
+          (game.date ?? '').includes(query)
+      )
+      .slice(0, 5);
+
     return {
+      tournaments: matchedTournaments,
       teams: matchedTeams,
       players: matchedPlayers,
       games: matchedGames,
     };
-  }, [searchQuery, teams, games, orphanPlayers]);
+  }, [searchQuery, tournaments, teams, games, orphanPlayers]);
 
   if (isDataLoading) {
     return (
@@ -2063,18 +2088,58 @@ export default function App() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               type="text"
-              placeholder="Search teams, players, or games..."
+              placeholder="Search tournaments, teams, players, or games..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 w-full"
             />
             
             {/* Search Results Dropdown */}
-            {searchQuery.trim() && (searchResults.teams.length > 0 || searchResults.players.length > 0 || searchResults.games.length > 0) && (
+            {searchQuery.trim() &&
+              (searchResults.tournaments.length > 0 ||
+                searchResults.teams.length > 0 ||
+                searchResults.players.length > 0 ||
+                searchResults.games.length > 0) && (
               <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50">
+                {/* Tournaments */}
+                {searchResults.tournaments.length > 0 && (
+                  <div className="p-2">
+                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
+                      Tournaments
+                    </div>
+                    {searchResults.tournaments.map((tournament) => (
+                      <button
+                        key={tournament.id}
+                        onClick={() => {
+                          navigateWithReturnTo(
+                            navigate,
+                            tournamentPath(tournament),
+                            currentLocationPath(location)
+                          );
+                          setSearchQuery('');
+                        }}
+                        className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
+                      >
+                        <TournamentBadge
+                          tournament={tournament}
+                          tournamentId={tournament.id}
+                          size="sm"
+                        />
+                        <div>
+                          <div className="font-medium">{tournament.name}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {tournament.month} {tournament.year} · {tournament.teams.length}{' '}
+                            {tournament.teams.length === 1 ? 'team' : 'teams'}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 {/* Teams */}
                 {searchResults.teams.length > 0 && (
-                  <div className="p-2">
+                  <div className={`p-2${searchResults.tournaments.length > 0 ? ' border-t' : ''}`}>
                     <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Teams</div>
                     {searchResults.teams.map(team => (
                       <button
@@ -2158,7 +2223,11 @@ export default function App() {
             )}
             
             {/* No Results */}
-            {searchQuery.trim() && searchResults.teams.length === 0 && searchResults.players.length === 0 && searchResults.games.length === 0 && (
+            {searchQuery.trim() &&
+              searchResults.tournaments.length === 0 &&
+              searchResults.teams.length === 0 &&
+              searchResults.players.length === 0 &&
+              searchResults.games.length === 0 && (
               <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg p-4 text-center text-sm text-muted-foreground z-50">
                 No results found for &quot;{searchQuery}&quot;
               </div>

@@ -11,6 +11,10 @@ import { resolve, join } from 'path';
 import { loadEnvLocalIntoProcess } from './loadEnvLocal';
 import { FULL_GAMES, SCORE_ONLY_GAMES } from './asg2019-games-data';
 import {
+  ASG2019_ADVANCED_STATS_PATCHES,
+  mergeAdvancedStatsSide,
+} from './asg2019-advanced-stats-data';
+import {
   TOURNAMENT_ID,
   TEAM,
   type AsgFullGameDef,
@@ -89,6 +93,18 @@ function buildFullBundle(
     .filter((l) => l.starter)
     .map((l) => lineToGameStat(l, opponentKey).playerId);
 
+  const advancedPatch = ASG2019_ADVANCED_STATS_PATCHES[game.id];
+  const homeTeamStats = aggregateTeamStats(
+    game.homeTeamId,
+    game.homeLines,
+    game.quarters.home
+  );
+  const awayTeamStats = aggregateTeamStats(
+    game.awayTeamId,
+    game.awayLines,
+    game.quarters.away
+  );
+
   return {
     version: '1',
     tournament: tournamentMeta,
@@ -125,16 +141,12 @@ function buildFullBundle(
       awayStarters,
       gameStats,
       teamStats: {
-        home: aggregateTeamStats(
-          game.homeTeamId,
-          game.homeLines,
-          game.quarters.home
-        ),
-        away: aggregateTeamStats(
-          game.awayTeamId,
-          game.awayLines,
-          game.quarters.away
-        ),
+        home: advancedPatch
+          ? mergeAdvancedStatsSide(homeTeamStats, advancedPatch.home)
+          : homeTeamStats,
+        away: advancedPatch
+          ? mergeAdvancedStatsSide(awayTeamStats, advancedPatch.away)
+          : awayTeamStats,
       },
       shots: [],
       events: [],
