@@ -71,6 +71,7 @@
             "patch:asg2019-advanced-stats": "tsx scripts/patch-asg2019-advanced-stats.ts",
             "test:team-coach": "tsx scripts/test-team-coach-stats.ts",
             "test:optional-advanced-stats": "tsx scripts/test-optional-advanced-stats.ts",
+            "test:ghost-teams": "tsx scripts/test-ghost-teams.ts",
             "verify:tournament-rosters": "tsx scripts/verify-tournament-rosters.ts",
             "count:orphans": "tsx scripts/count-orphans.ts",
             "cleanup:orphan-players": "tsx scripts/cleanup-orphan-players.ts",

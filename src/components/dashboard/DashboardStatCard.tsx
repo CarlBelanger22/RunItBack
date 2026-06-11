@@ -8,6 +8,7 @@ interface DashboardStatCardProps {
   title: string;
   count: number;
   countLabel: string;
+  subLabel?: string;
   onClick: () => void;
   children?: React.ReactNode;
 }
@@ -17,6 +18,7 @@ export function DashboardStatCard({
   title,
   count,
   countLabel,
+  subLabel,
   onClick,
   children,
 }: DashboardStatCardProps) {
@@ -38,6 +40,9 @@ export function DashboardStatCard({
         <div>
           <div className="text-3xl font-bold text-primary">{count}</div>
           <p className="text-sm text-muted-foreground">{countLabel}</p>
+          {subLabel ? (
+            <p className="text-xs text-muted-foreground/80 pt-0.5">{subLabel}</p>
+          ) : null}
         </div>
         {children ? <div className="min-h-[8.25rem]">{children}</div> : null}
       </CardContent>

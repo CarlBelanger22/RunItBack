@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { TeamForm } from './forms/TeamForm';
 import { AddPlayerDialog } from './AddPlayerDialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
@@ -14,6 +14,9 @@ import {
 } from '../utils/rosterPlayerRemoval';
 import { TeamBadge } from './TeamBadge';
 import { Plus, Users, ArrowLeft, Trash2, Edit, UserPlus } from 'lucide-react';
+import { partitionTeams, sortTeamsByPlayerCountDesc } from '../utils/ghostTeams';
+import { Label } from './ui/label';
+import { Switch } from './ui/switch';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -59,6 +62,21 @@ export function TeamManager({
     title: string;
     description: string;
   } | null>(null);
+
+  const [showGhostTeams, setShowGhostTeams] = useState(false);
+
+  const { realTeams, ghostTeams } = useMemo(
+    () => partitionTeams(teams),
+    [teams]
+  );
+  const sortedRealTeams = useMemo(
+    () => sortTeamsByPlayerCountDesc(realTeams),
+    [realTeams]
+  );
+  const sortedGhostTeams = useMemo(
+    () => sortTeamsByPlayerCountDesc(ghostTeams),
+    [ghostTeams]
+  );
 
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
 
@@ -155,6 +173,135 @@ export function TeamManager({
     }
   }, [editingTeam]);
 
+  const renderTeamCard = (team: Team, ghost = false) => (
+    <Card
+      key={team.id}
+      className={`hover:shadow-lg transition-shadow cursor-pointer ${
+        ghost ? 'border-dashed border-muted-foreground/30 bg-muted/20' : ''
+      }`}
+      onClick={() => onNavigateToTeam(team.id)}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <TeamBadge team={team} teamId={team.id} size="lg" />
+            <div className="space-y-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <CardTitle className="text-lg leading-snug">{team.name}</CardTitle>
+                {ghost ? (
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    Ghost
+                  </Badge>
+                ) : null}
+              </div>
+              <CardDescription className="flex items-center gap-1">
+                <Users className="h-3 w-3 shrink-0" />
+                {team.players.length}{' '}
+                {team.players.length === 1 ? 'Player' : 'Players'}
+              </CardDescription>
+            </div>
+          </div>
+          <div className="flex space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleEditTeam(team);
+              }}
+              className="h-8 w-8 p-0"
+            >
+              <Edit className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDeleteTeam(team.id);
+              }}
+              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        {team.players.length > 0 ? (
+          <div className="space-y-2 max-h-40 overflow-y-auto">
+            {team.players.map((player) => {
+              const removalCheck = evaluatePlayerRemovalFromTeam(
+                team.id,
+                player.id,
+                games
+              );
+              const blockTitle = !removalCheck.allowed
+                ? playerRemovalBlockMessage(
+                    removalCheck,
+                    player.name,
+                    team.name
+                  ).description
+                : `Remove ${player.name}`;
+
+              return (
+                <div
+                  key={player.id}
+                  className="flex items-center justify-between text-sm border rounded p-2"
+                >
+                  <div className="flex items-center space-x-2">
+                    <Badge variant="outline" className="text-xs w-8 h-6 justify-center">
+                      #{player.number}
+                    </Badge>
+                    <span>{player.name}</span>
+                    <Badge variant="secondary" className="text-xs">
+                      {player.position}
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={`h-6 w-6 p-0 text-destructive hover:text-destructive ${
+                      !removalCheck.allowed ? 'opacity-40' : ''
+                    }`}
+                    title={blockTitle}
+                    aria-label={blockTitle}
+                    onClick={(e) => handleRemovePlayer(team, player, e)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-4">
+            {ghost
+              ? 'Opponent placeholder — no roster on file'
+              : 'No players added yet'}
+          </p>
+        )}
+
+        {!ghost ? (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            onClick={(e) => {
+              e.stopPropagation();
+              setSelectedTeam(team);
+              setIsPlayerDialogOpen(true);
+            }}
+          >
+            <UserPlus className="h-4 w-4 mr-2" />
+            Add Player
+          </Button>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -249,6 +396,19 @@ export function TeamManager({
         />
       )}
 
+      {ghostTeams.length > 0 ? (
+        <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
+          <Switch
+            id="show-ghost-teams"
+            checked={showGhostTeams}
+            onCheckedChange={setShowGhostTeams}
+          />
+          <Label htmlFor="show-ghost-teams" className="text-sm font-normal cursor-pointer">
+            Show ghost teams ({ghostTeams.length})
+          </Label>
+        </div>
+      ) : null}
+
       {/* Teams Grid */}
       {teams.length === 0 ? (
         <Card className="text-center p-12">
@@ -271,120 +431,49 @@ export function TeamManager({
             </Button>
           </CardContent>
         </Card>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {teams.map((team) => (
-            <Card
-              key={team.id}
-              className="hover:shadow-lg transition-shadow cursor-pointer"
-              onClick={() => onNavigateToTeam(team.id)}
+      ) : realTeams.length === 0 && !showGhostTeams ? (
+        <Card className="text-center p-12">
+          <CardContent className="space-y-4">
+            <Users className="h-16 w-16 text-muted-foreground mx-auto" />
+            <div>
+              <h3>No teams with players yet</h3>
+              <p className="text-muted-foreground">
+                Create a team and add players, or enable ghost teams to see{' '}
+                {ghostTeams.length} opponent {ghostTeams.length === 1 ? 'placeholder' : 'placeholders'}.
+              </p>
+            </div>
+            <Button
+              onClick={() => {
+                setCreateFormKey((k) => k + 1);
+                setIsCreateDialogOpen(true);
+              }}
             >
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-3 min-w-0 flex-1">
-                    <TeamBadge team={team} teamId={team.id} size="lg" />
-                    <div className="space-y-1 min-w-0">
-                      <CardTitle className="text-lg leading-snug">{team.name}</CardTitle>
-                      <CardDescription className="flex items-center gap-1">
-                        <Users className="h-3 w-3 shrink-0" />
-                        {team.players.length}{' '}
-                        {team.players.length === 1 ? 'Player' : 'Players'}
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <div className="flex space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleEditTeam(team);
-                      }}
-                      className="h-8 w-8 p-0"
-                    >
-                      <Edit className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteTeam(team.id);
-                      }}
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
-              
-              <CardContent className="space-y-4">
-                {team.players.length > 0 ? (
-                  <div className="space-y-2 max-h-40 overflow-y-auto">
-                    {team.players.map((player) => {
-                      const removalCheck = evaluatePlayerRemovalFromTeam(
-                        team.id,
-                        player.id,
-                        games
-                      );
-                      const blockTitle = !removalCheck.allowed
-                        ? playerRemovalBlockMessage(
-                            removalCheck,
-                            player.name,
-                            team.name
-                          ).description
-                        : `Remove ${player.name}`;
+              <Plus className="h-4 w-4 mr-2" />
+              Create First Team
+            </Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-8">
+          {realTeams.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {sortedRealTeams.map((team) => renderTeamCard(team))}
+            </div>
+          ) : null}
 
-                      return (
-                      <div key={player.id} className="flex items-center justify-between text-sm border rounded p-2">
-                        <div className="flex items-center space-x-2">
-                          <Badge variant="outline" className="text-xs w-8 h-6 justify-center">
-                            #{player.number}
-                          </Badge>
-                          <span>{player.name}</span>
-                          <Badge variant="secondary" className="text-xs">
-                            {player.position}
-                          </Badge>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className={`h-6 w-6 p-0 text-destructive hover:text-destructive ${
-                            !removalCheck.allowed ? 'opacity-40' : ''
-                          }`}
-                          title={blockTitle}
-                          aria-label={blockTitle}
-                          onClick={(e) => handleRemovePlayer(team, player, e)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </Button>
-                      </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No players added yet
-                  </p>
-                )}
-                
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedTeam(team);
-                    setIsPlayerDialogOpen(true);
-                  }}
-                >
-                  <UserPlus className="h-4 w-4 mr-2" />
-                  Add Player
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+          {showGhostTeams && ghostTeams.length > 0 ? (
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-base font-medium">Ghost teams</h3>
+                <p className="text-sm text-muted-foreground">
+                  Opponent placeholders with no roster (used in score-only games).
+                </p>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {sortedGhostTeams.map((team) => renderTeamCard(team, true))}
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
 

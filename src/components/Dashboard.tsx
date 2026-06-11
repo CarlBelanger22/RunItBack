@@ -8,6 +8,7 @@ import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { DashboardStatCard } from './dashboard/DashboardStatCard';
 import { DashboardGamePreview } from './dashboard/DashboardGamePreview';
+import { partitionTeams } from '../utils/ghostTeams';
 
 const DASHBOARD_PREVIEW_LIMIT = 3;
 
@@ -45,20 +46,25 @@ export function Dashboard({
   onNavigateToTeam,
   onNavigateToRecentGames,
 }: DashboardProps) {
+  const { realTeams, ghostTeams } = useMemo(
+    () => partitionTeams(teams),
+    [teams]
+  );
+  const ghostTeamCount = ghostTeams.length;
   const recentTournaments = useMemo(
     () => sortTournamentsByDateDesc(tournaments).slice(0, DASHBOARD_PREVIEW_LIMIT),
     [tournaments]
   );
   const recentTeams = useMemo(
     () =>
-      [...teams]
+      [...realTeams]
         .sort((a, b) => {
           const byPlayers = b.players.length - a.players.length;
           if (byPlayers !== 0) return byPlayers;
           return getCreatedAtMs(b) - getCreatedAtMs(a);
         })
         .slice(0, DASHBOARD_PREVIEW_LIMIT),
-    [teams]
+    [realTeams]
   );
   const previewGames = recentGames.slice(0, 3);
 
@@ -113,8 +119,13 @@ export function Dashboard({
         <DashboardStatCard
           icon={Users}
           title="Teams"
-          count={teams.length}
-          countLabel={teams.length === 1 ? 'Team Created' : 'Teams Created'}
+          count={realTeams.length}
+          countLabel={realTeams.length === 1 ? 'Team Created' : 'Teams Created'}
+          subLabel={
+            ghostTeamCount > 0
+              ? `${ghostTeamCount} ghost ${ghostTeamCount === 1 ? 'team' : 'teams'}`
+              : undefined
+          }
           onClick={onNavigateToTeams}
         >
           {recentTeams.length > 0 && (
