@@ -125,6 +125,27 @@ function testAggregationExcludesUnrecordedTournaments(): void {
     plusMinusPerGameForRow(allRow) === 8,
     `All Time +/- should be 8, got ${plusMinusPerGameForRow(allRow)}`
   );
+
+  const shenggongGame: Game = {
+    id: 'g-shenggong',
+    date: '2019-11-19',
+    isCompleted: true,
+    tournamentId: 'tournament-1780771500232',
+    homeTeamId: team.id,
+    awayTeamId: 'team-opp3',
+    homeTeam: team,
+    awayTeam: { id: 'team-opp3', name: 'Opp3', abbreviation: 'OP3', players: [] },
+    gameStats: [makeStat(player.id, 12)],
+    shots: [],
+    finalScore: { home: 51, away: 79 },
+  };
+
+  const shenggongRow = aggregateSinglePlayerSeasonStats(player, team, [shenggongGame]);
+  assert(
+    shenggongRow.gamesWithPlusMinusData === 0,
+    'Shenggong 2019 should not count +/- games'
+  );
+  assert(plusMinusPerGameForRow(shenggongRow) === null, 'Shenggong 2019 +/- avg null');
 }
 
 function main(): void {

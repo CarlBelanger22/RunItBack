@@ -6,18 +6,26 @@ import { TeamBadge } from './TeamBadge';
 interface PlayerTeamBadgesProps {
   teams: Team[];
   onNavigateToTeam: (teamId: string) => void;
+  layout?: 'wrap' | 'rail';
 }
 
 export function PlayerTeamBadges({
   teams,
   onNavigateToTeam,
+  layout = 'wrap',
 }: PlayerTeamBadgesProps) {
   if (teams.length === 0) {
     return null;
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div
+      className={
+        layout === 'rail'
+          ? 'flex w-max flex-nowrap items-center gap-2 px-0.5 py-0.5'
+          : 'flex flex-wrap items-center gap-2'
+      }
+    >
       {teams.map((team) => (
         <Badge
           key={team.id}

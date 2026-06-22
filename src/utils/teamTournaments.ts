@@ -1,5 +1,6 @@
 import type { Game, Tournament } from '../App';
-import { sortTournamentsByDateDesc } from './tournamentSort';
+import { getIdCreatedAtMs, getPlayerLastGameMs } from './playerParticipationSort';
+import { getTournamentDateMs, sortTournamentsByDateDesc } from './tournamentSort';
 
 export function getParticipatedTournamentIds(
   teamId: string,
@@ -51,7 +52,28 @@ export function getPlayerParticipatedTournamentIds(
     }
   }
 
-  return [...ids].sort();
+  return [...ids];
+}
+
+function sortPlayerTournamentsByRecencyDesc(
+  playerId: string,
+  tournaments: Tournament[],
+  games: Game[] | undefined
+): Tournament[] {
+  return [...tournaments].sort((a, b) => {
+    const dateDiff =
+      getPlayerLastGameMs(playerId, games, (game) => game.tournamentId === b.id) -
+      getPlayerLastGameMs(playerId, games, (game) => game.tournamentId === a.id);
+    if (dateDiff !== 0) return dateDiff;
+
+    const seasonDiff = getTournamentDateMs(b) - getTournamentDateMs(a);
+    if (seasonDiff !== 0) return seasonDiff;
+
+    const createdDiff = getIdCreatedAtMs(b) - getIdCreatedAtMs(a);
+    if (createdDiff !== 0) return createdDiff;
+
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export function getPlayerParticipatedTournaments(
@@ -59,9 +81,10 @@ export function getPlayerParticipatedTournaments(
   games: Game[] | undefined,
   tournaments: Tournament[] | undefined
 ): Tournament[] {
-  const list = getPlayerParticipatedTournamentIds(playerId, games)
+  const ids = new Set(getPlayerParticipatedTournamentIds(playerId, games));
+  const list = [...ids]
     .map((id) => (tournaments ?? []).find((t) => t.id === id))
     .filter((t): t is Tournament => t != null);
 
-  return sortTournamentsByDateDesc(list);
+  return sortPlayerTournamentsByRecencyDesc(playerId, list, games);
 }

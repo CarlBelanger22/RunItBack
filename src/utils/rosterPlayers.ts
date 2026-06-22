@@ -1,4 +1,5 @@
 import type { Team, Tournament, Game, Player } from '../App';
+import { getIdCreatedAtMs, getPlayerLastGameMs } from './playerParticipationSort';
 
 /** One roster row per player id (last entry wins). */
 export function dedupeTeamPlayers(players: Player[]): Player[] {
@@ -44,6 +45,29 @@ export function getTeamsForPlayer(playerId: string, teams: Team[]): Team[] {
   return dedupeTeamsById(teams).filter((team) =>
     (team.players ?? []).some((p) => p.id === playerId)
   );
+}
+
+/** Latest game with this team first; ties by team createdAt then name. */
+export function sortPlayerTeamsByRecencyDesc(
+  playerId: string,
+  teams: Team[],
+  games: Game[] | undefined
+): Team[] {
+  return [...getTeamsForPlayer(playerId, teams)].sort((a, b) => {
+    const dateDiff =
+      getPlayerLastGameMs(playerId, games, (game) =>
+        game.homeTeamId === b.id || game.awayTeamId === b.id
+      ) -
+      getPlayerLastGameMs(playerId, games, (game) =>
+        game.homeTeamId === a.id || game.awayTeamId === a.id
+      );
+    if (dateDiff !== 0) return dateDiff;
+
+    const createdDiff = getIdCreatedAtMs(b) - getIdCreatedAtMs(a);
+    if (createdDiff !== 0) return createdDiff;
+
+    return a.name.localeCompare(b.name);
+  });
 }
 
 export function getTournamentIdsForTeam(
@@ -230,9 +254,14 @@ export function isPlayerOnTeam(playerId: string, teamId: string, teams: Team[]):
 
 export function getPlayerRosterEntries(
   playerId: string,
-  teams: Team[]
+  teams: Team[],
+  games?: Game[]
 ): Array<{ team: Team; player: Player }> {
-  return getTeamsForPlayer(playerId, teams).map((team) => ({
+  const orderedTeams = games
+    ? sortPlayerTeamsByRecencyDesc(playerId, teams, games)
+    : getTeamsForPlayer(playerId, teams);
+
+  return orderedTeams.map((team) => ({
     team,
     player: dedupeTeamPlayers(team.players ?? []).find((p) => p.id === playerId)!,
   }));

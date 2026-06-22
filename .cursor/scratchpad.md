@@ -7876,3 +7876,682 @@ Imports with `trackBothTeams: false` but full `gameStats` on the **away** team (
 - Score-only `teamStats` with `null` shooting fields can NaN tournament standings FG% if aggregated without guards (low priority; human did not report).
 
 ---
+
+## ATS-1 — FIBA extra team stats (Designer, 2026-06-12)
+
+### Background and Motivation
+
+Human reviewed **ASG 2019 FIBA box score screenshots** and wants the **extra team stats** from FIBA footers to appear in the existing **Advanced Team Statistics** card on the game page (per-team tab). Example from **INA 86 – SGP 43** (Jul 19):
+
+| Stat | INA | SGP |
+|------|-----|-----|
+| Points from Turnovers | 41 | 4 |
+| Points in the Paint | 50 | 22 |
+| Second Chance Points | 21 | 15 |
+| Fast Break Points | 19 | 3 |
+| Bench Points | 50 | 11 |
+
+*(FIBA also prints paint as 25/52 and %; current UI shows **points total only** — no UI change.)*
+
+Current app: Offense/Defense rows show **"-"** because ASG `team_stats` in DB never received these fields.
+
+### Human scope lock (2026-06-12)
+
+| Decision | Human |
+|----------|-------|
+| **UI** | **No changes** — keep existing Advanced Team Statistics layout |
+| **Stats to fill** | 5 only: POT, paint points, 2nd chance, fast break, bench |
+| **Out of scope** | Biggest lead, biggest scoring run, lead changes, times tied, time with lead, paint FGM/FGA/%, new comparison cards, live entry |
+| **Schema** | Use existing `TeamStats` fields — no new columns |
+| **Method** | Transcribe from FIBA photos → patch `team_stats` in DB (TC-1.7 pattern) |
+| **Game scope** | **3 full ASG 2019 games only** (Jul 19, 21, 22) |
+| **Zero vs dash** | **`null` = `-`**, **`0` = recorded zero** (Jul 21 SGP fast break = 0) |
+
+### Current state (unchanged from audit)
+
+- Fields already on `TeamStats`: `points_off_turnovers`, `points_in_paint`, `second_chance_points`, `fastbreak_points`, `bench_points` (+ unused `biggest_lead`, `biggest_scoring_run` — leave in type, never populate)
+- UI already wired in `TeamStats.tsx` via `getOptionalAdvancedStatValue`
+- ASG import (`aggregateTeamStats`) omits advanced fields → dashes in app
+- **`getOptionalAdvancedStatValue` treats `0` as not recorded** → shows `-` even if FIBA says 0 (edge case; see ATS-1.2)
+
+### Revised task breakdown (Executor — data only)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **ATS-1.1** | Transcribe 5 stats × 2 teams for **3 full ASG games** from photos → `scripts/asg2019-advanced-stats-data.ts` | Values match FIBA footer on Jul 19, Jul 21, Jul 22 full box scores |
+| **ATS-1.2** | Fix optional-stat sentinel: **`null` = not on box score**, **`0` = recorded zero** (display helper only — no layout change) | If FIBA shows 0 FB pts, UI shows `0` not `-` |
+| **ATS-1.3** | Extend `asg2019-helpers` / `build-asg-2019-imports.ts` to merge advanced fields into bundles | Rebuilt JSON includes 5 fields per side |
+| **ATS-1.4** | `patch-asg2019-advanced-stats.ts` — surgical UPDATE `team_stats` on 3 game IDs (+ sync local JSON) | No `game_stats` / player changes |
+| **ATS-1.5** | Human QA: open 3 games → Advanced card shows FIBA values on each team tab | Jul 19 INA paint 50, POT 41, etc. |
+
+**Default game scope (unless human says otherwise):** only the **3 full FIBA ASG 2019** games (`game-asg19-2019-07-19-indonesia-singapore`, `…-07-21-singapore-philippines`, `…-07-22-singapore-vietnam`). Score-only ASG games stay `-`.
+
+**Execution order:** ATS-1.1 → ATS-1.2 → ATS-1.3 → ATS-1.4 → ATS-1.5.
+
+### Cancelled / deferred (from earlier draft)
+
+- ~~ATS-1A head-to-head comparison UI~~ — human rejected
+- ~~ATS-1B schema extensions (paint FGM/FGA, game flow)~~ — not needed
+- ~~Populate biggest_lead / biggest_scoring_run~~ — human rejected
+- ~~Live entry for advanced stats~~ — deferred
+
+### Project Status Board — ATS-1
+
+- [x] **Designer:** Audit + initial plan (2026-06-12)
+- [x] **Human:** No UI change; 5 stats only; ignore biggest lead/run; 3 ASG games; zero vs dash
+- [x] **Executor:** ATS-1.1–1.4 — data file, display fix, build script, DB patch (2026-06-12)
+- [ ] **Human:** QA — Jul 19 INA–SGP, Jul 21 SGP–PHI (SGP FB=0), Jul 22 SGP–VIE
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-12):** `npm run patch:asg2019-advanced-stats` patched 3 games in DB + local JSON. `getOptionalAdvancedStatValue` now distinguishes null vs 0. New games use `null` defaults for optional advanced stats (`GameSetup`, `GameLogic`).
+
+### Lessons (append)
+
+- When UI already exists, ATS work is **data backfill** not new components — verify schema before designing new screens.
+- FIBA paint line includes FGM/FGA/% but existing UI only has room for **points total** unless UI changes (human declined).
+
+---
+
+## GT-1 — Ghost teams (0-player opponents) (Designer, 2026-06-12)
+
+### Background and Motivation
+
+Human has **37 teams** in Team Manager; many show **0 Players** (e.g. Team M.O.B, SBA 2, SUTD, Amity Sports). These are almost always **opponent placeholders** created during **single-sided stat tracking** (game setup: pick/create away team, never add a roster). They clutter Team Manager and inflate the dashboard **Teams Created** count.
+
+Human wants:
+1. **Dashboard** — main team count = **real teams only**; ghost count shown **subtly**
+2. **Team Manager** — show **real teams** by default; **toggle** to show/hide ghost teams (**default hidden**); label ghosts **"Ghost Teams"**
+3. Designer chooses UI details
+
+### Definition
+
+```ts
+/** Opponent shell: no roster on file (typical score-only / single-track away team). */
+export function isGhostTeam(team: Team): boolean {
+  return team.players.length === 0;
+}
+```
+
+**Assumption challenged:** "0 players always means ghost."  
+**Mostly true** in this app today — opponents from imports/setup rarely get rosters. **Edge case:** a team just created via **+ New Team** also has 0 players until first player is added; it will appear as ghost until then. Human can toggle ghosts on to manage it, or add a player immediately. **No DB flag** — derive from roster length only (simplest, matches human rule).
+
+**Do not auto-delete** ghosts — games reference them by `homeTeamId` / `awayTeamId`.
+
+### Out of scope (v1)
+
+- Hiding ghosts from **global search**, **game setup**, **tournament enrollment**, or **box scores** — opponents must remain selectable/findable
+- `setupCreatedTeamIds` heuristics — redundant if rule is `players.length === 0`
+- Bulk delete ghosts
+
+### UI design (Designer recommendation)
+
+#### Dashboard — Teams card
+
+| Element | Before | After |
+|---------|--------|-------|
+| Big number | `37` | `22` (example: real team count) |
+| Label | `Teams Created` | `Teams Created` (unchanged) |
+| Subtle line | — | `15 ghost teams` in `text-xs text-muted-foreground` under label, **only if ghostCount > 0** |
+| Preview list (top 3) | All teams by roster size | **Real teams only** (same sort) |
+
+Optional: extend `DashboardStatCard` with `footerNote?: string` prop — keeps card generic.
+
+#### Team Manager
+
+**Header row** (between subtitle and grid):
+
+```
+[ Switch ] Show ghost teams (15)     ← default OFF
+```
+
+Use existing `Switch` + `Label` from ui (same pattern as elsewhere). Persist toggle in **component state only** (resets on navigation) — no localStorage unless human asks later.
+
+**Grid when toggle OFF:** map `realTeams` only. Same card layout as today.
+
+**When toggle ON:** two blocks:
+
+1. **Your teams** — `realTeams` grid (unchanged cards)
+2. **Ghost teams** — section title `Ghost teams` + helper `Opponent placeholders with no roster (used in score-only games).`  
+   - Same card component, muted treatment: `border-dashed border-muted-foreground/30`, optional small `Badge variant="secondary"` **Ghost** on card header  
+   - Still allow edit / delete / navigate to team page (may be score-only game hub)
+
+**Empty states:**
+
+| Condition | Message |
+|-----------|---------|
+| `realTeams.length === 0` && ghosts hidden | "No teams with players yet" + CTA Create First Team; if `ghostCount > 0`, add "Enable **Show ghost teams** to see N opponent placeholders." |
+| `teams.length === 0` | Existing empty state |
+
+### Shared utility
+
+**File:** `src/utils/ghostTeams.ts`
+
+```ts
+export function isGhostTeam(team: Team): boolean;
+export function partitionTeams(teams: Team[]): { realTeams: Team[]; ghostTeams: Team[] };
+export function countGhostTeams(teams: Team[]): number;
+```
+
+Use everywhere we need consistent logic (Dashboard, TeamManager; tests).
+
+### High-level Task Breakdown (Executor)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **GT-1.1** | Add `ghostTeams.ts` + unit test `scripts/test-ghost-teams.ts` | Partition/count correct for mixed rosters |
+| **GT-1.2** | `Dashboard.tsx` — real count, ghost footnote, preview excludes ghosts | Card shows 22 not 37; footnote when ghosts > 0 |
+| **GT-1.3** | `DashboardStatCard` optional `subLabel?: string` (or inline in Dashboard) | Subtle ghost line renders under count label |
+| **GT-1.4** | `TeamManager.tsx` — switch default off, split sections when on | Ghost grid hidden by default; labeled section when on |
+| **GT-1.5** | `npm run build` + manual QA | Malaysia/Thailand not in default manager view; toggle reveals them |
+
+**Execution order:** GT-1.1 → GT-1.2–1.4 → GT-1.5.
+
+### Project Status Board — GT-1
+
+- [x] **Designer:** Spec + UI proposal (2026-06-12)
+- [x] **Human:** Confirmed edge cases; Executor proceed
+- [x] **Executor:** GT-1.1–1.4 — `ghostTeams.ts`, Dashboard, TeamManager (2026-06-12)
+- [ ] **Human:** QA Team Manager + dashboard counts
+
+### Executor's Feedback or Assistance Requests
+
+- **Executor (2026-06-12):** Ghost teams hidden by default in Team Manager; toggle shows dashed **Ghost** cards. Dashboard count uses real teams only + subtle `N ghost teams` sublabel. Search unchanged (ghosts still findable).
+
+### Lessons (append)
+
+- Opponent teams from imports often have **team row + 0 `team_players`** — UI should not treat them as first-class managed rosters.
+
+---
+
+## SR-1 — Shenggong Cup stat recording coverage (Designer, 2026-06-12)
+
+### Background and Motivation
+
+Human reports **Shenggong Cup 2019** should **not** show **FDPG** (fouls drawn per game) or **+/-** (plus/minus) — those stats were not on the source (Easy Stats / legacy tracking). The webapp currently shows **`0.0`** instead of **`—`** for those columns.
+
+Human also asked: **any other stats missed?**
+
+### How stat coverage works today
+
+**A) Tournament-scoped denylist** — `src/utils/statRecordingCoverage.ts`
+
+```ts
+export type TournamentScopedStat = 'fouls_drawn' | 'plus_minus';
+export const TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS = new Set([
+  'tournament-1780251377063', // NBL Div 2 2024
+  'tournament-1780333884144', // Gemilang Cup U21
+  'tournament-1780425044074', // NBL Div 2 2023
+]);
+```
+
+`tournamentRecordsStat(tournamentId, stat)` → if tournament in set, UI/aggregation treats stat as **not recorded** (`—`, null averages, excluded from All-Time +/- denominators).
+
+**Surfaces using this:** `BoxScore`, `PlayerPage` (game log +/-), `PlayerStatsTable` (FDPG, +/-), `playerSeasonStats` aggregation, `gameDisplay` team FDPG denominator, `TeamPage` FDPG.
+
+**B) Data-driven coverage** (no tournament list):
+
+| Stat | Helper | Rule |
+|------|--------|------|
+| Paint / Fast break (player) | `getShotDataCoverage` | Game has `shots[]` |
+| Blocks against, TF, UF | `getFoulStatCoverage` | Any player-game with value **> 0** in scope |
+| Team Paint/FB/2nd chance PPG | `getTeamAdvancedStatCoverage` | Persisted `team_stats` advanced fields **> 0** |
+
+### Root cause (Shenggong)
+
+| Field | Value |
+|-------|-------|
+| Tournament | **Shenggong Cup 2019** |
+| ID | `tournament-1780771500232` |
+| Import | `scripts/build-shenggong-carl-only-imports.ts` — sets `fouls_drawn: 0`, `plus_minus: 0` placeholders |
+| In denylist? | **No** ← bug |
+| User sees | FDPG `0.0`, +/- `0.0` instead of `—` |
+
+All other **Easy Stats** import tournaments are already in the denylist:
+
+| Tournament | ID | In denylist? |
+|------------|-----|--------------|
+| NBL Div 2 2024 | `tournament-1780251377063` | Yes |
+| Gemilang Cup U21 | `tournament-1780333884144` | Yes |
+| NBL Div 2 2023 / SAFSA Carl-only | `tournament-1780425044074` | Yes |
+| **Shenggong Cup 2019** | `tournament-1780771500232` | **No** |
+
+**FIBA / full box score tournaments stay included** (correct): ASG 2019 (real +/- and FD on lines), Sunig 2025, IVP 2026.
+
+### Audit — other stats for Shenggong (no code change expected)
+
+| Stat / column | Shenggong behavior today | Action |
+|---------------|-------------------------|--------|
+| **FDPG** | Shows 0.0 | **Fix** — add to denylist |
+| **+/-** | Shows 0.0 | **Fix** — add to denylist |
+| Paint / FB (player) | `—` (no shot chart) | OK |
+| BA / TF / UF | `—` (all zeros, heuristic) | OK |
+| PPG, RPG, APG, etc. | From Easy Stats — tracked | OK |
+| Team advanced (Paint PPG, etc.) | Not persisted on imports | OK (`—`) |
+| Box score FD / +/- columns | Would show 0 if expanded | **Fix** via denylist |
+
+**Only tournament-scoped stats in the codebase are `fouls_drawn` and `plus_minus`.** No other tournament denylist exists; other “missing” stats self-hide via zero/empty heuristics.
+
+### Recommended fix (Executor — minimal)
+
+| ID | Task | Success criteria |
+|----|------|------------------|
+| **SR-1.1** | Add `'tournament-1780771500232' // Shenggong Cup 2019` to `TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS` | `tournamentRecordsStat` returns false for Shenggong |
+| **SR-1.2** | Extend `scripts/test-stat-recording.ts` with Shenggong ID + optional aggregation case | `npm run test:stat-recording` passes |
+| **SR-1.3** | Comment in `build-shenggong-carl-only-imports.ts` pointing to denylist (import zeros are placeholders) | Future imports stay aligned |
+| **SR-1.4** | Human QA: Carl → Shenggong scope → FDPG and +/- show `—`; All-Time +/- excludes Shenggong games | Matches NBL 2023 behavior |
+
+**No DB migration.** Game JSON can keep `fouls_drawn: 0` / `plus_minus: 0` in storage; display layer ignores them when tournament is excluded.
+
+### Out of scope
+
+- Storing coverage flags on `Tournament` row in Supabase (denylist is sufficient for 4 Easy Stats eras)
+- Removing placeholder zeros from import JSON
+- Adding denylist entries for ASG / Sunig / IVP (those stats **were** tracked)
+
+### Project Status Board — SR-1
+
+- [x] **Designer:** Audit + root cause (2026-06-12)
+- [x] **Human:** Executor proceed
+- [x] **Executor:** SR-1.1–1.3 — Shenggong added to denylist + tests (2026-06-12)
+- [ ] **Human:** QA Shenggong + spot-check NBL/Gemilang still `—`
+
+### Lessons (append)
+
+- Easy Stats imports always zero `fouls_drawn` / `plus_minus` — **every new Easy Stats tournament** must be added to `TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS` at import time or UI shows misleading 0.0.
+- Distinguish **“not tracked”** (denylist → `—`) from **“tracked zero”** (FIBA `0` → `0`) — Shenggong is the former.
+
+---
+
+## ADIV-1 — A Division 2019 Carl-only import (Designer, 2026-06-21)
+
+### Background and Motivation
+
+Human added `Importingboxscores/A Division 2019/` with one spreadsheet screenshot (**A-Div'19**, 7 games, Carl-only stats). Wants same import pattern as **Shenggong Cup 2019** (Carl on tracked team, `trackBothTeams: false`, ghost opponents, score-only away side).
+
+### Transcribed from screenshot (Designer read — human please verify)
+
+| # | Date | Opp | Result | Carl Pts | Reb | Ast | Stl | Blk | FG | 3PT | FT |
+|---|------|-----|--------|----------|-----|-----|-----|-----|----|----|-----|
+| 1 | 2019-04-08 | NJC | W 42-36 | 6 | 17 | 2 | 5 | 1 | 3/7 | 0/0 | 0/0 |
+| 2 | 2019-04-10 | YIJC | W 55-26 | 13 | 13 | 0 | 2 | 1 | 5/8 | 0/0 | 3/5 |
+| 3 | 2019-04-15 | NYJC | L 44-58 | 9 | 7 | 0 | 4 | 1 | 4/7 | 0/0 | 1/3 |
+| 4 | 2019-04-22 | SJI | W 52-34 | 18 | 11 | 1 | 1 | 2 | 8/11 | 0/0 | 2/4 |
+| 5 | 2019-05-06 | ASRJC | L 31-32 | 3 | 9 | 1 | 3 | 1 | 1/3 | 0/0 | 1/4 |
+| 6 | 2019-05-08 | TMJC | L 35-59 | 8 | 7 | 0 | 1 | 1 | 3/5 | 0/0 | 2/4 |
+| 7 | 2019-05-13 | RJC | W 38-28 | 6 | 11 | 0 | 0 | 2 | 3/6 | 0/0 | 0/2 |
+
+**Assumption:** First score in `W 42-36` / `L 44-58` is **Carl's team** (standard personal log convention).
+
+**Not on spreadsheet:** minutes, fouls, turnovers, OR/DR split, FDPG, +/-, tip-off time, quarter scores.
+
+**Visual notes:** Games 2 & 4 have blue row highlight (unknown — playoffs?); red cells are likely season highs (display only).
+
+### Proposed import pattern (mirror Shenggong)
+
+| Aspect | Proposal |
+|--------|----------|
+| Player | `player-sunig-ntu-22` (Carl) — **pending human confirm team** |
+| Tracked team | Home side, `trackBothTeams: false` |
+| Opponents | 7 new **ghost** teams (0 players): NJC, YIJC, NYJC, SJI, ASRJC, TMJC, RJC |
+| `gameStats` | Carl only on home team |
+| `teamStats` | Score-only away; home totals from Carl line |
+| Rebounds | Split total Reb 30% ORB / 70% DRB (Shenggong `splitRebounds`) |
+| Minutes / fouls | Shenggong-style **synthetic** from seeded ranges unless human provides real values |
+| Turnovers | `0` unless human provides |
+| FDPG / +/- | Not tracked → add new tournament ID to `TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS` |
+| Deliverables | `build-adiv-2019-imports.ts`, 7 JSON bundles, `npm run build:adiv-2019`, live `import:boxscore` |
+
+### Open questions (need human answers before Executor — target 98% confidence)
+
+**Resolved (2026-06-21 human + DB lookup):**
+
+| Item | Decision |
+|------|----------|
+| Carl's team | **ACJC** `team-1781859943592` — Carl `#22` on roster |
+| Tournament | **NSG A Division 2019** `tournament-1781859881010` (2019 Apr), 8 teams enrolled, **0 games** yet |
+| Opponents | Reuse enrolled teams (not new ghosts): NJC, YIJC, NYJC, SJI, ASRJC, TMJC; game 7 **RJC = RI** `team-1781860245664` |
+| Minutes | Random **25–30** per game (seeded RNG) |
+| Fouls | Random **1–4** per game (seeded RNG) |
+| Turnovers | Random **0–2** per game (seeded RNG) — human override |
+| Score orientation | First score = **ACJC** |
+| FDPG / +/- | Not tracked → add `tournament-1781859881010` to denylist (Shenggong pattern; spreadsheet has no columns) |
+| Home team | **ACJC home** every game (`trackBothTeams: false`, Carl stats on home) |
+| Blue rows (games 2 & 4) | No import meaning — ignore |
+
+**Designer confidence: ~98%** — ready for Executor after human approves plan.
+
+### High-level Task Breakdown (Executor)
+
+1. **ADIV-1.1** — `scripts/build-adiv-2019-carl-only-imports.ts` (mirror Shenggong): 7 games, IDs `team-1781859943592` home, opponent IDs above, RNG seed e.g. `20190408`, min 25–30, fouls 1–4, TO 0–2.
+2. **ADIV-1.2** — `npm run build:adiv-2019` in package.json; write JSON to `Importingboxscores/A Division 2019/json/`.
+3. **ADIV-1.3** — Add tournament to `TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS` + test row in `scripts/test-stat-recording.ts`.
+4. **ADIV-1.4** — `list-adiv-context.ts` already added; optional `build:adiv-2019` npm script.
+5. **ADIV-1.5** — Run `import:boxscore --stats-only` for all 7 JSON files.
+6. **ADIV-1.6** — Human QA: 7 games in tournament, Carl lines match sheet, RI opponent on game 7, FDPG/+/- show `—`.
+
+### Project Status Board — ADIV-1
+
+- [x] **Designer:** Screenshot transcribed; Shenggong template identified (2026-06-21)
+- [x] **Human:** Team/tournament/MIN/PF/TO/score/RJC answers (2026-06-21)
+- [x] **Designer:** DB IDs resolved via `list-adiv-context.ts` (2026-06-21)
+- [x] **Human:** Executor go-ahead (2026-06-21)
+- [x] **Executor:** ADIV-1.1–1.5 — build script, 7 JSON, denylist, live import (2026-06-21)
+- [ ] **Human:** QA — 7 games, Carl stats vs sheet, FDPG/+/- show `—`
+
+### Executor's Feedback or Assistance Requests
+
+**Completed (2026-06-21):**
+
+- `scripts/build-adiv-2019-carl-only-imports.ts` + `npm run build:adiv-2019`
+- 7 JSON in `Importingboxscores/A Division 2019/json/`
+- `tournament-1781859881010` added to FDPG/+/- denylist
+- All 7 games imported via `--stats-only`
+
+**Synthetic values (seed 20190408):**
+
+| Game | MIN | PF | TO |
+|------|-----|----|----|
+| vs NJC | 28.3 | 4 | 1 |
+| vs YIJC | 25.9 | 1 | 1 |
+| vs NYJC | 29.1 | 3 | 0 |
+| vs SJI | 27.3 | 1 | 2 |
+| vs ASRJC | 28.8 | 4 | 0 |
+| vs TMJC | 28.9 | 3 | 1 |
+| vs RI | 27.4 | 4 | 1 |
+
+**Human QA checklist:** Open NSG A Division 2019 → 7 games; spot-check Carl 18p vs SJI; game 7 opponent = RI; player profile FDPG/+/- = `—` for this tournament.
+
+---
+
+## PH-1 — Player profile header cleanup (Designer, 2026-06-23)
+
+### Background and Motivation
+
+Human shared screenshot of Carl's **Overview** profile card. Teams and tournaments now sort correctly (latest left), but the header still feels crowded and redundant:
+
+| Problem | Current behavior |
+|---------|------------------|
+| **Triple team representation** | Jersey grid (5× `#22` icons) + full team name chips + implicit "current team" from page context |
+| **Redundant jerseys** | Carl wears `#22` on every team — five identical jersey icons add width without new info |
+| **Chip wall** | 5 team + 8 tournament badges = 13 clickable pills in ~120px vertical space |
+| **No labels** | Two rows of badges with no "Teams" / "Tournaments" headings — users infer meaning |
+| **Competing styles** | Outline team chips vs filled black tournament chips feel like one undifferentiated button grid |
+| **Layout gap** | Name/vitals left, jersey grid right — large dead zone; badges wrap to uneven second/third rows |
+| **Mobile risk** | `flex-wrap` will stack 13 chips unpredictably on narrow screens |
+
+Goal: **cleaner identity block**, **scannable career context**, **same navigation** (click team/tournament still works), **no data loss**.
+
+### Key Challenges and Analysis
+
+1. **Jersey numbers differ per team for some players** — solution must show per-team `#` when they differ, collapse when all same.
+2. **Long team/tournament names** — full names on every chip don't scale (NTU, Anglo-Chinese Junior College, NSG A Division 2019).
+3. **Recency order is valuable** — keep latest-left; new UI must preserve `sortPlayerTeamsByRecencyDesc` / `sortPlayerTournamentsByRecencyDesc`.
+4. **Edit flow** — jersey editor dialog must remain reachable (Edit button elsewhere on page today).
+5. **Scope** — header card only; stats grid below stays unchanged.
+
+### Proposed design: **"Identity + Career Strip"**
+
+Replace the current 3-row badge soup with a **two-tier card**:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  [Avatar]   Carl Belanger                          #22      │
+│             C/PF · 6'3" · 88kg · 24 yrs                     │
+│             ┌──────────────────┐                            │
+│             │ 🏀 NTU  (current) │  ← optional highlight     │
+│             └──────────────────┘                            │
+│  ─────────────────────────────────────────────────────────  │
+│  Teams (5)   [NTU #22] [KX #22] [SAF #22] [SG #22] [ACJC] →│
+│  Tournaments (8)  [IVP'26] [Sunig'25] [NBL'24] …  → scroll │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### Tier 1 — Identity (top)
+
+| Element | Change | Why |
+|---------|--------|-----|
+| **Single jersey badge** | Show **one** `#22` next to name when all roster entries share the same number; per-team numbers only inside team chips when they differ | Removes 4 duplicate jersey icons for Carl; still correct for multi-number players |
+| **Remove floating `PlayerJerseyGrid`** from header row | Jersey info moves into team chips or single badge | Eliminates right-side clutter and dead space |
+| **"Current team" pill** | Highlight most recent team (first in sorted list) with subtle `primary/10` background + "Current" or just stronger styling | Answers "where does he play now?" without reading 5 chips |
+| **Vitals unchanged** | Keep one muted line | Already compact |
+
+#### Tier 2 — Career strip (below thin divider)
+
+| Element | Change | Why |
+|---------|--------|-----|
+| **Section labels** | `Teams (5)` and `Tournaments (8)` left-aligned labels | Instant comprehension; accessibility |
+| **Compact team chips** | Logo + **abbreviation** + `#` (e.g. `NTU · #22`) — full name in tooltip | ~60% width reduction vs full-name badges |
+| **Compact tournament chips** | Logo + **short label** (existing name or `year` suffix) — full name in tooltip | 8 tournaments fit one scroll row on desktop |
+| **Horizontal scroll** | `overflow-x-auto` + `scrollbar-thin` + fade edge mask; no wrap | Predictable single-row layout; mobile swipe |
+| **Recency preserved** | Same sort order as today | Latest still left |
+| **Remove duplicate current-team chip** from scroll row OR show it only in Tier 1 | Avoid showing NTU twice |
+
+**Tournament chip styling:** switch from solid black to **secondary/muted** outline (match team row family) so both rows feel related; use small tournament icon for differentiation.
+
+### Alternative considered (not recommended for v1)
+
+| Option | Pros | Cons |
+|--------|------|------|
+| **Accordion "Teams / Tournaments"** | Very clean collapsed | Extra click to see career; worse scanability |
+| **Logo-only rows** | Minimal | Cryptic without hover; bad for abbrev-less teams |
+| **Full career timeline** | Beautiful storytelling | High build cost; overlaps Game Log tab |
+
+### How this improves UI (summary)
+
+1. **−4 redundant jersey icons** for common case (same number everywhere).
+2. **−40% vertical height** in badge area (one scroll row per section vs multi-wrap).
+3. **Clear hierarchy**: who → current team → career history.
+4. **Better mobile**: horizontal scroll beats 13-row wrap.
+5. **Consistent chip language**: both rows use compact outline chips; labels distinguish them.
+6. **Same interactions**: click chip → team/tournament page; tooltip for full names.
+
+### High-level Task Breakdown (Executor — after human approval)
+
+| Task | Description | Success criteria |
+|------|-------------|------------------|
+| **PH-1.1** | Add `PlayerCareerStrip.tsx` — labeled horizontal scroll rows for teams + tournaments | Renders with mock data; scroll works on mobile |
+| **PH-1.2** | Add `PlayerIdentityHeader.tsx` — avatar, name, vitals, smart single jersey, current-team pill | Carl shows one `#22`; multi-number player shows no global badge |
+| **PH-1.3** | Extend team chip: abbrev + `#` + tooltip with full name | NTU chip shows `NTU · #22`, tooltip "Nanyang Technological University" |
+| **PH-1.4** | Tournament chip compact variant (reuse `TournamentBadge` + truncated name) | 8 tournaments in one row on desktop with scroll |
+| **PH-1.5** | Replace Overview card block in `PlayerPage.tsx` | Old jersey grid + two badge rows removed |
+| **PH-1.6** | Helper: `allJerseyNumbersSame(entries)` + `formatTournamentChipLabel(t)` | Unit tests in `test-player-participation-sort.ts` or new test file |
+| **PH-1.7** | Visual QA Carl + one multi-team/multi-number test player | Human confirms cleaner header |
+
+**Files touched (estimate):** `PlayerPage.tsx`, new `PlayerIdentityHeader.tsx`, new `PlayerCareerStrip.tsx`, extend or replace `PlayerTeamBadges` / `ParticipatedTournamentBadges`, optional `playerProfileDisplay.ts` helpers.
+
+**Out of scope:** Game Log tab, edit dialog changes, TeamPage header (could reuse components later).
+
+### Project Status Board — PH-1
+
+- [x] **Designer:** Problem analysis + proposed layout (2026-06-23)
+- [ ] **Human:** Review plan — approve, revise, or pick variant
+- [ ] **Executor:** PH-1.1–1.7 after approval
+
+### Executor's Feedback or Assistance Requests
+
+**Questions for human before build:**
+
+1. **Current team highlight** — Show explicit "Current" label on NTU, or just visually emphasize most recent?
+2. **Tournament chip text** — Full name (scroll) vs abbreviated (`IVP '26`, `NSG A-Div '19`)?
+3. **Collapse when many** — Always show all in scroll, or cap at 4 visible + "View all" popover?
+
+---
+
+## PH-1b — Revised plan (Designer, 2026-06-23) — **ACTIVE**
+
+Human feedback: **no current team** (multi-team concurrent rosters); **keep jerseys** (valued visual). v1 above is superseded — do not implement.
+
+### Proposed: **Jersey Locker + Tournament Rail**
+
+See conversation for full wireframe. Summary:
+
+1. **Identity zone** — avatar, name, vitals only (no floating jersey grid).
+2. **Jersey Locker** — labeled `Teams (5)`; horizontal scroll of columns: JerseyIcon + logo + abbrev; click → team; **remove full-name team badge row**.
+3. **Tournament Rail** — labeled `Tournaments (8)`; compact outline chips, abbrev + tooltip, horizontal scroll.
+
+No current-team emphasis. Recency order = timeline only.
+
+### Status
+
+- [x] Designer PH-1b
+- [ ] Human approve
+- [ ] Executor PH-1b.1–1.5
+
+---
+
+## PH-1c — Group duplicate jersey numbers (Designer, 2026-06-23) — **ACTIVE (scoped first)**
+
+Human request: **only this change first** — keep jerseys; when same `#` on multiple teams, show **one** jersey icon; tooltip lists **all** teams wearing that number. Rest of header (team chips, tournament row, layout) unchanged for now.
+
+### Current behavior
+
+`PlayerJerseyGrid` renders one `JerseyIcon` per roster entry → Carl gets **5× `#22`** side by side. Tooltip shows one team each.
+
+### Proposed behavior
+
+| Case | Jerseys shown | Tooltip |
+|------|---------------|---------|
+| Same `#` on 5 teams (Carl) | **1** `#22` icon | `#22` header + list of all 5 team names (recency order, latest first) |
+| `#22` on 3 teams + `#7` on 1 | **2** icons (`#22`, `#7`) | Each tooltip lists only teams for that number |
+| One team only | 1 icon | Same as today (single team + `#`) |
+
+**Visual:** No change to `JerseyIcon` size, position in header, or styling — only dedupe icons by number.
+
+### Tooltip mock (Carl)
+
+```
+┌─────────────────────────────┐
+│  #22                        │
+│  ─────────────────────────  │
+│  Nanyang Technological Univ │  ← latest first (recency)
+│  Kai Xuan                   │
+│  SAFSA                      │
+│  Singapore                  │
+│  Anglo-Chinese Junior Coll. │
+└─────────────────────────────┘
+```
+
+Optional: small team logo left of each name (v1.1); v1 text-only is fine.
+
+### Click / navigation (recommendation)
+
+| Scenario | Proposed click |
+|----------|----------------|
+| **Multi-team same `#`** | Jersey click → navigate to **most recent** team (first in list). Tooltip rows also clickable → that team. |
+| **Single team** | Unchanged — click jersey → team page |
+
+**Why:** Preserves today’s “click jersey → go somewhere” without forcing a picker modal. Power users use tooltip links for other teams.
+
+**Alternative (if human prefers):** Jersey not clickable when grouped; tooltip-only navigation. Simpler but loses one-click habit.
+
+### Sort order
+
+1. **Within tooltip:** teams in **recency order** (matches `playerRosterEntries` order from `getPlayerRosterEntries(..., games)`).
+2. **Jersey icon order (left→right):** when player has `#22` and `#7`, order groups by **most recent team in each group** (latest group left). Carl: only one group.
+
+### Implementation plan (Executor — after approval)
+
+| Task | File | Detail |
+|------|------|--------|
+| **PH-1c.1** | `src/utils/playerJerseyGroups.ts` | `groupJerseyEntriesByNumber(entries): { number, teams[] }[]` preserving entry order |
+| **PH-1c.2** | `PlayerJerseyGrid.tsx` | Map groups → one icon each; multi-team tooltip UI |
+| **PH-1c.3** | `scripts/test-player-jersey-groups.ts` | Carl-like 5×22 → 1 group; mixed numbers → 2 groups |
+| **PH-1c.4** | QA | Carl profile: 1 jersey; hover shows 5 teams |
+
+**No changes:** `PlayerPage` layout, team badges, tournament badges, edit dialog.
+
+### Success criteria
+
+- Carl: **1** `#22` jersey (not 5)
+- Tooltip lists all 5 teams on hover
+- Player with two different numbers: **2** jerseys
+- Existing single-team player: no regression
+
+### Open question for human
+
+**Jersey click when multiple teams share `#`:** ~~navigate to most recent team~~ **Resolved:** jerseys **not clickable**; team row handles navigation.
+
+### Status
+
+- [x] Designer PH-1c (2026-06-23)
+- [x] Human: no jersey click; use team row (2026-06-23)
+- [x] Executor PH-1c.1–1.4 (2026-06-23)
+- [ ] Human QA — Carl shows 1 `#22`, tooltip lists 5 teams
+
+---
+
+## PH-1d — Team / tournament row overflow (Designer, 2026-06-23) — **ACTIVE**
+
+Human screenshot: team + tournament badge rows **extend past the card border** (especially 8 tournaments).
+
+### Root cause (code review)
+
+| Factor | Detail |
+|--------|--------|
+| **Narrow column** | Badge rows live inside the right column of `Avatar \| content` flex — ~75% card width, not full width |
+| **Non-shrinking chips** | `Badge` uses `whitespace-nowrap shrink-0` — each chip is as wide as its full name |
+| **Long names** | "Nanyang Technological University", "NSG A Division 2019", etc. |
+| **Double flex-wrap** | Wrapper + component both wrap, but chips cannot shrink so rows get very wide before wrap kicks in |
+
+PH-1c (grouped jersey) is done; this task is **rows only** — jerseys, identity row unchanged.
+
+### Approved scope (PH-1d rev, 2026-06-23 — human confirmed)
+
+**In scope:**
+1. ✅ Full-width layout — badge rows below avatar/name row
+2. ✅ Horizontal scroll rails + **fade hint** on edges when scrollable
+3. ✅ Section labels `Teams (N)` / `Tournaments (N)`
+
+**Out of scope (human excluded):**
+- ❌ Compact chip labels — **full team + tournament names** on chips (no auto abbrev)
+- ❌ `formatTournamentChipLabel` helper / abbrev tests
+
+**Styling:**
+- Team chips: **outline** (unchanged)
+- Tournament chips: **keep black** (`variant="default"`) — visual diff from teams
+
+### Revised wireframe (full names)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  [Avatar]   Carl Belanger                             #22    │
+│             C/PF · vitals                                    │
+│  ──────────────────────────────────────────────────────────  │
+│  Teams (5)                                                   │
+│  [NTU full name] [Kai Xuan] [SAFSA] …                   ░░→  │
+│  Tournaments (8)                                             │
+│  [IVP 2026] [Sunig 2025] … [NSG A Division 2019]      ░░→  │
+└──────────────────────────────────────────────────────────────┘
+  ░░ = scroll fade hint (right edge when overflow)
+```
+
+### Implementation plan (Executor — awaiting "Executor mode")
+
+| Task | Detail |
+|------|--------|
+| **PH-1d.1** | `PlayerPage` — split card: identity flex (avatar + name + jersey), then full-width rails below divider |
+| **PH-1d.2** | `HorizontalBadgeRail.tsx` — muted label, `overflow-x-auto`, `flex-nowrap`, right-edge fade via CSS gradient when `scrollWidth > clientWidth` |
+| **PH-1d.3** | Wire existing `PlayerTeamBadges` + `ParticipatedTournamentBadges` into rails (full names, existing click handlers) |
+| **PH-1d.4** | Visual QA — Carl desktop + narrow mobile; no overflow past card border |
+
+**No new tests required** (no abbrev helper). Manual QA only.
+
+### Success criteria
+
+- Zero horizontal overflow past card border
+- Full names visible on chips (scroll to reach all)
+- Fade visible when row scrolls
+- Black tournament chips vs outline team chips preserved
+- Jersey grouped `#22` unchanged
+
+### Status
+
+- [x] Designer PH-1d initial (2026-06-23)
+- [x] Human: full names, fade yes, keep black tournaments; skip compact labels
+- [x] Designer PH-1d rev locked (2026-06-23)
+- [x] Human: Executor mode go-ahead
+- [x] Executor PH-1d.1–1.4 (2026-06-23)
+- [ ] Human QA — scroll rails, fade, no overflow
+
+---

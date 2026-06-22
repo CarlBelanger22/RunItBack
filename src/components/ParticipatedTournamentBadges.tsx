@@ -6,18 +6,26 @@ import { TournamentBadge } from './TournamentBadge';
 interface ParticipatedTournamentBadgesProps {
   tournaments: Tournament[];
   onNavigateToTournament: (tournamentId: string) => void;
+  layout?: 'wrap' | 'rail';
 }
 
 export function ParticipatedTournamentBadges({
   tournaments,
   onNavigateToTournament,
+  layout = 'wrap',
 }: ParticipatedTournamentBadgesProps) {
   if (tournaments.length === 0) {
     return null;
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div
+      className={
+        layout === 'rail'
+          ? 'flex w-max flex-nowrap items-center gap-2 px-0.5 py-0.5'
+          : 'flex flex-wrap items-center gap-2'
+      }
+    >
       {tournaments.map((tournament) => (
         <Badge
           key={tournament.id}

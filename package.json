@@ -78,6 +78,8 @@
             "restore:game-stats": "tsx scripts/restore-game-stats-from-json.ts",
             "test:tournament-rosters": "tsx scripts/test-tournament-rosters.ts",
             "test:stat-recording": "tsx scripts/test-stat-recording.ts",
+            "test:player-participation-sort": "tsx scripts/test-player-participation-sort.ts",
+            "test:player-jersey-groups": "tsx scripts/test-player-jersey-groups.ts",
             "test:search-league-players": "tsx scripts/test-search-league-players.ts",
             "test:tournament-player-stats": "tsx scripts/test-tournament-player-stats.ts",
             "test:tournament-enrollment": "tsx scripts/test-tournament-enrollment.ts",
@@ -91,6 +93,8 @@
             "build:safsa-div2-23": "tsx scripts/build-safsa-div2-23-imports.ts",
             "build:safsa-carl-only": "tsx scripts/build-safsa-carl-only-imports.ts",
             "build:shenggong-carl-only": "tsx scripts/build-shenggong-carl-only-imports.ts",
+            "build:adiv-2019": "tsx scripts/build-adiv-2019-carl-only-imports.ts",
+            "list:adiv-context": "tsx scripts/list-adiv-context.ts",
             "build:asg-2019": "tsx scripts/build-asg-2019-imports.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts"
       }

@@ -1,25 +1,25 @@
 /**
- * Build Carl-only Shenggong Cup 2019 import JSON (5 games, Kai Xuan home).
+ * Build Carl-only NSG A Division 2019 import JSON (7 games, ACJC home).
  *
  * Usage:
- *   npx tsx scripts/build-shenggong-carl-only-imports.ts
- *   npx tsx scripts/build-shenggong-carl-only-imports.ts --dry-run
+ *   npx tsx scripts/build-adiv-2019-carl-only-imports.ts
+ *   npx tsx scripts/build-adiv-2019-carl-only-imports.ts --dry-run
  */
 
 import { writeFileSync, mkdirSync, readdirSync } from 'fs';
 import { resolve, join } from 'path';
 import { loadEnvLocalIntoProcess } from './loadEnvLocal';
 
-const KX_TEAM_ID = 'team-1780252086140';
+const ACJC_TEAM_ID = 'team-1781859943592';
 const CARL_PLAYER_ID = 'player-sunig-ntu-22';
-const TOURNAMENT_ID = 'tournament-1780771500232';
-const RNG_SEED = 20191119;
+const TOURNAMENT_ID = 'tournament-1781859881010';
+const RNG_SEED = 20190408;
 
 interface CarlGameDef {
   id: string;
   date: string;
   opponentId: string;
-  kxScore: number;
+  acjcScore: number;
   oppScore: number;
   minutesPlayed: number;
   fouls: number;
@@ -41,16 +41,17 @@ interface GameTemplate {
   id: string;
   date: string;
   opponentId: string;
-  kxScore: number;
+  acjcScore: number;
   oppScore: number;
   minRange: [number, number];
   fouls: number | [number, number];
+  toRange: [number, number];
+  turnovers?: number;
   points: number;
   rebTotal: number;
   assists: number;
   steals: number;
   blocks: number;
-  turnovers: number;
   fgMade: number;
   fgAttempted: number;
   threeMade: number;
@@ -61,107 +62,151 @@ interface GameTemplate {
 
 const GAME_TEMPLATES: GameTemplate[] = [
   {
-    id: 'game-shenggong19-2019-11-19-novu-blaze',
-    date: '2019-11-19',
-    opponentId: 'team-1780771604986',
-    kxScore: 51,
-    oppScore: 79,
-    minRange: [20, 28],
-    fouls: [1, 2],
-    points: 7,
-    rebTotal: 5,
+    id: 'game-adiv19-2019-04-08-njc',
+    date: '2019-04-08',
+    opponentId: 'team-1781859982205',
+    acjcScore: 42,
+    oppScore: 36,
+    minRange: [25, 30],
+    fouls: 1,
+    toRange: [0, 2],
+    turnovers: 1,
+    points: 6,
+    rebTotal: 17,
     assists: 2,
-    steals: 0,
-    blocks: 3,
-    turnovers: 0,
+    steals: 5,
+    blocks: 1,
     fgMade: 3,
+    fgAttempted: 7,
+    threeMade: 0,
+    threeAttempted: 0,
+    ftMade: 0,
+    ftAttempted: 0,
+  },
+  {
+    id: 'game-adiv19-2019-04-10-yijc',
+    date: '2019-04-10',
+    opponentId: 'team-1781860040900',
+    acjcScore: 55,
+    oppScore: 26,
+    minRange: [25, 30],
+    fouls: [1, 4],
+    toRange: [0, 2],
+    points: 13,
+    rebTotal: 13,
+    assists: 0,
+    steals: 2,
+    blocks: 1,
+    fgMade: 5,
+    fgAttempted: 8,
+    threeMade: 0,
+    threeAttempted: 0,
+    ftMade: 3,
+    ftAttempted: 5,
+  },
+  {
+    id: 'game-adiv19-2019-04-15-nyjc',
+    date: '2019-04-15',
+    opponentId: 'team-1781860086595',
+    acjcScore: 44,
+    oppScore: 58,
+    minRange: [25, 30],
+    fouls: [1, 4],
+    toRange: [0, 2],
+    points: 9,
+    rebTotal: 7,
+    assists: 0,
+    steals: 4,
+    blocks: 1,
+    fgMade: 4,
+    fgAttempted: 7,
+    threeMade: 0,
+    threeAttempted: 0,
+    ftMade: 1,
+    ftAttempted: 3,
+  },
+  {
+    id: 'game-adiv19-2019-04-22-sji',
+    date: '2019-04-22',
+    opponentId: 'team-1781860116158',
+    acjcScore: 52,
+    oppScore: 34,
+    minRange: [25, 30],
+    fouls: [1, 4],
+    toRange: [0, 2],
+    points: 18,
+    rebTotal: 11,
+    assists: 1,
+    steals: 1,
+    blocks: 2,
+    fgMade: 8,
+    fgAttempted: 11,
+    threeMade: 0,
+    threeAttempted: 0,
+    ftMade: 2,
+    ftAttempted: 4,
+  },
+  {
+    id: 'game-adiv19-2019-05-06-asrjc',
+    date: '2019-05-06',
+    opponentId: 'team-1781860173004',
+    acjcScore: 31,
+    oppScore: 32,
+    minRange: [25, 30],
+    fouls: 1,
+    toRange: [0, 2],
+    turnovers: 0,
+    points: 3,
+    rebTotal: 9,
+    assists: 1,
+    steals: 3,
+    blocks: 1,
+    fgMade: 1,
     fgAttempted: 3,
     threeMade: 0,
     threeAttempted: 0,
     ftMade: 1,
-    ftAttempted: 1,
+    ftAttempted: 4,
   },
   {
-    id: 'game-shenggong19-2019-11-20-safsa',
-    date: '2019-11-20',
-    opponentId: 'team-kx-div2-safsa',
-    kxScore: 38,
-    oppScore: 71,
-    minRange: [13, 18],
-    fouls: 4,
-    points: 4,
-    rebTotal: 3,
-    assists: 1,
-    steals: 0,
-    blocks: 0,
-    turnovers: 1,
-    fgMade: 2,
-    fgAttempted: 3,
+    id: 'game-adiv19-2019-05-08-tmjc',
+    date: '2019-05-08',
+    opponentId: 'team-1781860310555',
+    acjcScore: 35,
+    oppScore: 59,
+    minRange: [25, 30],
+    fouls: [1, 4],
+    toRange: [0, 2],
+    points: 8,
+    rebTotal: 7,
+    assists: 0,
+    steals: 1,
+    blocks: 1,
+    fgMade: 3,
+    fgAttempted: 5,
     threeMade: 0,
     threeAttempted: 0,
-    ftMade: 0,
-    ftAttempted: 0,
+    ftMade: 2,
+    ftAttempted: 4,
   },
   {
-    id: 'game-shenggong19-2019-11-26-dt-sports',
-    date: '2019-11-26',
-    opponentId: 'team-1780771652992',
-    kxScore: 58,
-    oppScore: 70,
-    minRange: [20, 28],
-    fouls: [1, 2],
-    points: 4,
-    rebTotal: 12,
-    assists: 1,
+    id: 'game-adiv19-2019-05-13-ri',
+    date: '2019-05-13',
+    opponentId: 'team-1781860245664',
+    acjcScore: 38,
+    oppScore: 28,
+    minRange: [25, 30],
+    fouls: [1, 4],
+    toRange: [0, 2],
+    points: 6,
+    rebTotal: 11,
+    assists: 0,
     steals: 0,
-    blocks: 0,
-    turnovers: 2,
-    fgMade: 2,
+    blocks: 2,
+    fgMade: 3,
     fgAttempted: 6,
     threeMade: 0,
-    threeAttempted: 2,
-    ftMade: 0,
-    ftAttempted: 0,
-  },
-  {
-    id: 'game-shenggong19-2019-11-27-sba',
-    date: '2019-11-27',
-    opponentId: 'team-1780430810123',
-    kxScore: 70,
-    oppScore: 77,
-    minRange: [30, 38],
-    fouls: [2, 3],
-    points: 24,
-    rebTotal: 14,
-    assists: 0,
-    steals: 2,
-    blocks: 1,
-    turnovers: 2,
-    fgMade: 11,
-    fgAttempted: 16,
-    threeMade: 0,
-    threeAttempted: 2,
-    ftMade: 2,
-    ftAttempted: 3,
-  },
-  {
-    id: 'game-shenggong19-2019-11-30-sba-warriors',
-    date: '2019-11-30',
-    opponentId: 'team-1780771829979',
-    kxScore: 62,
-    oppScore: 53,
-    minRange: [30, 38],
-    fouls: [2, 3],
-    points: 12,
-    rebTotal: 18,
-    assists: 1,
-    steals: 2,
-    blocks: 1,
-    turnovers: 2,
-    fgMade: 6,
-    fgAttempted: 12,
-    threeMade: 0,
-    threeAttempted: 2,
+    threeAttempted: 0,
     ftMade: 0,
     ftAttempted: 2,
   },
@@ -194,7 +239,11 @@ function randomInt(rng: () => number, min: number, max: number): number {
   return min + Math.floor(rng() * (max - min + 1));
 }
 
-function resolveMinutesAndFouls(template: GameTemplate): { minutesPlayed: number; fouls: number } {
+function resolveSyntheticStats(template: GameTemplate): {
+  minutesPlayed: number;
+  fouls: number;
+  turnovers: number;
+} {
   const rng = mulberry32(hashSeed(template.id));
   const [minLo, minHi] = template.minRange;
   const minutesPlayed = round1(minLo + rng() * (minHi - minLo));
@@ -202,19 +251,23 @@ function resolveMinutesAndFouls(template: GameTemplate): { minutesPlayed: number
     typeof template.fouls === 'number'
       ? template.fouls
       : randomInt(rng, template.fouls[0], template.fouls[1]);
-  return { minutesPlayed, fouls };
+  const turnovers =
+    typeof template.turnovers === 'number'
+      ? template.turnovers
+      : randomInt(rng, template.toRange[0], template.toRange[1]);
+  return { minutesPlayed, fouls, turnovers };
 }
 
 const GAMES: CarlGameDef[] = GAME_TEMPLATES.map((template) => {
-  const { minutesPlayed, fouls } = resolveMinutesAndFouls(template);
-  return { ...template, minutesPlayed, fouls };
+  const { minutesPlayed, fouls, turnovers } = resolveSyntheticStats(template);
+  return { ...template, minutesPlayed, fouls, turnovers };
 });
 
-function findShenggongDir(): string {
+function findAdivDir(): string {
   const base = resolve(process.cwd(), 'Importingboxscores');
-  const entry = readdirSync(base).find((n) => /sheng/i.test(n));
+  const entry = readdirSync(base).find((n) => /a division/i.test(n));
   if (entry) return join(base, entry);
-  return join(base, 'Shenggong Cup 2019');
+  return join(base, 'A Division 2019');
 }
 
 function splitRebounds(total: number): { orb: number; drb: number } {
@@ -290,7 +343,7 @@ function buildBundle(
     month: string;
     teamIds: string[];
   },
-  kxTeam: TeamMeta,
+  acjcTeam: TeamMeta,
   opponentTeam: TeamMeta
 ) {
   return {
@@ -304,9 +357,9 @@ function buildBundle(
     },
     teams: [
       {
-        id: kxTeam.id,
-        name: kxTeam.name,
-        abbreviation: kxTeam.abbreviation,
+        id: acjcTeam.id,
+        name: acjcTeam.name,
+        abbreviation: acjcTeam.abbreviation,
         currentTournamentId: tournament.id,
         players: [],
       },
@@ -320,7 +373,7 @@ function buildBundle(
     ],
     game: {
       id: game.id,
-      homeTeamId: KX_TEAM_ID,
+      homeTeamId: ACJC_TEAM_ID,
       awayTeamId: game.opponentId,
       tournamentId: tournament.id,
       date: game.date,
@@ -329,12 +382,12 @@ function buildBundle(
       trackBothTeams: false,
       isActive: false,
       isCompleted: true,
-      finalScore: { home: game.kxScore, away: game.oppScore },
+      finalScore: { home: game.acjcScore, away: game.oppScore },
       homeStarters: [CARL_PLAYER_ID],
       awayStarters: [],
       gameStats: [buildCarlStat(game)],
       teamStats: {
-        home: emptyTeamStats(KX_TEAM_ID, game.kxScore),
+        home: emptyTeamStats(ACJC_TEAM_ID, game.acjcScore),
         away: emptyTeamStats(game.opponentId, game.oppScore),
       },
       shots: [],
@@ -346,6 +399,7 @@ function buildBundle(
 
 async function main(): Promise<void> {
   const dryRun = process.argv.includes('--dry-run');
+  const allowExisting = process.argv.includes('--allow-existing');
   loadEnvLocalIntoProcess();
 
   const { loadAppDataFromSupabase } = await import('../src/api/supabaseData');
@@ -365,19 +419,21 @@ async function main(): Promise<void> {
     });
   }
 
-  const kxTeam = teamsById.get(KX_TEAM_ID);
-  if (!kxTeam) throw new Error(`Kai Xuan team ${KX_TEAM_ID} not found`);
+  const acjcTeam = teamsById.get(ACJC_TEAM_ID);
+  if (!acjcTeam) throw new Error(`ACJC team ${ACJC_TEAM_ID} not found`);
 
   const existingGameIds = new Set((data.games ?? []).map((g) => g.id));
-  for (const game of GAMES) {
-    if (existingGameIds.has(game.id)) {
-      throw new Error(
-        `Game ${game.id} already exists in Supabase — aborting to avoid overwrite`
-      );
+  if (!allowExisting) {
+    for (const game of GAMES) {
+      if (existingGameIds.has(game.id)) {
+        throw new Error(
+          `Game ${game.id} already exists in Supabase — aborting to avoid overwrite (use --allow-existing to rewrite JSON)`
+        );
+      }
     }
   }
 
-  const outDir = join(findShenggongDir(), 'json');
+  const outDir = join(findAdivDir(), 'json');
   mkdirSync(outDir, { recursive: true });
 
   const tournamentMeta = {
@@ -388,7 +444,9 @@ async function main(): Promise<void> {
     teamIds: tournament.teams ?? [],
   };
 
-  console.log(`Building ${GAMES.length} Carl-only Shenggong Cup game bundles (seed ${RNG_SEED})…\n`);
+  console.log(
+    `Building ${GAMES.length} Carl-only NSG A Division 2019 game bundles (seed ${RNG_SEED})…\n`
+  );
 
   for (const game of GAMES) {
     const opponent = teamsById.get(game.opponentId);
@@ -396,7 +454,7 @@ async function main(): Promise<void> {
       throw new Error(`Opponent team ${game.opponentId} not found for ${game.id}`);
     }
 
-    const bundle = buildBundle(game, tournamentMeta, kxTeam, opponent);
+    const bundle = buildBundle(game, tournamentMeta, acjcTeam, opponent);
     const outPath = join(outDir, `${game.id}.json`);
 
     if (!dryRun) {
@@ -405,7 +463,7 @@ async function main(): Promise<void> {
 
     const stat = bundle.game.gameStats[0];
     console.log(
-      `${game.id} | ${game.date} | KX ${game.kxScore}-${game.oppScore} vs ${opponent.name} | Carl ${stat.points}p ${stat.minutes_played}min ${stat.fouls}pf`
+      `${game.id} | ${game.date} | ACJC ${game.acjcScore}-${game.oppScore} vs ${opponent.abbreviation} | Carl ${stat.points}p ${stat.minutes_played}min ${stat.fouls}pf ${stat.turnovers}to`
     );
   }
 

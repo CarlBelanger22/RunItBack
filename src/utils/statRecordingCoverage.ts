@@ -7,6 +7,8 @@ export const TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS = new Set([
   'tournament-1780251377063', // NBL Div 2 2024
   'tournament-1780333884144', // Gemilang Cup U21
   'tournament-1780425044074', // NBL Div 2 2023
+  'tournament-1780771500232', // Shenggong Cup 2019
+  'tournament-1781859881010', // NSG A Division 2019
 ]);
 
 export function tournamentRecordsStat(

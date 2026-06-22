@@ -34,6 +34,7 @@ import { PlayerJerseyGrid } from './PlayerJerseyGrid';
 import { PlayerJerseyNumbersEditor } from './PlayerJerseyNumbersEditor';
 import { PlayerTeamBadges } from './PlayerTeamBadges';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
+import { HorizontalBadgeRail } from './HorizontalBadgeRail';
 import { ErrorBoundary } from './ErrorBoundary';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { 
@@ -109,8 +110,8 @@ export function PlayerPage({
   const [jerseyDraft, setJerseyDraft] = useState<Record<string, string>>({});
 
   const playerRosterEntries = useMemo(
-    () => getPlayerRosterEntries(player.id, teams),
-    [player.id, teams]
+    () => getPlayerRosterEntries(player.id, teams, games),
+    [player.id, teams, games]
   );
   const isMultiTeam = playerRosterEntries.length > 1;
   const jerseyGridEntries = useMemo(
@@ -343,14 +344,14 @@ export function PlayerPage({
     <div className="space-y-6">
       {/* Player Info */}
       <Card>
-        <CardContent className="pt-6">
+        <CardContent className="overflow-hidden pt-6 pb-3">
           <div className="flex items-start gap-4 sm:gap-6">
             <Avatar className="w-24 h-24 shrink-0">
               <AvatarFallback className="text-2xl">
                 {player.name ? player.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase() : '??'}
               </AvatarFallback>
             </Avatar>
-            <div className="flex-1 min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <h2 className="text-2xl font-bold">{player.name}</h2>
@@ -365,25 +366,34 @@ export function PlayerPage({
                 </div>
                 <PlayerJerseyGrid
                   entries={jerseyGridEntries}
-                  onTeamClick={onNavigateToTeam}
                   size="lg"
                   className="shrink-0"
                 />
               </div>
-              {rosterTeams.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 mt-3">
-                  <PlayerTeamBadges
-                    teams={rosterTeams}
-                    onNavigateToTeam={onNavigateToTeam}
-                  />
+              {(rosterTeams.length > 0 || participatedTournaments.length > 0) && (
+                <div className="mt-2 min-w-0 space-y-1 border-t pt-2">
+                  {rosterTeams.length > 0 && (
+                    <HorizontalBadgeRail label={`Teams (${rosterTeams.length})`}>
+                      <PlayerTeamBadges
+                        teams={rosterTeams}
+                        onNavigateToTeam={onNavigateToTeam}
+                        layout="rail"
+                      />
+                    </HorizontalBadgeRail>
+                  )}
+                  {participatedTournaments.length > 0 && (
+                    <HorizontalBadgeRail
+                      label={`Tournaments (${participatedTournaments.length})`}
+                    >
+                      <ParticipatedTournamentBadges
+                        tournaments={participatedTournaments}
+                        onNavigateToTournament={onNavigateToTournament}
+                        layout="rail"
+                      />
+                    </HorizontalBadgeRail>
+                  )}
                 </div>
               )}
-              <div className="flex flex-wrap items-center gap-2 mt-2">
-                <ParticipatedTournamentBadges
-                  tournaments={participatedTournaments}
-                  onNavigateToTournament={onNavigateToTournament}
-                />
-              </div>
             </div>
           </div>
         </CardContent>
