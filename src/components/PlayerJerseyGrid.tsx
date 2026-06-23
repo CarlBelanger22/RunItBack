@@ -31,24 +31,15 @@ function JerseyTooltipContent({
   number: number;
   teams: Team[];
 }) {
-  if (teams.length === 1) {
-    return (
-      <>
-        <p className="font-medium">{teams[0].name}</p>
-        <p className="text-xs text-muted-foreground">#{number}</p>
-      </>
-    );
-  }
-
   return (
-    <>
-      <p className="font-medium">#{number}</p>
-      <ul className="mt-1.5 space-y-1 text-sm">
+    <div className="space-y-1 leading-snug">
+      <p>#{number}</p>
+      <ul className="space-y-0.5">
         {teams.map((team) => (
           <li key={team.id}>{team.name}</li>
         ))}
       </ul>
-    </>
+    </div>
   );
 }
 
