@@ -8555,3 +8555,679 @@ PH-1c (grouped jersey) is done; this task is **rows only** — jerseys, identity
 - [ ] Human QA — scroll rails, fade, no overflow
 
 ---
+
+## CI-1 — Cloud icon storage & save-path fix (Designer, 2026-06-24) — **ACTIVE**
+
+### Background and Motivation
+
+Human reports cloud save error:
+
+> `Could not save to cloud: teams: canceling statement due to statement timeout`
+
+**Measured production state (2026-06-24):**
+
+| Table | Rows | Embedded `data:image/...` icons | Total icon text in DB |
+|-------|------|----------------------------------|------------------------|
+| `teams` | 45 | 44 | **~10 MB** |
+| `tournaments` | 9 | 7 | **~2.9 MB** |
+
+**Measured timings:**
+
+- `teams` SELECT (id, name, icon): **~3 s**
+- Full `teams` upsert with all icons: **~8.5 s** (borderline / over Supabase statement timeout)
+
+**Root cause:** Team/tournament logos are stored as **base64 data URLs in Postgres `text` columns**. Every auto-save upserts **all teams** early in `saveAppDataToSupabase` (`upsertChunks('teams', …)`), re-sending ~10 MB even when only a player stat changed.
+
+This is separate from PH-1d (profile layout) but compounds refresh slowness documented in **Refresh performance (2026-06-02)**.
+
+### Assumptions to challenge
+
+1. **“Skip unchanged icons on save is enough long-term.”** — **Partially false.** It fixes save timeouts cheaply, but **load still fetches ~10 MB** on every refresh (`teams.select('*')`). Refresh will stay slow until icons leave Postgres.
+2. **“Put all logos in `public/team-logos/` git.”** — **False for this app.** Carl has dozens of user-uploaded crests; committing them is brittle and doesn’t scale for multi-user later.
+3. **“Increase Supabase statement timeout.”** — **Band-aid.** Hides symptom; payload still wrong place; costs grow with more teams/tournaments.
+4. **“Icons are small because upload cap is 512 KB.”** — **False at league scale.** 45 × ~200–500 KB ≈ 10 MB per round trip.
+
+### Designer recommendation (long-term best solution)
+
+**Move team + tournament image icons to Supabase Storage; keep `icon` column as a short URL/path reference only.**
+
+| Approach | Save fix | Load fix | Multi-user ready | Effort |
+|----------|----------|----------|------------------|--------|
+| **A. Supabase Storage** (recommended) | ✅ | ✅ | ✅ | Medium |
+| B. Skip unchanged icons on save only | ✅ | ❌ | ⚠️ | Low |
+| C. Static `public/team-logos/` only | ✅ | ✅ | ❌ | Low (wrong fit) |
+| D. Raise DB timeout | ⚠️ | ❌ | ❌ | Trivial |
+
+**Why Storage wins:** Postgres stays for relational data; blobs live where blobs belong; routine saves become kilobytes; icons cache via CDN; same pattern works when auth/RLS ships later.
+
+**Icon column contract after CI-1:**
+
+| `icon` value | Meaning |
+|--------------|---------|
+| `null` / `''` | No image (abbreviation chip fallback) |
+| `/team-logos/...` | Bundled static asset (keep existing) |
+| `https://…supabase.co/storage/...` | Uploaded team/tournament logo |
+| `🏆` / short text | Legacy emoji/text badge (unchanged) |
+| ~~`data:image/...`~~ | **Deprecated** — migrate out; reject on new uploads |
+
+Reuse existing `resolveTeamIconSrc` / `isTeamIconImage` — extend for storage URLs (already match `https?://`).
+
+### Key challenges
+
+1. **One-time migration** — 44 team + 7 tournament data URLs in live DB must upload to Storage and rewrite rows without breaking UI mid-migration.
+2. **Upload timing** — Today `TeamIconField` stores processed PNG as data URL in React state → full save pushes to DB. New flow: upload **at icon change**, store returned public URL in state.
+3. **Tournaments** — Same pattern (`TournamentForm` / `TeamIconField`-style picker); include in CI-1 scope to avoid second timeout class.
+4. **Auth paused** — Use public-read bucket + `dev_all` posture for now; document RLS hardening for Phase C auth.
+5. **Rollback** — Migration script must be idempotent + dry-run; keep data URLs in backup JSON until human confirms.
+
+### Phased plan
+
+#### Phase 0 — Hotfix (optional fast relief, 1 Executor step)
+
+Stop re-writing unchanged icon blobs on routine saves **before** Storage lands.
+
+| Task | Detail |
+|------|--------|
+| **CI-0.1** | In `saveAppDataToSupabase`, build team/tournament rows **without** `icon` when incoming icon fingerprint matches last successful save snapshot (or fetch existing `id,icon` hashes once per save — reuse `pickPreservedOptionalString` pattern from import scripts). |
+| **CI-0.2** | When icon **did** change (data URL or new URL), include `icon` in upsert as today. |
+| **CI-0.3** | Verify: editing a player no longer upserts 10 MB; changing team logo still persists. |
+
+**Success criteria:** Player/game edits save reliably; no `teams` timeout on typical edits.
+
+**Note:** Phase 0 alone does **not** fix slow refresh — acceptable as bridge only.
+
+#### Phase 1 — Storage infrastructure
+
+| Task | Detail |
+|------|--------|
+| **CI-1.1** | Migration `006_team_asset_storage.sql` (or Supabase dashboard): bucket `team-assets`, folders `teams/`, `tournaments/`. Public read for now; write via anon key (matches current dev posture). |
+| **CI-1.2** | `src/lib/teamAssetStorage.ts` — `uploadTeamIcon(teamId, blob)`, `uploadTournamentIcon(tournamentId, blob)`, `deleteTeamIcon`, content-type `image/png`, deterministic paths `{kind}/{id}.png`. |
+| **CI-1.3** | Unit tests: path helpers, URL parsing, `resolveTeamIconSrc` with storage URLs. |
+
+**Success criteria:** Manual upload from script stores file; public URL loads in browser.
+
+#### Phase 2 — App upload on change (not on every save)
+
+| Task | Detail |
+|------|--------|
+| **CI-2.1** | `TeamIconField` / `TeamLogoEditorDialog` — on Apply: convert data URL → `Blob`, call `uploadTeamIcon`, `onChange(publicUrl)` (not data URL). Show upload error in UI. |
+| **CI-2.2** | `TournamentForm` — same for tournament icons. |
+| **CI-2.3** | `teamToDbRow` / tournament row builder — persist short URL only; assert/reject new `data:image/` in dev. |
+| **CI-2.4** | Remove icon from bulk upsert when value is already a storage URL and metadata unchanged (belt + suspenders with Phase 0). |
+
+**Success criteria:** New/edited logo uploads once; subsequent full saves omit blob; save completes &lt; 2 s.
+
+#### Phase 3 — Backfill existing DB blobs
+
+| Task | Detail |
+|------|--------|
+| **CI-3.1** | `scripts/migrate-icons-to-storage.ts` — `--dry-run` / `--apply`; for each row where `icon like 'data:image/%'`, decode → upload → `update` row with public URL. |
+| **CI-3.2** | Log bytes reclaimed per row; summary table for human. |
+| **CI-3.3** | Run against production Supabase after human approval. |
+| **CI-3.4** | Optional: `npm run verify:icon-storage` — no `data:image/` left in teams/tournaments. |
+
+**Success criteria:** `teams` SELECT without heavy icons &lt; 500 ms; total icon column size &lt; 50 KB; all badges still render.
+
+#### Phase 4 — Load optimization (follow-on, same epic)
+
+| Task | Detail |
+|------|--------|
+| **CI-4.1** | After migration, optional split: core team list without icons on first paint, icons hydrate from URLs (cheap once URLs not blobs). Lower priority if Phase 3 makes single query fast enough. |
+
+### Out of scope (CI-1)
+
+- Player `picture` blobs (same anti-pattern possible — track as **CI-2** if needed).
+- Game JSON payload splitting (separate epic; games may dominate save size later).
+- Auth / per-league Storage RLS (Phase C).
+
+### High-level task breakdown (Executor — one step at a time)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **CI-0.1** | Omit unchanged icons on routine save (optional bridge) | No timeout on player edit |
+| **CI-1.1** | Storage bucket + migration SQL | Bucket exists, public read works |
+| **CI-1.2** | `teamAssetStorage.ts` helpers | Script upload smoke test passes |
+| **CI-2.1** | Team icon upload on Apply | New logo → URL in DB, not data URL |
+| **CI-2.2** | Tournament icon upload | Same |
+| **CI-3.1** | Backfill script dry-run | Report shows 51 rows to migrate |
+| **CI-3.3** | Apply backfill (human OK) | Zero data URLs in DB |
+| **CI-3.4** | Verify + manual QA | Save & refresh fast; logos visible |
+
+### Project Status Board
+
+- [x] **CI-1** Storage bucket SQL + `npm run db:migrate:006` script
+- [x] **CI-1** `teamAssetStorage` helpers + upload lib + tests
+- [x] **CI-2** Save path uploads data URLs; icon fields upload on Apply when id known
+- [x] **CI-3** `migrate-icons-to-storage` + `verify:icon-storage` scripts
+- [ ] **CI-3 apply** — human: run migration 006 SQL, then `npm run migrate:icons-to-storage -- --apply`
+- [ ] Human QA — save player stat (no timeout), logos render, refresh fast
+
+### Executor's Feedback or Assistance Requests
+
+- **2026-06-24 (CI-1→3 code complete):** Implementation landed. `.env.local` has no `SUPABASE_DB_URL`; bucket cannot be created via publishable key (RLS). **Human must run once:**
+  1. Supabase Dashboard → SQL Editor → paste `supabase/migrations/006_team_asset_storage.sql` → Run
+  2. `npm run migrate:icons-to-storage -- --apply` (migrates 45 teams + 7 tournaments, ~13 MB)
+  3. `npm run verify:icon-storage`
+  4. Hard-refresh app; edit a player — cloud save should complete in &lt;2 s
+- Dry-run confirmed: 45 team + 7 tournament inline icons to migrate.
+
+### Lessons
+
+- Storing base64 images in Postgres `text` does not scale; ~10 MB team icons caused ~8.5 s upsert vs Supabase ~8 s statement timeout.
+- Import scripts already preserve optional metadata (`pickPreservedOptionalString`) — runtime save path now uploads data URLs via Storage instead.
+- Supabase Storage bucket creation requires SQL or service-role DB access; publishable key cannot `createBucket` under RLS.
+- **localStorage snapshots strip `team.icon`** (`toSnapshotTeams`) for quota. Cloud save must **not** upsert `icon: null` when icon is absent from app state — use `teamToDbRowForCloudSave` (omit undefined metadata). If wiped, run `npm run restore:team-icons-from-storage -- --apply`.
+
+---
+
+## BD-1 — NSG B Division 2018 Carl-only import (Designer, 2026-06-25) — **ACTIVE**
+
+### Background and Motivation
+
+Human provided Easy Stats spreadsheet screenshot (`Importingboxscores/B Division 2018/`) with **18 games** of Carl-only stats for **NSG B Division 2018**. Tournament and Carl's team (**Fairfield**) already exist in Supabase; **15 opponent schools do not**.
+
+### Verified Supabase context (2026-06-25)
+
+| Entity | ID | Notes |
+|--------|-----|-------|
+| Tournament | `tournament-1782331320905` | NSG B Division 2018 · 2018 Jan · **1 team enrolled** |
+| Fairfield | `team-1782331628631` | Abbrev **FMSS** · 5 players on club roster |
+| Carl | `player-sunig-ntu-22` | Tournament roster **#22** (confirmed) |
+| Existing games | **0** | Clean import |
+
+### Transcribed game table (from screenshot)
+
+Scores read as **Fairfield–Opponent** (W/L matches: G1 L → 46&lt;47, G2 W → 53&gt;17).
+
+| # | Label | Opponent | W/L | Score | Date | Pts | Reb | Ast | Stl | Blk | FG | 3PT | FT | Min | PF† | TO‡ |
+|---|-------|----------|-----|-------|------|-----|-----|-----|-----|-----|----|-----|----|----|-----|-----|
+| 1 | | Mayflower | L | 46-47 | 15 Jan | 7 | 9 | 0 | 0 | 1 | 2/4 | 0/0 | 3/6 | 15-25 | 0-4 | 0-4 |
+| 2 | | Queensway | W | 53-17 | 17 Jan | 3 | 7 | 0 | 1 | 0 | 1/6 | 0/0 | 1/6 | 10-20 | 0-3 | 0-3 |
+| 3 | | Bartley | W | 118-2 | 29 Jan | 11 | 7 | 1 | 2 | 2 | 5/9 | 0/0 | 1/2 | 5-12 | 0-3 | 0-2 |
+| 4 | | Bukit Merah | W | 81-29 | 31 Jan | 12 | 15 | 2 | 3 | 2 | 6/14 | 0/0 | 0/0 | 10-20 | 0-3 | 0-3 |
+| 5 | | Kent Ridge | W | 57-30 | 6 Feb | 12 | 6 | 1 | 0 | 0 | 5/7 | 0/0 | 2/2 | 15-25 | 0-4 | 0-4 |
+| 6 | | Yuying | W | 64-34 | 13 Feb | 16 | 12 | 2 | 1 | 3 | 8/11 | 0/0 | 0/0 | 15-20 | 0-4 | 0-4 |
+| 7 | | ACS Barker | L | 53-67 | 20 Feb | 10 | 9 | 3 | 2 | 2 | 4/8 | 0/0 | 2/2 | 20-30 | 0-4 | 0-4 |
+| 8 | | St Andrew | W | 62-35 | 22 Feb | 8 | 11 | 0 | 1 | 2 | 3/5 | 0/0 | 2/3 | 15-20 | 0-4 | 0-4 |
+| 9 | Semis | Mayflower | W | 75-57 | 26 Feb | 14 | 15 | 0 | 4 | 2 | 2/10 | 0/0 | 10/14 | 20-30 | 0-4 | 0-4 |
+| 10 | Finals | ACS Barker | L | 72-89 | 1 Mar | 21 | 17 | 2 | 2 | 4 | 8/14 | 0/1 | 5/6 | 25-35 | 0-4 | 0-4 |
+| 11 | | Ngee Ann | W | 56-52 | 20 Mar | 14 | 16 | 0 | 2 | 3 | 3/8 | 0/0 | 8/10 | 23-32 | 0-4 | 0-4 |
+| 12 | | Jurong West | W | 53-36 | 22 Mar | 10 | 8 | 1 | 0 | 3 | 5/9 | 0/1 | 0/0 | 20-30 | 0-4 | 0-4 |
+| 13 | | North Vista | L | 49-60 | 26 Mar | 12 | 8 | 0 | 0 | 2 | 6/7 | 0/0 | 0/0 | 25-30 | 0-4 | 0-4 |
+| 14 | | Presbyterian High | L | 46-61 | 29 Mar | 14 | 11 | 1 | 0 | 1 | 6/11 | 0/1 | 2/2 | 25-35 | 0-4 | 0-4 |
+| 15 | | Dunman | W | 57-40 | 2 Apr | 3 | 7 | 0 | 0 | 0 | 1/6 | 0/1 | 1/2 | 5-15 | 0-3 | 0-2 |
+| 16 | | Bukit Panjang | W | 69-55 | 4 Apr | 17 | 19 | 2 | 0 | 5 | 8/15 | 1/2 | 0/2 | 25-30 | 0-4 | 0-4 |
+| 17 | Semis | North Vista | L | 47-70 | 6 Apr | 14 | 18 | 1 | 0 | 1 | 5/13 | 0/0 | 4/9 | 25-35 | 0-4 | 0-4 |
+| 18 | 3/4 | Unity | L | 57-66 | 9 Apr | 5 | 5 | 0 | 1 | 1 | 2/3 | 0/0 | 1/2 | 5-15 | 0-3 | 0-2 |
+
+† PF column on sheet — randomize **within sheet range** per game.  
+‡ TO — randomize **within sheet range** per game (same rule as MIN and PF).
+
+**Stat sanity:** All 18 rows reconcile (FGM×2 + 3PM + FTM = Pts). Repeat opponents: Mayflower ×2, ACS Barker ×2, North Vista ×2 → **reuse same team ID** per school (3 opponents, 2 games each).
+
+### Human decisions (2026-06-25) — **LOCKED**
+
+| Question | Answer |
+|----------|--------|
+| Fairfield home/away | **Always home** (18/18) |
+| MIN / PF / TO | **Seeded random within each row's sheet range** (not global 0–4 for TO) |
+| Opponent teams | **Ghost teams on import**; **reuse IDs** for Mayflower, ACS Barker, North Vista (2 games each) |
+| Stats transcription | **Confirmed** — proceed as table above |
+
+**Synthetic stats seed:** `RNG_SEED = 20180115` (deterministic per `game.id`).
+
+### Recommended approach (mirror A Division 2019 / Shenggong)
+
+| Decision | Locked value |
+|----------|----------------|
+| Pattern | `build-bdiv-2018-carl-only-imports.ts` + 18 JSON bundles in `Importingboxscores/B Division 2018/json/` (gitignored) |
+| Carl's team | Fairfield **home** every game (`trackBothTeams: false`) |
+| Opponents | **15 ghost teams** in bundles; **3 IDs reused** across 18 games; `--stats-only` import creates new teams only |
+| MIN / PF / TO | Seeded random **within per-game sheet ranges** (1 decimal for MIN) |
+| REB split | 30% ORB / 70% DRB |
+| FDPG / +/- | Add `tournament-1782331320905` to denylist |
+| Roster | `player-sunig-ntu-22` · tournament #22 |
+| Import | `npm run import:boxscore -- --file … --stats-only` × 18 |
+
+### Proposed opponent IDs (15 unique)
+
+| Opponent | Proposed ID | Abbrev |
+|----------|-------------|--------|
+| Mayflower | `team-bdiv18-mayflower` | MFSS |
+| Queensway | `team-bdiv18-queensway` | QSW |
+| Bartley | `team-bdiv18-bartley` | BART |
+| Bukit Merah | `team-bdiv18-bukit-merah` | BKM |
+| Kent Ridge | `team-bdiv18-kent-ridge` | KRSS |
+| Yuying | `team-bdiv18-yuying` | YUY |
+| ACS Barker | `team-bdiv18-acs-barker` | ACSB |
+| St Andrew | `team-bdiv18-st-andrew` | SASS |
+| Ngee Ann | `team-bdiv18-ngee-ann` | NASS |
+| Jurong West | `team-bdiv18-jurong-west` | JWSS |
+| North Vista | `team-bdiv18-north-vista` | NVSS |
+| Presbyterian High | `team-bdiv18-presbyterian` | PRES |
+| Dunman | `team-bdiv18-dunman` | DMSS |
+| Bukit Panjang | `team-bdiv18-bukit-panjang` | BPSS |
+| Unity | `team-bdiv18-unity` | UNI |
+
+### High-level task breakdown (Executor — after human locks decisions)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **BD-1.1** | `list-bdiv-2018-context.ts` + `build-bdiv-2018-carl-only-imports.ts` | Dry-run prints 18 games; JSON written |
+| **BD-1.2** | Add denylist entry + `npm run test:stat-recording` case | Tests pass |
+| **BD-1.3** | Import 18 games `--stats-only` | 18 games in Supabase; 15 ghost opponents |
+| **BD-1.4** | Human QA — Carl profile + tournament page | Stats match sheet; FDPG/+/- show — |
+
+### Open questions
+
+**None remaining** — at 98%+ confidence for Executor.
+
+### Project Status Board
+
+- [x] Designer BD-1 initial + Supabase ID verification
+- [x] Human answers locked (2026-06-25)
+- [x] Designer BD-1 plan locked — ready for Executor
+- [x] Executor BD-1.1 — `build-bdiv-2018-carl-only-imports.ts` + `list-bdiv-2018-context.ts`
+- [x] Executor BD-1.2 — denylist + `test:stat-recording` pass
+- [x] Executor BD-1.3 — 18 games imported to Supabase (`--stats-only`)
+- [ ] Human QA — Carl profile + tournament page (18 games, stats match sheet)
+
+### Executor's Feedback or Assistance Requests
+
+- **2026-06-25 BD-1.3 complete:** 18/18 games live. Tournament has 16 enrolled teams (Fairfield + 15 ghost opponents). Carl-only stats, Fairfield home, seed `20180115` for MIN/PF/TO.
+- **Fix during import:** Per-bundle `teamIds` must not list all opponents upfront (FK violation) — each JSON enrolls Fairfield + that game's opponent only.
+- Ready for human QA on Carl's B Division 2018 stats in the app.
+- **2026-06-25 Human QA blocked (BD-2):** Fairfield team page shows 18 games; tournament page shows 0 games / 1 team. DB audit: 18 games with correct `tournament_id`, 15 ghost teams in `teams` table, but `tournament_teams` junction has **only Fairfield** (enrollments wiped after import).
+
+---
+
+## BD-2 — Tournament enrollment & games visibility (Designer, 2026-06-25) — **ACTIVE**
+
+### Background and Motivation
+
+After BD-1 import, Carl's **Fairfield team page** correctly lists **18 NSG B Division 2018 games** (filters global `games` by `homeTeamId` / `awayTeamId`). The **tournament page** shows **0 games**, **1 team**, and **0–0 standings** — despite games existing in Supabase. **15 ghost opponent teams** exist in the `teams` table but do not appear on the tournament Teams tab or (by default) in Team Manager.
+
+Human requested **Designer mode** to plan the fix.
+
+### Verified DB state (2026-06-25)
+
+| Check | Expected (post-import) | Actual |
+|-------|------------------------|--------|
+| Games with `tournament_id = tournament-1782331320905` | 18 | **18** ✓ |
+| Ghost teams `team-bdiv18-*` in `teams` | 15 | **15** ✓ |
+| `tournament_teams` rows for B Div 2018 | 16 (Fairfield + 15 opponents) | **1** (Fairfield only) ✗ |
+| Executor log after import | 16 enrolled | Was true at import time → **wiped later** |
+
+### Root cause analysis
+
+**Two separate denormalization bugs + one destructive save pattern.**
+
+#### RC-1 — Tournament page uses stale `tournament.games` ID list
+
+`TournamentPage` filters games with:
+
+```ts
+tournamentGames = games.filter(game => tournament.games.includes(game.id));
+```
+
+Fairfield `TeamPage` uses the correct source of truth:
+
+```ts
+games.filter(g => g.homeTeamId === teamId || g.awayTeamId === teamId);
+```
+
+On Supabase load, `tournament.games` **is** rebuilt from `game.tournamentId` — but the **localStorage snapshot** persists `tournament.games` as written at save time. If that array was empty when the tournament was first created (or before games synced to client state), the snapshot paints **0 games** on the tournament object even while the global `games` array contains all 18.
+
+**Symptom:** Team page works; tournament Games / Standings / Home tabs show nothing.
+
+#### RC-2 — Cloud save deletes & re-inserts `tournament_teams` from in-memory `tournament.teams` only
+
+`saveAppDataToSupabase` (lines ~1033–1043):
+
+1. `DELETE FROM tournament_teams WHERE tournament_id IN (…)`
+2. Re-insert **only** `t.teams` from app state
+
+After import, browser state had tournament with **only Fairfield enrolled** (tournament existed before ghosts were added). First auto-save **wiped all 15 opponent enrollments** that `import-boxscore` had upserted.
+
+Import script is innocent; **runtime cloud sync is the regression.**
+
+#### RC-3 — Ghost teams hidden in Team Manager by default
+
+`TeamManager` partitions teams with `partitionTeams()` (0 players = ghost) but renders ghosts only when **"Show ghost teams"** toggle is on (`useState(false)`). Ghost teams **are** in the loaded `teams` array (61 total); they are not missing from DB — they are **UI-hidden**.
+
+Tournament Teams tab uses `tournament.teams` (junction), so ghosts never appear there regardless of toggle.
+
+### Assumptions to challenge
+
+| Assumption | Verdict |
+|------------|---------|
+| "Import failed to create ghost teams" | **False** — 15 rows in `teams` |
+| "Games missing from DB" | **False** — 18 rows with correct `tournament_id` |
+| "Ghost teams deleted" | **False** — enrollments deleted, not team rows |
+| "Tournament page should use `tournament.games`" | **Fragile** — must derive from `games` or reconcile on every load |
+
+### Recommended fix strategy (minimal, durable)
+
+**Principle:** `games` table is source of truth for both game membership and team participation. Denormalized `tournament.games` / `tournament.teams` must be **reconciled from games** on load and **before cloud save**.
+
+#### Phase A — Data repair (one-time, BD-2.1) — **B Div 2018 only**
+
+Script: `scripts/reconcile-bdiv-2018-enrollment.ts` (scoped; not `--all`)
+
+- Target: `tournament-1782331320905` only
+- Collect unique `home_team_id` / `away_team_id` from its 18 games
+- **Upsert only** missing `tournament_teams` rows (no delete-all; no other tournaments)
+- Dry-run prints teams to add; `--apply` writes
+- **Success:** `tournament_teams` count = 16 for B Div 2018
+
+#### Phase B — Runtime reconcile utility (BD-2.2)
+
+Add `src/utils/tournamentEnrollment.ts` (extend existing file):
+
+```ts
+reconcileTournamentsFromGames(tournaments, games): Tournament[]
+```
+
+For each tournament:
+
+- `teams` = union of existing `tournament.teams` + home/away team IDs from games where `game.tournamentId === tournament.id`
+- `games` = all game IDs where `game.tournamentId === tournament.id`
+
+Call from `processLoadedAppData()` in `appDataSnapshot.ts` (same pattern as `reconcileTournamentRostersFromGames`).
+
+**Success:** Fresh load and snapshot hydrate both produce correct `teams` / `games` arrays.
+
+#### Phase C — Tournament UI defensive filter (BD-2.3)
+
+Update `TournamentPage` (and any other `tournament.games.includes` callers):
+
+```ts
+const tournamentGames = games.filter(
+  g => g.tournamentId === tournament.id || tournament.games.includes(g.id)
+);
+```
+
+Prefer primary filter on `tournamentId`; keep ID list as fallback for legacy data.
+
+**Success:** Tournament Games tab shows 18 even if denormalized list is stale.
+
+#### Phase D — Fix cloud save junction rebuild (BD-2.4) — **prevents recurrence**
+
+In `saveAppDataToSupabase`, build `junctionRows` from **reconciled** tournaments (Phase B) using games passed to save — not raw in-memory `t.teams` alone.
+
+Alternative (safer): stop delete-all; upsert-only new pairs + optional prune script. **Designer pick:** reconcile-then-replace (keeps current delete pattern but with complete team set).
+
+**Success:** Auto-save after import never drops opponent enrollments again.
+
+#### Phase E — Team Manager UX — **CANCELLED**
+
+Human locked: keep ghost toggle **default OFF**. No E2/E3 work in BD-2.
+
+### Open questions for human
+
+| # | Question | Designer default if no answer |
+|---|----------|-------------------------------|
+| 1 | Run reconcile for **B Div 2018 only** or **all tournaments**? | **All tournaments** (generic script, safer long-term) |
+| 2 | Default show ghost teams in Team Manager? | **Yes** when count &gt; 0 (E2) |
+| 3 | Proceed Executor after plan approval? | Wait for human "Executor mode" |
+
+### Human decisions (2026-06-25) — **LOCKED**
+
+| # | Question | Answer |
+|---|----------|--------|
+| 1 | One-time DB repair scope | **B Div 2018 only** (`tournament-1782331320905`). Other tournaments look fine — do not run repair against them. |
+| 2 | Ghost teams default in Team Manager | **Leave default OFF** (`useState(false)`). Human is correct — current default is **no**. No UX change to E2. |
+| 3 | Metadata safety (descriptions, icons, etc.) | **Must not overwrite** unrelated DB fields. See safety matrix below. |
+| 4 | Executor | Wait for human **"Executor mode"** after this finalized plan. |
+
+### Ghost teams toggle — confirmation
+
+You are **correct**: `TeamManager.tsx` line 66 uses `useState(false)`. Ghost teams are hidden until the user flips **"Show ghost teams (N)"**. **No change** in BD-2.
+
+### Data safety matrix — what each step touches
+
+| Step | DB tables written | Fields at risk | Safe for descriptions/icons? |
+|------|-------------------|--------------|------------------------------|
+| **BD-2.1** repair script | `tournament_teams` **only**, filtered to `tournament-1782331320905` | Inserts missing `(tournament_id, team_id)` pairs only | **Yes** — junction table has no description/icon columns |
+| **BD-2.2** `reconcileTournamentsFromGames` on load | **None** (in-memory only) | N/A | **Yes** — no DB writes |
+| **BD-2.3** `TournamentPage` filter | **None** (UI read-only) | N/A | **Yes** |
+| **BD-2.4** cloud save junction fix | `tournament_teams` on **full cloud save** (all tournaments in league) | Rebuilds enrollments from **union** of existing `tournament.teams` + teams appearing in that tournament's games | **Yes** for descriptions/icons — does not touch `tournaments`, `teams`, or `games` rows' text/metadata |
+| **BD-2.4** (incidental) | `tournaments` upsert on any full save | `description` / `icon` only if present in app state | **Already guarded** — `teamToDbRowForCloudSave` / tournament row builder **omit** `description` and `icon` when `undefined` (won't null out DB). BD-2 does **not** change that guard. |
+
+**Explicit non-goals for BD-2:**
+
+- No `UPDATE` on `tournaments.description`, `teams.description`, or icon columns.
+- No delete/re-import of games, game_stats, or rosters.
+- No repair script run against tournaments other than B Div 2018.
+- No snapshot/description restoration (separate track — descriptions already null in DB).
+
+**BD-2.1 repair script constraints (Executor must follow):**
+
+```text
+-- ONLY tournament-1782331320905
+-- ONLY INSERT/upsert missing tournament_teams rows
+-- NO DELETE on other tournaments' junction rows
+-- NO writes to tournaments / teams / games tables
+```
+
+Use **upsert with onConflict** (add missing pairs) rather than delete-all for B Div repair. Safer than mirroring the app's destructive delete pattern for a one-off fix.
+
+**BD-2.4 cloud save — union rule (prevents accidental un-enrollment):**
+
+```ts
+teams = union(tournament.teams, homeTeamId/awayTeamId from games where tournamentId matches)
+```
+
+Manual enrollments **not yet in any game** are preserved. Only **adds** missing game participants; does not shrink enrollments below current `tournament.teams`.
+
+### Revised approach (finalized)
+
+| Phase | Scope | Notes |
+|-------|-------|-------|
+| **A** BD-2.1 | **B Div 2018 only** | One-time `tournament_teams` upsert from 18 games |
+| **B** BD-2.2 | All tournaments on **load** (in-memory) | No DB writes; fixes stale snapshot for any tournament |
+| **C** BD-2.3 | UI | Filter games by `tournamentId` |
+| **D** BD-2.4 | Cloud save junction | Union reconcile before junction rebuild; metadata guards unchanged |
+| **E** | **Cancelled** | No ghost-toggle UX change |
+
+### High-level task breakdown (Executor) — **FINALIZED**
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **BD-2.1** | `reconcile-bdiv-2018-enrollment.ts` (or scoped flags on generic script) | Dry-run: 15 missing enrollments; `--apply`: 16 teams in junction for B Div only |
+| **BD-2.2** | `reconcileTournamentsFromGames()` + wire into `processLoadedAppData` | In-memory: B Div has 16 teams + 18 game IDs after load |
+| **BD-2.3** | `TournamentPage` filter by `tournamentId` | Tournament Games tab shows 18 |
+| **BD-2.4** | Cloud save junction uses union reconcile | Save + reload: B Div still 16 teams; other tournaments unchanged |
+| **BD-2.5** | Tests for reconcile util | Tests pass |
+| **BD-2.6** | Human QA | Tournament page matches Fairfield; toggle still OFF by default |
+
+### Success criteria (human QA)
+
+1. **NSG B Division 2018 → Games:** 18 games listed (same as Fairfield team page).
+2. **NSG B Division 2018 → Teams:** Fairfield + 15 ghost opponents (16 total).
+3. **Standings / Player Stats:** Non-zero records where games are completed.
+4. **Team Manager:** Ghost teams still behind toggle (default off); toggle reveals B Div ghosts.
+5. **Regression:** Other tournaments' teams/games/descriptions/icons **unchanged** (spot-check IVP 2026, Sunig 2025).
+6. **Metadata:** No new nulls in `tournaments.description` or `teams.description` from BD-2 work.
+
+### Project Status Board
+
+- [x] Designer BD-2 root-cause analysis + plan
+- [x] Human decisions locked (2026-06-25) — plan **FINALIZED**
+- [x] Executor BD-2.1 — B Div only data repair script (`reconcile:bdiv-2018-enrollment --apply` → 16 teams)
+- [x] Executor BD-2.2 — runtime reconcile (in-memory) in `processLoadedAppData`
+- [x] Executor BD-2.3 — TournamentPage filter by `tournamentId`
+- [x] Executor BD-2.4 — cloud save junction fix (union, metadata-safe)
+- [x] Executor BD-2.5 — tests pass + build pass
+- [ ] Human QA — tournament page matches team page
+
+### Executor's Feedback or Assistance Requests
+
+- **2026-06-25 BD-2 Executor complete (code + DB repair):**
+  - `npm run reconcile:bdiv-2018-enrollment -- --apply` inserted 15 missing `tournament_teams` rows; B Div 2018 now **16 enrolled teams**.
+  - `reconcileTournamentsFromGames()` wired into `processLoadedAppData` and cloud save junction rebuild.
+  - `TournamentPage` uses `filterGamesForTournament` / `filterTeamsForTournament` (primary `tournamentId` filter).
+  - Ghost toggle unchanged (default off).
+  - No writes to descriptions/icons.
+- **Human QA:** Hard-refresh app → NSG B Division 2018 → Teams tab should show 16 teams, Games tab 18 games, standings non-zero for Fairfield. Spot-check IVP/Sunig unchanged.
+
+### Lessons
+
+- `import-boxscore` upserts `tournament_teams` per game, but **`saveAppDataToSupabase` delete-all junction sync** can undo import enrollments if in-memory `tournament.teams` is stale.
+- **Never trust denormalized `tournament.games` / `tournament.teams` without reconciling from `games`.** Team page already uses the correct pattern (`homeTeamId` / `awayTeamId`).
+- Ghost teams in Team Manager are **hidden by default** (`showGhostTeams` toggle) — not deleted.
+
+---
+
+## BD-3 — Ghost team count flash on refresh (Designer, 2026-06-25) — **ACTIVE**
+
+### Background and Motivation
+
+After BD-2, human reports on hard refresh: dashboard **ghost teams jumps 37 → 52 → back to 37**.
+
+Console sequence (from screenshot):
+
+1. `painted from snapshot` — **46 teams** (9 real + **37 ghost**)
+2. `loadAppDataFromSupabase` → `cloud revalidate complete` — **61 teams** (9 real + **52 ghost**)
+3. `snapshot saved` ×2 — back to **46 teams** / **37 ghost**
+
+The 15-team delta matches the B Div 2018 ghost opponents added to Supabase but not yet in the stale localStorage snapshot.
+
+### Root cause — **confirmed race in cloud-load `.finally()`**
+
+`applyProcessedToState` (cloud, 61 teams) updates React state **and** `prevTournamentRostersRef`, but **`tournamentRostersRef.current` still holds the pre-render snapshot value** until the next render (refs sync at lines 977–988 during render only).
+
+Immediately after, `.finally()` runs:
+
+```ts
+const tournamentRostersDrift =
+  JSON.stringify(prevTournamentRostersRef.current) !==
+  JSON.stringify(tournamentRostersRef.current); // FALSE POSITIVE — stale ref
+
+if (tournamentRostersDrift) {
+  queueMicrotask(() => persistCurrentAppData('rosters-only'));
+}
+```
+
+`queueMicrotask` fires **before** React commits the 61-team state → `runCloudPersist` reads **`teamsRef.current` = 46** (snapshot).
+
+Even though save kind is `rosters-only`, completion still does:
+
+```ts
+setTeams(teamsWithIcons);        // from teamsToSave = 46
+saveAppDataSnapshot({ teams: teamsWithIcons, ... }); // writes 46 back to localStorage
+```
+
+**Result:** UI briefly shows 52 ghost (cloud applied), then stale persist **reverts to 37 ghost** and overwrites snapshot.
+
+This is **not** a Supabase data loss issue — DB still has 61 teams. It is an in-memory + localStorage regression from a save race.
+
+### Assumptions to challenge
+
+| Assumption | Verdict |
+|------------|---------|
+| "52 ghost means DB has extra teams" | True in DB; flash is client-side revert |
+| "Snapshot is source of truth" | **No** — cloud is; snapshot was stale |
+| "rosters-only save is safe for teams" | **False** — completion path still calls `setTeams` + full snapshot write |
+
+### Recommended fix (minimal, layered)
+
+#### Fix 1 — Sync refs in `applyProcessedToState` (BD-3.1) **Required**
+
+After computing `teamsWithIcons` / `tournamentsWithIcons`, immediately assign:
+
+```ts
+teamsRef.current = teamsWithIcons;
+tournamentsRef.current = tournamentsWithIcons;
+gamesRef.current = processed.games;
+tournamentRostersRef.current = processed.tournamentRosters;
+```
+
+So any microtask/persist in the same tick sees post-cloud values.
+
+#### Fix 2 — Remove false-positive drift persist from `.finally()` (BD-3.2) **Required**
+
+Either:
+
+- **A (preferred):** Delete the `tournamentRostersDrift` / `queueMicrotask(persist)` block from `.finally()` entirely — the `useEffect` persist hook already runs after render with correct refs; or
+- **B:** Pass `processed.tournamentRosters` from `.then()` closure into `.finally()` for comparison instead of stale `tournamentRostersRef`.
+
+#### Fix 3 — `rosters-only` must not rewrite teams/snapshot teams (BD-3.3) **Recommended belt-and-suspenders**
+
+On `kind === 'rosters-only'` completion:
+
+- Update `tournamentRosters` state + `prevTournamentRostersRef` only
+- **Do not** call `setTeams` / `setTournaments` unless they actually changed
+- `saveAppDataSnapshot` may update `tournamentRosters` field only, or skip snapshot if teams would regress (compare count / ids)
+
+#### Fix 4 — Post-cloud snapshot should win (BD-3.4) **Verification**
+
+After fixes, console on refresh should show:
+
+1. `painted from snapshot` — 46 teams (OK, stale-while-revalidate)
+2. `cloud revalidate complete` — 61 teams
+3. `snapshot saved` — **61 teams** (not 46)
+
+### Data safety
+
+- No DB schema changes
+- No description/icon writes
+- Fix is client-side state/ref timing only
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **BD-3.1** | Sync data refs in `applyProcessedToState` | Refs match cloud data before any microtask |
+| **BD-3.2** | Remove/fix `.finally()` drift microtask persist | No `rosters-only` persist fired on cold refresh after cloud |
+| **BD-3.3** | Narrow `rosters-only` completion path | Does not call `setTeams` with stale team list |
+| **BD-3.4** | Manual QA + optional dev test | Refresh: ghost count stays at 52; snapshot log shows 61 teams |
+
+### Success criteria (human QA)
+
+1. Hard refresh → ghost teams may flash 37 briefly, then **settles at 52** (does not revert).
+2. Console: last `snapshot saved` shows `teams: 61`, not 46.
+3. B Div tournament page still shows 16 teams / 18 games after refresh.
+4. No regression to descriptions/icons.
+
+### Open questions
+
+| # | Question | Designer default |
+|---|----------|----------------|
+| 1 | Proceed Executor for BD-3? | Wait for human |
+| 2 | Accept brief 37→52 flash from snapshot paint? | Yes (stale-while-revalidate); optional later: bump snapshot version to invalidate stale cache |
+
+### Project Status Board
+
+- [x] Designer BD-3 root-cause analysis + plan
+- [x] Executor BD-3.1 — sync refs in `applyProcessedToState`
+- [x] Executor BD-3.2 — remove false-positive drift microtask from `.finally()`
+- [x] Executor BD-3.3 — `rosters-only` no longer rewrites teams/snapshot with stale list
+- [ ] Human QA — ghost count stable at 52 after refresh
+
+### Executor's Feedback or Assistance Requests
+
+- **2026-06-25 BD-3 Executor complete:** Fixed cloud-load race that reverted 61 teams → 46 after refresh. Human should hard-refresh and confirm ghost teams settle at **52** (not bounce back to 37). Console: last `snapshot saved` should show `teams: 61`.
+
+---
+
+## BD-4 — Player Stats team column shows "TST" everywhere (Designer + Executor, 2026-06-25)
+
+### Root cause
+
+- Team IDs resolve **correctly** per tournament (diagnostic: SAFSA for NBL 2023, NTU for Sunig, FMSS for B Div).
+- **Many teams share `abbreviation: 'TST'`** in DB (legacy default) — Kai Xuan, NTU, SAFSA, Singapore, ACJC, etc.
+- Player Stats showed `team.abbreviation` only → all rows looked like **TST** except FMSS.
+
+### Fix applied
+
+- `getTeamStatsAbbreviation()` — unique abbrev when no collision; else derive from team name
+- `PlayerStatsTable` + `PlayerPage` wired
+- `resolvePlayerTeamInGame` uses `resolvePlayerTeamSideInGame` (starters + club roster)
+- `npm run test:team-stats-abbreviation`
+
+Optional later: DB backfill script for abbreviations at source.
+
+### Human QA
+
+Player Stats tab → Team column should show distinct labels (e.g. NTU, KX, SAFSA, FMSS) not all TST.

@@ -8,6 +8,8 @@ import {
   readTeamIconFile,
   TEAM_ICON_ACCEPT,
 } from '../utils/tournamentIcon';
+import { uploadEntityIcon } from '../lib/teamAssetStorage';
+import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
 import { Pencil, Upload, X } from 'lucide-react';
 
 interface TournamentIconFieldProps {
@@ -28,6 +30,7 @@ export function TournamentIconField({
   const [urlDraft, setUrlDraft] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorSource, setEditorSource] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const previewTournament = {
     name: tournamentName,
@@ -65,12 +68,30 @@ export function TournamentIconField({
   }, [urlDraft, openEditor]);
 
   const handleEditorApply = useCallback(
-    (processedDataUrl: string) => {
-      onChange(processedDataUrl);
-      setEditorOpen(false);
-      setEditorSource(null);
+    async (processedDataUrl: string) => {
+      setError(null);
+      setUploading(true);
+      try {
+        if (tournamentId && isSupabaseConfigured) {
+          const publicUrl = await uploadEntityIcon(
+            requireSupabase(),
+            'tournaments',
+            tournamentId,
+            processedDataUrl
+          );
+          onChange(publicUrl);
+        } else {
+          onChange(processedDataUrl);
+        }
+        setEditorOpen(false);
+        setEditorSource(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not upload logo.');
+      } finally {
+        setUploading(false);
+      }
     },
-    [onChange]
+    [onChange, tournamentId]
   );
 
   const handleEditorCancel = useCallback(() => {
@@ -147,8 +168,11 @@ export function TournamentIconField({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              PNG, JPG, WebP, or SVG up to 512 KB. Background is removed and the logo is trimmed before saving.
+              PNG, JPG, WebP, or SVG up to 512 KB. Background is removed and the logo is trimmed before saving to cloud storage.
             </p>
+            {uploading && (
+              <p className="text-xs text-muted-foreground">Uploading logo…</p>
+            )}
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         </div>

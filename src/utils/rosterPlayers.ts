@@ -1,5 +1,9 @@
 import type { Team, Tournament, Game, Player } from '../App';
 import { getIdCreatedAtMs, getPlayerLastGameMs } from './playerParticipationSort';
+import {
+  buildClubRosterByTeam,
+  resolvePlayerTeamSideInGame,
+} from './tournamentRosters';
 
 /** One roster row per player id (last entry wins). */
 export function dedupeTeamPlayers(players: Player[]): Player[] {
@@ -273,10 +277,13 @@ export function resolvePlayerTeamInGame(
   game: Game,
   teams: Team[]
 ): Team | null {
-  const teamIds = new Set(getTeamsForPlayer(playerId, teams).map((t) => t.id));
-  if (teamIds.has(game.homeTeamId)) return game.homeTeam;
-  if (teamIds.has(game.awayTeamId)) return game.awayTeam;
-  return null;
+  const sideId = resolvePlayerTeamSideInGame(
+    playerId,
+    game,
+    buildClubRosterByTeam(teams)
+  );
+  if (!sideId) return null;
+  return teams.find((t) => t.id === sideId) ?? null;
 }
 
 export function resolvePlayerTeamIdForGames(
@@ -284,9 +291,10 @@ export function resolvePlayerTeamIdForGames(
   scopedGames: Game[],
   teams: Team[]
 ): string | null {
+  const clubRosterByTeam = buildClubRosterByTeam(teams);
   for (const game of scopedGames) {
-    const team = resolvePlayerTeamInGame(playerId, game, teams);
-    if (team) return team.id;
+    const teamId = resolvePlayerTeamSideInGame(playerId, game, clubRosterByTeam);
+    if (teamId) return teamId;
   }
   return null;
 }

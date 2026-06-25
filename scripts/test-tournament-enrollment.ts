@@ -6,7 +6,11 @@
 import {
   buildTournamentTeamEnrollmentIds,
   buildTournamentTeamRows,
+  reconcileTournamentsFromGames,
+  tournamentTeamIdsFromGames,
+  filterGamesForTournament,
 } from '../src/utils/tournamentEnrollment';
+import type { Game, Tournament } from '../src/App';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) {
@@ -61,10 +65,52 @@ function testDedupes(): void {
   assert(ids.length === 2, 'no duplicate ids');
 }
 
+function testReconcileTournamentsFromGames(): void {
+  const tournaments: Tournament[] = [
+    {
+      id: 'tournament-1',
+      name: 'T1',
+      year: 2018,
+      month: 'Jan',
+      teams: ['team-fairfield'],
+      games: [],
+      standings: [],
+    },
+  ];
+  const games: Game[] = [
+    {
+      id: 'game-1',
+      homeTeamId: 'team-fairfield',
+      awayTeamId: 'team-opp',
+      tournamentId: 'tournament-1',
+      date: '2018-01-01',
+      gameStats: [],
+      isActive: false,
+      isCompleted: true,
+    },
+  ];
+
+  const reconciled = reconcileTournamentsFromGames(tournaments, games);
+  assert(reconciled[0].teams.length === 2, 'enrolls home and away from games');
+  assert(reconciled[0].teams.includes('team-opp'), 'includes opponent');
+  assert(reconciled[0].games.length === 1, 'syncs game ids');
+  assert(
+    tournamentTeamIdsFromGames('tournament-1', games, ['team-extra']).includes(
+      'team-extra'
+    ),
+    'preserves manual enrollment not yet in games'
+  );
+  assert(
+    filterGamesForTournament(reconciled[0], games).length === 1,
+    'filterGamesForTournament by tournamentId'
+  );
+}
+
 function main(): void {
   testAutoEnrollGameTeams();
   testKaiXuanNbl2023Case();
   testDedupes();
+  testReconcileTournamentsFromGames();
   console.log('All tournament enrollment tests passed.');
 }
 

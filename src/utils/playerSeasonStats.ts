@@ -503,15 +503,15 @@ export function buildPlayerTournamentSeasonRows(
   };
 
   const teamForScope = (scopedGames: Game[]): Team => {
-    const teamId = resolvePlayerTeamIdForGames(player.id, scopedGames, leagueTeams);
-    const team = teamId ? leagueTeams.find((t) => t.id === teamId) : leagueTeams[0];
+    const teamId = resolvePlayerTeamIdForGames(player.id, scopedGames, teams);
+    const team = teamId ? teams.find((t) => t.id === teamId) : undefined;
     return team ?? leagueTeams[0] ?? ({ id: '', name: '', abbreviation: '-', players: [] } as Team);
   };
 
   const allTimeTeam = (): Team => {
     const playedIds = new Set<string>();
     for (const game of playerGames) {
-      const t = resolvePlayerTeamInGame(player.id, game, leagueTeams);
+      const t = resolvePlayerTeamInGame(player.id, game, teams);
       if (t) playedIds.add(t.id);
     }
     if (playedIds.size <= 1) {

@@ -10,9 +10,11 @@ import {
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { dedupeTeamsById } from '../utils/rosterPlayers';
+import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { gameStatsHaveBoxScoreData } from '../utils/gameStatsIntegrity';
+import { isPersistedIconReference } from '../utils/teamAssetStorage';
 
-export const APP_DATA_SNAPSHOT_VERSION = 6;
+export const APP_DATA_SNAPSHOT_VERSION = 7;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
 /** Stay under typical 5MB localStorage quota. */
 const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024;
@@ -136,10 +138,14 @@ function toSnapshotPlayer(player: Player): Player {
   };
 }
 
+function snapshotIcon(icon?: string): string | undefined {
+  return isPersistedIconReference(icon) ? icon!.trim() : undefined;
+}
+
 function toSnapshotTeams(teams: Team[]): Team[] {
   return teams.map((team) => ({
     ...team,
-    icon: undefined,
+    icon: snapshotIcon(team.icon),
     description: undefined,
     players: (team.players ?? []).map(toSnapshotPlayer),
   }));
@@ -151,9 +157,48 @@ function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
     name: tournament.name,
     year: tournament.year,
     month: tournament.month,
+    icon: snapshotIcon(tournament.icon),
     teams: tournament.teams ?? [],
     games: tournament.games ?? [],
     standings: [],
+  }));
+}
+
+/** Keep logo URLs when a save/reconcile returns teams without icon metadata. */
+export function mergeTeamIconMetadata(teams: Team[], ...fallbacks: Team[]): Team[] {
+  const iconById = new Map<string, string>();
+  for (const fallback of fallbacks) {
+    for (const team of fallback) {
+      if (isPersistedIconReference(team.icon)) {
+        iconById.set(team.id, team.icon!.trim());
+      }
+    }
+  }
+  return teams.map((team) => ({
+    ...team,
+    icon: isPersistedIconReference(team.icon)
+      ? team.icon!.trim()
+      : iconById.get(team.id),
+  }));
+}
+
+export function mergeTournamentIconMetadata(
+  tournaments: Tournament[],
+  ...fallbacks: Tournament[]
+): Tournament[] {
+  const iconById = new Map<string, string>();
+  for (const fallback of fallbacks) {
+    for (const tournament of fallback) {
+      if (isPersistedIconReference(tournament.icon)) {
+        iconById.set(tournament.id, tournament.icon!.trim());
+      }
+    }
+  }
+  return tournaments.map((tournament) => ({
+    ...tournament,
+    icon: isPersistedIconReference(tournament.icon)
+      ? tournament.icon!.trim()
+      : iconById.get(tournament.id),
   }));
 }
 
@@ -283,10 +328,11 @@ export function processLoadedAppData(data: LoadedAppData): ProcessedAppData {
     .filter(isOrphanedIncompleteGame)
     .map((g) => g.id);
   const games = dedupedGames.filter((g) => !orphanGameIds.includes(g.id));
+  const tournaments = reconcileTournamentsFromGames(data.tournaments, games);
 
   return {
     teams,
-    tournaments: data.tournaments,
+    tournaments,
     games,
     darkMode: data.darkMode,
     orphanPlayers: data.orphanPlayers,

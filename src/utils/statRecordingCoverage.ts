@@ -9,6 +9,7 @@ export const TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS = new Set([
   'tournament-1780425044074', // NBL Div 2 2023
   'tournament-1780771500232', // Shenggong Cup 2019
   'tournament-1781859881010', // NSG A Division 2019
+  'tournament-1782331320905', // NSG B Division 2018
 ]);
 
 export function tournamentRecordsStat(

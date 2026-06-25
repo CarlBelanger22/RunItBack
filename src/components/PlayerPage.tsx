@@ -721,6 +721,7 @@ export function PlayerPage({
           shotDataCoverage={shotDataCoverage}
           foulStatCoverage={foulStatCoverage}
           onNavigateToTournament={onNavigateToTournament}
+          teams={teams}
         />
       </div>
     );

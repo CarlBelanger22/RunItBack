@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { prepareIconsForCloudSave } from '../lib/teamAssetStorage';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import {
@@ -7,6 +8,7 @@ import {
 } from '../utils/tournamentRosters';
 import type { Team, Tournament, Game, GameStats, Player } from '../App';
 import { shouldPreserveExistingGameStats } from '../utils/gameStatsIntegrity';
+import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -79,8 +81,8 @@ export async function detectPlayerStorageSchema(): Promise<PlayerStorageSchema> 
 export const MIGRATION_004_HINT =
   'Run supabase/migrations/004_allow_duplicate_jersey_numbers.sql in Supabase SQL Editor, or: npm run db:migrate:004';
 
-export const MIGRATION_005_HINT =
-  'Run supabase/migrations/005_tournament_rosters.sql in Supabase SQL Editor, or: npm run db:migrate:005';
+export const MIGRATION_006_HINT =
+  'Run supabase/migrations/006_team_asset_storage.sql in Supabase SQL Editor, or: npm run db:migrate:006';
 
 export type { TournamentRosterEntry };
 
@@ -258,6 +260,23 @@ function teamToDbRow(team: Team, leagueId: string): DbTeam {
     description: team.description ?? null,
     current_tournament_id: team.currentTournamentId ?? null,
   };
+}
+
+/** Omit icon/description when absent so cloud save does not wipe DB metadata. */
+function teamToDbRowForCloudSave(
+  team: Team,
+  leagueId: string
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {
+    id: team.id,
+    league_id: leagueId,
+    name: team.name,
+    abbreviation: team.abbreviation,
+    current_tournament_id: team.currentTournamentId ?? null,
+  };
+  if (team.icon !== undefined) row.icon = team.icon ?? null;
+  if (team.description !== undefined) row.description = team.description ?? null;
+  return row;
 }
 
 function playerProfileBaseToDbRow(player: Player, leagueId: string): DbPlayerProfileBase {
@@ -966,33 +985,48 @@ export async function saveAppDataToSupabase(
   leagueId = DEFAULT_LEAGUE_ID,
   tournamentRosters: TournamentRosterEntry[] = [],
   options?: SaveAppDataOptions
-): Promise<void> {
+): Promise<{ teams: Team[]; tournaments: Tournament[] } | void> {
   if (!supabase) return;
 
   await upsertChunks('leagues', [{ id: leagueId, name: 'My League' }], 'id');
 
   const normalizedTeams = dedupeTeamsById(teams);
-  const teamRows = normalizedTeams.map((t) => teamToDbRow(t, leagueId));
+  const iconPrepared = await prepareIconsForCloudSave(
+    supabase,
+    normalizedTeams,
+    tournaments
+  );
+  const teamsForSave = iconPrepared.teams;
+  const tournamentsForSave = iconPrepared.tournaments;
+  const reconciledTournaments = reconcileTournamentsFromGames(
+    tournamentsForSave,
+    games
+  );
+
+  const teamRows = teamsForSave.map((t) => teamToDbRowForCloudSave(t, leagueId));
   const schema = await detectPlayerStorageSchema();
 
   await upsertChunks('teams', teamRows, 'id');
-  await savePlayersWithSchema(normalizedTeams, leagueId, schema, options);
+  await savePlayersWithSchema(teamsForSave, leagueId, schema, options);
 
-  const tournamentRows = tournaments.map((t) => ({
-    id: t.id,
-    league_id: leagueId,
-    name: t.name,
-    icon: t.icon ?? null,
-    description: t.description ?? null,
-    year: t.year,
-    month: t.month,
-    standings: t.standings ?? [],
-  }));
+  const tournamentRows = reconciledTournaments.map((t) => {
+    const row: Record<string, unknown> = {
+      id: t.id,
+      league_id: leagueId,
+      name: t.name,
+      year: t.year,
+      month: t.month,
+      standings: t.standings ?? [],
+    };
+    if (t.icon !== undefined) row.icon = t.icon ?? null;
+    if (t.description !== undefined) row.description = t.description ?? null;
+    return row;
+  });
   await upsertChunks('tournaments', tournamentRows, 'id');
 
   const junctionRows: DbTournamentTeam[] = [];
   const seen = new Set<string>();
-  for (const t of tournaments) {
+  for (const t of reconciledTournaments) {
     for (const teamId of t.teams ?? []) {
       const key = `${t.id}:${teamId}`;
       if (seen.has(key)) continue;
@@ -1001,7 +1035,7 @@ export async function saveAppDataToSupabase(
     }
   }
 
-  const tournamentIds = tournaments.map((t) => t.id);
+  const tournamentIds = reconciledTournaments.map((t) => t.id);
   if (tournamentIds.length > 0) {
     const { error: junctionDeleteError } = await supabase
       .from('tournament_teams')
@@ -1016,7 +1050,7 @@ export async function saveAppDataToSupabase(
   const rosterRows = dedupeTournamentRostersForDb(
     tournamentRosters,
     games,
-    normalizedTeams
+    teamsForSave
   ).map(tournamentRosterEntryToDbRow);
   if (tournamentIds.length > 0) {
     const { error: rosterDeleteError } = await supabase
@@ -1055,4 +1089,6 @@ export async function saveAppDataToSupabase(
     { onConflict: 'league_id' }
   );
   if (prefError) throw new Error(prefError.message);
+
+  return { teams: teamsForSave, tournaments: reconciledTournaments };
 }

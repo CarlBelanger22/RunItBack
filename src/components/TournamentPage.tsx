@@ -14,6 +14,10 @@ import { TournamentForm } from './forms/TournamentForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
+import {
+  filterGamesForTournament,
+  filterTeamsForTournament,
+} from '../utils/tournamentEnrollment';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
   Trophy, 
@@ -70,11 +74,9 @@ export function TournamentPage({
   onDeleteTeam
 }: TournamentPageProps) {
   
-  // Get tournament teams
-  const tournamentTeams = teams.filter(team => tournament.teams.includes(team.id));
-  
-  // Get tournament games
-  const tournamentGames = games.filter(game => tournament.games.includes(game.id));
+  // Teams/games derived from games table (tournamentId) with enrollment fallback
+  const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
+  const tournamentGames = filterGamesForTournament(tournament, games);
   
   // Calculate tournament standings
   const calculateStandings = () => {

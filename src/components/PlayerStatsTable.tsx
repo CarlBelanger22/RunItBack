@@ -15,6 +15,8 @@ import {
   plusMinusPerGameForRow,
 } from '../utils/playerSeasonStats';
 import { formatDecimalMinutes } from '../utils/formatMinutes';
+import { getTeamStatsAbbreviation } from '../utils/teamAbbreviation';
+import type { Team } from '../App';
 import { OptionalStatText, StatTooltipHead } from './StatDisplay';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 
@@ -122,6 +124,8 @@ interface PlayerStatsTableProps {
   defaultSortOrder?: 'asc' | 'desc';
   onNavigateToPlayer?: (playerId: string, teamId: string) => void;
   onNavigateToTournament?: (tournamentId: string) => void;
+  /** Full league teams for unique stats-table abbreviations when many share "TST". */
+  teams?: Team[];
 }
 
 function SortIcon({
@@ -223,8 +227,13 @@ export function PlayerStatsTable({
   defaultSortOrder,
   onNavigateToPlayer,
   onNavigateToTournament,
+  teams: leagueTeamsProp,
 }: PlayerStatsTableProps) {
   const isBreakdown = layout === 'tournament-breakdown';
+  const leagueTeamsForAbbrev = useMemo(
+    () => leagueTeamsProp ?? rows.map((row) => row.team),
+    [leagueTeamsProp, rows]
+  );
   const initialSortField =
     defaultSortField ?? (isBreakdown ? 'Scope' : 'PPG');
   const initialSortOrder =
@@ -532,7 +541,12 @@ export function PlayerStatsTable({
                       )}
                       {showTeamColumn && (
                         <TableCell className={`text-sm ${cellHighlight('Team')}`}>
-                          {isSummaryRow ? '-' : playerData.team.abbreviation}
+                          {isSummaryRow
+                            ? '-'
+                            : getTeamStatsAbbreviation(
+                                playerData.team,
+                                leagueTeamsForAbbrev
+                              )}
                         </TableCell>
                       )}
                       {isBreakdown && showAgeColumn && (

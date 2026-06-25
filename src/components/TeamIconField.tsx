@@ -5,6 +5,8 @@ import { Label } from './ui/label';
 import { TeamBadge } from './TeamBadge';
 import { TeamLogoEditorDialog } from './TeamLogoEditorDialog';
 import { readTeamIconFile, TEAM_ICON_ACCEPT } from '../utils/teamIcon';
+import { uploadEntityIcon } from '../lib/teamAssetStorage';
+import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
 import { Pencil, Upload, X } from 'lucide-react';
 
 interface TeamIconFieldProps {
@@ -27,6 +29,7 @@ export function TeamIconField({
   const [urlDraft, setUrlDraft] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorSource, setEditorSource] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const previewTeam = {
     name: teamName,
@@ -65,12 +68,30 @@ export function TeamIconField({
   }, [urlDraft, openEditor]);
 
   const handleEditorApply = useCallback(
-    (processedDataUrl: string) => {
-      onChange(processedDataUrl);
-      setEditorOpen(false);
-      setEditorSource(null);
+    async (processedDataUrl: string) => {
+      setError(null);
+      setUploading(true);
+      try {
+        if (teamId && isSupabaseConfigured) {
+          const publicUrl = await uploadEntityIcon(
+            requireSupabase(),
+            'teams',
+            teamId,
+            processedDataUrl
+          );
+          onChange(publicUrl);
+        } else {
+          onChange(processedDataUrl);
+        }
+        setEditorOpen(false);
+        setEditorSource(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Could not upload logo.');
+      } finally {
+        setUploading(false);
+      }
     },
-    [onChange]
+    [onChange, teamId]
   );
 
   const handleEditorCancel = useCallback(() => {
@@ -143,8 +164,11 @@ export function TeamIconField({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              PNG, JPG, WebP, or SVG up to 512 KB. Background is removed and the crest is trimmed before saving.
+              PNG, JPG, WebP, or SVG up to 512 KB. Background is removed and the crest is trimmed before saving to cloud storage.
             </p>
+            {uploading && (
+              <p className="text-xs text-muted-foreground">Uploading logo…</p>
+            )}
             {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         </div>
