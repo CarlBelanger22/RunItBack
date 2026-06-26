@@ -19,6 +19,18 @@ import {
   perGameAverageOrNull,
   tournamentRecordsStat,
 } from './statRecordingCoverage';
+import {
+  allTimeScopeLabel,
+  DEFAULT_GAME_FORMAT_SCOPE,
+  filterGamesByFormatScope,
+  type GameFormatScope,
+} from './gameFormat';
+import {
+  isAllTournamentsSelected,
+  isNoTournamentsSelected,
+  tournamentMatchesSelection,
+  type TournamentIdSet,
+} from './tournamentSelection';
 
 export type TournamentScope = 'all' | string;
 
@@ -206,12 +218,21 @@ function emptyGameStats(playerId: string): GameStats {
 export function filterTeamScopeGames(
   games: Game[] | undefined,
   teamId: string,
-  tournamentScope: TournamentScope
+  tournamentScope: TournamentScope | TournamentIdSet
 ): Game[] {
   return (games ?? []).filter((game) => {
     if (!game.isCompleted) return false;
     if (game.homeTeamId !== teamId && game.awayTeamId !== teamId) return false;
-    if (tournamentScope !== 'all' && game.tournamentId !== tournamentScope) return false;
+    if (tournamentScope === null) {
+      // all tournaments
+    } else if (tournamentScope instanceof Set) {
+      if (tournamentScope.size === 0) return false;
+      if (!tournamentMatchesSelection(game.tournamentId, tournamentScope)) {
+        return false;
+      }
+    } else if (tournamentScope !== 'all' && game.tournamentId !== tournamentScope) {
+      return false;
+    }
     return true;
   });
 }
@@ -449,16 +470,22 @@ export function buildPlayerTournamentSeasonRows(
   teams: Team[],
   games: Game[],
   tournaments: Tournament[],
-  options?: { includeAllTime?: boolean }
+  options?: { includeAllTime?: boolean; gameFormatScope?: GameFormatScope }
 ): PlayerSeasonRow[] {
+  const gameFormatScope = options?.gameFormatScope ?? DEFAULT_GAME_FORMAT_SCOPE;
+
   const leagueTeams = teams.filter((t) =>
     (t.players ?? []).some((p) => p.id === player.id)
   );
 
-  const playerGames = (games ?? []).filter(
-    (game) =>
-      game.isCompleted &&
-      (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+  const playerGames = filterGamesByFormatScope(
+    (games ?? []).filter(
+      (game) =>
+        game.isCompleted &&
+        (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+    ),
+    gameFormatScope,
+    tournaments
   );
 
   const byTournament = new Map<string, Game[]>();
@@ -545,7 +572,7 @@ export function buildPlayerTournamentSeasonRows(
     );
     rows.push({
       ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, playerGames),
-      scopeLabel: 'All Time',
+      scopeLabel: allTimeScopeLabel(gameFormatScope),
       scopeId: 'all-time',
       isSummaryRow: true,
       ageAtScope: null,
@@ -553,6 +580,77 @@ export function buildPlayerTournamentSeasonRows(
   }
 
   return rows;
+}
+
+export function buildSelectedTournamentsSummaryRow(
+  player: Player,
+  teams: Team[],
+  games: Game[],
+  tournaments: Tournament[],
+  selectedIds: TournamentIdSet,
+  gameFormatScope: GameFormatScope = DEFAULT_GAME_FORMAT_SCOPE
+): PlayerSeasonRow | null {
+  if (!selectedIds || selectedIds.size < 2) return null;
+
+  const leagueTeams = teams.filter((t) =>
+    (t.players ?? []).some((p) => p.id === player.id)
+  );
+
+  const playerGames = filterGamesByFormatScope(
+    (games ?? []).filter(
+      (game) =>
+        game.isCompleted &&
+        tournamentMatchesSelection(game.tournamentId, selectedIds) &&
+        (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+    ),
+    gameFormatScope,
+    tournaments
+  );
+
+  if (playerGames.length === 0) return null;
+
+  const teamId = resolvePlayerTeamIdForGames(player.id, playerGames, teams);
+  const team =
+    (teamId ? teams.find((t) => t.id === teamId) : undefined) ??
+    leagueTeams[0] ??
+    ({ id: '', name: '', abbreviation: '-', players: [] } as Team);
+  const rosterPlayer =
+    team.players.find((p) => p.id === player.id) ?? player;
+
+  return {
+    ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, playerGames),
+    scopeLabel: `Selected (${selectedIds.size} tournaments)`,
+    scopeId: 'selected-tournaments',
+    isSummaryRow: true,
+    ageAtScope: null,
+  };
+}
+
+export function filterPlayerSeasonRowsForTournamentSelection(
+  rows: PlayerSeasonRow[],
+  selection: TournamentIdSet,
+  availableIds: readonly string[],
+  summaryRow: PlayerSeasonRow | null
+): PlayerSeasonRow[] {
+  const dataRows = rows.filter((row) => !row.isSummaryRow);
+
+  if (isNoTournamentsSelected(selection)) {
+    return [];
+  }
+
+  if (isAllTournamentsSelected(selection, availableIds)) {
+    return rows;
+  }
+
+  if (selection.size === 1) {
+    const id = [...selection][0];
+    return dataRows.filter((row) => row.scopeId === id);
+  }
+
+  const selectedData = dataRows.filter(
+    (row) => row.scopeId && selection.has(row.scopeId)
+  );
+  return summaryRow ? [...selectedData, summaryRow] : selectedData;
 }
 
 export function sortPlayerSeasonRows(

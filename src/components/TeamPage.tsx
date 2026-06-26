@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -31,6 +32,21 @@ import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamBadge } from './TeamBadge';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { TournamentScopeSelect } from './TournamentScopeSelect';
+import { StatScopeFilterBar } from './StatScopeFilterBar';
+import {
+  DEFAULT_GAME_FORMAT_SCOPE,
+  filterGamesByFormatScope,
+  getTournamentGameFormat,
+  parseGameFormatScope,
+  type GameFormatScope,
+} from '../utils/gameFormat';
+import {
+  parseTournamentSelection,
+  pruneTournamentSelection,
+  serializeTournamentSelection,
+  tournamentSetsEqual,
+  type TournamentIdSet,
+} from '../utils/tournamentSelection';
 import {
   aggregateTeamSeasonAverages,
   computeScopedTeamScoring,
@@ -42,7 +58,6 @@ import {
   filterTeamScopeGames,
   getShotDataCoverage,
   getFoulStatCoverage,
-  getTeamTournamentScopeOptions,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
 import {
@@ -67,6 +82,7 @@ import {
   playerRemovalConfirmMessage,
 } from '../utils/rosterPlayerRemoval';
 import { resolvePlayerAge } from '../utils/playerAge';
+import { resolveLatestJerseyNumber } from '../utils/playerJerseyResolution';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
 import { 
   ArrowLeft,
@@ -285,12 +301,16 @@ export function TeamPage({
   onUpdateTeam,
   onUpdateTournamentRosters,
 }: TeamPageProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const statsGameFormatScope = parseGameFormatScope(searchParams.get('format'));
+  const selectedTournamentIds = useMemo(
+    () => parseTournamentSelection(searchParams.get('tournaments')),
+    [searchParams]
+  );
   const [isAddPlayerDialogOpen, setIsAddPlayerDialogOpen] = useState(false);
   const [isEditTeamDialogOpen, setIsEditTeamDialogOpen] = useState(false);
   const [rosterSortField, setRosterSortField] = useState<RosterSortField>('number');
   const [rosterSortOrder, setRosterSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [statsTournamentScope, setStatsTournamentScope] =
-    useState<TournamentScope>('all');
   const [rosterTournamentScope, setRosterTournamentScope] =
     useState<TournamentScope>('all');
   const [removePlayerTarget, setRemovePlayerTarget] = useState<Player | null>(null);
@@ -306,6 +326,46 @@ export function TeamPage({
     tournamentName: string;
     gameCount: number;
   } | null>(null);
+
+  const updateStatsSearchParams = useCallback(
+    (patch: { format?: GameFormatScope; tournamentIds?: TournamentIdSet }) => {
+      const next = new URLSearchParams(searchParams);
+      const format = patch.format ?? statsGameFormatScope;
+      if (format === DEFAULT_GAME_FORMAT_SCOPE) {
+        next.delete('format');
+      } else {
+        next.set('format', format);
+      }
+      const tournamentIds = 'tournamentIds' in patch
+        ? patch.tournamentIds!
+        : selectedTournamentIds;
+      const serialized = serializeTournamentSelection(tournamentIds);
+      if (serialized) {
+        next.set('tournaments', serialized);
+      } else {
+        next.delete('tournaments');
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams, statsGameFormatScope, selectedTournamentIds]
+  );
+
+  const setStatsGameFormatScope = useCallback(
+    (scope: GameFormatScope) => {
+      updateStatsSearchParams({ format: scope, tournamentIds: null });
+    },
+    [updateStatsSearchParams]
+  );
+
+  const handleTournamentSelectionScopeChange = useCallback(
+    (change: { format: GameFormatScope; selection: TournamentIdSet }) => {
+      updateStatsSearchParams({
+        format: change.format,
+        tournamentIds: change.selection,
+      });
+    },
+    [updateStatsSearchParams]
+  );
 
   const normalizedTeam = useMemo(() => {
     if (!teamProp?.id || !teamProp?.name) return null;
@@ -374,29 +434,68 @@ export function TeamPage({
     [teamGames]
   );
 
-  const statsTournamentOptions = useMemo(
-    () => getTeamTournamentScopeOptions(teamId, teamGames, tournaments),
-    [teamId, teamGames, tournaments]
-  );
-
   const rosterScopeOptions = useMemo(
     () => getTeamRosterScopeOptions(teamId, teamGames, tournaments),
     [teamId, teamGames, tournaments]
   );
 
   useEffect(() => {
-    setStatsTournamentScope('all');
     setRosterTournamentScope('all');
     setIsEditPlayersMode(false);
     setRemovePlayerTarget(null);
     setTournamentAddError(null);
     setTournamentRemoveTarget(null);
-  }, [teamId]);
+    updateStatsSearchParams({ format: DEFAULT_GAME_FORMAT_SCOPE, tournamentIds: null });
+  }, [teamId, updateStatsSearchParams]);
 
-  const filteredStatsGames = useMemo(
-    () => filterTeamScopeGames(teamGames, teamId, statsTournamentScope),
-    [teamGames, teamId, statsTournamentScope]
+  const allTeamTournamentIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const game of teamGames) {
+      if (game.isCompleted && game.tournamentId) {
+        ids.add(game.tournamentId);
+      }
+    }
+    for (const tournament of tournaments) {
+      if ((tournament.teams ?? []).includes(teamId)) {
+        ids.add(tournament.id);
+      }
+    }
+    return [...ids].sort();
+  }, [teamGames, teamId, tournaments]);
+
+  const statsTournamentFilterOptions = useMemo(
+    () =>
+      allTeamTournamentIds.map((id) => {
+        const tournament = tournaments.find((t) => t.id === id);
+        const format = getTournamentGameFormat(id, tournament);
+        const suffix = format === '3x3' ? ' (3×3)' : '';
+        return {
+          id,
+          label: `${tournament?.name ?? id}${suffix}`,
+          gameFormat: format,
+        };
+      }),
+    [allTeamTournamentIds, tournaments]
   );
+
+  useEffect(() => {
+    const pruned = pruneTournamentSelection(
+      selectedTournamentIds,
+      allTeamTournamentIds
+    );
+    if (!tournamentSetsEqual(pruned, selectedTournamentIds)) {
+      updateStatsSearchParams({ tournamentIds: pruned });
+    }
+  }, [
+    allTeamTournamentIds,
+    selectedTournamentIds,
+    updateStatsSearchParams,
+  ]);
+
+  const filteredStatsGames = useMemo(() => {
+    const scoped = filterTeamScopeGames(teamGames, teamId, selectedTournamentIds);
+    return filterGamesByFormatScope(scoped, statsGameFormatScope, tournaments);
+  }, [teamGames, teamId, selectedTournamentIds, statsGameFormatScope, tournaments]);
 
   const teamSeasonAggregate = useMemo(
     () =>
@@ -461,7 +560,18 @@ export function TeamPage({
   const rosterPlayers = useMemo(() => {
     if (!normalizedTeam) return [];
     if (rosterTournamentScope === 'all') {
-      return normalizedTeam.players;
+      return normalizedTeam.players.map((player) => ({
+        ...player,
+        number: resolveLatestJerseyNumber(
+          teamId,
+          player.id,
+          tournamentRosters,
+          tournaments,
+          teamGames,
+          teams,
+          player.number
+        ),
+      }));
     }
     return getPlayersForTeamInTournament(
       teamId,
@@ -469,7 +579,15 @@ export function TeamPage({
       teams,
       tournamentRosters
     );
-  }, [rosterTournamentScope, teamId, normalizedTeam, teams, tournamentRosters]);
+  }, [
+    rosterTournamentScope,
+    teamId,
+    normalizedTeam,
+    teams,
+    tournamentRosters,
+    tournaments,
+    teamGames,
+  ]);
 
   const selectedRosterScopeLabel = useMemo(
     () =>
@@ -1553,11 +1671,14 @@ export function TeamPage({
 
     return (
       <div className="space-y-6">
-        <TournamentScopeSelect
-          options={statsTournamentOptions}
-          value={statsTournamentScope}
-          onChange={setStatsTournamentScope}
-          id="team-stats-tournament-scope"
+        <StatScopeFilterBar
+          gameFormatScope={statsGameFormatScope}
+          onGameFormatScopeChange={setStatsGameFormatScope}
+          selectedTournamentIds={selectedTournamentIds}
+          onTournamentSelectionScopeChange={handleTournamentSelectionScopeChange}
+          tournamentOptions={statsTournamentFilterOptions}
+          formatToggleId="team-stats-game-format"
+          tournamentSelectId="team-stats-tournament-scope"
         />
 
         <Card>

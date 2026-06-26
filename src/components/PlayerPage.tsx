@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -17,9 +18,10 @@ import {
   tournamentRecordsStat,
 } from '../utils/statRecordingCoverage';
 import { NoStatRecorded, OptionalStatBadge, OptionalStatText } from './StatDisplay';
-import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
 import {
   buildPlayerTournamentSeasonRows,
+  buildSelectedTournamentsSummaryRow,
+  filterPlayerSeasonRowsForTournamentSelection,
   getFoulStatCoverage,
   getShotDataCoverage,
 } from '../utils/playerSeasonStats';
@@ -30,13 +32,37 @@ import {
 } from '../utils/rosterPlayers';
 import { getPlayerAgeAsOfToday, resolvePlayerAge } from '../utils/playerAge';
 import { PlayerStatsTable } from './PlayerStatsTable';
+import { StatScopeFilterBar } from './StatScopeFilterBar';
+import {
+  DEFAULT_GAME_FORMAT_SCOPE,
+  filterGamesByFormatScope,
+  getTournamentGameFormat,
+  parseGameFormatScope,
+  type GameFormatScope,
+} from '../utils/gameFormat';
+import {
+  isAllTournamentsSelected,
+  parseTournamentSelection,
+  pruneTournamentSelection,
+  serializeTournamentSelection,
+  tournamentMatchesSelection,
+  tournamentSetsEqual,
+  type TournamentIdSet,
+} from '../utils/tournamentSelection';
+import {
+  buildPlayerJerseyEditorGroups,
+  buildPlayerJerseyScopeEntries,
+  collectTournamentJerseyUpdates,
+  resolveClubJerseyByTeamId,
+  type TournamentJerseyUpdate,
+} from '../utils/playerJerseyResolution';
+import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { PlayerJerseyGrid } from './PlayerJerseyGrid';
-import { PlayerJerseyNumbersEditor } from './PlayerJerseyNumbersEditor';
+import { PlayerTournamentJerseyEditor } from './PlayerTournamentJerseyEditor';
 import { PlayerTeamBadges } from './PlayerTeamBadges';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { HorizontalBadgeRail } from './HorizontalBadgeRail';
 import { ErrorBoundary } from './ErrorBoundary';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { 
   ArrowLeft,
   User, 
@@ -48,7 +74,6 @@ import {
   Star,
   Medal,
   Crown,
-  Filter,
   Edit
 } from 'lucide-react';
 
@@ -58,6 +83,7 @@ interface PlayerPageProps {
   teams: Team[];
   games: Game[];
   tournaments: Tournament[];
+  tournamentRosters?: TournamentRosterEntry[];
   activeTab: 'overview' | 'gamelog' | 'stats' | 'advanced';
   onTabChange: (tab: 'overview' | 'gamelog' | 'stats' | 'advanced') => void;
   onBack: () => void;
@@ -76,7 +102,8 @@ interface PlayerPageProps {
       | 'age'
       | 'dateOfBirth'
     >,
-    jerseyByTeamId: Record<string, number>
+    jerseyByTeamId: Record<string, number>,
+    tournamentJerseyUpdates?: TournamentJerseyUpdate[]
   ) => void;
 }
 
@@ -97,6 +124,7 @@ export function PlayerPage({
   teams = [],
   games, 
   tournaments,
+  tournamentRosters = [],
   activeTab, 
   onTabChange, 
   onBack,
@@ -105,22 +133,78 @@ export function PlayerPage({
   onNavigateToTournament,
   onUpdatePlayerProfile,
 }: PlayerPageProps) {
-  const [selectedTournament, setSelectedTournament] = useState<string>('all');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const gameFormatScope = parseGameFormatScope(searchParams.get('format'));
+  const selectedTournamentIds = useMemo(
+    () => parseTournamentSelection(searchParams.get('tournaments')),
+    [searchParams]
+  );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [jerseyDraft, setJerseyDraft] = useState<Record<string, string>>({});
+  const [clubJerseyDraft, setClubJerseyDraft] = useState<Record<string, string>>({});
+  const [tournamentJerseyDraft, setTournamentJerseyDraft] = useState<
+    Record<string, string>
+  >({});
+
+  const updateStatsSearchParams = useCallback(
+    (patch: { format?: GameFormatScope; tournamentIds?: TournamentIdSet }) => {
+      const next = new URLSearchParams(searchParams);
+      const format = patch.format ?? gameFormatScope;
+      if (format === DEFAULT_GAME_FORMAT_SCOPE) {
+        next.delete('format');
+      } else {
+        next.set('format', format);
+      }
+      const tournamentIds = 'tournamentIds' in patch
+        ? patch.tournamentIds!
+        : selectedTournamentIds;
+      const serialized = serializeTournamentSelection(tournamentIds);
+      if (serialized) {
+        next.set('tournaments', serialized);
+      } else {
+        next.delete('tournaments');
+      }
+      setSearchParams(next, { replace: true });
+    },
+    [searchParams, setSearchParams, gameFormatScope, selectedTournamentIds]
+  );
+
+  const setGameFormatScope = useCallback(
+    (scope: GameFormatScope) => {
+      updateStatsSearchParams({ format: scope, tournamentIds: null });
+    },
+    [updateStatsSearchParams]
+  );
+
+  const handleTournamentSelectionScopeChange = useCallback(
+    (change: { format: GameFormatScope; selection: TournamentIdSet }) => {
+      updateStatsSearchParams({
+        format: change.format,
+        tournamentIds: change.selection,
+      });
+    },
+    [updateStatsSearchParams]
+  );
 
   const playerRosterEntries = useMemo(
     () => getPlayerRosterEntries(player.id, teams, games),
     [player.id, teams, games]
   );
   const isMultiTeam = playerRosterEntries.length > 1;
-  const jerseyGridEntries = useMemo(
+  const jerseyEditorGroups = useMemo(
     () =>
-      playerRosterEntries.map(({ team: rosterTeam, player: rosterPlayer }) => ({
-        team: rosterTeam,
-        number: rosterPlayer.number,
-      })),
-    [playerRosterEntries]
+      buildPlayerJerseyEditorGroups(
+        player.id,
+        teams,
+        tournaments,
+        games,
+        tournamentRosters
+      ),
+    [player.id, teams, tournaments, games, tournamentRosters]
+  );
+
+  const jerseyGridEntries = useMemo(
+    () => buildPlayerJerseyScopeEntries(player.id, teams, games, tournamentRosters),
+    [player.id, teams, games, tournamentRosters]
   );
   const rosterTeams = useMemo(
     () => playerRosterEntries.map(({ team: rosterTeam }) => rosterTeam),
@@ -129,31 +213,21 @@ export function PlayerPage({
 
   useEffect(() => {
     if (!isEditDialogOpen) return;
-    const draft: Record<string, string> = {};
-    for (const { team: rosterTeam, player: rosterPlayer } of playerRosterEntries) {
-      draft[rosterTeam.id] = String(rosterPlayer.number ?? '');
+    const clubDraft: Record<string, string> = {};
+    const tournamentDraft: Record<string, string> = {};
+    for (const group of jerseyEditorGroups) {
+      clubDraft[group.team.id] = String(group.clubNumber ?? '');
+      for (const tournament of group.tournaments) {
+        tournamentDraft[`${group.team.id}:${tournament.tournamentId}`] = String(
+          tournament.number ?? ''
+        );
+      }
     }
-    setJerseyDraft(draft);
-  }, [isEditDialogOpen, playerRosterEntries]);
+    setClubJerseyDraft(clubDraft);
+    setTournamentJerseyDraft(tournamentDraft);
+  }, [isEditDialogOpen, jerseyEditorGroups]);
 
-  const sortedTournaments = useMemo(
-    () => sortTournamentsByDateDesc(tournaments),
-    [tournaments]
-  );
-  
   const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
-
-  const jerseyEditorRows = useMemo(
-    () =>
-      playerRosterEntries.map(({ team: rosterTeam, player: rosterPlayer }) => ({
-        teamId: rosterTeam.id,
-        teamName: rosterTeam.name,
-        teamAbbreviation: rosterTeam.abbreviation,
-        team: rosterTeam,
-        number: jerseyDraft[rosterTeam.id] ?? String(rosterPlayer.number ?? ''),
-      })),
-    [playerRosterEntries, jerseyDraft]
-  );
 
   const handleUpdatePlayer = useCallback((data: { 
     name: string; 
@@ -181,19 +255,30 @@ export function PlayerPage({
       dateOfBirth: data.dateOfBirth || undefined,
     };
 
-    const jerseyByTeamId: Record<string, number> = {};
-    for (const { team: rosterTeam, player: rosterPlayer } of playerRosterEntries) {
-      const raw =
-        jerseyDraft[rosterTeam.id] ?? String(rosterPlayer.number ?? '');
-      const jerseyNum = parseInt(raw, 10);
-      if (Number.isFinite(jerseyNum)) {
-        jerseyByTeamId[rosterTeam.id] = jerseyNum;
-      }
-    }
+    const jerseyByTeamId = resolveClubJerseyByTeamId(
+      jerseyEditorGroups,
+      clubJerseyDraft
+    );
+    const tournamentJerseyUpdates = collectTournamentJerseyUpdates(
+      player.id,
+      jerseyEditorGroups,
+      tournamentJerseyDraft
+    );
 
-    onUpdatePlayerProfile(player.id, profilePatch, jerseyByTeamId);
+    onUpdatePlayerProfile(
+      player.id,
+      profilePatch,
+      jerseyByTeamId,
+      tournamentJerseyUpdates
+    );
     setIsEditDialogOpen(false);
-  }, [player, playerRosterEntries, jerseyDraft, onUpdatePlayerProfile]);
+  }, [
+    player,
+    jerseyEditorGroups,
+    clubJerseyDraft,
+    tournamentJerseyDraft,
+    onUpdatePlayerProfile,
+  ]);
   
   // Get player games and stats
   if (!player || !team || !games) {
@@ -205,68 +290,78 @@ export function PlayerPage({
     return <div>Invalid player or team data</div>;
   }
   
-  const playerGames = sortGamesByDateDesc(
-    games.filter(game => {
-      if (!game.gameStats || !Array.isArray(game.gameStats)) return false;
-      return game.gameStats.some(stat => stat.playerId === player.id);
-    })
+  const formatScopedGames = useMemo(
+    () => filterGamesByFormatScope(games, gameFormatScope, tournaments),
+    [games, gameFormatScope, tournaments]
   );
-  
-  const playerGameStats = playerGames.map(game => {
-    // Defensive check: ensure gameStats exists before finding
-    const stats = game.gameStats && Array.isArray(game.gameStats) 
-      ? game.gameStats.find(stat => stat.playerId === player.id)
-      : null;
-    return {
-      game,
-      stats: stats || MetricsCalculator.getEmptyStats(player.id)
-    };
-  });
-  
-  // Calculate season totals and averages
-  const calculateSeasonStats = () => {
+
+  const playerGames = useMemo(
+    () =>
+      sortGamesByDateDesc(
+        formatScopedGames.filter((game) => {
+          if (!game.gameStats || !Array.isArray(game.gameStats)) return false;
+          return game.gameStats.some((stat) => stat.playerId === player.id);
+        })
+      ),
+    [formatScopedGames, player.id]
+  );
+
+  const playerGameStats = useMemo(
+    () =>
+      playerGames.map((game) => {
+        const stats =
+          game.gameStats && Array.isArray(game.gameStats)
+            ? game.gameStats.find((stat) => stat.playerId === player.id)
+            : null;
+        return {
+          game,
+          stats: stats || MetricsCalculator.getEmptyStats(player.id),
+        };
+      }),
+    [playerGames, player.id]
+  );
+
+  const { totals, averages, gamesPlayed } = useMemo(() => {
     if (playerGameStats.length === 0) {
       return {
         totals: MetricsCalculator.getEmptyStats(player.id),
         averages: MetricsCalculator.getEmptyStats(player.id),
-        gamesPlayed: 0
+        gamesPlayed: 0,
       };
     }
-    
-    const totals = playerGameStats.reduce((acc, { stats }) => {
-      Object.keys(stats).forEach(key => {
+
+    const seasonTotals = playerGameStats.reduce((acc, { stats }) => {
+      Object.keys(stats).forEach((key) => {
         if (key !== 'playerId' && typeof stats[key as keyof GameStats] === 'number') {
-          (acc as any)[key] += (stats as any)[key];
+          (acc as Record<string, number>)[key] += (stats as Record<string, number>)[key];
         }
       });
       return acc;
     }, MetricsCalculator.getEmptyStats(player.id));
-    
-    const gamesPlayed = playerGameStats.length;
-    const averages = { ...totals };
-    
-    // Calculate averages
-    Object.keys(averages).forEach(key => {
-      if (key !== 'playerId' && typeof averages[key as keyof GameStats] === 'number') {
-        (averages as any)[key] = (averages as any)[key] / gamesPlayed;
+
+    const seasonGamesPlayed = playerGameStats.length;
+    const seasonAverages = { ...seasonTotals };
+
+    Object.keys(seasonAverages).forEach((key) => {
+      if (
+        key !== 'playerId' &&
+        typeof seasonAverages[key as keyof GameStats] === 'number'
+      ) {
+        (seasonAverages as Record<string, number>)[key] /= seasonGamesPlayed;
       }
     });
-    
-    return { totals, averages, gamesPlayed };
-  };
-  
-  // Get recent performance
-  const getRecentPerformance = () => {
-    return playerGameStats.slice(0, 5);
-  };
-  
-  // Calculate advanced metrics
-  const { totals, averages, gamesPlayed } = calculateSeasonStats();
+
+    return {
+      totals: seasonTotals,
+      averages: seasonAverages,
+      gamesPlayed: seasonGamesPlayed,
+    };
+  }, [playerGameStats, player.id]);
   const advanced = MetricsCalculator.calculateAdvancedMetrics(
     totals,
     Math.max(gamesPlayed, 1)
   );
-  const recentGames = getRecentPerformance();
+  const recentGames = useMemo(() => playerGameStats.slice(0, 5), [playerGameStats]);
   
   const participatedTournaments = useMemo(
     () => getPlayerParticipatedTournaments(player.id, games, tournaments),
@@ -329,6 +424,49 @@ export function PlayerPage({
   };
   
   const tournamentStats = getStatsByTournament();
+
+  const formatScopedTournamentStats = useMemo(() => {
+    if (gameFormatScope === 'combined') return tournamentStats;
+    return tournamentStats.filter(
+      (stat) => getTournamentGameFormat(stat.tournamentId) === gameFormatScope
+    );
+  }, [tournamentStats, gameFormatScope]);
+
+  const tournamentFilterOptions = useMemo(
+    () =>
+      participatedTournaments.map((tournament) => {
+        const format = getTournamentGameFormat(tournament.id, tournament);
+        const suffix = format === '3x3' ? ' (3×3)' : '';
+        return {
+          id: tournament.id,
+          label: `${tournament.name}${suffix}`,
+          gameFormat: format,
+        };
+      }),
+    [participatedTournaments]
+  );
+
+  const tournamentFilterAvailableIds = useMemo(
+    () => tournamentFilterOptions.map((option) => option.id),
+    [tournamentFilterOptions]
+  );
+
+  useEffect(() => {
+    const pruned = pruneTournamentSelection(
+      selectedTournamentIds,
+      tournamentFilterAvailableIds
+    );
+    if (!tournamentSetsEqual(pruned, selectedTournamentIds)) {
+      updateStatsSearchParams({ tournamentIds: pruned });
+    }
+  }, [
+    tournamentFilterAvailableIds,
+    selectedTournamentIds,
+    updateStatsSearchParams,
+  ]);
+
+  const showTournamentFilter =
+    activeTab === 'stats' || activeTab === 'advanced';
 
   const getGameTeamContext = useCallback(
     (game: Game) => {
@@ -650,66 +788,68 @@ export function PlayerPage({
 
   const PlayerStatsTab = () => {
     const allRows = useMemo(
-      () => buildPlayerTournamentSeasonRows(player, teams, games, tournaments),
-      [player, teams, games, tournaments]
+      () =>
+        buildPlayerTournamentSeasonRows(player, teams, games, tournaments, {
+          gameFormatScope,
+        }),
+      [player, teams, games, tournaments, gameFormatScope]
     );
 
-    const displayRows = useMemo(() => {
-      if (selectedTournament === 'all') {
-        return allRows;
-      }
-      return allRows.filter(
-        (row) => row.scopeId === selectedTournament && !row.isSummaryRow
-      );
-    }, [allRows, selectedTournament]);
+    const summaryRow = useMemo(
+      () =>
+        buildSelectedTournamentsSummaryRow(
+          player,
+          teams,
+          games,
+          tournaments,
+          selectedTournamentIds,
+          gameFormatScope
+        ),
+      [
+        player,
+        teams,
+        games,
+        tournaments,
+        selectedTournamentIds,
+        gameFormatScope,
+      ]
+    );
+
+    const displayRows = useMemo(
+      () =>
+        filterPlayerSeasonRowsForTournamentSelection(
+          allRows,
+          selectedTournamentIds,
+          tournamentFilterAvailableIds,
+          summaryRow
+        ),
+      [
+        allRows,
+        selectedTournamentIds,
+        tournamentFilterAvailableIds,
+        summaryRow,
+      ]
+    );
 
     const showStatsTeamColumn =
       isMultiTeam ||
       new Set(allRows.filter((r) => !r.isSummaryRow).map((r) => r.team.id)).size > 1;
 
     const coverageGames = useMemo(() => {
-      const playerCompletedGames = games.filter(
+      const playerCompletedGames = formatScopedGames.filter(
         (game) =>
           game.isCompleted &&
-          (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+          (game.gameStats ?? []).some((stat) => stat.playerId === player.id) &&
+          tournamentMatchesSelection(game.tournamentId, selectedTournamentIds)
       );
-      if (selectedTournament === 'all') {
-        return playerCompletedGames;
-      }
-      return playerCompletedGames.filter(
-        (game) => game.tournamentId === selectedTournament
-      );
-    }, [games, player.id, selectedTournament]);
+      return playerCompletedGames;
+    }, [formatScopedGames, player.id, selectedTournamentIds]);
 
     const shotDataCoverage = getShotDataCoverage(coverageGames);
     const foulStatCoverage = getFoulStatCoverage(coverageGames);
 
     return (
       <div className="space-y-6">
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <Filter className="w-5 h-5 text-muted-foreground" />
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Tournament:</label>
-                <Select value={selectedTournament} onValueChange={setSelectedTournament}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder="Select tournament" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Tournaments</SelectItem>
-                    {tournamentStats.map((stat) => (
-                      <SelectItem key={stat.tournamentId} value={stat.tournamentId}>
-                        {stat.tournament ? stat.tournament.name : 'No Tournament'}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         <PlayerStatsTable
           rows={displayRows}
           layout="tournament-breakdown"
@@ -721,6 +861,7 @@ export function PlayerPage({
           shotDataCoverage={shotDataCoverage}
           foulStatCoverage={foulStatCoverage}
           onNavigateToTournament={onNavigateToTournament}
+          onNavigateToTeam={onNavigateToTeam}
           teams={teams}
         />
       </div>
@@ -728,10 +869,26 @@ export function PlayerPage({
   };
 
   const AdvancedTab = () => {
-    // Filter stats based on selected tournament for advanced tab
-    const filteredTournamentStats = selectedTournament === 'all' 
-      ? tournamentStats 
-      : tournamentStats.filter(stat => stat.tournamentId === selectedTournament);
+    const filteredTournamentStats = useMemo(() => {
+      if (
+        isAllTournamentsSelected(
+          selectedTournamentIds,
+          tournamentFilterAvailableIds
+        )
+      ) {
+        return formatScopedTournamentStats;
+      }
+      return formatScopedTournamentStats.filter(
+        (stat) =>
+          stat.tournamentId &&
+          (selectedTournamentIds === null ||
+            selectedTournamentIds.has(stat.tournamentId))
+      );
+    }, [
+      formatScopedTournamentStats,
+      selectedTournamentIds,
+      tournamentFilterAvailableIds,
+    ]);
     
     // Calculate filtered totals and averages
     const getFilteredStats = () => {
@@ -803,31 +960,6 @@ export function PlayerPage({
     
     return (
       <div className="space-y-6">
-        {/* Tournament Filter */}
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
-              <Filter className="w-5 h-5 text-muted-foreground" />
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium">Tournament:</label>
-                <Select value={selectedTournament} onValueChange={setSelectedTournament}>
-                  <SelectTrigger className="w-48">
-                    <SelectValue placeholder="Select tournament" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Tournaments</SelectItem>
-                    {sortedTournaments.map(tournament => (
-                      <SelectItem key={tournament.id} value={tournament.id}>
-                        {tournament.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Shooting Splits */}
         <Card>
           <CardHeader>
@@ -989,8 +1121,8 @@ export function PlayerPage({
         <PlayerShotChart 
           player={player}
           team={team}
-          games={games}
-          selectedTournament={selectedTournament}
+          games={formatScopedGames}
+          selectedTournamentIds={selectedTournamentIds}
         />
       </div>
     );
@@ -1034,11 +1166,19 @@ export function PlayerPage({
               </DialogDescription>
             </DialogHeader>
             <ErrorBoundary>
-              {playerRosterEntries.length > 0 && (
-                <PlayerJerseyNumbersEditor
-                  rows={jerseyEditorRows}
-                  onNumberChange={(teamId, value) =>
-                    setJerseyDraft((prev) => ({ ...prev, [teamId]: value }))
+              {jerseyEditorGroups.length > 0 && (
+                <PlayerTournamentJerseyEditor
+                  groups={jerseyEditorGroups}
+                  clubNumbers={clubJerseyDraft}
+                  tournamentNumbers={tournamentJerseyDraft}
+                  onClubNumberChange={(teamId, value) =>
+                    setClubJerseyDraft((prev) => ({ ...prev, [teamId]: value }))
+                  }
+                  onTournamentNumberChange={(teamId, tournamentId, value) =>
+                    setTournamentJerseyDraft((prev) => ({
+                      ...prev,
+                      [`${teamId}:${tournamentId}`]: value,
+                    }))
                   }
                 />
               )}
@@ -1055,7 +1195,7 @@ export function PlayerPage({
                 }}
                 selectedTeam={team}
                 positions={positions}
-                hideJerseyNumber={playerRosterEntries.length > 0}
+                hideJerseyNumber={jerseyEditorGroups.length > 0}
                 onSubmit={handleUpdatePlayer}
                 onCancel={() => setIsEditDialogOpen(false)}
               />
@@ -1072,6 +1212,22 @@ export function PlayerPage({
           <TabsTrigger value="stats">Player Stats</TabsTrigger>
           <TabsTrigger value="advanced">Advanced Stats</TabsTrigger>
         </TabsList>
+
+        <div className="mt-4">
+          <StatScopeFilterBar
+            gameFormatScope={gameFormatScope}
+            onGameFormatScopeChange={setGameFormatScope}
+            {...(showTournamentFilter
+              ? {
+                  selectedTournamentIds,
+                  onTournamentSelectionScopeChange: handleTournamentSelectionScopeChange,
+                  tournamentOptions: tournamentFilterOptions,
+                  tournamentSelectId: 'player-tournament-scope',
+                }
+              : {})}
+            formatToggleId="player-game-format-scope"
+          />
+        </div>
 
         <TabsContent value="overview">
           <OverviewTab />

@@ -9231,3 +9231,773 @@ Optional later: DB backfill script for abbreviations at source.
 ### Human QA
 
 Player Stats tab → Team column should show distinct labels (e.g. NTU, KX, SAFSA, FMSS) not all TST.
+
+---
+
+## AU-1 — AUSF 3x3 tournament import (Designer, 2026-06-26)
+
+### Background and Motivation
+
+Import 4 NTU games from **AUSF 3x3** (Jun 2026). Only 4 players participated (Carl #22, Louis #4, Reuben #30, Kovan #21). This is **3×3 basketball** with different scoring:
+
+| Shot type | Points |
+|-----------|--------|
+| 1pt FG (inside arc) | 1 |
+| 3-pointer | 2 |
+| Free throw | 1 |
+
+**Import rule:** Use CSV columns for `fg`, `3pt`, `ft` (made/attempted). **Ignore CSV `pts` column** (5v5-style). Recalculate stored `points` as:
+
+`points = fg_made + three_made + ft_made`
+
+(Verified: player 3×3 totals sum to official NTU team scores from screenshot.)
+
+Tournament and teams already exist in Supabase. **0 games** currently.
+
+### Verified Supabase context
+
+| Entity | ID |
+|--------|-----|
+| Tournament | `tournament-1782412204083` (AUSF 3x3, 2026 Jun, 5 teams) |
+| NTU | `team-sunig-ntu` |
+| Macau (UM) | `team-1782412934842` |
+| Moratuwa (UMT) | `team-1782412977862` |
+| Tribhuwan (TU) | `team-1782413009033` |
+| IAU | `team-1782413061536` |
+
+**Player IDs (NTU roster):**
+
+| # | Name | playerId |
+|---|------|----------|
+| 22 | Carl Belanger | `player-sunig-ntu-22` |
+| 4 | Louis Ho | `player-sunig-ntu-4` |
+| 30 | Reuben Amado | `player-1781194731488` |
+| 21 | Kovan Toh | `player-sunig-ntu-21` |
+
+### Game schedule (from screenshot — authoritative for scores & dates)
+
+| # | Date | Opponent | Stage | Score (home–away if left=home) | NTU W/L |
+|---|------|----------|-------|--------------------------------|---------|
+| 1 | **2026-06-12** | Macau (UM) | Pool D | UM **19** – NTU **12** | L |
+| 2 | **2026-06-12** | Moratuwa (UMT) | Pool D | UMT **11** – NTU **21** | W |
+| 3 | **2026-06-13** | Tribhuwan (TU) | Pool D | NTU **17** – TU **21** | L |
+| 4 | **2026-06-13** | IAU | Last 16 | IAU **17** – NTU **15** | L |
+
+**Do NOT use CSV team totals** (e.g. Macau CSV says NTU 23 / Macau 30 — wrong under 3×3 scoring).
+
+### Minutes (user-provided, MM.SS → decimal minutes via `7:24` parser)
+
+| Player | vs Macau | vs Moratuwa | vs Tribhuwan | vs IAU |
+|--------|----------|-------------|--------------|--------|
+| Carl #22 | 7:24 → 7.40 | 10:00 | 7:33 → 7.55 | 8:24 → 8.40 |
+| Louis #4 | 8:25 → 8.42 | 10:00 | 8:27 → 8.45 | 9:42 → 9.70 |
+| Reuben #30 | 9:08 → 9.13 | 10:00 | 7:13 → 7.22 | 9:17 → 9.28 |
+| Kovan #21 | 5:03 → 5.05 | **DNP** | 2:17 → 2.28 | 2:37 → 2.62 |
+
+Moratuwa: CSV has empty Kovan row — treat as DNP (no `gameStats` row).
+
+### 3×3 points verification (sample)
+
+**Macau:** Carl 6+1+0=7, Louis 3+0+0=3, Reuben 1+0+0=1, Kovan 1+0+0=1 → **NTU 12** ✓
+
+**Moratuwa:** Carl 8, Reuben 7, Louis 6 → **NTU 21** ✓ (Kovan DNP)
+
+### Key Challenges and Analysis
+
+1. **Scoring model mismatch** — App assumes 5v5 point values in live entry (`GameLogic`). For **historical import only**, recalculating `points` at build time is sufficient. Tournament-level `scoringRules: '3x3'` flag is **optional v2** if user will enter future 3×3 games live.
+2. **Reuben player ID** — Not `player-sunig-ntu-30`; actual ID is `player-1781194731488` on NTU roster.
+3. **Home/away** — Screenshot uses mixed left-team convention. Prior NTU imports (B Div, Shenggong) used **tracked team always home** with `trackBothTeams: false`. Need human pick: NTU-always-home vs screenshot left=home.
+4. **+/-** — CSV values unreliable → import as **0**; tournament added to `statRecordingCoverage` denylist.
+5. **CSV filenames** say Jun 21–22; **screenshot dates Jun 12–13** are authoritative.
+
+### High-level Task Breakdown
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| AU-1.1 | Add `compute3x3Points(fgMade, threeMade, ftMade)` util | Unit test: Macau Carl → 7 pts |
+| AU-1.2 | `scripts/build-ausf-3x3-imports.ts` — parse 4 CSVs, embed minutes map, build JSON bundles | Dry-run prints 4 games with correct NTU totals matching screenshot |
+| AU-1.3 | Import 4 games via `npm run import:boxscore -- --stats-only` | Supabase shows 4 completed games on AUSF 3x3 tournament page |
+| AU-1.4 | Human QA — tournament page, player pages (4 players), PPG sanity | Scores 12/21/17/15; FG% from attempts not inflated pts |
+
+**Import pattern:** Mirror B Div / Shenggong — `trackBothTeams: false`, NTU `gameStats` only, opponent score in `finalScore` + empty opponent team stats shell.
+
+**Proposed game IDs:**
+
+- `game-ausf3x3-2026-06-12-ntu-macau`
+- `game-ausf3x3-2026-06-12-ntu-moratuwa`
+- `game-ausf3x3-2026-06-13-ntu-tribhuwan`
+- `game-ausf3x3-2026-06-13-ntu-iau`
+
+### Open decisions — resolved (2026-06-26)
+
+1. **Home/away:** ✅ NTU always `homeTeamId`
+2. **Minutes format:** ✅ MM.SS as minutes:seconds (`7.24` → 7:24 → 7.40 decimal min)
+3. **Live 3×3 scoring:** ✅ Import-only recalc; no tournament flag for live entry
+
+**Final score mapping (NTU home):**
+
+| Game | `finalScore.home` (NTU) | `finalScore.away` (opp) |
+|------|-------------------------|-------------------------|
+| vs Macau | 12 | 19 |
+| vs Moratuwa | 21 | 11 |
+| vs Tribhuwan | 17 | 21 |
+| vs IAU | 15 | 17 |
+
+### Project Status Board — AU-1
+
+- [x] Designer — CSV + screenshot analysis, Supabase IDs, 3×3 formula verified
+- [x] Human — Confirmed home/away, minutes, import-only scoring
+- [x] Executor AU-1.1 — 3×3 points util + test
+- [x] Executor AU-1.2 — build script + JSON bundles
+- [x] Executor AU-1.3 — import 4 games
+- [ ] Human QA — tournament + player stats
+
+### Executor's Feedback or Assistance Requests
+
+- **2026-06-26 Executor AU-1 complete:** Built + imported 4 games. NTU scores 12/21/17/15. +/- stored as 0; `tournament-1782412204083` on statRecordingCoverage denylist. Kovan DNP vs Moratuwa (3 player rows). Human QA pending.
+
+---
+
+## GF-1 — Isolate 3×3 vs 5v5 stats (Designer, 2026-06-26)
+
+### Background and Motivation
+
+AUSF 3×3 games are imported with correct per-game 3×3 points, but **aggregation layers still mix formats**:
+
+| Surface | Current behavior | Problem |
+|---------|------------------|---------|
+| **PlayerPage → Overview** | `calculateSeasonStats()` sums **all** games | Header PPG/RPG blends 3×3 (~5 PPG) with 5v5 (~12 PPG) |
+| **PlayerPage → Stats tab** | Per-tournament rows + **All Time** summary | All Time row combines AUSF 3×3 + Sunig/IVP/etc. |
+| **PlayerPage → Advanced** | Tournament filter exists; default "All" mixes | Same |
+| **TeamPage → Player stats** | `statsTournamentScope` default `'all'` | NTU roster stats include 3×3 unless user picks one tournament |
+| **TournamentPage (AUSF)** | Already scoped to one tournament | ✅ Already isolated |
+
+Selecting a single tournament (e.g. AUSF 3×3) **already works** — the gap is **cross-tournament / All Time views**.
+
+### Assumptions to challenge
+
+1. **"Points are fixed at import, so aggregation is fine"** — False. PPG and totals are mathematically correct per game but **not comparable across formats** (different pace, roster size, scoring scale).
+2. **"Tournament dropdown is enough"** — Partially. Users must know to avoid All Time; Overview has no tournament filter at all.
+3. **"We need separate databases"** — Overkill. Format is a **property of the tournament**, filter at read time.
+
+### Recommended solution: Game format as tournament metadata + UI toggle
+
+#### Phase A — Quick win (no DB migration)
+
+1. **`src/utils/gameFormat.ts`**
+   - `export type GameFormat = '5v5' | '3x3'`
+   - `export type GameFormatScope = '5v5' | '3x3' | 'combined'`
+   - `THREE_X_THREE_TOURNAMENT_IDS = new Set(['tournament-1782412204083'])` (AUSF 3×3)
+   - `getTournamentGameFormat(tournamentId, tournaments?) → GameFormat` (default `'5v5'`)
+   - `filterGamesByFormatScope(games, scope, tournaments) → Game[]`
+
+2. **`GameFormatToggle` component** (segmented control or select)
+   - Options: **5v5** (default) | **3×3** | Combined
+   - Combined shows helper text: *"Mixes different game formats — averages not directly comparable."*
+   - Persist in URL: `?format=5v5|3x3|combined` on player/team stat routes (optional localStorage fallback)
+
+3. **Wire toggle on stat surfaces**
+   - **PlayerPage:** Overview hero stats, Stats tab, Advanced tab, Game log (optional), Shot chart
+   - **TeamPage:** Player stats table + team season aggregate header
+   - **Not needed:** TournamentPage (single tournament), Game detail pages
+
+4. **`buildPlayerTournamentSeasonRows` changes**
+   - Accept `gameFormatScope?: GameFormatScope`
+   - Filter `playerGames` before grouping
+   - All Time row label: `All Time (5v5)` / `All Time (3×3)` when scoped; omit or warn on `combined`
+
+5. **`aggregatePlayerSeasonStats` / TeamPage**
+   - Filter `filteredStatsGames` through `filterGamesByFormatScope` after tournament scope
+
+#### Phase B — Proper data model (when creating/editing tournaments)
+
+1. Migration: `tournaments.game_format text not null default '5v5'` check (`'5v5'`, `'3x3'`)
+2. `Tournament` interface + Supabase load/save + **TournamentForm** dropdown
+3. Backfill AUSF → `'3x3'`; remove hardcoded Set (keep Set as fallback for legacy rows)
+
+### UI mock (PlayerPage Stats tab)
+
+```
+[ Format:  ● 5v5   ○ 3×3   ○ Combined ]     [ Tournament: All ▾ ]
+```
+
+- Default **5v5** → Carl's row shows Sunig/IVP/B Div only; AUSF row hidden from All Time math
+- **3×3** → Only AUSF 3×3 (4 GP, ~5–7 PPG range)
+- **Combined** → Current behavior + disclaimer badge on All Time row
+
+### What NOT to do
+
+| Approach | Why skip |
+|----------|----------|
+| Separate player records for 3×3 | Roster duplication, navigation nightmare |
+| Normalize 3×3 points to 5v5 scale | Loses fidelity; arbitrary multiplier |
+| Hide 3×3 from app entirely | User wants these stats, just isolated |
+| Toggle only on import | Doesn't fix display/aggregation |
+
+### High-level Task Breakdown (Executor, after approval)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| GF-1.1 | `gameFormat.ts` + unit tests | Filter returns 4 AUSF games for `3x3`, 0 for Carl if only 3×3 |
+| GF-1.2 | `GameFormatToggle` + URL param | Toggle renders; refresh preserves selection |
+| GF-1.3 | PlayerPage — Overview + Stats + Advanced | Default 5v5 excludes AUSF from PPG; 3×3 shows only AUSF |
+| GF-1.4 | TeamPage player stats section | Same toggle above `PlayerStatsTable` |
+| GF-1.5 | `buildPlayerTournamentSeasonRows` scope | All Time row respects format; tests updated |
+| GF-1.6 (optional) | DB migration + TournamentForm | AUSF has `game_format: '3x3'` in Supabase |
+
+### Open decision for human
+
+- **Default scope:** 5v5 (recommended — preserves existing mental model for 99% of data) vs remember-last-selected per user?
+
+### Project Status Board — GF-1
+
+- [x] Designer — problem analysis + phased plan
+- [x] Human — Approve approach + default (5v5)
+- [x] Executor GF-1.1 — `gameFormat.ts` + `npm run test:game-format`
+- [x] Executor GF-1.2 — `GameFormatToggle` + URL `?format=` on player/team routes
+- [x] Executor GF-1.3 — PlayerPage Overview/Stats/Advanced/Game log scoped (default 5v5)
+- [x] Executor GF-1.4 — TeamPage stats tab scoped
+- [x] Executor GF-1.5 — `buildPlayerTournamentSeasonRows` + All Time (5v5)/(3×3) labels
+- [ ] Human QA — Carl player page: default 5v5 hides AUSF; 3×3 shows 4 GP only
+
+### Executor's Feedback — GF-1
+
+- **2026-06-26 GF-1 complete:** Format toggle on PlayerPage (all stat tabs) and TeamPage stats. Default **5v5** excludes `tournament-1782412204083`. URL `?format=3x3|combined` persists across tab changes. Combined shows warning text.
+
+---
+
+## UI-F1 — Stat scope filter bar polish (Designer + Executor, 2026-06-26)
+
+### Problems (QA screenshot)
+
+1. Label/control overlap — "Format" beside radio circles clipped together
+2. Inconsistent radio contrast — selected black ring vs faint gray rings
+3. No visual hierarchy — everything on one baseline
+4. Nested Card felt heavy
+
+### Design: segmented control + field groups
+
+- Labels **above** controls (uppercase, muted, tracked)
+- Format: `h-9` segmented track; selected = white pill + shadow (`role="radiogroup"`)
+- Tournament: matching `h-9` select, right-aligned on desktop
+- Subtle toolbar container (border + muted bg), vertical divider on `sm+`
+- Combined warning separated by top border
+
+### Status
+
+- [x] Executor UI-F1 implemented
+- [ ] Human QA — Player Stats + Team Stats filter bar
+
+---
+
+## MT-1 — Multi-tournament selection on stat filters (Designer, 2026-06-26)
+
+### Background and Motivation
+
+Tournament filter is **single-select** today (`'all' | one tournamentId`). User wants to pick **multiple specific tournaments** (e.g. Sunig 2025 + IVP 2026 only) and see stats for that subset — without mixing in B Div, AUSF 3×3, etc.
+
+Format filter (5v5 / 3×3 / Combined) stays separate and applies **before** tournament subset.
+
+### Current behavior (baseline)
+
+| Surface | State | Filter logic |
+|---------|-------|--------------|
+| PlayerPage Stats/Advanced | `selectedTournament: 'all' \| id` | Single id or all rows |
+| PlayerPage Overview/Gamelog | Format only | All tournaments in format |
+| TeamPage Stats | `statsTournamentScope: 'all' \| id` | `filterTeamScopeGames()` |
+| PlayerShotChart | `selectedTournament` string | Single or all |
+| URL | `?format=5v5` only | No tournament persistence |
+
+Player Stats tab when `'all'`: per-tournament rows + **All Time (5v5)** summary.
+
+### Recommended data model
+
+```typescript
+/** Empty set = all tournaments (backward compatible default). */
+type TournamentIdSet = Set<string>;
+
+function isAllTournamentsSelected(
+  selection: TournamentIdSet,
+  availableIds: readonly string[]
+): boolean {
+  return selection.size === 0 || selection.size >= availableIds.length;
+}
+
+function tournamentMatchesSelection(
+  tournamentId: string | undefined,
+  selection: TournamentIdSet
+): boolean {
+  if (!tournamentId) return selection.size === 0;
+  if (selection.size === 0) return true;
+  return selection.has(tournamentId);
+}
+```
+
+New util file: `src/utils/tournamentSelection.ts` (+ tests).
+
+**URL encoding:** `?tournaments=id1,id2,id3` (comma-separated stable ids). Omit param = all. Persist alongside `?format=`.
+
+### UI design — multi-select popover (matches UI-F1 toolbar)
+
+Replace single `Select` with **popover + checkboxes** (same pattern as `TeamForm` tournament picker):
+
+```
+┌─ TOURNAMENT ─────────────────────────────┐
+│  ┌─────────────────────────────────────┐ │
+│  │  3 tournaments selected          ▾  │ │  ← trigger, h-9, matches format control
+│  └─────────────────────────────────────┘ │
+└──────────────────────────────────────────┘
+
+Popover:
+  ☑ Select all    Clear
+  ─────────────────────
+  ☑ IVP 2026
+  ☑ Sunig 2025
+  ☐ NBL Div 2 2024
+  ...
+```
+
+**Trigger label rules:**
+
+| Selection | Trigger text |
+|-----------|--------------|
+| 0 selected (all) | All tournaments |
+| 1 selected | Tournament name (e.g. IVP 2026) |
+| 2+ selected | `3 tournaments` or first name + `+2` |
+
+Optional: small **chip row** under toolbar when 2+ selected (truncated names + clear).
+
+**Popover footer:** "Select all" / "Clear" text buttons.
+
+Component: `TournamentMultiSelect.tsx` — used by `StatScopeFilterBar`.
+
+### Stat display behavior when subset selected
+
+**PlayerPage → Stats tab**
+
+| Selection | Rows shown |
+|-----------|------------|
+| All (empty set) | Current: each tournament row + `All Time (5v5/3×3)` |
+| 1 tournament | That tournament row only (no All Time) — same as today |
+| 2+ tournaments | One row per selected tournament + **new summary row** `Selected (N tournaments)` with aggregated totals/averages |
+
+Do **not** show global All Time when subset active (misleading — would imply entire career).
+
+**PlayerPage → Advanced tab**
+
+- Sum/average stats only across games in selected tournaments (same filter as Stats).
+
+**PlayerPage → Overview / Game log**
+
+- Phase 1: **no tournament filter** (format only) — keeps scope small.
+- Phase 2 (optional): apply same tournament subset if user wants consistency.
+
+**PlayerShotChart (Advanced tab)**
+
+- Filter shots to selected tournaments.
+
+**TeamPage → Stats**
+
+- Same multi-select; `filterTeamScopeGames` extended to accept `Set<string>`.
+- Team aggregate + player table reflect selected subset only.
+
+### Interaction with format filter
+
+When user switches 5v5 ↔ 3×3:
+
+- **Prune** selection to tournaments valid for new format (remove AUSF when switching to 5v5, etc.).
+- If pruning empties selection → fall back to all.
+
+### Files to touch (Executor)
+
+| Step | File | Change |
+|------|------|--------|
+| MT-1.1 | `src/utils/tournamentSelection.ts` | Model + URL parse/serialize + tests |
+| MT-1.2 | `src/components/TournamentMultiSelect.tsx` | Popover checkbox UI |
+| MT-1.3 | `StatScopeFilterBar.tsx` | Wire multi-select |
+| MT-1.4 | `playerSeasonStats.ts` | `filterTeamScopeGames` multi-id; optional `aggregateSelectedTournamentRows()` |
+| MT-1.5 | `PlayerPage.tsx` | State → Set; filter stats/advanced/shot chart; URL sync |
+| MT-1.6 | `TeamPage.tsx` | Same state + filter |
+| MT-1.7 | `paths.ts` / routes | `?tournaments=` in player/team URLs |
+
+### Out of scope (v1)
+
+- Cross-format multi-select in one view (Combined format already handles this at format layer)
+- TournamentPage (always single tournament)
+- Persisting selection in localStorage (URL is enough)
+
+### Open decisions for human
+
+1. **Overview / Game log:** Apply tournament subset in v1, or Stats/Advanced only? **Recommend Stats/Advanced only for v1.**
+2. **Summary row label:** `Selected (3 tournaments)` vs `Combined selection`?
+3. **Default on first visit:** All tournaments (empty set) — confirm?
+
+### Project Status Board — MT-1
+
+- [x] Designer — plan documented
+- [x] Human — Stats/Advanced + Team Stats only; summary row `Selected (N tournaments)`; default all (empty set)
+- [x] Executor MT-1.1 — `tournamentSelection.ts` + `npm run test:tournament-selection`
+- [x] Executor MT-1.2 — `TournamentMultiSelect` popover + checkboxes
+- [x] Executor MT-1.3 — `StatScopeFilterBar` multi-select props
+- [x] Executor MT-1.4 — `filterTeamScopeGames` Set + summary row helpers
+- [x] Executor MT-1.5 — PlayerPage Stats/Advanced + shot chart + URL `?tournaments=`
+- [x] Executor MT-1.6 — TeamPage stats tab wired
+- [x] Executor MT-1.7 — Routing preserves `?tournaments=` on tab change; build + tests pass
+- [ ] Human QA — multi-select on Player Stats/Advanced and Team Stats
+
+### Executor's Feedback — MT-1
+
+- **2026-06-26 MT-1 complete (Executor):** Multi-tournament filter via `?tournaments=id1,id2`. Empty set = all. Uncheck from all selects all except unchecked. Player Stats shows per-tournament rows + `Selected (N tournaments)` summary when subset active; global All Time hidden. Format change prunes invalid tournament IDs. Team switch clears tournament filter.
+- **2026-06-26 MT-1 fix:** Clear button now unchecks all (`?tournaments=_none`); `null`/omitted param = all selected. Tournament dropdown lists all participated tournaments including 3×3 (labeled ` (3×3)`), not format-scoped.
+
+---
+
+## MT-1.8 — Cross-format tournament toggle preserves other format (Designer, 2026-06-26)
+
+### Background and Motivation
+
+Human QA found incorrect behavior when **re-adding** a tournament from the opposite format bucket after narrowing selection.
+
+**Repro (confirmed):**
+
+1. Select all → Combined, all tournaments checked ✓
+2. Uncheck AUSF 3×3 (only 3×3 tournament) → format collapses to **5v5**, trigger shows **All 5v5 tournaments**, all 5v5 checked, AUSF unchecked ✓
+3. Re-check AUSF 3×3 → **BUG:** format jumps to **3×3**, all 5v5 unchecked, only AUSF checked ✗
+
+**Expected (human, 2026-06-26):**
+
+- Re-checking AUSF should **only add AUSF** back; all 5v5 tournaments stay checked.
+- Format should become **Combined** (mixed formats in selection).
+- **Symmetric rule:** re-checking a 5v5 tournament while in 3×3-only scope should add that 5v5 without unchecking 3×3 tournaments → Combined.
+
+### Root cause
+
+`applyTournamentToggle()` in `tournamentSelection.ts` has a **format-replacement shortcut** on check:
+
+```typescript
+if (toggledFormat === '3x3' && gameFormatScope === '5v5') {
+  return { format: '3x3', selection: null };  // ← replaces entire 5v5 selection
+}
+```
+
+This treats “check a 3×3 while scope is 5v5” as “switch to 3×3-only mode” instead of “add to existing 5v5 selection.”
+
+The inverse path (`5v5` checked while scope is `3x3`) already does the right thing — it builds an explicit set with all 3×3 + the one 5v5 and sets Combined. **Asymmetry is the bug.**
+
+### Correct mental model (updated)
+
+| Concept | Meaning |
+|---------|---------|
+| Format scope `5v5` + `selection: null` | All **5v5** tournaments selected (implicit); 3×3 shown unchecked |
+| Format scope `3x3` + `selection: null` | All **3×3** tournaments selected (implicit); 5v5 shown unchecked |
+| Format scope `combined` + `selection: null` | All tournaments selected |
+| Explicit `Set` | Exact subset; format inferred from contents |
+| **Check tournament in opposite format** | **Add** to current effective selection → infer format (usually Combined) |
+| **Uncheck last tournament of one format** | Collapse to single-format scope (existing behavior ✓) |
+
+**Do not** switch to opposite format-only mode when checking a single cross-format tournament.
+
+### Fix specification
+
+**MT-1.8.1 — Unify cross-format check logic in `applyTournamentToggle`**
+
+Replace the `3x3 + 5v5 scope → format 3x3` shortcut with the same pattern as the reverse:
+
+```typescript
+if (checked && toggledFormat !== gameFormatScope && gameFormatScope !== 'combined') {
+  const explicit = explicitSelectionForScope(gameFormatScope, selection, options);
+  explicit.add(tournamentId);
+  const format = inferGameFormatScopeFromSelection(explicit, options);
+  return {
+    format,
+    selection: collapseSelectionForFormatScope(format, explicit, options),
+  };
+}
+```
+
+Or explicitly for the two single-format scopes:
+
+- `5v5` scope + check `3x3` → `explicit = all 5v5 ids` + toggled id → Combined (unless only one format remains)
+- `3x3` scope + check `5v5` → `explicit = all 3x3 ids` + toggled id → Combined (already works; keep)
+
+**Remove** the early return `{ format: '3x3', selection: null }` for cross-format check.
+
+**Keep** the `gameFormatScope === toggledFormat` → `selection: null` shortcut only when re-checking within the **same** format bucket and the effective selection already covers all peers (or use explicit add path consistently — see edge case below).
+
+**MT-1.8.2 — Edge case: same-format re-check**
+
+Current code when `gameFormatScope === toggledFormat` on check always returns `selection: null` (select all in bucket). That is fine when coming from “none selected in bucket” but may over-select if user had a **partial** same-format subset. **v1:** leave as-is unless QA reports; repro above does not depend on this.
+
+**MT-1.8.3 — Tests**
+
+Add to `scripts/test-tournament-selection.ts`:
+
+| Test | Action | Expected |
+|------|--------|----------|
+| T1 | `5v5` scope, `selection: null`, check `3x3` | `format: combined`, explicit = all 5v5 + 3x3 id |
+| T2 | `3x3` scope, `selection: null`, check `5v5` | `format: combined`, explicit = all 3x3 + 5v5 id (regression) |
+| T3 | Full repro | Select all → uncheck 3x3 → recheck 3x3 → Combined, all 5v5 + 3x3 checked |
+| T4 | `isTournamentCheckedInScope` after T3 | all options checked |
+
+**MT-1.8.4 — No UI/component changes**
+
+`TournamentMultiSelect`, `PlayerPage`, `TeamPage` unchanged — fix is pure util logic.
+
+### Success criteria
+
+- [ ] Repro T3 passes manually on Carl’s player page
+- [ ] T1–T4 unit tests pass
+- [ ] `npm run build` clean
+- [ ] Uncheck-last-of-format collapse (step 2 of repro) still works
+
+### Project Status Board — MT-1.8
+
+- [x] Designer — root cause + fix spec documented
+- [x] Human — confirm: re-check adds to existing selection; partial 5v5 unchanged
+- [x] Executor MT-1.8.1 — unified `applyTournamentToggle` check path (add to explicit selection, no format replacement)
+- [x] Executor MT-1.8.2 — tests for partial + full repro
+- [ ] Human QA — repro on Carl player page
+
+### Executor's Feedback or Assistance Requests — MT-1.8
+
+- **2026-06-26 MT-1.8 (Executor):** Removed cross-format shortcuts that replaced selection. Checking any tournament now adds to `explicitSelectionForScope()` and infers format — partial 5v5 stays intact when re-checking AUSF 3×3 → Combined.
+
+---
+
+## JN-1 — Tournament-scoped jersey numbers (Designer, 2026-06-27)
+
+### Background and Motivation
+
+Human wants a player to wear **different jersey numbers for the same team in different tournaments** (e.g. Kovan #21 at NTU in one season, #4 in another). This should:
+
+1. **Player profile** — show an **additional jersey icon** when the same team has multiple numbers across tournaments (tooltip explains which tournament).
+2. **Edit Player dialog** — allow editing numbers **per team + tournament**, not just one number per team.
+3. **Team roster tab (scope = All tournaments)** — display the **latest number worn**, where “latest” = most recent tournament by `month/year` date among tournaments the player participated in for that team.
+
+### Good news — partial infrastructure already exists
+
+| Layer | Status today |
+|-------|----------------|
+| DB `tournament_rosters (tournament_id, team_id, player_id, number)` | ✅ Exists (`005_tournament_rosters.sql`) |
+| App state `tournamentRosters[]` + Supabase persist | ✅ Wired in `App.tsx` |
+| Team roster **scoped to one tournament** | ✅ `getPlayersForTeamInTournament()` uses `row.number` |
+| Team roster **All tournaments** | ❌ Uses club `team.players[].number` only |
+| Player profile `PlayerJerseyGrid` | ❌ One entry per **team** from club roster |
+| Edit Player jersey section | ❌ One input per **team** (`jerseyByTeamId`) |
+| `buildTournamentRostersFromGames()` | ⚠️ Seeds tournament `#` from **club** jersey on first game |
+
+**No new DB table required** for v1. Work is resolver + UI + save path + sync rules.
+
+### Assumptions to challenge
+
+1. **“We need a new jersey field on Player”** — False. Tournament scope already has `number`; club `team_players.number` should become a **display cache** (latest), not the only source.
+2. **“Game stats store jersey #”** — False today (`GameStats` has no number). Numbers come from rosters only.
+3. **“Duplicate # on same team is blocked”** — Migration `004` dropped unique `(team_id, number)` on club roster; tournament rows can also share numbers across players if needed.
+4. **“Profile should show one icon per team”** — User explicitly wants **one icon per distinct number**, with tournament context in tooltip when the same team spans multiple numbers.
+
+### Recommended data model (v1)
+
+```typescript
+/** Authoritative for tournament context + profile breakdown */
+TournamentRosterEntry { tournamentId, teamId, playerId, number, position?, ... }
+
+/** Club template — synced to latest tournament number on save (see below) */
+team_players.number  // display default for roster "All" view
+```
+
+**Resolution hierarchy** when showing a number:
+
+| Context | Source |
+|---------|--------|
+| Team roster, tournament scope = `X` | `tournament_rosters` row for `(team, player, X)` → fallback club `#` |
+| Team roster, scope = **All** | `resolveLatestJerseyNumber(teamId, playerId)` → fallback club `#` |
+| Player profile jersey icons | All distinct `(number)` from player's tournament roster rows (+ club-only fallbacks for tournaments with games but no row yet) |
+| Edit dialog rows | One editable row per `(teamId, tournamentId)` roster entry |
+
+**Latest jersey algorithm:**
+
+```typescript
+function resolveLatestJerseyNumber(
+  teamId: string,
+  playerId: string,
+  rosters: TournamentRosterEntry[],
+  tournaments: Tournament[],
+  games: Game[],
+  clubFallback: number
+): number {
+  const rows = rosters.filter(r => r.teamId === teamId && r.playerId === playerId);
+  if (rows.length === 0) return clubFallback;
+
+  const participatedIds = new Set(
+    rows.map(r => r.tournamentId)
+    // optionally union tournaments from completed games for this team+player
+  );
+
+  const sorted = [...participatedIds]
+    .map(id => tournaments.find(t => t.id === id))
+    .filter(Boolean)
+    .sort((a, b) => getTournamentDateMs(b!) - getTournamentDateMs(a!));
+
+  const latestId = sorted[0]?.id;
+  const latestRow = rows.find(r => r.tournamentId === latestId);
+  return latestRow?.number ?? clubFallback;
+}
+```
+
+After any tournament jersey edit, club `team_players.number` is updated **only via the explicit club field in edit dialog** — not auto-derived from latest tournament.
+
+Roster **All** tab still uses `resolveLatestJerseyNumber()` (tournament rows + date tie-break) for the displayed `#`.
+
+### UI design
+
+#### Player profile — `PlayerJerseyGrid` (enhanced)
+
+**Input entries** change from `{ team, number }` to:
+
+```typescript
+interface PlayerJerseyScopeEntry {
+  team: Team;
+  tournament: Tournament | null; // null = club-only fallback row
+  number: number;
+}
+```
+
+**Grouping:** still `groupJerseyEntriesByNumber()` — same `#` → one icon.
+
+**Tooltip (human decision 2026-06-27):** **Team names only — no tournament names.**
+
+- One icon per distinct `#`.
+- Tooltip lists **teams** that wore that number (same as today’s multi-team tooltips).
+- Example: Kovan NTU #21 (Sunig) + NTU #4 (IVP) → **two icons**; each tooltip says **NTU** only.
+- Example: Carl #22 for NTU + Kai Xuan + SAFSA → **one icon**; tooltip lists all three team names.
+
+Tournament context is **edit-dialog only** (where rows are labeled by tournament). Profile icons stay simple.
+
+**Example:** Kovan NTU #21 (Sunig) + #4 (IVP) → **two jersey icons** on profile.
+
+#### Edit Player dialog — jersey section (replace `PlayerJerseyNumbersEditor`)
+
+**Human revision (2026-06-27):** **Club number per team** as the primary field, with **tournament sub-rows** nested underneath (defaulting to club `#` when first created).
+
+```
+Jersey numbers
+─────────────────────────────────────────
+NTU                                    [team badge]
+  Club number                          [ 21 ]
+  Tournaments
+    Sunig 2025                         [ 21 ]   ← defaulted from club when row created
+    IVP 2026                           [  4 ]
+
+Kai Xuan
+  Club number                          [ 30 ]
+  Tournaments
+    NBL Div 2 2024                     [ 30 ]
+```
+
+**Layout rules:**
+
+- One **team group** per club the player is on (same order as today’s jersey editor).
+- **Club number** — single editable input (0–99); maps to `team_players.number`.
+- **Tournaments** — indented sub-section; one row per `(team, tournament)` where player has a roster row or game participation.
+- New tournament rows (Option **D** on load) seed `#` from **club number at creation time**.
+- Tournament names read-only; `#` editable independently.
+- Collapse tournament sub-section when empty (“No tournament entries yet”).
+- Optional v2: “Apply club # to all tournaments” — **out of scope v1**.
+
+**Save rules (revised — club is explicit, not derived from latest):**
+
+| Field | Persists to | Notes |
+|-------|-------------|-------|
+| Club number | `team_players.number` | Saved from main input |
+| Tournament `#` | `tournament_rosters.number` | Saved from sub-rows |
+| Roster tab (All) display | *read-only resolver* | Still **latest tournament `#`** by date (decision 4), not club `# |
+| Profile jersey icons | *read-only* | Distinct `#` from tournament rows; club `#` only if no tournament rows exist |
+
+**Changing club `#` does not overwrite** existing tournament sub-rows (they may differ on purpose). New rows only pick up club `#` as initial default.
+
+**Save handler:**
+
+```typescript
+onUpdatePlayerJerseys(
+  playerId: string,
+  profilePatch: {...},
+  clubJerseyByTeamId: Record<string, number>,
+  tournamentJerseyUpdates: Array<{ tournamentId, teamId, number }>
+)
+```
+
+~~Implementation upserts tournament rows, then syncs club to latest-by-date.~~ **Both club and tournament layers saved explicitly on Update.**
+
+#### Team roster tab — no layout change
+
+- **Scope = specific tournament:** already correct.
+- **Scope = All:** replace `row.player.number` with `resolveLatestJerseyNumber(...)` in `rosterRows` memo (display only; underlying `Player` object can stay club-sourced for other fields).
+
+### High-level task breakdown (Executor)
+
+| Step | Task | Success criteria |
+|------|------|------------------|
+| **JN-1.1** | `resolveLatestJerseyNumber()` + `buildPlayerJerseyScopeEntries()` in new util `playerJerseyResolution.ts` | Unit tests: latest by date; multiple numbers → multiple profile entries |
+| **JN-1.2** | `playerJerseyGroups.ts` — build scope entries from tournament rows; tooltip **teams only** (no tournament) | Two NTU numbers → two icons; each tooltip says NTU |
+| **JN-1.3** | `PlayerJerseyGrid` accepts scope entries; profile shows extra icon when same team has 2+ numbers | Kovan (or test fixture) shows 2 icons for NTU |
+| **JN-1.4** | New `PlayerTournamentJerseyEditor` — **club `#` + nested tournament sub-rows** per team | Main club field + indented tournament rows; new rows default to club `#` |
+| **JN-1.5** | `App.tsx` save: club `#` → `team_players` + tournament rows → `tournament_rosters` | Both layers persist; no auto-overwrite of tournament rows when club changes |
+| **JN-1.6** | Wire `PlayerPage` with `tournamentRosters`, `onUpdateTournamentRosters` (or unified save callback) | Edit save updates both layers |
+| **JN-1.7** | Team roster **All** scope uses latest resolver | Roster # matches most recent tournament worn |
+| **JN-1.8** | Backfill helper (optional script): ensure tournament rows exist for game participants with club # as seed | Existing players get rows; manual fix for wrong # afterward |
+
+### Out of scope (v1)
+
+- Jersey number on box score / game stat rows
+- Auto-detect number changes mid-tournament from imports
+- Team roster inline edit of tournament # (edit stays on Player page + Team edit-players tournament membership)
+- Historical migration of every past import — use script + manual QA
+
+### Human decisions (2026-06-27)
+
+| # | Question | Answer |
+|---|----------|--------|
+| 1 | Club `#` as fallback when no tournament row? | **Yes** |
+| 2 | Edit dialog structure | **Club `#` per team + tournament sub-rows** (sub-rows default to club `#` when created) |
+| 3 | Auto-create tournament roster rows when player has games but no row? | **D** — game-derived rows on load + optional backfill script |
+| 4 | Latest tie-break: game count, then tournament name? | **Yes** |
+| — | Profile jersey tooltip | **Team names only** (no tournament in tooltip) |
+
+### Row creation — Option D (confirmed)
+
+- On app load, extend `buildTournamentRostersFromGames()` (or merge step) so every `(tournament, team, player)` from **completed games** gets a `tournament_rosters` row if missing, with `#` = **club `#` at seed time**.
+- Optional `scripts/backfill-tournament-jerseys.ts` for one-off historical cleanup.
+- User fixes per-tournament `#` in edit sub-rows when imports were wrong.
+
+### Open decisions for human
+
+_All resolved — ready for Executor._
+
+1. ~~Club fallback~~ — **Yes** ✓
+2. ~~Edit dialog~~ — **Club + tournament sub-rows** ✓
+3. ~~Lazy row creation~~ — **D** ✓
+4. ~~Tie-break~~ — **Yes** ✓
+
+### Success criteria (human QA)
+
+- [ ] Player with 2 NTU numbers in 2 tournaments shows **2 jersey icons** on profile
+- [ ] Edit dialog shows **club `#` + tournament sub-rows**; save persists both
+- [ ] Team roster (All) shows **most recent** tournament’s `#`
+- [ ] Team roster (single tournament scope) unchanged behavior
+- [ ] `npm run test:player-jersey-groups` + new tests pass; build clean
+
+### Project Status Board — JN-1
+
+- [x] Designer — plan documented (2026-06-27)
+- [x] Human — all decisions locked (#1–4, tooltip, edit UI revision)
+- [x] Executor JN-1.1 — `playerJerseyResolution.ts` + `npm run test:player-jersey-resolution`
+- [x] Executor JN-1.2–1.3 — profile `PlayerJerseyGrid` from tournament rows (teams-only tooltip unchanged)
+- [x] Executor JN-1.4 — `PlayerTournamentJerseyEditor` (club + tournament sub-rows)
+- [x] Executor JN-1.5–1.6 — save club + tournament rows; `PlayerPage` wired with `tournamentRosters`
+- [x] Executor JN-1.7 — Team roster All scope uses `resolveLatestJerseyNumber`
+- [x] Executor JN-1.8 — Option D already via `reconcileTournamentRostersFromGames` on load
+- [ ] Human QA — Kovan/NTU two icons; edit dialog; roster All latest #
+
+### Executor's Feedback or Assistance Requests — JN-1
+
+- **2026-06-27 (Executor):** JN-1 implemented. Edit dialog: club `#` + nested tournament rows. Profile icons from distinct tournament numbers. Team roster (All) shows latest tournament `#`. Load-time roster reconcile (Option D) unchanged. Tests + build pass.

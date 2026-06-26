@@ -64,7 +64,9 @@ import { generateTeamAbbreviation } from './utils/teamAbbreviation';
 import {
   buildTournamentRostersFromGames,
   reconcileTournamentRostersFromGames,
+  upsertTournamentRosterEntry,
 } from './utils/tournamentRosters';
+import type { TournamentJerseyUpdate } from './utils/playerJerseyResolution';
 import {
   dedupeTeamPlayers,
   dedupeTeamsById,
@@ -147,6 +149,8 @@ export interface Tournament {
   description?: string;
   year: number;
   month: string; // e.g., "Jul", "Aug"
+  /** Defaults to 5v5 when unset. */
+  gameFormat?: '5v5' | '3x3';
   teams: string[]; // Team IDs
   games: string[]; // Game IDs associated with this tournament
   standings: TournamentStanding[];
@@ -1866,7 +1870,8 @@ export default function App() {
         | 'age'
         | 'dateOfBirth'
       >,
-      jerseyByTeamId: Record<string, number>
+      jerseyByTeamId: Record<string, number>,
+      tournamentJerseyUpdates: TournamentJerseyUpdate[] = []
     ) => {
       setTeams((prev) => {
         const normalized = dedupeTeamsById(prev);
@@ -1906,8 +1911,35 @@ export default function App() {
         setSaveError(null);
         return dedupeTeamsById(nextTeams);
       });
+
+      if (tournamentJerseyUpdates.length === 0) return;
+
+      setTournamentRosters((prev) => {
+        let next = prev;
+        for (const update of tournamentJerseyUpdates) {
+          const existing = next.find(
+            (row) =>
+              row.tournamentId === update.tournamentId &&
+              row.teamId === update.teamId &&
+              row.playerId === playerId
+          );
+          const team = teams.find((t) => t.id === update.teamId);
+          const clubPlayer = team?.players?.find((p) => p.id === playerId);
+          next = upsertTournamentRosterEntry(next, {
+            tournamentId: update.tournamentId,
+            teamId: update.teamId,
+            playerId,
+            number: update.number,
+            position: existing?.position ?? clubPlayer?.position ?? '',
+            secondaryPosition:
+              existing?.secondaryPosition ?? clubPlayer?.secondaryPosition,
+          });
+        }
+        tournamentRostersRef.current = next;
+        return next;
+      });
     },
-    [tournaments]
+    [teams, tournaments]
   );
 
   const handleDeleteTeam = useCallback(

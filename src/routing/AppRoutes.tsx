@@ -18,6 +18,7 @@ import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
 import type { Game, Team, Tournament, Player, CreateTeamOptions } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
+import type { TournamentJerseyUpdate } from '../utils/playerJerseyResolution';
 import { parseSlugId, slugify } from './slugs';
 import {
   gamePath,
@@ -28,6 +29,8 @@ import {
   tournamentPath,
 } from './paths';
 import { parsePlayerTab, parseTeamTab, parseTournamentTab, type PlayerTab, type TeamTab, type TournamentTab } from './tabs';
+import { parseGameFormatScope } from '../utils/gameFormat';
+import { parseTournamentSelection } from '../utils/tournamentSelection';
 import {
   currentLocationPath,
   navigateBack,
@@ -60,7 +63,8 @@ export interface AppRoutesProps {
       | 'age'
       | 'dateOfBirth'
     >,
-    jerseyByTeamId: Record<string, number>
+    jerseyByTeamId: Record<string, number>,
+    tournamentJerseyUpdates?: TournamentJerseyUpdate[]
   ) => void;
   onDeleteTeam: (teamId: string) => void;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
@@ -175,14 +179,17 @@ function TeamDetailRoute({
   }
 
   const tab = parseTeamTab(searchParams.get('tab'));
-  const canonical = teamPath(team, tab);
+  const gameFormatScope = parseGameFormatScope(searchParams.get('format'));
+  const tournamentIds = parseTournamentSelection(searchParams.get('tournaments'));
+  const statsQuery = { gameFormatScope, tournamentIds };
+  const canonical = teamPath(team, tab, statsQuery);
 
   if (parsed.slug !== slugify(team.name)) {
     return <Navigate to={canonical} replace />;
   }
 
   const handleTabChange = (nextTab: TeamTab) => {
-    const target = teamPath(team, nextTab);
+    const target = teamPath(team, nextTab, statsQuery);
     const current = `${location.pathname}${location.search}`;
     if (target !== current) {
       navigate(target);
@@ -228,7 +235,16 @@ function TeamDetailRoute({
   );
 }
 
-function PlayerDetailRoute({ teams, games, tournaments, onUpdatePlayerProfile }: AppRoutesProps) {
+function PlayerDetailRoute({
+  teams,
+  games,
+  tournaments,
+  tournamentRosters,
+  onUpdatePlayerProfile,
+}: Pick<
+  AppRoutesProps,
+  'teams' | 'games' | 'tournaments' | 'tournamentRosters' | 'onUpdatePlayerProfile'
+>) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
   const location = useLocation();
@@ -243,14 +259,17 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdatePlayerProfile }:
 
   const { player, team } = found;
   const tab = parsePlayerTab(searchParams.get('tab'));
-  const canonical = playerPath(player, tab);
+  const gameFormatScope = parseGameFormatScope(searchParams.get('format'));
+  const tournamentIds = parseTournamentSelection(searchParams.get('tournaments'));
+  const statsQuery = { gameFormatScope, tournamentIds };
+  const canonical = playerPath(player, tab, statsQuery);
 
   if (parsed.slug !== slugify(player.name)) {
     return <Navigate to={canonical} replace />;
   }
 
   const handleTabChange = (nextTab: PlayerTab) => {
-    const target = playerPath(player, nextTab);
+    const target = playerPath(player, nextTab, statsQuery);
     const current = `${location.pathname}${location.search}`;
     if (target !== current) {
       navigate(target);
@@ -267,6 +286,7 @@ function PlayerDetailRoute({ teams, games, tournaments, onUpdatePlayerProfile }:
         teams={teams}
         games={games}
         tournaments={tournaments}
+        tournamentRosters={tournamentRosters}
         activeTab={tab}
         onTabChange={handleTabChange}
         onBack={() => navigateBack(navigate, location, teamPath(team))}

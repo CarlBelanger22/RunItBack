@@ -5,11 +5,13 @@ import { Player, Team, Game, Shot } from '../App';
 import { Target, Thermometer } from 'lucide-react';
 import courtImage from 'figma:asset/77b3cb60278146a2e537f92c04fc7ef61df2281f.png';
 
+import { tournamentMatchesSelection, type TournamentIdSet } from '../utils/tournamentSelection';
+
 interface PlayerShotChartProps {
   player: Player;
   team: Team;
   games: Game[];
-  selectedTournament: string;
+  selectedTournamentIds: TournamentIdSet;
 }
 
 // Zone data structure
@@ -26,13 +28,13 @@ interface ZoneData {
   shots: Shot[]; // Preserved shot-level data (non-rendered)
 }
 
-export function PlayerShotChart({ player, team, games, selectedTournament }: PlayerShotChartProps) {
+export function PlayerShotChart({ player, team, games, selectedTournamentIds }: PlayerShotChartProps) {
   // Get all shots by the player
   const getPlayerShots = (): Shot[] => {
     const playerGames = games.filter(game =>
       Array.isArray(game.gameStats) &&
       game.gameStats.some((stat) => stat.playerId === player.id) &&
-      (selectedTournament === 'all' || game.tournamentId === selectedTournament)
+      tournamentMatchesSelection(game.tournamentId, selectedTournamentIds)
     );
 
     const allShots: Shot[] = [];

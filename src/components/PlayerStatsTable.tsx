@@ -124,6 +124,7 @@ interface PlayerStatsTableProps {
   defaultSortOrder?: 'asc' | 'desc';
   onNavigateToPlayer?: (playerId: string, teamId: string) => void;
   onNavigateToTournament?: (tournamentId: string) => void;
+  onNavigateToTeam?: (teamId: string) => void;
   /** Full league teams for unique stats-table abbreviations when many share "TST". */
   teams?: Team[];
 }
@@ -227,6 +228,7 @@ export function PlayerStatsTable({
   defaultSortOrder,
   onNavigateToPlayer,
   onNavigateToTournament,
+  onNavigateToTeam,
   teams: leagueTeamsProp,
 }: PlayerStatsTableProps) {
   const isBreakdown = layout === 'tournament-breakdown';
@@ -541,12 +543,28 @@ export function PlayerStatsTable({
                       )}
                       {showTeamColumn && (
                         <TableCell className={`text-sm ${cellHighlight('Team')}`}>
-                          {isSummaryRow
-                            ? '-'
-                            : getTeamStatsAbbreviation(
+                          {isSummaryRow || !playerData.team.id ? (
+                            '-'
+                          ) : onNavigateToTeam ? (
+                            <button
+                              type="button"
+                              className={tableLinkButtonClass}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onNavigateToTeam(playerData.team.id);
+                              }}
+                            >
+                              {getTeamStatsAbbreviation(
                                 playerData.team,
                                 leagueTeamsForAbbrev
                               )}
+                            </button>
+                          ) : (
+                            getTeamStatsAbbreviation(
+                              playerData.team,
+                              leagueTeamsForAbbrev
+                            )
+                          )}
                         </TableCell>
                       )}
                       {isBreakdown && showAgeColumn && (

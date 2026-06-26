@@ -81,6 +81,7 @@
             "test:stat-recording": "tsx scripts/test-stat-recording.ts",
             "test:player-participation-sort": "tsx scripts/test-player-participation-sort.ts",
             "test:player-jersey-groups": "tsx scripts/test-player-jersey-groups.ts",
+            "test:player-jersey-resolution": "tsx scripts/test-player-jersey-resolution.ts",
             "test:team-stats-abbreviation": "tsx scripts/test-team-stats-abbreviation.ts",
             "migrate:icons-to-storage": "tsx scripts/migrate-icons-to-storage.ts",
             "restore:team-icons-from-storage": "tsx scripts/restore-team-icons-from-storage.ts",
@@ -104,6 +105,10 @@
             "list:bdiv-context": "tsx scripts/list-bdiv-2018-context.ts",
             "list:adiv-context": "tsx scripts/list-adiv-context.ts",
             "build:asg-2019": "tsx scripts/build-asg-2019-imports.ts",
+            "build:ausf-3x3": "tsx scripts/build-ausf-3x3-imports.ts",
+            "test:basketball-3x3-scoring": "tsx scripts/test-basketball-3x3-scoring.ts",
+            "test:game-format": "tsx scripts/test-game-format.ts",
+            "test:tournament-selection": "tsx scripts/test-tournament-selection.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts"
       }
 }
