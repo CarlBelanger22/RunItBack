@@ -80,6 +80,8 @@ import {
   evaluatePlayerRemovalFromTeam,
   playerRemovalBlockMessage,
   playerRemovalConfirmMessage,
+  teamDeletionConfirmMessage,
+  tournamentRosterRemoveConfirmMessage,
 } from '../utils/rosterPlayerRemoval';
 import { resolvePlayerAge } from '../utils/playerAge';
 import { resolveLatestJerseyNumber } from '../utils/playerJerseyResolution';
@@ -283,6 +285,7 @@ interface TeamPageProps {
   onNavigateToTournament: (tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
   onUpdateTournamentRosters: (entries: TournamentRosterEntry[]) => void;
+  onDeleteTeam: (teamId: string) => void;
 }
 
 export function TeamPage({ 
@@ -300,6 +303,7 @@ export function TeamPage({
   onNavigateToTournament,
   onUpdateTeam,
   onUpdateTournamentRosters,
+  onDeleteTeam,
 }: TeamPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const statsGameFormatScope = parseGameFormatScope(searchParams.get('format'));
@@ -309,6 +313,7 @@ export function TeamPage({
   );
   const [isAddPlayerDialogOpen, setIsAddPlayerDialogOpen] = useState(false);
   const [isEditTeamDialogOpen, setIsEditTeamDialogOpen] = useState(false);
+  const [isDeleteTeamDialogOpen, setIsDeleteTeamDialogOpen] = useState(false);
   const [rosterSortField, setRosterSortField] = useState<RosterSortField>('number');
   const [rosterSortOrder, setRosterSortOrder] = useState<'asc' | 'desc'>('asc');
   const [rosterTournamentScope, setRosterTournamentScope] =
@@ -785,25 +790,14 @@ export function TeamPage({
         tournamentId,
         games
       );
-      if (gameCount > 0) {
-        setTournamentRemoveTarget({
-          player,
-          tournamentId,
-          tournamentName,
-          gameCount,
-        });
-        return;
-      }
-      onUpdateTournamentRosters(
-        removeTournamentRosterEntry(
-          tournamentRosters,
-          tournamentId,
-          normalizedTeam.id,
-          player.id
-        )
-      );
+      setTournamentRemoveTarget({
+        player,
+        tournamentId,
+        tournamentName,
+        gameCount,
+      });
     },
-    [normalizedTeam, games, tournamentRosters, onUpdateTournamentRosters]
+    [normalizedTeam, games]
   );
 
   const handleConfirmTournamentRemove = useCallback(() => {
@@ -1583,15 +1577,21 @@ export function TeamPage({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Remove from {tournamentRemoveTarget?.tournamentName}?
+              {tournamentRemoveTarget
+                ? tournamentRosterRemoveConfirmMessage(
+                    tournamentRemoveTarget.player.name,
+                    tournamentRemoveTarget.tournamentName,
+                    tournamentRemoveTarget.gameCount
+                  ).title
+                : 'Remove from tournament?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
               {tournamentRemoveTarget
-                ? `${tournamentRemoveTarget.player.name} has played in ${
+                ? tournamentRosterRemoveConfirmMessage(
+                    tournamentRemoveTarget.player.name,
+                    tournamentRemoveTarget.tournamentName,
                     tournamentRemoveTarget.gameCount
-                  } ${
-                    tournamentRemoveTarget.gameCount === 1 ? 'game' : 'games'
-                  } for ${team.name} in this tournament. Removing them from the tournament roster will not delete past box scores, but they will no longer appear on this season's roster.`
+                  ).description
                 : ''}
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1967,8 +1967,69 @@ export function TeamPage({
               isEditing
             />
           </ErrorBoundary>
+          <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-destructive">Danger zone</h4>
+              <p className="text-sm text-muted-foreground mt-1">
+                Permanently delete this team from your league.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive border-destructive/30"
+              onClick={() => setIsDeleteTeamDialogOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete team
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={isDeleteTeamDialogOpen}
+        onOpenChange={setIsDeleteTeamDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {
+                teamDeletionConfirmMessage(
+                  team.name,
+                  games.filter(
+                    (g) => g.homeTeamId === team.id || g.awayTeamId === team.id
+                  ).length
+                ).title
+              }
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {
+                teamDeletionConfirmMessage(
+                  team.name,
+                  games.filter(
+                    (g) => g.homeTeamId === team.id || g.awayTeamId === team.id
+                  ).length
+                ).description
+              }
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                onDeleteTeam(team.id);
+                setIsDeleteTeamDialogOpen(false);
+                setIsEditTeamDialogOpen(false);
+              }}
+            >
+              Delete team
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

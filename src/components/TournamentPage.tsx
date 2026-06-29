@@ -5,6 +5,16 @@ import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { Tournament, Team, Game, CreateTeamOptions } from '../App';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamBadge } from './TeamBadge';
@@ -34,7 +44,8 @@ import {
   Star,
   Plus,
   Shield,
-  Edit
+  Edit,
+  Trash2,
 } from 'lucide-react';
 import { wouldTournamentEnrollmentViolateOverlap } from '../utils/rosterPlayers';
 
@@ -53,7 +64,7 @@ interface TournamentPageProps {
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
   onUpdateTournament: (tournament: Tournament) => void;
-  onDeleteTeam: (teamId: string) => void;
+  onDeleteTournament: (tournamentId: string) => void;
 }
 
 export function TournamentPage({ 
@@ -71,7 +82,7 @@ export function TournamentPage({
   onAddTeamToTournament,
   onUpdateTeam,
   onUpdateTournament,
-  onDeleteTeam
+  onDeleteTournament,
 }: TournamentPageProps) {
   
   // Teams/games derived from games table (tournamentId) with enrollment fallback
@@ -270,6 +281,7 @@ export function TournamentPage({
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
   const [isAddTeamDialogOpen, setIsAddTeamDialogOpen] = useState(false);
   const [isEditTournamentDialogOpen, setIsEditTournamentDialogOpen] = useState(false);
+  const [isDeleteTournamentDialogOpen, setIsDeleteTournamentDialogOpen] = useState(false);
   const [editTournamentError, setEditTournamentError] = useState<string | null>(null);
   const [createFormKey, setCreateFormKey] = useState(0);
 
@@ -1093,8 +1105,64 @@ export function TournamentPage({
             onCancel={handleTournamentFormCancel}
             isEditing
           />
+          <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+            <div>
+              <h4 className="text-sm font-medium text-destructive">Danger zone</h4>
+              <p className="text-sm text-muted-foreground mt-1">
+                Permanently delete this tournament from your league.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive border-destructive/30"
+              onClick={() => setIsDeleteTournamentDialogOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete tournament
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={isDeleteTournamentDialogOpen}
+        onOpenChange={setIsDeleteTournamentDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {tournament.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the tournament from your league.
+              {tournamentGames.length > 0 ? (
+                <>
+                  {' '}
+                  {tournamentGames.length}{' '}
+                  {tournamentGames.length === 1 ? 'game' : 'games'} will be kept
+                  but unlinked from this tournament.
+                </>
+              ) : (
+                <> Teams enrolled in this tournament are not deleted.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                onDeleteTournament(tournament.id);
+                setIsDeleteTournamentDialogOpen(false);
+                setIsEditTournamentDialogOpen(false);
+                onBack();
+              }}
+            >
+              Delete tournament
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

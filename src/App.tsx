@@ -18,10 +18,12 @@ import { Input } from './components/ui/input';
 import { TeamBadge } from './components/TeamBadge';
 import { TournamentBadge } from './components/TournamentBadge';
 import { isSupabaseConfigured } from './lib/supabase';
+import type { GameClockSettings } from './utils/gameClock';
 import {
   deleteGamesFromSupabase,
   deletePlayersFromSupabase,
   deleteTeamsFromSupabase,
+  deleteTournamentsFromSupabase,
   loadAppDataFromSupabase,
   saveAppDataToSupabase,
   saveTournamentRostersToSupabase,
@@ -60,9 +62,11 @@ import {
   resolveSetupPlayersToRemove,
   resolveTeamsToDeleteWithGame,
 } from './utils/activeGame';
+import {
+  evaluatePlayerDeletion,
+} from './utils/rosterPlayerRemoval';
 import { generateTeamAbbreviation } from './utils/teamAbbreviation';
 import {
-  buildTournamentRostersFromGames,
   reconcileTournamentRostersFromGames,
   upsertTournamentRosterEntry,
 } from './utils/tournamentRosters';
@@ -312,6 +316,8 @@ export interface Game {
   date: string;
   /** Scheduled tip-off in 24h HH:MM (e.g. "20:40"). */
   startTime?: string;
+  /** Period length config (defaults from tournament format when unset). */
+  clockSettings?: GameClockSettings;
   gameStats: GameStats[];
   teamStats: {
     home: TeamStats;
@@ -996,6 +1002,7 @@ export default function App() {
   const isDashboard = location.pathname === paths.home;
   const isStatsEntry =
     location.pathname.startsWith(paths.statsEntry) || location.pathname.startsWith('/live');
+  const isLiveGameRoute = /^\/live\/[^/]+/.test(location.pathname);
 
   useEffect(() => {
     if (darkMode) {
@@ -1295,7 +1302,11 @@ export default function App() {
             tournamentRostersRef.current = processed.tournamentRosters;
             prevTournamentRostersRef.current = processed.tournamentRosters;
           } else {
-            applyProcessedToState(processed);
+            const mergedTeams = mergeTeamRostersUnion(
+              processed.teams,
+              teamsRef.current
+            );
+            applyProcessedToState({ ...processed, teams: mergedTeams });
             cloudApplied = true;
           }
           runCloudLoadSideEffects(data, processed);
@@ -1506,10 +1517,11 @@ export default function App() {
         teams: t.teams.filter((id) => !teamIdsToDelete.includes(id)),
         games: t.games.filter((id) => id !== gameId),
       }));
-      const nextTournamentRosters = buildTournamentRostersFromGames(
+      const nextTournamentRosters = reconcileTournamentRostersFromGames(
         nextGames,
-        nextTeams
-      ).entries;
+        nextTeams,
+        tournamentRosters
+      );
 
       skipSaveRef.current = true;
       if (saveTimeoutRef.current) {
@@ -1529,6 +1541,7 @@ export default function App() {
         prevGamesRef.current = nextGames;
         prevDarkModeRef.current = darkMode;
         prevTournamentRostersRef.current = nextTournamentRosters;
+        tournamentRostersRef.current = nextTournamentRosters;
         skipSaveRef.current = false;
       };
 
@@ -1564,7 +1577,7 @@ export default function App() {
         finishDeleteSave();
       }
     },
-    [games, currentGame, teams, tournaments, darkMode]
+    [games, currentGame, teams, tournaments, darkMode, tournamentRosters]
   );
 
   const handleGameUpdate = useCallback((game: Game) => {
@@ -1694,9 +1707,90 @@ export default function App() {
     });
   }, []);
 
-  const handleDeleteTournament = useCallback((tournamentId: string) => {
-    setTournaments(prev => prev.filter(t => t.id !== tournamentId));
-  }, []);
+  const handleDeleteTournament = useCallback(
+    (tournamentId: string) => {
+      localMutatedSinceMountRef.current = true;
+
+      const nextTournamentRosters = tournamentRosters.filter(
+        (entry) => entry.tournamentId !== tournamentId
+      );
+      const nextTeams = teams.map((team) =>
+        team.currentTournamentId === tournamentId
+          ? { ...team, currentTournamentId: undefined }
+          : team
+      );
+      const nextGames = games.map((game) =>
+        game.tournamentId === tournamentId
+          ? { ...game, tournamentId: undefined }
+          : game
+      );
+      const nextTournaments = tournaments.filter((t) => t.id !== tournamentId);
+
+      skipSaveRef.current = true;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      setTournamentRosters(nextTournamentRosters);
+      setTeams(nextTeams);
+      setGames(nextGames);
+      setTournaments(nextTournaments);
+      setCurrentGame((prev) =>
+        prev?.tournamentId === tournamentId ? null : prev
+      );
+
+      const finishDeleteSave = () => {
+        prevTeamsRef.current = nextTeams;
+        prevTournamentsRef.current = nextTournaments;
+        prevGamesRef.current = nextGames;
+        prevDarkModeRef.current = darkMode;
+        prevTournamentRostersRef.current = nextTournamentRosters;
+        teamsRef.current = nextTeams;
+        tournamentsRef.current = nextTournaments;
+        gamesRef.current = nextGames;
+        tournamentRostersRef.current = nextTournamentRosters;
+        skipSaveRef.current = false;
+        saveAppDataSnapshot({
+          teams: nextTeams,
+          tournaments: nextTournaments,
+          games: nextGames,
+          darkMode,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: nextTournamentRosters,
+        });
+      };
+
+      if (isSupabaseConfigured) {
+        void (async () => {
+          try {
+            await deleteTournamentsFromSupabase([tournamentId]);
+            await saveAppDataToSupabase(
+              nextTeams,
+              nextTournaments,
+              nextGames,
+              darkMode,
+              undefined,
+              nextTournamentRosters
+            );
+            setSaveError(null);
+          } catch (err) {
+            console.error('Delete tournament from Supabase failed:', err);
+            setSaveError(
+              formatCloudSaveError(
+                err instanceof Error ? err.message : String(err)
+              )
+            );
+          } finally {
+            finishDeleteSave();
+          }
+        })();
+      } else {
+        finishDeleteSave();
+      }
+    },
+    [teams, tournaments, games, tournamentRosters, darkMode]
+  );
 
   // Team management functions - memoized
   const handleCreateTeam = useCallback(
@@ -1955,10 +2049,11 @@ export default function App() {
         teams: tournament.teams.filter((id) => id !== teamId),
         games: tournament.games.filter((id) => !gameIdsToDelete.includes(id)),
       }));
-      const nextTournamentRosters = buildTournamentRostersFromGames(
+      const nextTournamentRosters = reconcileTournamentRostersFromGames(
         nextGames,
-        nextTeams
-      ).entries;
+        nextTeams,
+        tournamentRosters
+      );
 
       skipSaveRef.current = true;
       if (saveTimeoutRef.current) {
@@ -1985,7 +2080,19 @@ export default function App() {
         prevGamesRef.current = nextGames;
         prevDarkModeRef.current = darkMode;
         prevTournamentRostersRef.current = nextTournamentRosters;
+        teamsRef.current = nextTeams;
+        tournamentsRef.current = nextTournaments;
+        gamesRef.current = nextGames;
+        tournamentRostersRef.current = nextTournamentRosters;
         skipSaveRef.current = false;
+        saveAppDataSnapshot({
+          teams: nextTeams,
+          tournaments: nextTournaments,
+          games: nextGames,
+          darkMode,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: nextTournamentRosters,
+        });
       };
 
       if (isSupabaseConfigured) {
@@ -2017,7 +2124,83 @@ export default function App() {
         finishDeleteSave();
       }
     },
-    [teams, tournaments, games, darkMode]
+    [teams, tournaments, games, darkMode, tournamentRosters]
+  );
+
+  const handleDeletePlayer = useCallback(
+    (playerId: string) => {
+      const evaluation = evaluatePlayerDeletion(playerId, games, teams);
+      if (!evaluation.allowed) return;
+
+      localMutatedSinceMountRef.current = true;
+
+      const nextTeams = teams.map((team) => ({
+        ...team,
+        players: (team.players ?? []).filter((p) => p.id !== playerId),
+      }));
+      const nextTournamentRosters = tournamentRosters.filter(
+        (entry) => entry.playerId !== playerId
+      );
+      const nextOrphanPlayers = loadedOrphanPlayersRef.current.filter(
+        (p) => p.id !== playerId
+      );
+
+      skipSaveRef.current = true;
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+
+      setTeams(nextTeams);
+      setTournamentRosters(nextTournamentRosters);
+      setLoadedOrphanPlayers(nextOrphanPlayers);
+
+      const finishDeleteSave = () => {
+        prevTeamsRef.current = nextTeams;
+        prevTournamentRostersRef.current = nextTournamentRosters;
+        teamsRef.current = nextTeams;
+        tournamentRostersRef.current = nextTournamentRosters;
+        loadedOrphanPlayersRef.current = nextOrphanPlayers;
+        skipSaveRef.current = false;
+        saveAppDataSnapshot({
+          teams: nextTeams,
+          tournaments: tournamentsRef.current,
+          games: gamesRef.current,
+          darkMode,
+          orphanPlayers: nextOrphanPlayers,
+          tournamentRosters: nextTournamentRosters,
+        });
+      };
+
+      if (isSupabaseConfigured) {
+        void (async () => {
+          try {
+            await deletePlayersFromSupabase([playerId]);
+            await saveAppDataToSupabase(
+              nextTeams,
+              tournamentsRef.current,
+              gamesRef.current,
+              darkMode,
+              undefined,
+              nextTournamentRosters
+            );
+            setSaveError(null);
+          } catch (err) {
+            console.error('Delete player from Supabase failed:', err);
+            setSaveError(
+              formatCloudSaveError(
+                err instanceof Error ? err.message : String(err)
+              )
+            );
+          } finally {
+            finishDeleteSave();
+          }
+        })();
+      } else {
+        finishDeleteSave();
+      }
+    },
+    [teams, games, tournamentRosters, darkMode]
   );
 
   // Search functionality
@@ -2333,7 +2516,11 @@ export default function App() {
       )}
 
       {/* Main Content */}
-      <main className="container mx-auto px-6 py-6">
+      <main
+        className={
+          isLiveGameRoute ? 'w-full p-0' : 'container mx-auto px-6 py-6'
+        }
+      >
         <AppRoutes
           teams={teams}
           tournaments={tournaments}
@@ -2350,6 +2537,7 @@ export default function App() {
           onUpdateTournamentRosters={handleUpdateTournamentRosters}
           onUpdatePlayerProfile={handleUpdatePlayerProfile}
           onDeleteTeam={handleDeleteTeam}
+          onDeletePlayer={handleDeletePlayer}
           onAddTeamToTournament={handleAddTeamToTournament}
           onGameStart={handleGameStart}
           onGameUpdate={handleGameUpdate}

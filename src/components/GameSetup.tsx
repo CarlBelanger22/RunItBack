@@ -18,6 +18,16 @@ import {
 import { Switch } from "./ui/switch";
 import { Badge } from "./ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./ui/alert-dialog";
+import {
   Team,
   Player,
   Game,
@@ -25,13 +35,23 @@ import {
   TeamStats,
   type SetupRosterChange,
 } from "../App";
-import { Plus, Trash2, Users, Calendar } from "lucide-react";
+import { Plus, Trash2, Users, Calendar, Clock } from "lucide-react";
+import { SortableRosterList } from "./gameSetup/SortableRosterList";
 import { addedPlayersFromBaseline } from "../utils/activeGame";
 import { sortTournamentsByDateDesc } from "../utils/tournamentSort";
 import {
   generateTeamAbbreviation,
   hasDuplicateJerseyNumbers,
 } from "../utils/teamAbbreviation";
+import {
+  getPlayersForTeamInTournament,
+  type TournamentRosterEntry,
+} from "../utils/tournamentRosters";
+import {
+  defaultClockForTournament,
+  formatPeriodClock,
+  type GameClockSettings,
+} from "../utils/gameClock";
 
 const CREATE_NEW_TEAM_VALUE = "__create_new__";
 const POSITIONS = ["PG", "SG", "SF", "PF", "C"] as const;
@@ -43,9 +63,30 @@ type TeamSelectionMode = "none" | "existing" | "create_new";
 interface GameSetupProps {
   tournaments: Tournament[];
   teams: Team[];
+  tournamentRosters: TournamentRosterEntry[];
   onGameStart: (game: Game) => boolean;
   onCreateTeam: (team: Omit<Team, "id">) => Team;
   onUpdateTeam: (team: Team) => void;
+}
+
+function sortPlayersByNumber(players: Player[]): Player[] {
+  return [...players].sort(
+    (a, b) => a.number - b.number || a.name.localeCompare(b.name)
+  );
+}
+
+function countTournamentRoster(
+  teamId: string,
+  tournamentId: string,
+  rosters: TournamentRosterEntry[]
+): number {
+  return rosters.filter(
+    (r) => r.tournamentId === tournamentId && r.teamId === teamId
+  ).length;
+}
+
+function starterIds(players: Player[]): string[] {
+  return players.slice(0, MIN_PLAYERS).map((p) => p.id);
 }
 
 function draftTeam(side: TeamSide): Team {
@@ -99,9 +140,12 @@ interface TeamSidePanelProps {
   mode: TeamSelectionMode;
   team: Team;
   tournamentTeams: Team[];
+  tournamentId: string;
+  tournamentRosters: TournamentRosterEntry[];
   takenAbbreviations: string[];
   newPlayerPosition: string;
   isEditingThisSide: boolean;
+  showStarterOrder: boolean;
   onModeChange: (mode: TeamSelectionMode) => void;
   onTeamChange: (team: Team) => void;
   onSelectExisting: (teamId: string) => void;
@@ -109,6 +153,7 @@ interface TeamSidePanelProps {
   onNewPlayerPositionChange: (value: string) => void;
   onAddPlayer: (name: string, number: string) => boolean;
   onPersistTeam: (team: Team) => void;
+  onReorderPlayers: (players: Player[]) => void;
 }
 
 const TeamSidePanel = React.memo(function TeamSidePanel({
@@ -116,9 +161,12 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
   mode,
   team,
   tournamentTeams,
+  tournamentId,
+  tournamentRosters,
   takenAbbreviations,
   newPlayerPosition,
   isEditingThisSide,
+  showStarterOrder,
   onModeChange,
   onTeamChange,
   onSelectExisting,
@@ -126,9 +174,11 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
   onNewPlayerPositionChange,
   onAddPlayer,
   onPersistTeam,
+  onReorderPlayers,
 }: TeamSidePanelProps) {
   const playerNameRef = useRef<HTMLInputElement>(null);
   const playerNumberRef = useRef<HTMLInputElement>(null);
+  const [removePlayerTarget, setRemovePlayerTarget] = useState<Player | null>(null);
 
   const selectValue =
     mode === "create_new"
@@ -157,8 +207,12 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
     }
   };
 
-  const canAddPlayers = mode === "create_new" || mode === "existing";
+  const canAddPlayers = mode === "create_new";
   const rosterHasDupes = hasDuplicateJerseyNumbers(team.players);
+  const rosterLabel =
+    mode === "existing"
+      ? `${team.name} — Tournament roster (${team.players.length})`
+      : `${team.name} — Players (${team.players.length})`;
 
   return (
     <div className="space-y-4">
@@ -169,11 +223,19 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
             <SelectValue placeholder="Select a team" />
           </SelectTrigger>
           <SelectContent>
-            {tournamentTeams.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {t.name} ({t.players.length} players)
-              </SelectItem>
-            ))}
+            {tournamentTeams.map((t) => {
+              const rosterSize = countTournamentRoster(
+                t.id,
+                tournamentId,
+                tournamentRosters
+              );
+              return (
+                <SelectItem key={t.id} value={t.id}>
+                  {t.name} ({rosterSize} tournament
+                  {rosterSize === 1 ? " player" : " players"})
+                </SelectItem>
+              );
+            })}
             <SelectItem value={CREATE_NEW_TEAM_VALUE}>
               Create new team
             </SelectItem>
@@ -210,15 +272,32 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
       {mode !== "none" && team.name && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="font-medium">
-              {team.name} — Players ({team.players.length})
-            </h4>
+            <h4 className="font-medium">{rosterLabel}</h4>
             {mode === "existing" && (
               <Badge variant="secondary" className="text-xs">
-                Saved team
+                Tournament roster
+              </Badge>
+            )}
+            {mode === "create_new" && (
+              <Badge variant="outline" className="text-xs">
+                New team
               </Badge>
             )}
           </div>
+
+          {mode === "existing" && team.players.length === 0 && (
+            <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">
+              No players registered for this team in the selected tournament. Add
+              them on the Team page under the tournament roster, then return here.
+            </p>
+          )}
+
+          {showStarterOrder && team.players.length >= MIN_PLAYERS && (
+            <p className="text-xs text-muted-foreground">
+              Drag to set starting five — top {MIN_PLAYERS} are on court at
+              tip-off.
+            </p>
+          )}
 
           {rosterHasDupes && (
             <p className="text-sm text-destructive">
@@ -286,44 +365,35 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
             </div>
           )}
 
-          <div className="space-y-2 max-h-48 overflow-y-auto">
-            {team.players.length === 0 ? (
+          {team.players.length === 0 ? (
+            mode === "create_new" ? (
               <p className="text-sm text-muted-foreground text-center py-4">
                 No players yet
               </p>
-            ) : (
-              team.players.map((player) => (
-                <div
-                  key={player.id}
-                  className="flex items-center justify-between p-2 bg-muted rounded-lg"
-                >
-                  <div className="flex items-center gap-3">
-                    <Badge variant="outline">#{player.number}</Badge>
-                    <span className="font-medium">{player.name}</span>
-                    <Badge variant="secondary">{player.position}</Badge>
-                  </div>
-                  {canAddPlayers && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
-                      onClick={() => {
-                        const next = {
-                          ...team,
-                          players: team.players.filter((p) => p.id !== player.id),
-                        };
-                        onTeamChange(next);
-                        if (mode === "existing") onPersistTeam(next);
-                      }}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
+            ) : null
+          ) : (
+            <SortableRosterList
+              players={team.players}
+              starterCount={MIN_PLAYERS}
+              sortable={showStarterOrder}
+              onReorder={onReorderPlayers}
+              renderTrailing={
+                canAddPlayers
+                  ? (player) => (
+                      <Button
+                        type="button"
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 shrink-0 text-destructive hover:text-destructive"
+                        onClick={() => setRemovePlayerTarget(player)}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )
+                  : undefined
+              }
+            />
+          )}
         </div>
       )}
 
@@ -332,6 +402,43 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
           Select an existing team or create a new one.
         </p>
       )}
+
+      <AlertDialog
+        open={removePlayerTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setRemovePlayerTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Remove {removePlayerTarget?.name}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove this player from the draft roster? The game has not started yet.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (removePlayerTarget) {
+                  onTeamChange({
+                    ...team,
+                    players: team.players.filter(
+                      (p) => p.id !== removePlayerTarget.id
+                    ),
+                  });
+                }
+                setRemovePlayerTarget(null);
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 });
@@ -339,6 +446,7 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
 export function GameSetup({
   tournaments,
   teams,
+  tournamentRosters,
   onGameStart,
   onCreateTeam,
   onUpdateTeam,
@@ -352,6 +460,10 @@ export function GameSetup({
   const [trackBothTeams, setTrackBothTeams] = useState(true);
   const [gameDate, setGameDate] = useState(
     () => new Date().toISOString().split("T")[0]
+  );
+  const [startTime, setStartTime] = useState("");
+  const [clockSettings, setClockSettings] = useState<GameClockSettings>(() =>
+    defaultClockForTournament("", null)
   );
   const [opponentName, setOpponentName] = useState("");
 
@@ -387,6 +499,12 @@ export function GameSetup({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [teams, tournament]);
 
+  useEffect(() => {
+    if (tournament) {
+      setClockSettings(defaultClockForTournament(tournament.id, tournament));
+    }
+  }, [tournament?.id, tournament?.gameFormat]);
+
   const takenAbbreviations = useMemo(
     () => teams.map((t) => t.abbreviation).filter(Boolean),
     [teams]
@@ -409,12 +527,20 @@ export function GameSetup({
   const selectExistingTeam = useCallback(
     (teamId: string, side: TeamSide) => {
       const selected = tournamentTeams.find((t) => t.id === teamId);
-      if (!selected) return;
+      if (!selected || !tournamentId) return;
+      const rosterPlayers = sortPlayersByNumber(
+        getPlayersForTeamInTournament(
+          teamId,
+          tournamentId,
+          teams,
+          tournamentRosters
+        )
+      );
       const copy: Team = {
         ...selected,
-        players: selected.players.map((p) => ({ ...p })),
+        players: rosterPlayers,
       };
-      rosterBaselineRef.current[selected.id] = selected.players.map((p) => p.id);
+      rosterBaselineRef.current[selected.id] = rosterPlayers.map((p) => p.id);
       if (side === "home") {
         setHomeMode("existing");
         setHomeTeam(copy);
@@ -423,7 +549,16 @@ export function GameSetup({
         setAwayTeam(copy);
       }
     },
-    [tournamentTeams]
+    [tournamentTeams, tournamentId, teams, tournamentRosters]
+  );
+
+  const reorderPlayers = useCallback(
+    (side: TeamSide, players: Player[]) => {
+      const apply = (prev: Team): Team => ({ ...prev, players });
+      if (side === "home") setHomeTeam(apply);
+      else setAwayTeam((prev) => ({ ...prev, players }));
+    },
+    []
   );
 
   const makePlayer = (name: string, numberStr: string, side: TeamSide): Player | null => {
@@ -445,28 +580,28 @@ export function GameSetup({
       const player = makePlayer(name, numberStr, side);
       if (!player) return false;
 
-      const apply = (prev: Team, mode: TeamSelectionMode): Team | null => {
+      const apply = (prev: Team): Team | null => {
         if (prev.players.some((p) => p.number === player.number)) return null;
-        const next = { ...prev, players: [...prev.players, player] };
-        if (mode === "existing") onUpdateTeam(next);
-        return next;
+        // Setup-only: never persist existing-team roster edits to global club roster.
+        return { ...prev, players: [...prev.players, player] };
       };
 
       if (side === "home") {
-        const next = apply(homeTeam, homeMode);
+        const next = apply(homeTeam);
         if (!next) return false;
         setHomeTeam(next);
       } else {
-        const next = apply(awayTeam, awayMode);
+        const next = apply(awayTeam);
         if (!next) return false;
         setAwayTeam(next);
       }
       setNewPlayerPosition("");
       return true;
     },
-    [homeTeam, awayTeam, homeMode, awayMode, newPlayerPosition, onUpdateTeam]
+    [homeTeam, awayTeam, homeMode, awayMode, newPlayerPosition]
   );
 
+  // Existing teams: tournament-filtered setup state only — never onUpdateTeam (club roster).
   const resolveTeamForGame = useCallback(
     (side: TeamSide, mode: TeamSelectionMode, team: Team): Team | null => {
       if (mode === "none" || !team.name.trim()) return null;
@@ -486,15 +621,11 @@ export function GameSetup({
       }
 
       if (mode === "existing") {
-        const dbTeam = teams.find((t) => t.id === team.id);
-        if (dbTeam && JSON.stringify(dbTeam.players) !== JSON.stringify(team.players)) {
-          onUpdateTeam(team);
-        }
         return team;
       }
       return null;
     },
-    [onCreateTeam, onUpdateTeam, teams, tournamentId, takenAbbreviations]
+    [onCreateTeam, tournamentId, takenAbbreviations]
   );
 
   const handleStartGame = useCallback(() => {
@@ -504,12 +635,10 @@ export function GameSetup({
     const setupRosterChanges: SetupRosterChange[] = [];
     const baseline = rosterBaselineRef.current;
 
-    const liveHomeTeam = teams.find((t) => t.id === homeTeam.id) ?? homeTeam;
-
     if (homeMode === "existing") {
-      const added = addedPlayersFromBaseline(liveHomeTeam, baseline, teams);
+      const added = addedPlayersFromBaseline(homeTeam, baseline, teams);
       if (added.length > 0) {
-        setupRosterChanges.push({ teamId: liveHomeTeam.id, addedPlayerIds: added });
+        setupRosterChanges.push({ teamId: homeTeam.id, addedPlayerIds: added });
       }
     }
 
@@ -517,7 +646,7 @@ export function GameSetup({
     if (!resolvedHome) return;
     const homeSnapshot = {
       ...resolvedHome,
-      players: [...(teams.find((t) => t.id === resolvedHome.id) ?? resolvedHome).players],
+      players: [...homeTeam.players],
     };
 
     if (homeMode === "create_new") {
@@ -526,12 +655,10 @@ export function GameSetup({
 
     let resolvedAway: Team;
     if (trackBothTeams) {
-      const liveAwayTeam = teams.find((t) => t.id === awayTeam.id) ?? awayTeam;
-
       if (awayMode === "existing") {
-        const added = addedPlayersFromBaseline(liveAwayTeam, baseline, teams);
+        const added = addedPlayersFromBaseline(awayTeam, baseline, teams);
         if (added.length > 0) {
-          setupRosterChanges.push({ teamId: liveAwayTeam.id, addedPlayerIds: added });
+          setupRosterChanges.push({ teamId: awayTeam.id, addedPlayerIds: added });
         }
       }
 
@@ -539,7 +666,7 @@ export function GameSetup({
       if (!away) return;
       resolvedAway = {
         ...away,
-        players: [...(teams.find((t) => t.id === away.id) ?? away).players],
+        players: [...awayTeam.players],
       };
       if (awayMode === "create_new") {
         setupCreatedTeamIds.push(resolvedAway.id);
@@ -564,6 +691,8 @@ export function GameSetup({
       awayTeamId: resolvedAway.id,
       tournamentId,
       date: gameDate,
+      startTime: startTime.trim() || undefined,
+      clockSettings,
       gameStats: [],
       teamStats: {
         home: emptyTeamStats(homeSnapshot.id),
@@ -573,11 +702,9 @@ export function GameSetup({
       events: [],
       lineupStints: [],
       currentPeriod: 1,
-      currentGameTime: "12:00",
-      homeStarters: homeSnapshot.players.slice(0, MIN_PLAYERS).map((p) => p.id),
-      awayStarters: trackBothTeams
-        ? resolvedAway.players.slice(0, MIN_PLAYERS).map((p) => p.id)
-        : [],
+      currentGameTime: formatPeriodClock(clockSettings.regulationPeriodMinutes),
+      homeStarters: starterIds(homeTeam.players),
+      awayStarters: trackBothTeams ? starterIds(awayTeam.players) : [],
       trackBothTeams,
       isActive: true,
       isCompleted: false,
@@ -598,6 +725,8 @@ export function GameSetup({
   }, [
     tournamentId,
     gameDate,
+    startTime,
+    clockSettings,
     homeMode,
     homeTeam,
     awayMode,
@@ -605,8 +734,6 @@ export function GameSetup({
     trackBothTeams,
     opponentName,
     resolveTeamForGame,
-    homeMode,
-    awayMode,
     teams,
     takenAbbreviations,
     onGameStart,
@@ -658,6 +785,15 @@ export function GameSetup({
               />
             </div>
             <div className="space-y-2">
+              <Label htmlFor="start-time">Start time</Label>
+              <Input
+                id="start-time"
+                type="time"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+              />
+            </div>
+            <div className="space-y-2 md:col-span-2">
               <Label htmlFor="tournament">Tournament</Label>
               <Select
                 value={tournamentId}
@@ -682,6 +818,74 @@ export function GameSetup({
               )}
             </div>
           </div>
+
+          <div className="rounded-lg border p-4 space-y-4">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <Clock className="w-4 h-4" />
+              Game clock
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="reg-periods">Regulation periods</Label>
+                <Input
+                  id="reg-periods"
+                  type="number"
+                  min={1}
+                  max={4}
+                  value={clockSettings.regulationPeriods}
+                  onChange={(e) =>
+                    setClockSettings((prev) => ({
+                      ...prev,
+                      regulationPeriods: Math.max(1, parseInt(e.target.value, 10) || 1),
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="reg-minutes">Minutes per period</Label>
+                <Input
+                  id="reg-minutes"
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={clockSettings.regulationPeriodMinutes}
+                  onChange={(e) =>
+                    setClockSettings((prev) => ({
+                      ...prev,
+                      regulationPeriodMinutes: Math.max(
+                        1,
+                        parseInt(e.target.value, 10) || 10
+                      ),
+                    }))
+                  }
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="ot-minutes">Overtime minutes</Label>
+                <Input
+                  id="ot-minutes"
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={clockSettings.overtimePeriodMinutes}
+                  onChange={(e) =>
+                    setClockSettings((prev) => ({
+                      ...prev,
+                      overtimePeriodMinutes: Math.max(
+                        1,
+                        parseInt(e.target.value, 10) || 5
+                      ),
+                    }))
+                  }
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Defaults from tournament format (FIBA: 4×10 min). Used for live clock
+              and minutes-on-court tracking.
+            </p>
+          </div>
+
           <div className="flex items-center space-x-3">
             <Switch
               checked={trackBothTeams}
@@ -703,21 +907,24 @@ export function GameSetup({
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Card className="shadow-lg rounded-2xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="w-4 h-4" />
               {homeTitle}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-visible">
             <TeamSidePanel
               side="home"
               mode={homeMode}
               team={homeTeam}
               tournamentTeams={tournamentTeams}
+              tournamentId={tournamentId}
+              tournamentRosters={tournamentRosters}
               takenAbbreviations={takenAbbreviations}
               newPlayerPosition={newPlayerPosition}
               isEditingThisSide={editingSide === "home"}
+              showStarterOrder={homeMode !== "none"}
               onModeChange={setHomeMode}
               onTeamChange={setHomeTeam}
               onSelectExisting={(id) => selectExistingTeam(id, "home")}
@@ -725,27 +932,31 @@ export function GameSetup({
               onNewPlayerPositionChange={setNewPlayerPosition}
               onAddPlayer={(name, num) => addPlayerToSide("home", name, num)}
               onPersistTeam={onUpdateTeam}
+              onReorderPlayers={(players) => reorderPlayers("home", players)}
             />
           </CardContent>
         </Card>
 
         <Card className="shadow-lg rounded-2xl">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Users className="w-5 h-5" />
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Users className="w-4 h-4" />
               {awayTitle}
             </CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="overflow-visible">
             {trackBothTeams ? (
               <TeamSidePanel
                 side="away"
                 mode={awayMode}
                 team={awayTeam}
                 tournamentTeams={tournamentTeams}
+                tournamentId={tournamentId}
+                tournamentRosters={tournamentRosters}
                 takenAbbreviations={takenAbbreviations}
                 newPlayerPosition={newPlayerPosition}
                 isEditingThisSide={editingSide === "away"}
+                showStarterOrder
                 onModeChange={setAwayMode}
                 onTeamChange={setAwayTeam}
                 onSelectExisting={(id) => selectExistingTeam(id, "away")}
@@ -753,6 +964,7 @@ export function GameSetup({
                 onNewPlayerPositionChange={setNewPlayerPosition}
                 onAddPlayer={(name, num) => addPlayerToSide("away", name, num)}
                 onPersistTeam={onUpdateTeam}
+                onReorderPlayers={(players) => reorderPlayers("away", players)}
               />
             ) : (
               <div className="space-y-4">

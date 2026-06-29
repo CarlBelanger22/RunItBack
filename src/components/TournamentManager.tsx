@@ -3,6 +3,16 @@ import { TournamentForm } from './forms/TournamentForm';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { Badge } from './ui/badge';
 import { Tournament, Team } from '../App';
 import { Plus, Trophy, Users, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
@@ -30,6 +40,7 @@ export function TournamentManager({
 }: TournamentManagerProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingTournament, setEditingTournament] = useState<Tournament | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
 
   const handleFormSubmit = useCallback((data: {
     name: string;
@@ -204,7 +215,7 @@ export function TournamentManager({
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => onDeleteTournament(tournament.id)}
+                      onClick={() => setDeleteTarget(tournament)}
                       className="h-8 w-8 p-0 text-destructive hover:text-destructive"
                     >
                       <Trash2 className="h-3 w-3" />
@@ -240,6 +251,46 @@ export function TournamentManager({
           ))}
         </div>
       )}
+
+      <AlertDialog
+        open={deleteTarget != null}
+        onOpenChange={(open) => {
+          if (!open) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the tournament from your league.
+              {deleteTarget && deleteTarget.games.length > 0 ? (
+                <>
+                  {' '}
+                  {deleteTarget.games.length}{' '}
+                  {deleteTarget.games.length === 1 ? 'game' : 'games'} will be kept
+                  but unlinked from this tournament.
+                </>
+              ) : (
+                <> Teams enrolled in this tournament are not deleted.</>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (deleteTarget) {
+                  onDeleteTournament(deleteTarget.id);
+                }
+                setDeleteTarget(null);
+              }}
+            >
+              Delete tournament
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
