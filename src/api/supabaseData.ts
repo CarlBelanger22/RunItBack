@@ -513,6 +513,7 @@ type GameSetupMeta = {
   setupCreatedTeamIds?: string[];
   setupRosterChanges?: Game['setupRosterChanges'];
   startTime?: string;
+  clockSettings?: Game['clockSettings'];
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -527,12 +528,14 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
   const hasMeta =
     (game.setupCreatedTeamIds?.length ?? 0) > 0 ||
     (game.setupRosterChanges?.length ?? 0) > 0 ||
-    Boolean(game.startTime);
+    Boolean(game.startTime) ||
+    Boolean(game.clockSettings);
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
       setupCreatedTeamIds: game.setupCreatedTeamIds,
       setupRosterChanges: game.setupRosterChanges,
       startTime: game.startTime,
+      clockSettings: game.clockSettings,
     };
   }
   return payload;
@@ -543,6 +546,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   setupCreatedTeamIds?: string[];
   setupRosterChanges?: Game['setupRosterChanges'];
   startTime?: string;
+  clockSettings?: Game['clockSettings'];
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -551,6 +555,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
     setupCreatedTeamIds: meta?.setupCreatedTeamIds,
     setupRosterChanges: meta?.setupRosterChanges,
     startTime: meta?.startTime,
+    clockSettings: meta?.clockSettings,
   };
 }
 
@@ -592,7 +597,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     throw new Error(`Game ${row.id} references missing team(s)`);
   }
 
-  const { teamStats, setupCreatedTeamIds, setupRosterChanges, startTime } =
+  const { teamStats, setupCreatedTeamIds, setupRosterChanges, startTime, clockSettings } =
     parseTeamStats(row.team_stats);
 
   return {
@@ -604,6 +609,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     tournamentId: row.tournament_id ?? undefined,
     date: row.date,
     startTime,
+    clockSettings,
     gameStats: row.game_stats ?? [],
     teamStats,
     setupCreatedTeamIds,
@@ -921,6 +927,18 @@ export async function loadAppDataFromSupabase(
     playerMeasurementsMigrationPending,
     playerStorageSchema,
   };
+}
+
+/** Permanently remove tournament rows (cascades junction + roster rows; games.tournament_id set null). */
+export async function deleteTournamentsFromSupabase(
+  tournamentIds: string[]
+): Promise<void> {
+  if (!supabase || tournamentIds.length === 0) return;
+  const { error } = await supabase
+    .from('tournaments')
+    .delete()
+    .in('id', tournamentIds);
+  if (error) throw new Error(`tournaments delete: ${error.message}`);
 }
 
 /** Permanently remove game rows from Supabase (e.g. discarded in-progress sessions). */

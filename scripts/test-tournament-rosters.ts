@@ -96,6 +96,128 @@ function makeCompletedGame(
   };
 }
 
+function makeActiveGame(
+  id: string,
+  tournamentId: string,
+  home: Team,
+  away: Team
+): Game {
+  return {
+    id,
+    homeTeam: home,
+    awayTeam: away,
+    homeTeamId: home.id,
+    awayTeamId: away.id,
+    tournamentId,
+    date: '2026-06-28',
+    gameStats: [],
+    teamStats: { home: {} as never, away: {} as never },
+    shots: [],
+    events: [],
+    lineupStints: [],
+    currentPeriod: 1,
+    currentGameTime: '10:00',
+    homeStarters: home.players.slice(0, 5).map((p) => p.id),
+    awayStarters: away.players.slice(0, 5).map((p) => p.id),
+    trackBothTeams: true,
+    isActive: true,
+    isCompleted: false,
+  };
+}
+
+function manualRosterEntry(
+  tournamentId: string,
+  teamId: string,
+  player: Player
+) {
+  return {
+    tournamentId,
+    teamId,
+    playerId: player.id,
+    number: player.number,
+    position: player.position,
+  };
+}
+
+/** Mirrors autosave after handleGameStart — must not drop manual enrollments. */
+function testGameStartPreservesManualRosters(): void {
+  const tournamentId = 't-nba-finals';
+  const lakersPlayers = [1, 2, 3, 4, 5].map((n) =>
+    makePlayer(`laker-${n}`, `Laker ${n}`, n)
+  );
+  const celticsPlayers = [1, 2, 3, 4, 5].map((n) =>
+    makePlayer(`celtic-${n}`, `Celtic ${n}`, n)
+  );
+  const lakers = makeTeam('team-lakers', 'Lakers', lakersPlayers);
+  const celtics = makeTeam('team-celtics', 'Celtics', celticsPlayers);
+  const teams = [lakers, celtics];
+
+  const manualRosters = [
+    ...lakersPlayers.map((p) => manualRosterEntry(tournamentId, lakers.id, p)),
+    ...celticsPlayers.map((p) => manualRosterEntry(tournamentId, celtics.id, p)),
+  ];
+
+  const activeGame = makeActiveGame('game-new', tournamentId, lakers, celtics);
+  const afterStart = reconcileTournamentRostersFromGames(
+    [activeGame],
+    teams,
+    manualRosters
+  );
+
+  assert(afterStart.length === 10, 'game start reconcile keeps all 10 manual rows');
+  for (const p of lakersPlayers) {
+    assert(
+      isPlayerOnTournamentRoster(p.id, tournamentId, lakers.id, afterStart),
+      `Laker ${p.name} still on tournament roster after game start`
+    );
+  }
+  for (const p of celticsPlayers) {
+    assert(
+      isPlayerOnTournamentRoster(p.id, tournamentId, celtics.id, afterStart),
+      `Celtic ${p.name} still on tournament roster after game start`
+    );
+  }
+}
+
+/** Mirrors handleDeleteActiveGame — reconcile must keep manual rows; game-only rebuild must not. */
+function testGameDeletePreservesManualRosters(): void {
+  const tournamentId = 't-nba-finals';
+  const lakersPlayers = [1, 2, 3, 4, 5].map((n) =>
+    makePlayer(`laker-${n}`, `Laker ${n}`, n)
+  );
+  const celticsPlayers = [1, 2, 3, 4, 5].map((n) =>
+    makePlayer(`celtic-${n}`, `Celtic ${n}`, n)
+  );
+  const lakers = makeTeam('team-lakers', 'Lakers', lakersPlayers);
+  const celtics = makeTeam('team-celtics', 'Celtics', celticsPlayers);
+  const teams = [lakers, celtics];
+
+  const manualRosters = [
+    ...lakersPlayers.map((p) => manualRosterEntry(tournamentId, lakers.id, p)),
+    ...celticsPlayers.map((p) => manualRosterEntry(tournamentId, celtics.id, p)),
+  ];
+
+  const activeGame = makeActiveGame('game-delete-me', tournamentId, lakers, celtics);
+  const gamesWithActive = [activeGame];
+  const gamesAfterDelete: Game[] = [];
+
+  const buggy = buildTournamentRostersFromGames(gamesAfterDelete, teams).entries;
+  assert(buggy.length === 0, 'sanity: game-only rebuild wipes manual rosters on delete');
+
+  const fixed = reconcileTournamentRostersFromGames(
+    gamesAfterDelete,
+    teams,
+    manualRosters
+  );
+  assert(fixed.length === 10, 'reconcile after delete keeps all 10 manual rows');
+  for (const p of lakersPlayers) {
+    assert(
+      isPlayerOnTournamentRoster(p.id, tournamentId, lakers.id, fixed),
+      `Laker ${p.name} still on tournament roster after delete`
+    );
+  }
+}
+
 function testResolveSide(): void {
   const ram = makePlayer(RAM_SUNDA_PUTRA_PLAYER_ID, 'Ram');
   const other = makePlayer('player-other', 'Other');
@@ -240,6 +362,8 @@ function main(): void {
   testMergeTournamentRosters();
   testDedupeTournamentRosterConflicts();
   testGetPlayersForTeamInTournament();
+  testGameStartPreservesManualRosters();
+  testGameDeletePreservesManualRosters();
   console.log('All tournament roster tests passed.');
 }
 

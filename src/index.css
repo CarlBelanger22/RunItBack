@@ -1,4 +1,5 @@
 /*! tailwindcss v4.1.3 | MIT License | https://tailwindcss.com */
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800&family=Barlow:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
 @layer properties {
   @supports (((-webkit-hyphens: none)) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color: rgb(from red r g b)))) {
     *, :before, :after, ::backdrop {
@@ -2988,6 +2989,701 @@ html {
   height: 0;
   -webkit-appearance: none;
   background: transparent;
+}
+
+/* Live entry layout (arbitrary Tailwind utilities not in compiled index.css). */
+.min-h-0 {
+  min-height: 0;
+}
+
+.live-play-band {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 200px;
+  overflow: hidden;
+  background-color: var(--background);
+}
+
+.live-entry-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.live-entry-root {
+  --live-home: #3b82f6;
+  --live-away: #f97316;
+  --live-success: #4ade80;
+  --live-home-header: color-mix(in srgb, var(--live-home) 47%, transparent);
+  --live-home-border: color-mix(in srgb, var(--live-home) 30%, transparent);
+  --live-home-border-hover: color-mix(in srgb, var(--live-home) 55%, transparent);
+  --live-away-header: color-mix(in srgb, var(--live-away) 47%, transparent);
+  --live-away-border: color-mix(in srgb, var(--live-away) 30%, transparent);
+  --live-away-border-hover: color-mix(in srgb, var(--live-away) 55%, transparent);
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 73px);
+  overflow: hidden;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Barlow', sans-serif;
+}
+
+.live-font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.live-font-condensed {
+  font-family: 'Barlow Condensed', sans-serif;
+}
+
+.live-play-flex {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  width: 100%;
+  align-items: stretch;
+}
+
+.live-play-side {
+  display: flex;
+  width: 164px;
+  height: 100%;
+  flex-shrink: 0;
+  min-height: 0;
+  flex-direction: column;
+  justify-content: flex-start;
+  overflow: hidden;
+  gap: calc(var(--spacing) * 1.5);
+  padding: calc(var(--spacing) * 3) calc(var(--spacing) * 2);
+}
+
+.live-play-side--home {
+  border-right: 1px solid var(--border);
+}
+
+.live-play-side--away {
+  border-left: 1px solid var(--border);
+}
+
+.live-play-center {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.live-context-bar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+  min-height: 36px;
+  padding: calc(var(--spacing) * 1.5) calc(var(--spacing) * 3);
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+  font-size: 11px;
+}
+
+.live-court-stage {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+}
+
+.live-court-frame {
+  display: flex;
+  width: 60%;
+  height: 100%;
+  max-height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.live-play-grid {
+  display: grid;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 6fr) minmax(0, 2fr);
+}
+
+.live-play-grid > section:not(:first-child) {
+  border-left: 1px solid rgb(51 65 85 / 0.7);
+}
+
+.live-play-col {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex-direction: column;
+  padding: calc(var(--spacing) * 3);
+}
+
+.live-court-shell {
+  position: relative;
+  min-height: 0;
+  width: 100%;
+  flex: 1;
+}
+
+.on-court-roster-grid {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  gap: calc(var(--spacing) * 1.5);
+  grid-template-rows: repeat(5, minmax(0, 1fr));
+  overflow-y: auto;
+}
+
+.border-l-2 {
+  border-left-width: 2px;
+}
+
+/* LE-11.6 — FIBA scoreboard header */
+.live-scoreboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+.live-scoreboard-left {
+  width: auto;
+  min-width: 64px;
+  flex-shrink: 0;
+}
+
+.live-scoreboard-right {
+  width: 220px;
+  flex-shrink: 0;
+  text-align: right;
+}
+
+.live-back-btn {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.live-back-btn-icon {
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+}
+
+.live-ops-btn-sm {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 11px;
+}
+
+.live-ops-btn-icon {
+  width: 12px;
+  height: 12px;
+  margin-right: 4px;
+}
+
+.live-scoreboard-center {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  min-width: 0;
+}
+
+.live-team-name-block {
+  min-width: 100px;
+  max-width: 140px;
+}
+
+.live-team-abbr {
+  font-size: 1.375rem;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.02em;
+}
+
+.live-team-name {
+  margin-top: 2px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-scoreboard-mid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.live-score-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.live-score-num {
+  font-size: 3rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-score-dash {
+  font-size: 1.25rem;
+  font-weight: 200;
+  color: var(--muted-foreground);
+}
+
+.live-scoreboard-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 6px;
+}
+
+.live-foul-dots {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.live-foul-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 9999px;
+  border: 1.5px solid var(--border);
+}
+
+.live-pf-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-left: 4px;
+  margin-right: 4px;
+}
+
+.live-clock-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.live-quarter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.live-quarter-btn {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.live-qtr-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-left: 4px;
+}
+
+.live-clock-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.live-clock-display {
+  font-size: 1.25rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-clock-toggle {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.live-game-meta {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+.live-game-meta-dim {
+  margin-top: 3px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--muted-foreground);
+}
+
+.live-ops-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.live-ops-btn {
+  color: var(--muted-foreground) !important;
+}
+
+.live-ops-btn:hover {
+  color: var(--foreground) !important;
+  background: var(--accent) !important;
+}
+
+.live-ops-btn-danger {
+  color: var(--destructive) !important;
+}
+
+/* LE-11.7 — Play-by-play rail */
+.live-pbp-rail {
+  border-bottom: 1px solid var(--border);
+  background: var(--muted);
+}
+
+.live-pbp-rail-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-pbp-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--live-success);
+  animation: live-pulse 2s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.live-pbp-rail-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted-foreground);
+}
+
+.live-pbp-rail-sub {
+  font-size: 9px;
+  color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+
+.live-pbp-scroll {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-height: 80px;
+  padding: 10px 16px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.live-pbp-empty {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--muted-foreground) 25%, transparent);
+}
+
+.live-pbp-card {
+  display: flex;
+  flex-shrink: 0;
+  min-width: 148px;
+  max-width: 172px;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid;
+  text-align: left;
+  cursor: default;
+  transition: opacity 0.15s;
+}
+
+.live-pbp-card:hover .live-pbp-edit-hint {
+  opacity: 1;
+}
+
+.live-pbp-card-top {
+  display: flex;
+  justify-content: space-between;
+}
+
+.live-pbp-meta {
+  font-size: 9px;
+  color: var(--muted-foreground);
+}
+
+.live-pbp-team-badge {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.live-pbp-player {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-pbp-action {
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.live-pbp-detail {
+  font-size: 9px;
+  color: var(--muted-foreground);
+}
+
+.live-pbp-edit-hint {
+  font-size: 8px;
+  color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* LE-11.8 — Dual box score */
+.live-box-panel {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 160px;
+  max-height: min(320px, 38dvh);
+  overflow: hidden;
+  background: var(--background);
+  border-top: 1px solid var(--border);
+}
+
+.live-box-panel-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 0;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-box-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 24px 8px 0;
+  border-bottom: 2px solid transparent;
+}
+
+.live-box-tab--active {
+  border-bottom-width: 2px;
+  border-bottom-style: solid;
+}
+
+.live-box-tab-divider {
+  width: 1px;
+  height: 20px;
+  margin: 0 16px;
+  background: var(--border);
+}
+
+.live-box-tab-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+}
+
+.live-box-tab-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.live-box-hint {
+  margin-left: auto;
+  padding: 8px 0;
+  font-size: 9px;
+  color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+}
+
+.live-box-complete-btn {
+  margin-left: 12px;
+}
+
+.live-box-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.live-box-table-section {
+  background: var(--card);
+}
+
+.live-box-table-section--away {
+  border-top: 1px solid var(--border);
+}
+
+.live-box-table-wrap {
+  overflow-x: auto;
+}
+
+.live-box-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+
+.live-box-th-player {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 150px;
+  padding: 6px 12px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+}
+
+.live-box-th-stat {
+  padding: 6px 8px;
+  text-align: center;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-box-th-stat:hover {
+  color: var(--foreground) !important;
+}
+
+.live-box-tr {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  transition: background 0.1s;
+}
+
+.live-box-tr:hover {
+  background: color-mix(in srgb, var(--foreground) 2.5%, transparent);
+}
+
+.live-box-td-player {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  padding: 4px 12px;
+  background: var(--card);
+}
+
+.live-box-player-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.live-box-on-court-dot {
+  width: 4px;
+  height: 4px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+
+.live-box-num {
+  font-weight: 700;
+}
+
+.live-box-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 96px;
+  color: var(--foreground);
+}
+
+.live-box-td-stat {
+  padding: 4px 8px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-box-totals-row {
+  border-top-width: 1px;
+  border-top-style: solid;
+}
+
+.live-box-totals-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--muted-foreground);
+}
+
+.live-box-totals-val {
+  font-weight: 700;
+}
+
+.live-box-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted-foreground);
 }
 
 @property --tw-translate-x {

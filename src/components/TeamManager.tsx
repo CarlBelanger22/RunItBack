@@ -1,22 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { TeamForm } from './forms/TeamForm';
-import { AddPlayerDialog } from './AddPlayerDialog';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
-import { Badge } from './ui/badge';
-import { Team, Player, Tournament, CreateTeamOptions, Game } from '../App';
-import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
-import {
-  evaluatePlayerRemovalFromTeam,
-  playerRemovalBlockMessage,
-  playerRemovalConfirmMessage,
-} from '../utils/rosterPlayerRemoval';
-import { TeamBadge } from './TeamBadge';
-import { Plus, Users, ArrowLeft, Trash2, Edit, UserPlus } from 'lucide-react';
-import { partitionTeams, sortTeamsByPlayerCountDesc } from '../utils/ghostTeams';
-import { Label } from './ui/label';
-import { Switch } from './ui/switch';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,16 +13,29 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { Badge } from './ui/badge';
+import { Team, Tournament, Game, CreateTeamOptions } from '../App';
+import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
+import { teamDeletionConfirmMessage } from '../utils/rosterPlayerRemoval';
+import { TeamBadge } from './TeamBadge';
+import { Plus, Users, ArrowLeft, Trash2, Edit } from 'lucide-react';
+import { partitionTeams } from '../utils/ghostTeams';
+import { Label } from './ui/label';
+import { Switch } from './ui/switch';
 
 interface TeamManagerProps {
   teams: Team[];
   tournaments: Tournament[];
   games: Game[];
-  onCreateTeam: (team: Omit<Team, 'id'>, options?: CreateTeamOptions) => void;
+  onCreateTeam: (team: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
   onBack: () => void;
   onNavigateToTeam: (teamId: string) => void;
+}
+
+function sortTeamsByName(teams: Team[]): Team[] {
+  return [...teams].sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export function TeamManager({
@@ -51,34 +50,32 @@ export function TeamManager({
 }: TeamManagerProps) {
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
-  const [selectedTeam, setSelectedTeam] = useState<Team | null>(null);
-  const [isPlayerDialogOpen, setIsPlayerDialogOpen] = useState(false);
   const [createFormKey, setCreateFormKey] = useState(0);
-  const [removePlayerTarget, setRemovePlayerTarget] = useState<{
-    team: Team;
-    player: Player;
-  } | null>(null);
-  const [removeBlockedInfo, setRemoveBlockedInfo] = useState<{
-    title: string;
-    description: string;
-  } | null>(null);
-
   const [showGhostTeams, setShowGhostTeams] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Team | null>(null);
+
+  const gameCountByTeamId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const game of games) {
+      for (const teamId of [game.homeTeamId, game.awayTeamId]) {
+        counts.set(teamId, (counts.get(teamId) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [games]);
 
   const { realTeams, ghostTeams } = useMemo(
     () => partitionTeams(teams),
     [teams]
   );
   const sortedRealTeams = useMemo(
-    () => sortTeamsByPlayerCountDesc(realTeams),
+    () => sortTeamsByName(realTeams),
     [realTeams]
   );
   const sortedGhostTeams = useMemo(
-    () => sortTeamsByPlayerCountDesc(ghostTeams),
+    () => sortTeamsByName(ghostTeams),
     [ghostTeams]
   );
-
-  const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
 
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
 
@@ -103,7 +100,7 @@ export function TeamManager({
         });
         setEditingTeam(null);
       } else {
-        onCreateTeam(
+        const team = onCreateTeam(
           {
             name,
             abbreviation: resolvedAbbrev,
@@ -113,57 +110,15 @@ export function TeamManager({
           { tournamentIds }
         );
         setIsCreateDialogOpen(false);
+        onNavigateToTeam(team.id);
       }
     },
-    [editingTeam, onUpdateTeam, onCreateTeam, takenAbbreviations]
-  );
-
-  const handleAddPlayerToRoster = useCallback(
-    (player: Player) => {
-      if (!selectedTeam) return;
-      const currentTeam =
-        teams.find((t) => t.id === selectedTeam.id) ?? selectedTeam;
-      onUpdateTeam({
-        ...currentTeam,
-        players: [...currentTeam.players, player],
-      });
-      setIsPlayerDialogOpen(false);
-    },
-    [selectedTeam, teams, onUpdateTeam]
+    [editingTeam, onUpdateTeam, onCreateTeam, onNavigateToTeam, takenAbbreviations]
   );
 
   const handleEditTeam = useCallback((team: Team) => {
     setEditingTeam(team);
   }, []);
-
-  const handleRemovePlayer = useCallback(
-    (team: Team, player: Player, event: React.MouseEvent) => {
-      event.stopPropagation();
-      const evaluation = evaluatePlayerRemovalFromTeam(
-        team.id,
-        player.id,
-        games
-      );
-      if (!evaluation.allowed) {
-        setRemoveBlockedInfo(
-          playerRemovalBlockMessage(evaluation, player.name, team.name)
-        );
-        return;
-      }
-      setRemovePlayerTarget({ team, player });
-    },
-    [games]
-  );
-
-  const handleConfirmRemovePlayer = useCallback(() => {
-    if (!removePlayerTarget) return;
-    const { team, player } = removePlayerTarget;
-    onUpdateTeam({
-      ...team,
-      players: team.players.filter((p) => p.id !== player.id),
-    });
-    setRemovePlayerTarget(null);
-  }, [removePlayerTarget, onUpdateTeam]);
 
   const handleTeamFormCancel = useCallback(() => {
     if (editingTeam) {
@@ -181,7 +136,7 @@ export function TeamManager({
       }`}
       onClick={() => onNavigateToTeam(team.id)}
     >
-      <CardHeader className="pb-3">
+      <CardHeader>
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <TeamBadge team={team} teamId={team.id} size="lg" />
@@ -218,7 +173,7 @@ export function TeamManager({
               size="sm"
               onClick={(e) => {
                 e.stopPropagation();
-                onDeleteTeam(team.id);
+                setDeleteTarget(team);
               }}
               className="h-8 w-8 p-0 text-destructive hover:text-destructive"
             >
@@ -227,84 +182,11 @@ export function TeamManager({
           </div>
         </div>
       </CardHeader>
-
-      <CardContent className="space-y-4">
-        {team.players.length > 0 ? (
-          <div className="space-y-2 max-h-40 overflow-y-auto">
-            {team.players.map((player) => {
-              const removalCheck = evaluatePlayerRemovalFromTeam(
-                team.id,
-                player.id,
-                games
-              );
-              const blockTitle = !removalCheck.allowed
-                ? playerRemovalBlockMessage(
-                    removalCheck,
-                    player.name,
-                    team.name
-                  ).description
-                : `Remove ${player.name}`;
-
-              return (
-                <div
-                  key={player.id}
-                  className="flex items-center justify-between text-sm border rounded p-2"
-                >
-                  <div className="flex items-center space-x-2">
-                    <Badge variant="outline" className="text-xs w-8 h-6 justify-center">
-                      #{player.number}
-                    </Badge>
-                    <span>{player.name}</span>
-                    <Badge variant="secondary" className="text-xs">
-                      {player.position}
-                    </Badge>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className={`h-6 w-6 p-0 text-destructive hover:text-destructive ${
-                      !removalCheck.allowed ? 'opacity-40' : ''
-                    }`}
-                    title={blockTitle}
-                    aria-label={blockTitle}
-                    onClick={(e) => handleRemovePlayer(team, player, e)}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <p className="text-sm text-muted-foreground text-center py-4">
-            {ghost
-              ? 'Opponent placeholder — no roster on file'
-              : 'No players added yet'}
-          </p>
-        )}
-
-        {!ghost ? (
-          <Button
-            variant="outline"
-            size="sm"
-            className="w-full"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelectedTeam(team);
-              setIsPlayerDialogOpen(true);
-            }}
-          >
-            <UserPlus className="h-4 w-4 mr-2" />
-            Add Player
-          </Button>
-        ) : null}
-      </CardContent>
     </Card>
   );
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <Button variant="ghost" size="sm" onClick={onBack}>
@@ -317,11 +199,11 @@ export function TeamManager({
               Team Manager
             </h2>
             <p className="text-muted-foreground">
-              Create and manage your basketball teams and players
+              Create and manage your basketball teams
             </p>
           </div>
         </div>
-        
+
         <Button
           onClick={() => {
             setCreateFormKey((k) => k + 1);
@@ -336,7 +218,7 @@ export function TeamManager({
             <DialogHeader>
               <DialogTitle>Create New Team</DialogTitle>
               <DialogDescription>
-                Add a new team to your roster. You can add players after creating the team.
+                Add a new team to your league. Open the team page to manage its roster.
               </DialogDescription>
             </DialogHeader>
             <TeamForm
@@ -352,7 +234,6 @@ export function TeamManager({
         </Dialog>
       </div>
 
-      {/* Edit Team Dialog */}
       {editingTeam && (
         <Dialog open={!!editingTeam} onOpenChange={() => setEditingTeam(null)}>
           <DialogContent>
@@ -380,22 +261,6 @@ export function TeamManager({
         </Dialog>
       )}
 
-      {/* Add Player Dialog */}
-      {selectedTeam && (
-        <AddPlayerDialog
-          open={isPlayerDialogOpen}
-          onOpenChange={(open) => {
-            setIsPlayerDialogOpen(open);
-            if (!open) setSelectedTeam(null);
-          }}
-          team={teams.find((t) => t.id === selectedTeam.id) ?? selectedTeam}
-          teams={teams}
-          tournaments={tournaments}
-          positions={positions}
-          onSubmit={handleAddPlayerToRoster}
-        />
-      )}
-
       {ghostTeams.length > 0 ? (
         <div className="flex items-center gap-3 rounded-lg border bg-muted/30 px-4 py-3">
           <Switch
@@ -409,7 +274,6 @@ export function TeamManager({
         </div>
       ) : null}
 
-      {/* Teams Grid */}
       {teams.length === 0 ? (
         <Card className="text-center p-12">
           <CardContent className="space-y-4">
@@ -417,7 +281,7 @@ export function TeamManager({
             <div>
               <h3>No teams yet</h3>
               <p className="text-muted-foreground">
-                Create your first team and start building your roster.
+                Create your first team, then open it to manage the roster.
               </p>
             </div>
             <Button
@@ -438,8 +302,9 @@ export function TeamManager({
             <div>
               <h3>No teams with players yet</h3>
               <p className="text-muted-foreground">
-                Create a team and add players, or enable ghost teams to see{' '}
-                {ghostTeams.length} opponent {ghostTeams.length === 1 ? 'placeholder' : 'placeholders'}.
+                Open a team to add players, or enable ghost teams to see{' '}
+                {ghostTeams.length} empty{' '}
+                {ghostTeams.length === 1 ? 'team' : 'teams'}.
               </p>
             </div>
             <Button
@@ -449,7 +314,7 @@ export function TeamManager({
               }}
             >
               <Plus className="h-4 w-4 mr-2" />
-              Create First Team
+              Create Team
             </Button>
           </CardContent>
         </Card>
@@ -466,7 +331,7 @@ export function TeamManager({
               <div>
                 <h3 className="text-base font-medium">Ghost teams</h3>
                 <p className="text-sm text-muted-foreground">
-                  Opponent placeholders with no roster (used in score-only games).
+                  Teams with no roster on file (opponent placeholders or newly created teams).
                 </p>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -476,28 +341,27 @@ export function TeamManager({
           ) : null}
         </div>
       )}
-
       <AlertDialog
-        open={removePlayerTarget != null}
+        open={deleteTarget != null}
         onOpenChange={(open) => {
-          if (!open) setRemovePlayerTarget(null);
+          if (!open) setDeleteTarget(null);
         }}
       >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {removePlayerTarget
-                ? playerRemovalConfirmMessage(
-                    removePlayerTarget.player.name,
-                    removePlayerTarget.team.name
+              {deleteTarget
+                ? teamDeletionConfirmMessage(
+                    deleteTarget.name,
+                    gameCountByTeamId.get(deleteTarget.id) ?? 0
                   ).title
-                : 'Remove player'}
+                : 'Delete team?'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {removePlayerTarget
-                ? playerRemovalConfirmMessage(
-                    removePlayerTarget.player.name,
-                    removePlayerTarget.team.name
+              {deleteTarget
+                ? teamDeletionConfirmMessage(
+                    deleteTarget.name,
+                    gameCountByTeamId.get(deleteTarget.id) ?? 0
                   ).description
                 : ''}
             </AlertDialogDescription>
@@ -506,31 +370,13 @@ export function TeamManager({
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={handleConfirmRemovePlayer}
+              onClick={() => {
+                if (deleteTarget) onDeleteTeam(deleteTarget.id);
+                setDeleteTarget(null);
+              }}
             >
-              Remove
+              Delete team
             </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog
-        open={removeBlockedInfo != null}
-        onOpenChange={(open) => {
-          if (!open) setRemoveBlockedInfo(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {removeBlockedInfo?.title ?? 'Cannot remove player'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {removeBlockedInfo?.description}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction>OK</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -39,7 +39,7 @@ lerna-debug.log*
 .cursor/
 
 # Local data backups (may contain league data)
-backups/*.json
+backups/
 
 # Local box score import staging (photos, HTML, JSON for DB import scripts)
 Importingboxscores/

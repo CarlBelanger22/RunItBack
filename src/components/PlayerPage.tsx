@@ -7,6 +7,16 @@ import { Badge } from './ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Avatar, AvatarFallback } from './ui/avatar';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 import { Player, Team, Game, GameStats, Tournament } from '../App';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
@@ -74,8 +84,14 @@ import {
   Star,
   Medal,
   Crown,
-  Edit
+  Edit,
+  Trash2,
 } from 'lucide-react';
+import {
+  evaluatePlayerDeletion,
+  playerDeletionBlockMessage,
+  playerDeletionConfirmMessage,
+} from '../utils/rosterPlayerRemoval';
 
 interface PlayerPageProps {
   player: Player;
@@ -105,6 +121,7 @@ interface PlayerPageProps {
     jerseyByTeamId: Record<string, number>,
     tournamentJerseyUpdates?: TournamentJerseyUpdate[]
   ) => void;
+  onDeletePlayer: (playerId: string) => void;
 }
 
 export const formatPlayerPositionLabel = (primaryPosition: string, secondaryPosition?: string): string => {
@@ -132,6 +149,7 @@ export function PlayerPage({
   onNavigateToGame,
   onNavigateToTournament,
   onUpdatePlayerProfile,
+  onDeletePlayer,
 }: PlayerPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
   const gameFormatScope = parseGameFormatScope(searchParams.get('format'));
@@ -140,6 +158,11 @@ export function PlayerPage({
     [searchParams]
   );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeletePlayerDialogOpen, setIsDeletePlayerDialogOpen] = useState(false);
+  const [deleteBlockedInfo, setDeleteBlockedInfo] = useState<{
+    title: string;
+    description: string;
+  } | null>(null);
   const [clubJerseyDraft, setClubJerseyDraft] = useState<Record<string, string>>({});
   const [tournamentJerseyDraft, setTournamentJerseyDraft] = useState<
     Record<string, string>
@@ -1200,8 +1223,95 @@ export function PlayerPage({
                 onCancel={() => setIsEditDialogOpen(false)}
               />
             </ErrorBoundary>
+            <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+              <div>
+                <h4 className="text-sm font-medium text-destructive">Danger zone</h4>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Permanently delete this player from your league.
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive border-destructive/30"
+                onClick={() => {
+                  const evaluation = evaluatePlayerDeletion(player.id, games, teams);
+                  if (!evaluation.allowed) {
+                    setDeleteBlockedInfo(
+                      playerDeletionBlockMessage(evaluation, player.name)
+                    );
+                    return;
+                  }
+                  setIsDeletePlayerDialogOpen(true);
+                }}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete player
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
+
+        <AlertDialog
+          open={isDeletePlayerDialogOpen}
+          onOpenChange={setIsDeletePlayerDialogOpen}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {
+                  playerDeletionConfirmMessage(
+                    player.name,
+                    evaluatePlayerDeletion(player.id, games, teams).teamIds.length
+                  ).title
+                }
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {
+                  playerDeletionConfirmMessage(
+                    player.name,
+                    evaluatePlayerDeletion(player.id, games, teams).teamIds.length
+                  ).description
+                }
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  onDeletePlayer(player.id);
+                  setIsDeletePlayerDialogOpen(false);
+                  setIsEditDialogOpen(false);
+                }}
+              >
+                Delete player
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog
+          open={deleteBlockedInfo != null}
+          onOpenChange={(open) => {
+            if (!open) setDeleteBlockedInfo(null);
+          }}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {deleteBlockedInfo?.title ?? 'Cannot delete player'}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {deleteBlockedInfo?.description}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogAction>OK</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       {/* Tabs */}

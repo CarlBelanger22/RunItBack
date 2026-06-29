@@ -67,6 +67,7 @@ export interface AppRoutesProps {
     tournamentJerseyUpdates?: TournamentJerseyUpdate[]
   ) => void;
   onDeleteTeam: (teamId: string) => void;
+  onDeletePlayer: (playerId: string) => void;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onGameStart: (game: Game) => boolean;
   onGameUpdate: (game: Game) => void;
@@ -92,7 +93,7 @@ function TournamentDetailRoute({
   onAddTeamToTournament,
   onUpdateTeam,
   onUpdateTournament,
-  onDeleteTeam,
+  onDeleteTournament,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -152,7 +153,7 @@ function TournamentDetailRoute({
       onAddTeamToTournament={onAddTeamToTournament}
       onUpdateTeam={onUpdateTeam}
       onUpdateTournament={onUpdateTournament}
-      onDeleteTeam={onDeleteTeam}
+      onDeleteTournament={onDeleteTournament}
     />
   );
 }
@@ -165,6 +166,7 @@ function TeamDetailRoute({
   tournamentRosters,
   onUpdateTeam,
   onUpdateTournamentRosters,
+  onDeleteTeam,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -230,6 +232,10 @@ function TeamDetailRoute({
         }}
         onUpdateTeam={onUpdateTeam}
         onUpdateTournamentRosters={onUpdateTournamentRosters}
+        onDeleteTeam={(teamId) => {
+          onDeleteTeam(teamId);
+          navigate(paths.teams);
+        }}
       />
     </ErrorBoundary>
   );
@@ -241,9 +247,15 @@ function PlayerDetailRoute({
   tournaments,
   tournamentRosters,
   onUpdatePlayerProfile,
+  onDeletePlayer,
 }: Pick<
   AppRoutesProps,
-  'teams' | 'games' | 'tournaments' | 'tournamentRosters' | 'onUpdatePlayerProfile'
+  | 'teams'
+  | 'games'
+  | 'tournaments'
+  | 'tournamentRosters'
+  | 'onUpdatePlayerProfile'
+  | 'onDeletePlayer'
 >) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -304,6 +316,10 @@ function PlayerDetailRoute({
           }
         }}
         onUpdatePlayerProfile={onUpdatePlayerProfile}
+        onDeletePlayer={(playerId) => {
+          onDeletePlayer(playerId);
+          navigate(teamPath(team));
+        }}
       />
     </ErrorBoundary>
   );
@@ -392,21 +408,16 @@ function LiveGameRoute({
   }
 
   return (
-    <div className="space-y-4">
-      <Button variant="ghost" size="sm" onClick={() => navigate(paths.home)}>
-        ← Back to Dashboard
-      </Button>
-      <LiveGameEntry
-        game={liveGame}
-        tournaments={tournaments}
-        onGameUpdate={onGameUpdate}
-        onGameComplete={onGameComplete}
-        onDeleteGame={() => {
-          onDeleteActiveGame(liveGame.id);
-          navigate(paths.statsEntry);
-        }}
-      />
-    </div>
+    <LiveGameEntry
+      game={liveGame}
+      tournaments={tournaments}
+      onGameUpdate={onGameUpdate}
+      onGameComplete={onGameComplete}
+      onDeleteGame={() => {
+        onDeleteActiveGame(liveGame.id);
+        navigate(paths.statsEntry);
+      }}
+    />
   );
 }
 
@@ -417,6 +428,7 @@ export function AppRoutes(props: AppRoutesProps) {
     teams,
     tournaments,
     games,
+    tournamentRosters,
     currentGame,
     setCurrentGame,
     onCreateTournament,
@@ -572,6 +584,7 @@ export function AppRoutes(props: AppRoutesProps) {
               <GameSetup
                 tournaments={tournaments}
                 teams={teams}
+                tournamentRosters={tournamentRosters}
                 onGameStart={handleGameStart}
                 onCreateTeam={onCreateTeam}
                 onUpdateTeam={onUpdateTeam}
