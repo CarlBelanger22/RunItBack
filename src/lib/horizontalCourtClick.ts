@@ -1,16 +1,22 @@
 import {
   COURT_WIDTH_M,
-  HALF_COURT_LENGTH_M,
   clampCourtPointM,
+  resolveShotZone,
   type CourtPointM,
 } from './fibaCourtGeometry';
 import {
   HORIZONTAL_COURT_VH,
   HORIZONTAL_COURT_VW,
+  HORIZONTAL_HALF_WIDTH_SVG,
   HORIZONTAL_INSET,
-} from './figmaHorizontalCourtSvg';
-
-const HALF_WIDTH_SVG = HORIZONTAL_COURT_VW / 2;
+  HORIZONTAL_PLAYABLE_H,
+  HORIZONTAL_SVG_EPS,
+  HORIZONTAL_SVG_PER_METER_DEPTH,
+  horizontalBasketLeftX,
+  horizontalBasketRightX,
+  horizontalSvgDepthToYMeters,
+  horizontalThreeArcRadiusM,
+} from './horizontalCourtLayout';
 
 /** Home attacks the left basket; away attacks the right basket. */
 export function homeAttacksLeft(homeTeamId: string, offenseTeamId: string): boolean {
@@ -33,23 +39,28 @@ export function horizontalClickToHalfCourtPoint(
   const xSvg = ((clientX - rect.left) / rect.width) * HORIZONTAL_COURT_VW;
   const ySvg = ((clientY - rect.top) / rect.height) * HORIZONTAL_COURT_VH;
 
-  const playableH = HORIZONTAL_COURT_VH - 2 * HORIZONTAL_INSET;
-  const halfPlayableW = HALF_WIDTH_SVG - HORIZONTAL_INSET;
-  const xM = ((ySvg - HORIZONTAL_INSET) / playableH) * COURT_WIDTH_M;
-
-  if (homeAttacksLeft(homeTeamId, offenseTeamId)) {
-    if (xSvg > HALF_WIDTH_SVG) return null;
-    const depth = xSvg - HORIZONTAL_INSET;
-    if (depth < 0 || depth > halfPlayableW) return null;
-    const yM = (depth / halfPlayableW) * HALF_COURT_LENGTH_M;
-    return clampCourtPointM({ xM, yM });
+  if (ySvg < HORIZONTAL_INSET - HORIZONTAL_SVG_EPS || ySvg > HORIZONTAL_COURT_VH - HORIZONTAL_INSET + HORIZONTAL_SVG_EPS) {
+    return null;
   }
 
-  if (xSvg < HALF_WIDTH_SVG) return null;
-  const depth = HORIZONTAL_COURT_VW - HORIZONTAL_INSET - xSvg;
-  if (depth < 0 || depth > halfPlayableW) return null;
-  const yM = (depth / halfPlayableW) * HALF_COURT_LENGTH_M;
+  const xM = ((ySvg - HORIZONTAL_INSET) / HORIZONTAL_PLAYABLE_H) * COURT_WIDTH_M;
+  const attacksLeft = homeAttacksLeft(homeTeamId, offenseTeamId);
+
+  if (attacksLeft) {
+    if (xSvg > HORIZONTAL_HALF_WIDTH_SVG) return null;
+  } else if (xSvg < HORIZONTAL_HALF_WIDTH_SVG) {
+    return null;
+  }
+
+  const yM = horizontalSvgDepthToYMeters(xSvg, attacksLeft);
+  if (yM === null) return null;
+
   return clampCourtPointM({ xM, yM });
+}
+
+/** Shot zone for horizontal live court (drawn arc includes {@link horizontalThreeArcRadiusM}). */
+export function resolveHorizontalShotZone(point: CourtPointM) {
+  return resolveShotZone(point, horizontalThreeArcRadiusM());
 }
 
 /** Display a half-court point on the horizontal SVG. */
@@ -57,16 +68,13 @@ export function halfCourtPointToHorizontalSvg(
   point: CourtPointM,
   attacksLeft: boolean
 ): { x: number; y: number } {
-  const playableH = HORIZONTAL_COURT_VH - 2 * HORIZONTAL_INSET;
-  const halfPlayableW = HALF_WIDTH_SVG - HORIZONTAL_INSET;
-  const ySvg = HORIZONTAL_INSET + (point.xM / COURT_WIDTH_M) * playableH;
+  const ySvg = HORIZONTAL_INSET + (point.xM / COURT_WIDTH_M) * HORIZONTAL_PLAYABLE_H;
 
   if (attacksLeft) {
-    const xSvg = HORIZONTAL_INSET + (point.yM / HALF_COURT_LENGTH_M) * halfPlayableW;
+    const xSvg = horizontalBasketLeftX() + point.yM * HORIZONTAL_SVG_PER_METER_DEPTH;
     return { x: xSvg, y: ySvg };
   }
 
-  const xSvg =
-    HORIZONTAL_COURT_VW - HORIZONTAL_INSET - (point.yM / HALF_COURT_LENGTH_M) * halfPlayableW;
+  const xSvg = horizontalBasketRightX() - point.yM * HORIZONTAL_SVG_PER_METER_DEPTH;
   return { x: xSvg, y: ySvg };
 }

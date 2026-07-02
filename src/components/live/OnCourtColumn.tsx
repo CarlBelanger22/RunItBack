@@ -1,7 +1,7 @@
 import React from 'react';
+import { Users } from 'lucide-react';
 import type { Player } from '../../App';
 import { cn } from '../ui/utils';
-import { getLiveTeamColor, liveTeamTint, LIVE_SEMANTIC } from './liveEntryTheme';
 import { ON_COURT_SIDE_THEME, type OnCourtSide } from './onCourtSideTheme';
 
 export type { OnCourtSide };
@@ -21,8 +21,6 @@ export function OnCourtPlayerCard({
   selected = false,
   onSelect,
 }: OnCourtPlayerCardProps) {
-  const theme = ON_COURT_SIDE_THEME[side];
-  const teamColor = getLiveTeamColor(side);
   const interactive = pickMode && !!onSelect;
 
   return (
@@ -30,48 +28,43 @@ export function OnCourtPlayerCard({
       type="button"
       disabled={!interactive}
       onClick={interactive ? () => onSelect(player) : undefined}
-      style={{
-        backgroundColor: selected ? liveTeamTint(side, '28') : liveTeamTint(side, '0a'),
-        border: `1.5px solid ${selected ? teamColor : liveTeamTint(side, '30')}`,
-        boxShadow: selected
-          ? `0 0 10px ${liveTeamTint(side, '44')}, inset 0 0 0 1px ${liveTeamTint(side, '22')}`
-          : undefined,
-      }}
       className={cn(
-        'flex h-full min-h-[48px] w-full items-center gap-2.5 rounded border-0 px-3 py-2.5 text-left transition-all duration-150',
-        'disabled:opacity-100',
-        interactive && 'cursor-pointer hover:brightness-110',
-        !interactive && 'cursor-default'
+        'live-on-court-card',
+        side === 'home' ? 'live-on-court-card--home' : 'live-on-court-card--away',
+        selected && 'live-on-court-card--selected',
+        interactive && 'live-on-court-card--interactive'
       )}
     >
-      <div
-        className="live-font-condensed flex h-9 w-9 shrink-0 items-center justify-center rounded text-base font-black leading-none tabular-nums"
-        style={{
-          backgroundColor: selected ? teamColor : liveTeamTint(side, '22'),
-          color: selected ? '#fff' : teamColor,
-        }}
-      >
-        {player.number}
+      <div className="live-on-court-jersey">{player.number}</div>
+      <div className="live-on-court-body">
+        <div className="live-on-court-name">{player.name}</div>
+        {player.position ? (
+          <span className="live-on-court-pos">{player.position}</span>
+        ) : null}
       </div>
-      <div className="min-w-0 flex-1">
-        <div
-          className="truncate text-xs font-semibold leading-tight"
-          style={{
-            color: selected ? 'var(--primary-foreground)' : 'var(--foreground)',
-            fontFamily: "'Barlow', sans-serif",
-          }}
-        >
-          {player.name}
-        </div>
-        {player.position && (
-          <div
-            className="live-font-mono mt-0.5 text-[9px] leading-tight"
-            style={{ color: selected ? teamColor : LIVE_SEMANTIC.muted }}
-          >
-            {player.position}
-          </div>
-        )}
-      </div>
+    </button>
+  );
+}
+
+interface OnCourtSubButtonProps {
+  side: OnCourtSide;
+  onClick?: () => void;
+  disabled?: boolean;
+}
+
+function OnCourtSubButton({ side, onClick, disabled = false }: OnCourtSubButtonProps) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || !onClick}
+      onClick={onClick}
+      className={cn(
+        'live-on-court-sub',
+        side === 'home' ? 'live-on-court-sub--home' : 'live-on-court-sub--away'
+      )}
+    >
+      <Users className="live-on-court-sub-icon" aria-hidden />
+      Substitution
     </button>
   );
 }
@@ -85,6 +78,8 @@ interface OnCourtColumnProps {
   selectedId?: string | null;
   excludeId?: string | null;
   pickMode?: boolean;
+  onSubstitution?: () => void;
+  subDisabled?: boolean;
   className?: string;
 }
 
@@ -97,6 +92,8 @@ export function OnCourtColumn({
   selectedId,
   excludeId,
   pickMode = false,
+  onSubstitution,
+  subDisabled = false,
   className,
 }: OnCourtColumnProps) {
   const theme = ON_COURT_SIDE_THEME[side];
@@ -111,23 +108,20 @@ export function OnCourtColumn({
       className={cn(
         'flex h-full min-h-0 w-full flex-col gap-2 overflow-hidden',
         isOffense && 'border-l-2 pl-2',
+        side === 'home' ? 'live-on-court-card--home' : 'live-on-court-card--away',
         className
       )}
       style={isOffense ? { borderLeftColor: theme.possessionAccent } : undefined}
     >
       <div
-        className="live-font-mono shrink-0 px-1 text-[8px] font-medium uppercase tracking-widest"
+        className="live-on-court-column-header"
         style={{ color: theme.header }}
       >
+        <span className="live-on-court-column-header-dot" aria-hidden />
         {headerLabel}
       </div>
 
-      <div
-        className={cn(
-          'min-h-0 flex-1',
-          roster.length > 0 ? 'on-court-roster-grid' : 'grid grid-cols-1'
-        )}
-      >
+      <div className="on-court-roster-grid min-h-0 flex-1">
         {roster.map((player) => (
           <OnCourtPlayerCard
             key={player.id}
@@ -143,6 +137,11 @@ export function OnCourtColumn({
             No players on court
           </p>
         )}
+        <OnCourtSubButton
+          side={side}
+          onClick={onSubstitution}
+          disabled={subDisabled || !onSubstitution}
+        />
       </div>
     </div>
   );

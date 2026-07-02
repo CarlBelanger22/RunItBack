@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import type { Game, GameEvent, Player } from '../App';
 import { GameLogic } from '../utils/GameLogic';
-import { resolveShotZone, clickToCourtPointM, type CourtPointM } from '../lib/fibaCourtGeometry';
+import { clickToCourtPointM, type CourtPointM } from '../lib/fibaCourtGeometry';
+import { resolveHorizontalShotZone } from '../lib/horizontalCourtClick';
 import {
   clockForPeriod,
   resolveGameClockSettings,
@@ -9,6 +10,8 @@ import {
 import {
   buildFoulEvent,
   buildFreeThrowEvent,
+  buildHeldBallJumpBallEvent,
+  buildOpeningJumpBallEvent,
   buildReboundEvent,
   buildShotEvent,
   buildSubstitutionEvent,
@@ -21,6 +24,8 @@ import {
   type PendingShot,
   defenseTeamIdFor,
 } from './liveEntryStateMachine';
+import { derivePossessionSnapshot } from './possessionEngine';
+import { gameNeedsOpeningJumpBall, opponentTeamId } from './possessionArrow';
 
 function resolveOnCourt(game: Game, side: 'home' | 'away'): string[] {
   const starters = side === 'home' ? game.homeStarters : game.awayStarters;
@@ -59,6 +64,12 @@ export function useLiveGameSession(
     setCurrentGame(game);
   }, [game]);
 
+  useEffect(() => {
+    if (gameNeedsOpeningJumpBall(game)) {
+      dispatch({ type: 'START_OPENING_JUMPBALL' });
+    }
+  }, [game.id]);
+
   const offenseTeamId = entryState.ctx.offenseTeamId;
   const defenseTeamId = defenseTeamIdFor(
     currentGame.homeTeamId,
@@ -79,14 +90,14 @@ export function useLiveGameSession(
   const handleCourtClick = useCallback(
     (clientX: number, clientY: number, rect: DOMRect) => {
       const point = clickToCourtPointM(clientX, clientY, rect);
-      const zone = resolveShotZone(point);
+      const zone = resolveHorizontalShotZone(point);
       dispatch({ type: 'COURT_CLICK', point, zone });
     },
     []
   );
 
   const handleCourtPoint = useCallback((point: CourtPointM) => {
-    const zone = resolveShotZone(point);
+    const zone = resolveHorizontalShotZone(point);
     dispatch({ type: 'COURT_CLICK', point, zone });
   }, []);
 
@@ -132,6 +143,8 @@ export function useLiveGameSession(
         shots: [...currentGame.shots, built.shot],
       };
       g = GameLogic.recordEvent(g, built.event);
+      const shootingTeamId = offenseTeamId;
+      const defendingTeamId = defenseTeamId;
       syncGame(g);
 
       if (and1 && pending.shooterId) {
@@ -140,7 +153,11 @@ export function useLiveGameSession(
       }
 
       if (pending.outcome === 'miss' || pending.outcome === 'block') {
-        dispatch({ type: 'START_REBOUND' });
+        dispatch({
+          type: 'START_REBOUND',
+          shootingTeamId,
+          defendingTeamId,
+        });
       } else {
         dispatch({ type: 'RESET' });
       }
@@ -150,16 +167,25 @@ export function useLiveGameSession(
 
   const commitRebound = useCallback(
     (reboundType: string, playerId?: string) => {
-      let teamId = offenseTeamId;
+      const shootingTeam = entryState.ctx.reboundShootingTeamId ?? offenseTeamId;
+      const defendingTeam = entryState.ctx.reboundDefendingTeamId ?? defenseTeamId;
+      let teamId = shootingTeam;
       if (reboundType === 'defensive' || reboundType === 'team_defensive') {
-        teamId = defenseTeamId;
+        teamId = defendingTeam;
       }
 
       const event = buildReboundEvent(currentGame, teamId, playerId, reboundType);
       syncGame(GameLogic.recordEvent(currentGame, event));
       dispatch({ type: 'RESET' });
     },
-    [currentGame, defenseTeamId, offenseTeamId, syncGame]
+    [
+      currentGame,
+      defenseTeamId,
+      entryState.ctx.reboundDefendingTeamId,
+      entryState.ctx.reboundShootingTeamId,
+      offenseTeamId,
+      syncGame,
+    ]
   );
 
   const commitTurnover = useCallback(
@@ -181,17 +207,70 @@ export function useLiveGameSession(
     [currentGame, offenseTeamId, syncGame]
   );
 
+  const commitOpeningTip = useCallback(
+    (winnerTeamId: string) => {
+      const loserTeamId =
+        winnerTeamId === currentGame.homeTeamId
+          ? currentGame.awayTeamId
+          : currentGame.homeTeamId;
+      const event = buildOpeningJumpBallEvent(currentGame, winnerTeamId, loserTeamId);
+      syncGame(GameLogic.recordEvent(currentGame, event));
+      dispatch({ type: 'RESET' });
+    },
+    [currentGame, syncGame]
+  );
+
+  const startJumpBall = useCallback(() => {
+    const arrowTeamId = currentGame.possessionArrowTeamId;
+    if (!arrowTeamId) return;
+
+    if (arrowTeamId === offenseTeamId) {
+      const event = buildHeldBallJumpBallEvent(currentGame, {
+        losingTeamId: offenseTeamId,
+        arrowBeforeTeamId: arrowTeamId,
+        arrowAfterTeamId: opponentTeamId(currentGame, arrowTeamId),
+        awardedTeamId: offenseTeamId,
+        possessionChanged: false,
+      });
+      syncGame(GameLogic.recordEvent(currentGame, event));
+      dispatch({ type: 'RESET' });
+    } else {
+      dispatch({ type: 'START_JUMPBALL' });
+    }
+  }, [currentGame, offenseTeamId, defenseTeamId, syncGame]);
+
+  const commitJumpBallWithStats = useCallback(
+    (turnoverPlayerId: string, stealPlayerId: string) => {
+      const arrowTeamId = currentGame.possessionArrowTeamId;
+      if (!arrowTeamId) return;
+
+      const event = buildHeldBallJumpBallEvent(currentGame, {
+        losingTeamId: offenseTeamId,
+        arrowBeforeTeamId: arrowTeamId,
+        arrowAfterTeamId: opponentTeamId(currentGame, arrowTeamId),
+        awardedTeamId: arrowTeamId,
+        possessionChanged: true,
+        turnoverPlayerId,
+        stealPlayerId,
+      });
+      syncGame(GameLogic.recordEvent(currentGame, event));
+      dispatch({ type: 'RESET' });
+    },
+    [currentGame, offenseTeamId, defenseTeamId, syncGame]
+  );
+
   const commitFoul = useCallback(
     (
       committerId: string,
       recipientId: string | undefined,
       foulCategory: string,
       ftCount: number,
-      ftShooterId?: string
+      ftShooterId?: string,
+      foulingTeamId?: string
     ) => {
       const event = buildFoulEvent(
         currentGame,
-        defenseTeamId,
+        foulingTeamId ?? defenseTeamId,
         committerId,
         recipientId,
         foulCategory
@@ -227,14 +306,25 @@ export function useLiveGameSession(
         ftTotal
       );
       const g = GameLogic.recordEvent(currentGame, event);
+      const defendingTeamId =
+        shooterTeam === currentGame.homeTeamId
+          ? currentGame.awayTeamId
+          : currentGame.homeTeamId;
       syncGame(g);
 
       if (ftIndex < ftTotal) {
         setFtSession({ playerId, ftTotal, ftIndex: ftIndex + 1 });
       } else {
         setFtSession(null);
-        if (!made) dispatch({ type: 'START_REBOUND' });
-        else dispatch({ type: 'RESET' });
+        if (!made) {
+          dispatch({
+            type: 'START_REBOUND',
+            shootingTeamId: shooterTeam,
+            defendingTeamId,
+          });
+        } else {
+          dispatch({ type: 'RESET' });
+        }
       }
     },
     [currentGame, ftSession, syncGame]
@@ -260,9 +350,13 @@ export function useLiveGameSession(
   );
 
   const undo = useCallback(() => {
-    syncGame(GameLogic.undoLastEvent(currentGame));
+    const updated = GameLogic.undoLastEvent(currentGame);
+    syncGame(updated);
     dispatch({ type: 'RESET' });
     setFtSession(null);
+    if (gameNeedsOpeningJumpBall(updated)) {
+      dispatch({ type: 'START_OPENING_JUMPBALL' });
+    }
   }, [currentGame, syncGame]);
 
   const endPeriod = useCallback(() => {
@@ -303,6 +397,9 @@ export function useLiveGameSession(
     commitShot,
     commitRebound,
     commitTurnover,
+    commitOpeningTip,
+    startJumpBall,
+    commitJumpBallWithStats,
     commitFoul,
     commitFreeThrow,
     commitSubstitution,
@@ -314,6 +411,7 @@ export function useLiveGameSession(
     getOnCourtIds,
     offenseTeamId,
     defenseTeamId,
+    possessionArrowTeamId: currentGame.possessionArrowTeamId ?? null,
     ftSession,
     onCourtHome,
     onCourtAway,

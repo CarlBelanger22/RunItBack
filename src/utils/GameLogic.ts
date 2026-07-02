@@ -106,6 +106,10 @@ export class GameLogic {
         this.handleTurnover(game, teamStats, playerStats, event);
         break;
 
+      case 'jump_ball':
+        this.handleJumpBall(game, teamStats, playerStats, event);
+        break;
+
       case 'foul':
         this.handleFoul(teamStats, playerStats, event.details);
         if (event.details.drawnBy) {
@@ -248,6 +252,34 @@ export class GameLogic {
     team.total_rebounds = team.orb + team.drb + (team.team_rebounds || 0);
   }
 
+  private static handleJumpBall(
+    game: Game,
+    teamStats: TeamStats,
+    playerStats: GameStats | null,
+    event: GameEvent
+  ) {
+    const d = event.details;
+    const arrowAfter = d.arrowAfterTeamId as string | undefined;
+    if (arrowAfter) {
+      game.possessionArrowTeamId = arrowAfter;
+    }
+
+    if (d.kind === 'held_ball' && d.possessionChanged && d.turnoverPlayerId) {
+      const turnoverEvent: GameEvent = {
+        ...event,
+        type: 'turnover',
+        teamId: event.teamId,
+        playerId: d.turnoverPlayerId as string,
+        details: {
+          isTeamTurnover: false,
+          stolenBy: d.stealPlayerId ?? null,
+          jumpBall: true,
+        },
+      };
+      this.handleTurnover(game, teamStats, playerStats, turnoverEvent);
+    }
+  }
+
   private static handleTurnover(
     game: Game,
     team: TeamStats,
@@ -322,6 +354,7 @@ export class GameLogic {
       ...game,
       events: [],
       gameStats: [],
+      possessionArrowTeamId: undefined,
       teamStats: {
         home: this.getEmptyTeamStats(game.homeTeamId),
         away: this.getEmptyTeamStats(game.awayTeamId),
@@ -343,6 +376,7 @@ export class GameLogic {
       ...game,
       events: [],
       gameStats: [],
+      possessionArrowTeamId: undefined,
       teamStats: {
         home: this.getEmptyTeamStats(game.homeTeamId),
         away: this.getEmptyTeamStats(game.awayTeamId),

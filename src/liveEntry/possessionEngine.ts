@@ -47,6 +47,11 @@ function isTurnover(event: GameEvent): boolean {
   return event.type === 'turnover';
 }
 
+function isJumpBallPossessionChange(event: GameEvent): boolean {
+  if (event.type !== 'jump_ball') return false;
+  return event.details.possessionChanged === true;
+}
+
 function isTerminalFreeThrowEnd(event: GameEvent, events: GameEvent[], index: number): boolean {
   if (event.type !== 'free_throw') return false;
   const isFinal = event.details.isFinal === true;
@@ -103,6 +108,22 @@ export function derivePossessionSnapshot(
       offenseTeamId = recovering;
       offTurnoverTeamId = recovering;
       secondChanceTeamId = null;
+    }
+
+    if (event.type === 'jump_ball') {
+      const kind = event.details.kind as string;
+      if (kind === 'opening') {
+        offenseTeamId = event.details.winnerTeamId as string;
+        secondChanceTeamId = null;
+        offTurnoverTeamId = null;
+      } else if (isJumpBallPossessionChange(event)) {
+        const awardedTeamId = event.details.awardedTeamId as string;
+        offenseTeamId = awardedTeamId;
+        if (event.details.stealPlayerId) {
+          offTurnoverTeamId = awardedTeamId;
+        }
+        secondChanceTeamId = null;
+      }
     }
 
     if (isTerminalFreeThrowEnd(event, events, index)) {

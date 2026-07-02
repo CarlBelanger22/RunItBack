@@ -66,6 +66,30 @@ function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): Ac
         color: LIVE_SEMANTIC.destructive,
         detail: player,
       };
+    case 'jump_ball': {
+      const kind = event.details.kind as string;
+      if (kind === 'opening') {
+        const winnerId = event.details.winnerTeamId as string;
+        const abbrev =
+          winnerId === homeTeam.id ? homeTeam.abbreviation : awayTeam.abbreviation;
+        return {
+          label: 'OPENING TIP',
+          color: LIVE_SEMANTIC.muted,
+          detail: abbrev,
+        };
+      }
+      const awardedId = event.details.awardedTeamId as string;
+      const abbrev =
+        awardedId === homeTeam.id ? homeTeam.abbreviation : awayTeam.abbreviation;
+      const stealId = event.details.stealPlayerId as string | undefined;
+      return {
+        label: 'JUMP BALL',
+        color: LIVE_SEMANTIC.muted,
+        detail: stealId
+          ? `${abbrev} · TO ${player} · STL ${getPlayerDisplayName(stealId, homeTeam, awayTeam)}`
+          : `${abbrev} · arrow flip`,
+      };
+    }
     case 'substitution':
       return {
         label: 'SUBSTITUTION',

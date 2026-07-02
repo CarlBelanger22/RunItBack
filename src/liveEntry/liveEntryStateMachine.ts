@@ -31,7 +31,8 @@ export type LiveEntryPhase =
     }
   | { kind: 'substitution'; step: 'pick_out' | 'pick_in' | 'confirm'; outIds?: string[]; inIds?: string[] }
   | { kind: 'and1'; recipientId: string; pendingShot: PendingShot }
-  | { kind: 'free_throw'; playerId: string; ftTotal: number; ftIndex: number };
+  | { kind: 'free_throw'; playerId: string; ftTotal: number; ftIndex: number }
+  | { kind: 'jumpball'; step: 'opening' | 'pick_to' | 'pick_steal'; turnoverPlayerId?: string };
 
 export interface CourtMarker {
   point: CourtPointM;
@@ -40,6 +41,10 @@ export interface CourtMarker {
 
 export interface LiveEntryContext {
   offenseTeamId: string;
+  /** Team that missed the shot / FT (gets ORB). */
+  reboundShootingTeamId: string | null;
+  /** Opponent of shooting team on the miss (gets DRB). */
+  reboundDefendingTeamId: string | null;
   onCourtHome: string[];
   onCourtAway: string[];
   pendingShot: PendingShot | null;
@@ -60,7 +65,7 @@ export type LiveEntryAction =
   | { type: 'SKIP_BLOCKER' }
   | { type: 'ADD_MARKER'; marker: CourtMarker }
   | { type: 'CLEAR_MARKERS' }
-  | { type: 'START_REBOUND' }
+  | { type: 'START_REBOUND'; shootingTeamId: string; defendingTeamId: string }
   | { type: 'REBOUND_TYPE'; reboundType: string }
   | { type: 'START_TURNOVER' }
   | { type: 'TURNOVER_ENTITY'; isTeam: boolean; playerId?: string }
@@ -76,6 +81,9 @@ export type LiveEntryAction =
   | { type: 'SUB_PICK_OUT'; playerId: string }
   | { type: 'SUB_PICK_IN'; playerId: string }
   | { type: 'START_AND1'; recipientId: string; pendingShot: PendingShot }
+  | { type: 'START_OPENING_JUMPBALL' }
+  | { type: 'START_JUMPBALL' }
+  | { type: 'JUMPBALL_PICK_TO'; playerId: string }
   | { type: 'TOGGLE_CLOCK' }
   | { type: 'APPLY_SUBSTITUTION'; outIds: string[]; inIds: string[]; teamId: string };
 
@@ -91,6 +99,8 @@ export function initialLiveEntryContext(
 ): LiveEntryContext {
   return {
     offenseTeamId: homeTeamId,
+    reboundShootingTeamId: null,
+    reboundDefendingTeamId: null,
     onCourtHome,
     onCourtAway,
     pendingShot: null,
@@ -113,6 +123,8 @@ export function liveEntryReducer(
           ...state.ctx,
           pendingShot: null,
           markers: [],
+          reboundShootingTeamId: null,
+          reboundDefendingTeamId: null,
         },
       };
 
@@ -208,7 +220,15 @@ export function liveEntryReducer(
       return { ...state, ctx: { ...state.ctx, markers: [] } };
 
     case 'START_REBOUND':
-      return { ...state, phase: { kind: 'rebound', step: 'pick_type' } };
+      return {
+        ...state,
+        phase: { kind: 'rebound', step: 'pick_type' },
+        ctx: {
+          ...state.ctx,
+          reboundShootingTeamId: action.shootingTeamId,
+          reboundDefendingTeamId: action.defendingTeamId,
+        },
+      };
 
     case 'REBOUND_TYPE':
       if (action.reboundType.startsWith('team_')) {
@@ -298,6 +318,18 @@ export function liveEntryReducer(
       return {
         phase: { kind: 'and1', recipientId: action.recipientId, pendingShot: action.pendingShot },
         ctx: { ...state.ctx, pendingShot: null },
+      };
+
+    case 'START_OPENING_JUMPBALL':
+      return { ...state, phase: { kind: 'jumpball', step: 'opening' } };
+
+    case 'START_JUMPBALL':
+      return { ...state, phase: { kind: 'jumpball', step: 'pick_to' } };
+
+    case 'JUMPBALL_PICK_TO':
+      return {
+        ...state,
+        phase: { kind: 'jumpball', step: 'pick_steal', turnoverPlayerId: action.playerId },
       };
 
     case 'TOGGLE_CLOCK':

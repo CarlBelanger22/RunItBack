@@ -120,6 +120,7 @@
             "test:basketball-3x3-scoring": "tsx scripts/test-basketball-3x3-scoring.ts",
             "test:game-format": "tsx scripts/test-game-format.ts",
             "test:fiba-court-geometry": "tsx scripts/test-fiba-court-geometry.ts",
+            "test:horizontal-court-layout": "tsx scripts/test-horizontal-court-layout.ts",
             "test:possession-engine": "tsx scripts/test-possession-engine.ts",
             "test:live-entry-state-machine": "tsx scripts/test-live-entry-state-machine.ts",
             "test:game-clock": "tsx scripts/test-game-clock.ts",

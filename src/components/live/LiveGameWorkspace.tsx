@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
@@ -14,8 +13,6 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import { Label } from '../ui/label';
-import { Switch } from '../ui/switch';
-import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
 import type { Game, GameEvent, Player, Tournament } from '../../App';
 import { GameForm } from '../forms/GameForm';
 import { buildGameMetadataPatch } from '../../utils/gameMetadata';
@@ -28,10 +25,12 @@ import { LivePlayByPlayRail } from './LivePlayByPlayRail';
 import { LiveBoxScorePanel } from './LiveBoxScorePanel';
 import { EventEditDialog } from './EventEditDialog';
 import { ShotOutcomeOverlay } from './ShotOutcomeOverlay';
+import { LiveCourtFlowOverlays } from './LiveCourtFlowOverlays';
+import { LiveOpeningJumpBallOverlay } from './LiveOpeningJumpBallOverlay';
 import { DesktopOnlyGuard } from './DesktopOnlyGuard';
 import { paths } from '../../routing/paths';
 import { getLiveTeamColor, liveTeamTint } from './liveEntryTheme';
-import type { LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
+import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 
 interface LiveGameWorkspaceProps {
   game: Game;
@@ -59,23 +58,29 @@ function resolveColumnPick(
   phase: LiveEntryPhase,
   offenseTeamId: string,
   defenseTeamId: string,
+  possessionArrowTeamId: string | null,
   pending: PendingShot | null,
   pendingReboundType: string | null,
   turnoverPlayerId: string | undefined,
   trackBoth: boolean,
+  reboundShootingTeamId: string | null,
+  reboundDefendingTeamId: string | null,
   handlers: {
     dispatch: ReturnType<typeof useLiveGameSession>['dispatch'];
     commitShot: ReturnType<typeof useLiveGameSession>['commitShot'];
     commitRebound: ReturnType<typeof useLiveGameSession>['commitRebound'];
     commitTurnover: ReturnType<typeof useLiveGameSession>['commitTurnover'];
+    commitJumpBallWithStats: ReturnType<typeof useLiveGameSession>['commitJumpBallWithStats'];
     commitFoul: ReturnType<typeof useLiveGameSession>['commitFoul'];
     setPendingReboundType: (v: string | null) => void;
     setTurnoverPlayerId: (v: string | undefined) => void;
     and1RecipientId: string | null;
-    setAnd1RecipientId: (v: string | null) => void;
+    and1FoulingTeamId: string | null;
+    clearAnd1Session: () => void;
   }
 ): ColumnPick | null {
-  const { dispatch, commitShot, commitRebound, commitTurnover, commitFoul } = handlers;
+  const { dispatch, commitShot, commitRebound, commitTurnover, commitJumpBallWithStats, commitFoul } =
+    handlers;
 
   if (phase.kind === 'shot' && phase.step === 'pick_shooter' && pending) {
     return {
@@ -103,7 +108,7 @@ function resolveColumnPick(
   if (phase.kind === 'shot' && phase.step === 'pick_assist' && pending) {
     return {
       side: teamSide(game, offenseTeamId),
-      hint: 'Select assister (optional — use panel for no assist)',
+      hint: 'Select assister (optional — use overlay for no assist)',
       excludeId: pending.shooterId,
       onSelect: (p) => dispatch({ type: 'PICK_ASSIST', playerId: p.id }),
     };
@@ -114,7 +119,9 @@ function resolveColumnPick(
     pendingReboundType &&
     (pendingReboundType === 'offensive' || pendingReboundType === 'defensive')
   ) {
-    const teamId = pendingReboundType === 'offensive' ? offenseTeamId : defenseTeamId;
+    const shootingTeam = reboundShootingTeamId ?? offenseTeamId;
+    const defendingTeam = reboundDefendingTeamId ?? defenseTeamId;
+    const teamId = pendingReboundType === 'offensive' ? shootingTeam : defendingTeam;
     return {
       side: teamSide(game, teamId),
       hint: `${pendingReboundType === 'offensive' ? 'ORB' : 'DRB'} — select player`,
@@ -128,7 +135,7 @@ function resolveColumnPick(
   if (phase.kind === 'turnover' && phase.step === 'entity') {
     return {
       side: teamSide(game, offenseTeamId),
-      hint: 'Select turnover player (or use panel for team TO)',
+      hint: 'Select turnover player (or use overlay for team TO)',
       onSelect: (p) => {
         dispatch({ type: 'TURNOVER_STEAL', hasSteal: false });
         commitTurnover(p.id, false);
@@ -156,9 +163,33 @@ function resolveColumnPick(
     }
   }
 
-  if (phase.kind === 'foul' && phase.step === 'committer') {
+  if (phase.kind === 'jumpball' && phase.step === 'pick_to') {
     return {
-      side: teamSide(game, defenseTeamId),
+      side: teamSide(game, offenseTeamId),
+      hint: 'Jump ball — turnover player',
+      onSelect: (p) => dispatch({ type: 'JUMPBALL_PICK_TO', playerId: p.id }),
+    };
+  }
+
+  if (phase.kind === 'jumpball' && phase.step === 'pick_steal' && phase.turnoverPlayerId) {
+    const arrowTeamId = possessionArrowTeamId ?? defenseTeamId;
+    return {
+      side: teamSide(game, arrowTeamId),
+      hint: 'Jump ball — steal player',
+      onSelect: (p) => {
+        commitJumpBallWithStats(phase.turnoverPlayerId!, p.id);
+      },
+    };
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'committer') {
+    const foulingTeamId =
+      handlers.and1RecipientId && handlers.and1FoulingTeamId
+        ? handlers.and1FoulingTeamId
+        : defenseTeamId;
+
+    return {
+      side: teamSide(game, foulingTeamId),
       hint: 'Foul committed by',
       onSelect: (p) => {
         if (handlers.and1RecipientId) {
@@ -167,9 +198,10 @@ function resolveColumnPick(
             handlers.and1RecipientId,
             phase.foulCategory ?? 'personal',
             1,
-            handlers.and1RecipientId
+            handlers.and1RecipientId,
+            handlers.and1FoulingTeamId ?? undefined
           );
-          handlers.setAnd1RecipientId(null);
+          handlers.clearAnd1Session();
         } else {
           dispatch({ type: 'PICK_FOUL_COMMITTER', playerId: p.id });
         }
@@ -206,17 +238,20 @@ export function LiveGameWorkspace({
     commitShot,
     commitRebound,
     commitTurnover,
+    commitOpeningTip,
+    startJumpBall,
+    commitJumpBallWithStats,
     commitFoul,
     commitFreeThrow,
     commitSubstitution,
     undo,
     replayEvents,
     endPeriod,
-    toggleClock,
     getTeamPlayers,
     getOnCourtIds,
     offenseTeamId,
     defenseTeamId,
+    possessionArrowTeamId,
     ftSession,
   } = session;
 
@@ -228,6 +263,26 @@ export function LiveGameWorkspace({
   const [subIn, setSubIn] = useState<string[]>([]);
   const [subTeamId, setSubTeamId] = useState<string>(game.homeTeamId);
   const [and1RecipientId, setAnd1RecipientId] = useState<string | null>(null);
+  const [and1FoulingTeamId, setAnd1FoulingTeamId] = useState<string | null>(null);
+
+  const clearAnd1Session = useCallback(() => {
+    setAnd1RecipientId(null);
+    setAnd1FoulingTeamId(null);
+  }, []);
+
+  const handleAndOneFoul = useCallback(
+    (shotPayload: PendingShot) => {
+      if (shotPayload.shooterId) {
+        setAnd1RecipientId(shotPayload.shooterId);
+        setAnd1FoulingTeamId(defenseTeamId);
+      }
+      commitShot(shotPayload);
+      setFastbreak(false);
+      dispatch({ type: 'FOUL_CATEGORY', category: 'personal' });
+    },
+    [commitShot, defenseTeamId, dispatch]
+  );
+
   const [pendingReboundType, setPendingReboundType] = useState<string | null>(null);
   const [turnoverPlayerId, setTurnoverPlayerId] = useState<string | undefined>();
   const [editEvent, setEditEvent] = useState<GameEvent | null>(null);
@@ -239,6 +294,12 @@ export function LiveGameWorkspace({
   const pending = entryState.ctx.pendingShot;
   const trackBoth = currentGame.trackBothTeams;
 
+  useEffect(() => {
+    if (phase.kind === 'idle') {
+      clearAnd1Session();
+    }
+  }, [phase.kind, clearAnd1Session]);
+
   const columnPick = useMemo(
     () =>
       resolveColumnPick(
@@ -246,20 +307,25 @@ export function LiveGameWorkspace({
         phase,
         offenseTeamId,
         defenseTeamId,
+        possessionArrowTeamId,
         pending,
         pendingReboundType,
         turnoverPlayerId,
         trackBoth,
+        entryState.ctx.reboundShootingTeamId,
+        entryState.ctx.reboundDefendingTeamId,
         {
           dispatch,
           commitShot,
           commitRebound,
           commitTurnover,
+          commitJumpBallWithStats,
           commitFoul,
           setPendingReboundType,
           setTurnoverPlayerId,
           and1RecipientId,
-          setAnd1RecipientId,
+          and1FoulingTeamId,
+          clearAnd1Session,
         }
       ),
     [
@@ -267,255 +333,61 @@ export function LiveGameWorkspace({
       phase,
       offenseTeamId,
       defenseTeamId,
+      possessionArrowTeamId,
       pending,
       pendingReboundType,
       turnoverPlayerId,
       trackBoth,
+      entryState.ctx.reboundShootingTeamId,
+      entryState.ctx.reboundDefendingTeamId,
       dispatch,
       commitShot,
       commitRebound,
       commitTurnover,
+      commitJumpBallWithStats,
       commitFoul,
       and1RecipientId,
+      and1FoulingTeamId,
+      clearAnd1Session,
     ]
   );
 
   const showShotOverlay =
     phase.kind === 'shot' && phase.step === 'await_outcome' && pending;
 
-  const renderFlowPanel = () => {
-    if (columnPick) {
-      return (
-        <p className="text-center text-sm text-primary font-medium py-1">
-          {columnPick.hint}
-        </p>
-      );
-    }
-
-    if (phase.kind === 'shot' && phase.step === 'pick_blocker' && !trackBoth) {
-      return (
-        <Card className="border-primary/50 max-w-md mx-auto">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Blocked shot</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button className="w-full" onClick={() => dispatch({ type: 'SKIP_BLOCKER' })}>
-              Opponent block (no individual)
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (phase.kind === 'shot' && phase.step === 'pick_assist' && pending) {
-      return (
-        <Card className="border-primary/50 max-w-md mx-auto">
-          <CardContent className="pt-4">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={() => dispatch({ type: 'PICK_ASSIST', playerId: null })}
-            >
-              No assist
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (phase.kind === 'shot' && phase.step === 'fastbreak' && pending) {
-      const shotPayload = {
-        ...pending,
-        isTransition: fastbreak,
-        assistId: pending.assistId ?? null,
-      };
-      return (
-        <Card className="border-primary/50 max-w-md mx-auto">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Confirm make</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex items-center justify-between">
-              <Label>Fastbreak?</Label>
-              <Switch checked={fastbreak} onCheckedChange={setFastbreak} />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                onClick={() => {
-                  commitShot(shotPayload);
-                  setFastbreak(false);
-                }}
-              >
-                Commit
-              </Button>
-              <Button
-                variant="secondary"
-                onClick={() => {
-                  if (pending.shooterId) setAnd1RecipientId(pending.shooterId);
-                  commitShot(shotPayload);
-                  setFastbreak(false);
-                  dispatch({ type: 'FOUL_CATEGORY', category: 'personal' });
-                }}
-              >
-                + Foul
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-
+  const contextHint = useMemo(() => {
+    if (columnPick) return null;
+    if (showShotOverlay) return 'Tap court — make / miss / block';
+    if (phase.kind === 'shot' && phase.step === 'fastbreak') return 'Confirm make — commit or + foul';
+    if (phase.kind === 'shot' && phase.step === 'pick_assist') return 'Select assister or use overlay';
+    if (phase.kind === 'shot' && phase.step === 'pick_shooter') return 'Select shooter on roster';
+    if (phase.kind === 'shot' && phase.step === 'pick_blocker') return 'Select blocker on roster';
     if (phase.kind === 'rebound' && phase.step === 'pick_type') {
-      if (
-        pendingReboundType &&
-        pendingReboundType !== 'offensive' &&
-        pendingReboundType !== 'defensive'
-      ) {
-        return null;
+      if (pendingReboundType === 'offensive' || pendingReboundType === 'defensive') {
+        return `${pendingReboundType === 'offensive' ? 'ORB' : 'DRB'} — select player on roster`;
       }
-      if (!pendingReboundType) {
-        return (
-          <Card className="border-orange-500/50 max-w-md mx-auto">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm">Rebound type</CardTitle>
-            </CardHeader>
-            <CardContent className="grid grid-cols-2 gap-2">
-              <Button onClick={() => setPendingReboundType('offensive')}>ORB</Button>
-              <Button onClick={() => setPendingReboundType('defensive')}>DRB</Button>
-              <Button variant="outline" onClick={() => commitRebound('team_offensive')}>
-                Team ORB
-              </Button>
-              <Button variant="outline" onClick={() => commitRebound('team_defensive')}>
-                Team DRB
-              </Button>
-              <Button variant="ghost" className="col-span-2" onClick={() => dispatch({ type: 'RESET' })}>
-                Skip
-              </Button>
-            </CardContent>
-          </Card>
-        );
-      }
-      return (
-        <Button variant="ghost" size="sm" className="mx-auto block" onClick={() => setPendingReboundType(null)}>
-          Back to rebound type
-        </Button>
-      );
+      return 'Choose rebound type on court overlay';
     }
-
-    if (phase.kind === 'turnover' && phase.step === 'entity') {
-      return (
-        <Card className="max-w-md mx-auto">
-          <CardContent className="pt-4 space-y-2">
-            <Button variant="outline" className="w-full" onClick={() => commitTurnover(undefined, true)}>
-              Team turnover
-            </Button>
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={() => dispatch({ type: 'TURNOVER_STEAL', hasSteal: true })}
-            >
-              Turnover + steal
-            </Button>
-            <Button variant="ghost" className="w-full" onClick={() => dispatch({ type: 'RESET' })}>
-              Cancel
-            </Button>
-          </CardContent>
-        </Card>
-      );
+    if (phase.kind === 'turnover' && phase.step === 'entity') return 'Turnover — select player or use overlay';
+    if (phase.kind === 'turnover' && phase.step === 'pick_stealer') {
+      return turnoverPlayerId ? 'Select stealer on roster' : 'Select turnover player on roster';
     }
-
-    if (phase.kind === 'turnover' && phase.step === 'pick_stealer' && turnoverPlayerId && !trackBoth) {
-      return (
-        <Card className="max-w-md mx-auto">
-          <CardContent className="pt-4">
-            <Button
-              className="w-full"
-              onClick={() => {
-                commitTurnover(turnoverPlayerId, false, 'team');
-                setTurnoverPlayerId(undefined);
-              }}
-            >
-              Team steal
-            </Button>
-          </CardContent>
-        </Card>
-      );
+    if (phase.kind === 'jumpball' && phase.step === 'pick_to') {
+      return 'Jump ball — select turnover player';
     }
-
-    if (phase.kind === 'foul' && phase.step === 'category') {
-      return (
-        <Card className="max-w-md mx-auto">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Foul category</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2">
-            <Button onClick={() => dispatch({ type: 'FOUL_CATEGORY', category: 'personal' })}>Personal</Button>
-            <Button onClick={() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' })}>Technical</Button>
-            <Button onClick={() => dispatch({ type: 'FOUL_CATEGORY', category: 'unsportsmanlike' })}>
-              Unsportsmanlike
-            </Button>
-            <Button variant="outline" onClick={() => dispatch({ type: 'RESET' })}>
-              Cancel
-            </Button>
-          </CardContent>
-        </Card>
-      );
+    if (phase.kind === 'jumpball' && phase.step === 'pick_steal') {
+      return 'Jump ball — select steal player';
     }
+    if (phase.kind === 'foul' && phase.step === 'category') return 'Choose foul category on court overlay';
+    if (phase.kind === 'foul' && phase.step === 'committer') return 'Select foul committer on roster';
+    if (phase.kind === 'foul' && phase.step === 'recipient') return 'Select fouled player on roster';
+    if (phase.kind === 'foul' && phase.step === 'ft_count') return 'Choose free throws on court overlay';
+    if (phase.kind === 'free_throw') return 'Free throw — make / miss on court overlay';
+    return '← Tap court to log a shot';
+  }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId]);
 
-    if (phase.kind === 'foul' && phase.step === 'ft_count' && phase.recipientId) {
-      return (
-        <Card className="max-w-md mx-auto">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">Free throws</CardTitle>
-          </CardHeader>
-          <CardContent className="flex gap-2 flex-wrap justify-center">
-            {[0, 1, 2, 3].map((n) => (
-              <Button
-                key={n}
-                variant="outline"
-                onClick={() => {
-                  commitFoul(
-                    phase.committerId!,
-                    phase.recipientId,
-                    phase.foulCategory ?? 'personal',
-                    n,
-                    n > 0 ? phase.recipientId : undefined
-                  );
-                }}
-              >
-                {n} FT{n !== 1 ? 's' : ''}
-              </Button>
-            ))}
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (phase.kind === 'free_throw' && ftSession) {
-      return (
-        <Card className="border-primary/50 max-w-xs mx-auto">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm">
-              FT {ftSession.ftIndex} of {ftSession.ftTotal}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2">
-            <Button className="bg-green-600 hover:bg-green-700" onClick={() => commitFreeThrow(true)}>
-              Make
-            </Button>
-            <Button variant="destructive" onClick={() => commitFreeThrow(false)}>
-              Miss
-            </Button>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    return null;
-  };
-
-  const openSub = () => {
-    setSubTeamId(offenseTeamId);
+  const openSubForTeam = (teamId: string) => {
+    setSubTeamId(teamId);
     setSubOut([]);
     setSubIn([]);
     setSubOpen(true);
@@ -540,9 +412,10 @@ export function LiveGameWorkspace({
   };
 
   const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
-  const flowPanel = renderFlowPanel();
   const tournament = tournaments.find((t) => t.id === currentGame.tournamentId);
-  const actionBarDisabled = phase.kind !== 'idle' && phase.kind !== 'shot';
+  const isOpeningJumpBall = phase.kind === 'jumpball' && phase.step === 'opening';
+  const actionBarDisabled =
+    isOpeningJumpBall || (phase.kind !== 'idle' && phase.kind !== 'shot');
 
   if (!trackBoth) {
     return (
@@ -569,17 +442,17 @@ export function LiveGameWorkspace({
           game={currentGame}
           homeScore={homeScore}
           awayScore={awayScore}
-          offenseTeamId={offenseTeamId}
-          clockRunning={entryState.ctx.clockRunning}
-          onToggleClock={toggleClock}
-          onUndo={undo}
+          possessionArrowTeamId={possessionArrowTeamId}
           onEndPeriod={endPeriod}
           onEdit={() => setIsEditDialogOpen(true)}
           onDelete={() => setDeleteDialogOpen(true)}
-          canUndo={currentGame.events.length > 0}
           onBack={() => navigate(paths.home)}
           tournamentName={tournament?.name}
         />
+
+        {isOpeningJumpBall && (
+          <LiveOpeningJumpBallOverlay game={currentGame} onSelectWinner={commitOpeningTip} />
+        )}
 
         <div className="live-entry-main">
           <div className="live-play-band">
@@ -597,6 +470,8 @@ export function LiveGameWorkspace({
                   pickMode={columnPick?.side === 'home'}
                   onSelect={columnPick?.side === 'home' ? columnPick.onSelect : undefined}
                   excludeId={columnPick?.side === 'home' ? columnPick.excludeId : undefined}
+                  onSubstitution={() => openSubForTeam(currentGame.homeTeamId)}
+                  subDisabled={actionBarDisabled}
                 />
               </section>
 
@@ -614,15 +489,11 @@ export function LiveGameWorkspace({
                         {columnPick.hint}
                       </span>
                     </>
-                  ) : showShotOverlay ? (
+                  ) : contextHint ? (
                     <span className="live-font-mono text-[10px] text-muted-foreground">
-                      Tap court — make / miss / block
+                      {contextHint}
                     </span>
-                  ) : (
-                    <span className="live-font-mono text-[10px] text-muted-foreground">
-                      ← Select a player to begin logging
-                    </span>
-                  )}
+                  ) : null}
                 </div>
 
                 <div className="live-court-stage">
@@ -637,8 +508,9 @@ export function LiveGameWorkspace({
                       shots={currentGame.shots}
                       shotMode={showShotOverlay}
                       interactive={
-                        phase.kind === 'idle' ||
-                        (phase.kind === 'shot' && phase.step === 'await_outcome')
+                        !isOpeningJumpBall &&
+                        (phase.kind === 'idle' ||
+                          (phase.kind === 'shot' && phase.step === 'await_outcome'))
                       }
                     >
                       {showShotOverlay && pending && (
@@ -651,21 +523,40 @@ export function LiveGameWorkspace({
                           onCancel={() => dispatch({ type: 'RESET' })}
                         />
                       )}
+                      <LiveCourtFlowOverlays
+                        phase={phase}
+                        pending={pending}
+                        pendingReboundType={pendingReboundType}
+                        turnoverPlayerId={turnoverPlayerId}
+                        trackBoth={trackBoth}
+                        fastbreak={fastbreak}
+                        ftSession={ftSession}
+                        onFastbreakChange={setFastbreak}
+                        onPendingReboundTypeChange={setPendingReboundType}
+                        onTurnoverPlayerIdChange={setTurnoverPlayerId}
+                        onAndOneFoul={handleAndOneFoul}
+                        dispatch={dispatch}
+                        commitShot={commitShot}
+                        commitRebound={commitRebound}
+                        commitTurnover={commitTurnover}
+                        commitFoul={commitFoul}
+                        commitFreeThrow={commitFreeThrow}
+                      />
                     </HorizontalFullCourtCanvas>
                   </div>
                 </div>
 
-                {flowPanel && !columnPick && (
-                  <div className="flex shrink-0 justify-center px-3 pb-1">
-                    <div className="max-w-md w-full">{flowPanel}</div>
-                  </div>
-                )}
-
                 <LiveActionBar
                   variant="dark"
+                  onUndo={() => {
+                    undo();
+                    clearAnd1Session();
+                  }}
+                  canUndo={currentGame.events.length > 0}
                   onFoul={() => dispatch({ type: 'START_FOUL' })}
                   onTurnover={() => dispatch({ type: 'START_TURNOVER' })}
-                  onSubstitution={openSub}
+                  onJumpBall={startJumpBall}
+                  jumpBallDisabled={!possessionArrowTeamId}
                   disabled={actionBarDisabled}
                 />
               </section>
@@ -683,6 +574,8 @@ export function LiveGameWorkspace({
                   pickMode={columnPick?.side === 'away'}
                   onSelect={columnPick?.side === 'away' ? columnPick.onSelect : undefined}
                   excludeId={columnPick?.side === 'away' ? columnPick.excludeId : undefined}
+                  onSubstitution={() => openSubForTeam(currentGame.awayTeamId)}
+                  subDisabled={actionBarDisabled}
                 />
               </section>
             </div>
@@ -709,18 +602,13 @@ export function LiveGameWorkspace({
         <Dialog open={subOpen} onOpenChange={setSubOpen}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
-              <DialogTitle>Substitution</DialogTitle>
+              <DialogTitle>
+                Substitution —{' '}
+                {subTeamId === currentGame.homeTeamId
+                  ? currentGame.homeTeam.abbreviation
+                  : currentGame.awayTeam.abbreviation}
+              </DialogTitle>
             </DialogHeader>
-            <Tabs value={subTeamId} onValueChange={setSubTeamId}>
-              <TabsList className="w-full">
-                <TabsTrigger value={currentGame.homeTeamId} className="flex-1">
-                  {currentGame.homeTeam.abbreviation}
-                </TabsTrigger>
-                <TabsTrigger value={currentGame.awayTeamId} className="flex-1">
-                  {currentGame.awayTeam.abbreviation}
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
             <div className="grid grid-cols-2 gap-4 mt-2">
               <div>
                 <Label>Out</Label>

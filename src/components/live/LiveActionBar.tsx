@@ -1,21 +1,27 @@
 import React from 'react';
+import { Undo } from 'lucide-react';
 import { Button } from '../ui/button';
-import { Users } from 'lucide-react';
 import { cn } from '../ui/utils';
 
 interface LiveActionBarProps {
   onFoul: () => void;
   onTurnover: () => void;
-  onSubstitution: () => void;
+  onJumpBall: () => void;
+  onUndo: () => void;
+  canUndo?: boolean;
   disabled?: boolean;
+  jumpBallDisabled?: boolean;
   variant?: 'light' | 'dark';
 }
 
 export function LiveActionBar({
   onFoul,
   onTurnover,
-  onSubstitution,
+  onJumpBall,
+  onUndo,
+  canUndo = false,
   disabled = false,
+  jumpBallDisabled = false,
   variant = 'light',
 }: LiveActionBarProps) {
   const dark = variant === 'dark';
@@ -23,17 +29,24 @@ export function LiveActionBar({
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center gap-2 border-t py-2',
+        'live-action-bar flex shrink-0 items-center justify-center gap-2 border-t px-3 py-2',
         dark ? 'border-border bg-card' : 'border-border/60 bg-background'
       )}
     >
       <Button
         variant="outline"
         size="default"
-        className={cn(
-          'min-w-[88px] font-semibold border-destructive/40 text-destructive hover:bg-destructive/10',
-          dark && 'bg-card'
-        )}
+        className={cn('live-action-undo min-w-[100px] font-semibold', dark && 'bg-card')}
+        onClick={onUndo}
+        disabled={!canUndo}
+      >
+        <Undo className="mr-1.5 h-4 w-4" />
+        Undo
+      </Button>
+      <Button
+        variant="outline"
+        size="default"
+        className={cn('live-action-foul min-w-[88px] font-semibold', dark && 'bg-card')}
         onClick={onFoul}
         disabled={disabled}
       >
@@ -42,24 +55,20 @@ export function LiveActionBar({
       <Button
         variant="outline"
         size="default"
-        className={cn(
-          'min-w-[88px] font-semibold border-amber-500/40 text-amber-700 hover:bg-amber-500/10 dark:text-amber-400',
-          dark && 'bg-card'
-        )}
+        className={cn('live-action-to min-w-[120px] font-semibold', dark && 'bg-card')}
         onClick={onTurnover}
         disabled={disabled}
       >
-        TO
+        TURNOVER
       </Button>
       <Button
         variant="outline"
         size="default"
-        className={cn('min-w-[88px] font-semibold', dark && 'bg-card')}
-        onClick={onSubstitution}
-        disabled={disabled}
+        className={cn('live-action-jumpball min-w-[120px] font-semibold', dark && 'bg-card')}
+        onClick={onJumpBall}
+        disabled={disabled || jumpBallDisabled}
       >
-        <Users className="w-4 h-4 mr-1.5" />
-        SUB
+        JUMP BALL
       </Button>
     </div>
   );
