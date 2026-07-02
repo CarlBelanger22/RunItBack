@@ -15,7 +15,7 @@ export const PAINT_DEPTH_M = 5.8;
 export const PAINT_LEFT_M = HOOP_X_M - PAINT_WIDTH_M / 2;
 export const PAINT_RIGHT_M = HOOP_X_M + PAINT_WIDTH_M / 2;
 
-/** FIBA three-point arc radius from basket center. */
+/** FIBA three-point arc radius from basket center (6.75 m). */
 export const THREE_ARC_RADIUS_M = 6.75;
 
 /** Straight corner segments: 0.9 m from each sideline. */
@@ -24,9 +24,11 @@ export const THREE_CORNER_LEFT_M = THREE_CORNER_INSET_M;
 export const THREE_CORNER_RIGHT_M = COURT_WIDTH_M - THREE_CORNER_INSET_M;
 
 /** Y where the arc meets the corner straight line (derived from geometry). */
-export const THREE_ARC_BREAK_Y_M = Math.sqrt(
-  THREE_ARC_RADIUS_M ** 2 - (HOOP_X_M - THREE_CORNER_LEFT_M) ** 2
-);
+export function threeArcBreakYM(threeArcRadiusM: number = THREE_ARC_RADIUS_M): number {
+  return Math.sqrt(threeArcRadiusM ** 2 - (HOOP_X_M - THREE_CORNER_LEFT_M) ** 2);
+}
+
+export const THREE_ARC_BREAK_Y_M = threeArcBreakYM();
 
 export type CourtPointM = { xM: number; yM: number };
 export type ShotZone = 'paint' | 'two' | 'three';
@@ -57,18 +59,25 @@ export function isInPaint(p: CourtPointM): boolean {
  * True when the shot is a three-pointer by FIBA arc + corner straight segments.
  * Paint is handled separately in {@link resolveShotZone}.
  */
-export function isBeyondThreePointLine(p: CourtPointM): boolean {
+export function isBeyondThreePointLine(
+  p: CourtPointM,
+  threeArcRadiusM: number = THREE_ARC_RADIUS_M
+): boolean {
   const d = distanceFromHoopM(p);
+  const breakY = threeArcBreakYM(threeArcRadiusM);
 
   const inCornerStraightBand =
     p.yM >= HOOP_Y_M &&
-    p.yM <= THREE_ARC_BREAK_Y_M &&
+    p.yM <= breakY &&
     (p.xM <= THREE_CORNER_LEFT_M || p.xM >= THREE_CORNER_RIGHT_M);
 
-  return d > THREE_ARC_RADIUS_M || inCornerStraightBand;
+  return d > threeArcRadiusM || inCornerStraightBand;
 }
 
-export function resolveShotZone(p: CourtPointM): ResolvedShotZone {
+export function resolveShotZone(
+  p: CourtPointM,
+  threeArcRadiusM: number = THREE_ARC_RADIUS_M
+): ResolvedShotZone {
   const distM = distanceFromHoopM(p);
 
   if (isInPaint(p)) {
@@ -80,7 +89,7 @@ export function resolveShotZone(p: CourtPointM): ResolvedShotZone {
     };
   }
 
-  if (isBeyondThreePointLine(p)) {
+  if (isBeyondThreePointLine(p, threeArcRadiusM)) {
     return {
       zone: 'three',
       isPaint: false,

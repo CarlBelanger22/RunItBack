@@ -1,6 +1,7 @@
 import React from 'react';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
 
 interface ShotOutcomeOverlayProps {
   isThree: boolean;
@@ -20,7 +21,7 @@ export function ShotOutcomeOverlay({
   onCancel,
 }: ShotOutcomeOverlayProps) {
   return (
-    <div className="absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[2px] rounded-xl z-10 pointer-events-auto">
+    <LiveCourtOverlayShell>
       <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
         <CardHeader className="pb-2 pt-4">
           <CardTitle className="text-center text-base">
@@ -29,47 +30,20 @@ export function ShotOutcomeOverlay({
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-2 pb-4">
-          <Button
-            className="h-12 bg-green-600 hover:bg-green-700 font-bold"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMake();
-            }}
-          >
+          <Button className="live-btn-make h-12 font-bold" onClick={overlayClick(onMake)}>
             MAKE
           </Button>
-          <Button
-            variant="destructive"
-            className="h-12 font-bold"
-            onClick={(e) => {
-              e.stopPropagation();
-              onMiss();
-            }}
-          >
+          <Button className="live-btn-miss h-12 font-bold" onClick={overlayClick(onMiss)}>
             MISS
           </Button>
-          <Button
-            variant="secondary"
-            className="h-12 font-bold"
-            onClick={(e) => {
-              e.stopPropagation();
-              onBlock();
-            }}
-          >
+          <Button variant="secondary" className="h-12 font-bold" onClick={overlayClick(onBlock)}>
             BLOCK
           </Button>
-          <Button
-            variant="ghost"
-            className="col-span-3"
-            onClick={(e) => {
-              e.stopPropagation();
-              onCancel();
-            }}
-          >
+          <Button variant="ghost" className="col-span-3" onClick={overlayClick(onCancel)}>
             Cancel
           </Button>
         </CardContent>
       </Card>
-    </div>
+    </LiveCourtOverlayShell>
   );
 }

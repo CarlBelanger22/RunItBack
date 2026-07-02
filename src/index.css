@@ -2998,37 +2998,58 @@ html {
 
 .live-play-band {
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
-  min-height: 200px;
-  overflow: hidden;
+  overflow: visible;
   background-color: var(--background);
 }
 
 .live-entry-main {
   display: flex;
-  flex: 1;
+  flex: 1 0 auto;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .live-entry-root {
-  --live-home: #3b82f6;
-  --live-away: #f97316;
-  --live-success: #4ade80;
+  --live-canvas: #12141c;
+  --live-court-aspect: 188 / 100;
+  --live-court-scale: 0.9;
+  --live-play-side-width: 246px;
+  --live-surface: #1e2230;
+  --live-border-strong: #3a3f55;
+  --live-home: #00d2ff;
+  --live-away: #ff9f00;
+  --live-success: #00e676;
+  --live-danger: #ff3838;
+  --live-text: #f8f9fa;
+  --live-text-muted: color-mix(in srgb, var(--live-text) 55%, transparent);
   --live-home-header: color-mix(in srgb, var(--live-home) 47%, transparent);
   --live-home-border: color-mix(in srgb, var(--live-home) 30%, transparent);
   --live-home-border-hover: color-mix(in srgb, var(--live-home) 55%, transparent);
   --live-away-header: color-mix(in srgb, var(--live-away) 47%, transparent);
   --live-away-border: color-mix(in srgb, var(--live-away) 30%, transparent);
   --live-away-border-hover: color-mix(in srgb, var(--live-away) 55%, transparent);
+  --background: var(--live-canvas);
+  --foreground: var(--live-text);
+  --card: var(--live-surface);
+  --card-foreground: var(--live-text);
+  --muted: color-mix(in srgb, var(--live-surface) 88%, var(--live-border-strong));
+  --muted-foreground: var(--live-text-muted);
+  --border: var(--live-border-strong);
+  --destructive: var(--live-danger);
+  --accent: color-mix(in srgb, var(--live-border-strong) 45%, var(--live-surface));
+  --accent-foreground: var(--live-text);
+  --primary: var(--live-text);
+  --primary-foreground: var(--live-canvas);
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 73px);
-  overflow: hidden;
-  background-color: var(--background);
-  color: var(--foreground);
+  min-height: calc(100dvh - 73px);
+  height: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background-color: var(--live-canvas);
+  color: var(--live-text);
   font-family: 'Barlow', sans-serif;
 }
 
@@ -3042,18 +3063,16 @@ html {
 
 .live-play-flex {
   display: flex;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
+  flex: 0 0 auto;
   width: 100%;
   align-items: stretch;
 }
 
 .live-play-side {
   display: flex;
-  width: 164px;
-  height: 100%;
+  width: var(--live-play-side-width);
   flex-shrink: 0;
+  align-self: stretch;
   min-height: 0;
   flex-direction: column;
   justify-content: flex-start;
@@ -3073,10 +3092,9 @@ html {
 .live-play-center {
   display: flex;
   min-width: 0;
-  min-height: 0;
-  flex: 1;
+  flex: 1 1 auto;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible;
 }
 
 .live-context-bar {
@@ -3093,20 +3111,22 @@ html {
 
 .live-court-stage {
   display: flex;
-  min-height: 0;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
+  width: calc(100% * var(--live-court-scale));
+  margin-inline: auto;
+  flex: 0 0 auto;
+  aspect-ratio: var(--live-court-aspect);
+  align-items: stretch;
+  justify-content: stretch;
   overflow: hidden;
-  padding: calc(var(--spacing) * 2) calc(var(--spacing) * 3);
+  padding: calc(var(--spacing) * 1);
 }
 
 .live-court-frame {
   display: flex;
-  width: 60%;
+  width: 100%;
   height: 100%;
-  max-height: 100%;
   min-height: 0;
+  flex: 1;
   flex-direction: column;
 }
 
@@ -3119,7 +3139,7 @@ html {
 }
 
 .live-play-grid > section:not(:first-child) {
-  border-left: 1px solid rgb(51 65 85 / 0.7);
+  border-left: 1px solid var(--live-border-strong);
 }
 
 .live-play-col {
@@ -3142,8 +3162,229 @@ html {
   min-height: 0;
   flex: 1;
   gap: calc(var(--spacing) * 1.5);
-  grid-template-rows: repeat(5, minmax(0, 1fr));
+  grid-template-rows: repeat(6, minmax(0, 1fr));
   overflow-y: auto;
+}
+
+/* LE-26 — Broadcast-style on-court player cards */
+.live-on-court-column-header {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.live-on-court-column-header-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  border-radius: 9999px;
+  background: var(--live-on-court-accent);
+  opacity: 0.85;
+}
+
+.live-on-court-card,
+.live-on-court-sub {
+  position: relative;
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 52px;
+  align-items: center;
+  overflow: hidden;
+  border-radius: 6px;
+  text-align: left;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease,
+    filter 0.15s ease;
+}
+
+.live-on-court-card {
+  gap: 12px;
+  padding: 10px 12px 10px 16px;
+  border: 1px solid var(--live-border-strong);
+  background: linear-gradient(
+    135deg,
+    var(--live-surface) 0%,
+    color-mix(in srgb, var(--live-surface) 88%, var(--live-canvas)) 100%
+  );
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--live-text) 5%, transparent) inset,
+    0 1px 2px color-mix(in srgb, var(--live-canvas) 50%, transparent);
+}
+
+.live-on-court-card::before,
+.live-on-court-sub::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+  background: var(--live-on-court-accent);
+  opacity: 0.65;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.live-on-court-card--home,
+.live-on-court-sub--home {
+  --live-on-court-accent: var(--live-home);
+}
+
+.live-on-court-card--away,
+.live-on-court-sub--away {
+  --live-on-court-accent: var(--live-away);
+}
+
+.live-on-court-card--selected {
+  border-color: color-mix(in srgb, var(--live-on-court-accent) 55%, var(--live-border-strong));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--live-on-court-accent) 16%, var(--live-surface)) 0%,
+    color-mix(in srgb, var(--live-on-court-accent) 8%, var(--live-surface)) 100%
+  );
+  box-shadow:
+    0 0 14px color-mix(in srgb, var(--live-on-court-accent) 28%, transparent),
+    0 1px 0 color-mix(in srgb, var(--live-on-court-accent) 18%, transparent) inset;
+}
+
+.live-on-court-card--selected::before {
+  opacity: 1;
+  box-shadow: 0 0 8px var(--live-on-court-accent);
+}
+
+.live-on-court-card--interactive {
+  cursor: pointer;
+}
+
+.live-on-court-card--interactive:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--live-on-court-accent) 42%, var(--live-border-strong));
+  filter: brightness(1.06);
+}
+
+.live-on-court-card--interactive:hover:not(:disabled)::before {
+  opacity: 0.92;
+}
+
+.live-on-court-card:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+.live-on-court-jersey {
+  display: flex;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  border: 1.5px solid color-mix(in srgb, var(--live-on-court-accent) 38%, var(--live-border-strong));
+  background: color-mix(in srgb, var(--live-on-court-accent) 12%, var(--live-canvas));
+  color: var(--live-text);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 17px;
+  font-weight: 900;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.live-on-court-card--selected .live-on-court-jersey {
+  border-color: var(--live-on-court-accent);
+  background: var(--live-on-court-accent);
+  color: var(--live-canvas);
+}
+
+.live-on-court-body {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.live-on-court-name {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--live-text);
+  font-family: 'Barlow', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.live-on-court-pos {
+  flex-shrink: 0;
+  padding: 3px 7px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--live-on-court-accent) 32%, var(--live-border-strong));
+  background: color-mix(in srgb, var(--live-on-court-accent) 8%, var(--live-canvas));
+  color: color-mix(in srgb, var(--live-text) 65%, var(--live-on-court-accent));
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.live-on-court-card--selected .live-on-court-pos {
+  border-color: color-mix(in srgb, var(--live-on-court-accent) 48%, transparent);
+  background: color-mix(in srgb, var(--live-on-court-accent) 20%, var(--live-canvas));
+  color: var(--live-on-court-accent);
+}
+
+.live-on-court-sub {
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 12px 10px 16px;
+  border: 1px dashed color-mix(in srgb, var(--live-on-court-accent) 38%, var(--live-border-strong));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--live-on-court-accent) 6%, var(--live-surface)) 0%,
+    color-mix(in srgb, var(--live-on-court-accent) 3%, var(--live-canvas)) 100%
+  );
+  color: var(--live-on-court-accent);
+  font-family: 'Barlow Condensed', sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.live-on-court-sub::before {
+  opacity: 0.45;
+}
+
+.live-on-court-sub:not(:disabled):hover {
+  border-color: color-mix(in srgb, var(--live-on-court-accent) 55%, var(--live-border-strong));
+  filter: brightness(1.06);
+}
+
+.live-on-court-sub:not(:disabled) {
+  cursor: pointer;
+}
+
+.live-on-court-sub:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.live-on-court-sub-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
 
 .border-l-2 {
@@ -3152,31 +3393,62 @@ html {
 
 /* LE-11.6 — FIBA scoreboard header */
 .live-scoreboard-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 8px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
 
+.live-scoreboard-chrome {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 12px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+
 .live-scoreboard-left {
-  width: auto;
-  min-width: 64px;
-  flex-shrink: 0;
+  grid-column: 1;
+  justify-self: start;
+  align-self: center;
+  min-width: 0;
 }
 
 .live-scoreboard-right {
-  width: 220px;
-  flex-shrink: 0;
+  grid-column: 3;
+  justify-self: end;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.live-scoreboard-right-meta {
   text-align: right;
 }
 
+.live-scoreboard-right-ops {
+  min-width: 0;
+}
+
 .live-back-btn {
+  display: inline-flex;
+  align-items: center;
   height: 28px;
-  padding: 0 8px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
   font-size: 11px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.live-back-btn:hover {
+  color: var(--foreground);
+  background: var(--accent);
 }
 
 .live-back-btn-icon {
@@ -3199,20 +3471,21 @@ html {
 
 .live-scoreboard-center {
   display: flex;
-  flex: 1;
   align-items: center;
   justify-content: center;
   gap: 24px;
   min-width: 0;
+  grid-column: 2;
+  justify-self: center;
 }
 
 .live-team-name-block {
-  min-width: 100px;
-  max-width: 140px;
+  min-width: 120px;
+  max-width: 160px;
 }
 
 .live-team-abbr {
-  font-size: 1.375rem;
+  font-size: 1.75rem;
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: 0.02em;
@@ -3220,10 +3493,10 @@ html {
 
 .live-team-name {
   margin-top: 2px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   line-height: 1.2;
-  color: var(--foreground);
+  color: var(--live-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -3246,6 +3519,10 @@ html {
   font-weight: 800;
   line-height: 1;
   font-variant-numeric: tabular-nums;
+}
+
+.live-score-num--chalk {
+  color: var(--live-text);
 }
 
 .live-score-dash {
@@ -3277,7 +3554,7 @@ html {
 .live-pf-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--foreground);
+  color: var(--live-text);
   margin-left: 4px;
   margin-right: 4px;
 }
@@ -3309,7 +3586,7 @@ html {
 .live-qtr-label {
   font-size: 10px;
   font-weight: 600;
-  color: var(--foreground);
+  color: var(--live-text);
   margin-left: 4px;
 }
 
@@ -3323,6 +3600,75 @@ html {
   font-size: 1.25rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
+}
+
+.live-possession-arrow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 24px;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.live-possession-arrow--empty {
+  visibility: hidden;
+  border-color: transparent;
+  background: transparent;
+}
+
+.live-opening-jumpball-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--background) 72%, transparent);
+  backdrop-filter: blur(4px);
+}
+
+.live-opening-jumpball-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 28px 32px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  box-shadow: 0 16px 48px color-mix(in srgb, var(--background) 40%, transparent);
+}
+
+.live-opening-jumpball-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--foreground);
+}
+
+.live-opening-jumpball-subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.live-opening-jumpball-buttons {
+  display: flex;
+  gap: 12px;
+}
+
+.live-opening-jumpball-btn {
+  min-width: 120px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  background: transparent;
 }
 
 .live-clock-toggle {
@@ -3356,7 +3702,7 @@ html {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 2px;
-  margin-top: 6px;
+  margin-top: 0;
 }
 
 .live-ops-btn {
@@ -3369,7 +3715,57 @@ html {
 }
 
 .live-ops-btn-danger {
-  color: var(--destructive) !important;
+  color: var(--live-danger) !important;
+}
+
+/* LE-19 — Courtside semantic action buttons */
+.live-btn-make {
+  background-color: var(--live-success) !important;
+  color: var(--live-canvas) !important;
+}
+
+.live-btn-make:hover {
+  background-color: color-mix(in srgb, var(--live-success) 88%, var(--live-text)) !important;
+}
+
+.live-btn-miss {
+  background-color: var(--live-danger) !important;
+  color: var(--live-text) !important;
+}
+
+.live-btn-miss:hover {
+  background-color: color-mix(in srgb, var(--live-danger) 88%, var(--live-text)) !important;
+}
+
+.live-action-undo {
+  border-color: color-mix(in srgb, var(--live-border-strong) 90%, transparent) !important;
+  color: var(--live-text-muted) !important;
+  background-color: var(--live-surface) !important;
+}
+
+.live-action-undo:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--live-text) 8%, var(--live-surface)) !important;
+  color: var(--live-text) !important;
+}
+
+.live-action-foul {
+  border-color: color-mix(in srgb, var(--live-danger) 40%, transparent) !important;
+  color: var(--live-danger) !important;
+  background-color: var(--live-surface) !important;
+}
+
+.live-action-foul:hover {
+  background-color: color-mix(in srgb, var(--live-danger) 12%, var(--live-surface)) !important;
+}
+
+.live-action-to {
+  border-color: color-mix(in srgb, var(--live-danger) 35%, transparent) !important;
+  color: color-mix(in srgb, var(--live-danger) 85%, var(--live-text)) !important;
+  background-color: var(--live-surface) !important;
+}
+
+.live-action-to:hover {
+  background-color: color-mix(in srgb, var(--live-danger) 10%, var(--live-surface)) !important;
 }
 
 /* LE-11.7 — Play-by-play rail */
@@ -3501,11 +3897,10 @@ html {
 /* LE-11.8 — Dual box score */
 .live-box-panel {
   display: flex;
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   flex-direction: column;
   min-height: 160px;
-  max-height: min(320px, 38dvh);
-  overflow: hidden;
+  overflow: visible;
   background: var(--background);
   border-top: 1px solid var(--border);
 }

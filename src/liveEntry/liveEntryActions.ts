@@ -100,6 +100,67 @@ export function buildTurnoverEvent(
   };
 }
 
+export function buildOpeningJumpBallEvent(
+  game: Game,
+  winnerTeamId: string,
+  loserTeamId: string
+): GameEvent {
+  const ts = Date.now();
+  return {
+    id: `event-${ts}`,
+    type: 'jump_ball',
+    timestamp: ts,
+    period: game.currentPeriod,
+    gameTime: game.currentGameTime,
+    teamId: winnerTeamId,
+    details: {
+      kind: 'opening',
+      winnerTeamId,
+      awardedTeamId: winnerTeamId,
+      arrowBeforeTeamId: null,
+      arrowAfterTeamId: loserTeamId,
+      possessionChanged: true,
+    },
+    homeScore: game.teamStats.home.total_points,
+    awayScore: game.teamStats.away.total_points,
+  };
+}
+
+export function buildHeldBallJumpBallEvent(
+  game: Game,
+  params: {
+    losingTeamId: string;
+    arrowBeforeTeamId: string;
+    arrowAfterTeamId: string;
+    awardedTeamId: string;
+    possessionChanged: boolean;
+    turnoverPlayerId?: string;
+    stealPlayerId?: string;
+  }
+): GameEvent {
+  const ts = Date.now();
+  return {
+    id: `event-${ts}`,
+    type: 'jump_ball',
+    timestamp: ts,
+    period: game.currentPeriod,
+    gameTime: game.currentGameTime,
+    teamId: params.losingTeamId,
+    playerId: params.turnoverPlayerId,
+    details: {
+      kind: 'held_ball',
+      arrowBeforeTeamId: params.arrowBeforeTeamId,
+      arrowAfterTeamId: params.arrowAfterTeamId,
+      awardedTeamId: params.awardedTeamId,
+      possessionChanged: params.possessionChanged,
+      turnoverPlayerId: params.turnoverPlayerId ?? null,
+      stealPlayerId: params.stealPlayerId ?? null,
+    },
+    homeScore: game.teamStats.home.total_points,
+    awayScore: game.teamStats.away.total_points,
+  };
+}
+
 export function buildFoulEvent(
   game: Game,
   defenseTeamId: string,

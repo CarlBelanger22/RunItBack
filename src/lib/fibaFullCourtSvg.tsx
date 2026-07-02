@@ -7,6 +7,7 @@ import {
   PAINT_LEFT_M,
   PAINT_RIGHT_M,
   THREE_ARC_BREAK_Y_M,
+  THREE_ARC_RADIUS_M,
   THREE_CORNER_LEFT_M,
   THREE_CORNER_RIGHT_M,
   type CourtPointM,
@@ -102,7 +103,7 @@ function HalfBasketEnd({
         strokeWidth={0.08}
       />
       <path
-        d={`M ${THREE_CORNER_LEFT_M} ${yBase + THREE_ARC_BREAK_Y_M} A 6.75 6.75 0 0 ${flip ? 0 : 1} ${THREE_CORNER_RIGHT_M} ${yBase + THREE_ARC_BREAK_Y_M}`}
+        d={`M ${THREE_CORNER_LEFT_M} ${yBase + THREE_ARC_BREAK_Y_M} A ${THREE_ARC_RADIUS_M} ${THREE_ARC_RADIUS_M} 0 0 ${flip ? 0 : 1} ${THREE_CORNER_RIGHT_M} ${yBase + THREE_ARC_BREAK_Y_M}`}
         strokeWidth={0.08}
       />
       <circle cx={HOOP_X_M} cy={yBase} r={RIM_RADIUS_M} strokeWidth={0.09} />

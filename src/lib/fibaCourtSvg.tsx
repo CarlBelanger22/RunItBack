@@ -21,12 +21,15 @@ const FT_LINE_Y_M = PAINT_DEPTH_M;
 const FT_CIRCLE_RADIUS_M = 1.8;
 const RIM_RADIUS_M = 0.225;
 
-/** Figma live-entry court palette — fixed regardless of app theme. */
+/** Figma live-entry court palette — wood floor fixed; zone tints follow team accents. */
 export const LIVE_COURT_COLORS = {
   surface: '#C9A66B',
   line: '#1E293B',
-  paintZone: 'rgba(59, 130, 246, 0.22)',
-  threeZone: 'rgba(249, 115, 22, 0.25)',
+  paintZone: 'rgba(0, 210, 255, 0.22)',
+  threeZone: 'rgba(255, 159, 0, 0.25)',
+  markerMake: '#00E676',
+  markerMiss: '#FF3838',
+  markerOther: '#FF9F00',
 } as const;
 
 export interface CourtMarker {
@@ -230,10 +233,10 @@ export function FibaCourtSvg({
             const { x, y } = courtPointMToSvg(m.point);
             const fill =
               m.color === 'green'
-                ? '#22c55e'
+                ? LIVE_COURT_COLORS.markerMake
                 : m.color === 'red'
-                  ? '#ef4444'
-                  : '#f97316';
+                  ? LIVE_COURT_COLORS.markerMiss
+                  : LIVE_COURT_COLORS.markerOther;
             return (
               <circle
                 key={i}
@@ -260,10 +263,10 @@ export function FibaCourtSvg({
             const { x, y } = courtPointMToSvg(m.point);
             const fill =
               m.color === 'green'
-                ? '#22c55e'
+                ? LIVE_COURT_COLORS.markerMake
                 : m.color === 'red'
-                  ? '#ef4444'
-                  : '#f97316';
+                  ? LIVE_COURT_COLORS.markerMiss
+                  : LIVE_COURT_COLORS.markerOther;
             return (
               <circle
                 key={i}

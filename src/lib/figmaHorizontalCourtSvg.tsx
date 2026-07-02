@@ -1,11 +1,26 @@
 import React, { useId } from 'react';
 import { cn } from '../components/ui/utils';
+import {
+  HORIZONTAL_CORNER_Y_SVG,
+  HORIZONTAL_COURT_ASPECT,
+  HORIZONTAL_COURT_VH,
+  HORIZONTAL_COURT_VW,
+  HORIZONTAL_INSET,
+  HORIZONTAL_PAINT_DEPTH_SVG,
+  HORIZONTAL_PAINT_WIDTH_SVG,
+  HORIZONTAL_THREE_ARC_RADIUS_SVG,
+  horizontalBackboardLeftX,
+  horizontalBackboardRightX,
+  horizontalBasketLeftX,
+  horizontalBasketRightX,
+} from './horizontalCourtLayout';
 
-/** Figma horizontal full-court viewBox (landscape). */
-export const HORIZONTAL_COURT_VW = 188;
-export const HORIZONTAL_COURT_VH = 100;
-export const HORIZONTAL_INSET = 1.5;
-export const HORIZONTAL_COURT_ASPECT = HORIZONTAL_COURT_VW / HORIZONTAL_COURT_VH;
+export {
+  HORIZONTAL_COURT_ASPECT,
+  HORIZONTAL_COURT_VH,
+  HORIZONTAL_COURT_VW,
+  HORIZONTAL_INSET,
+} from './horizontalCourtLayout';
 
 export const LIVE_HORIZONTAL_COURT_COLORS = {
   /** Court label / key paint tints only — UI chrome uses liveEntryTheme.ts */
@@ -15,7 +30,8 @@ export const LIVE_HORIZONTAL_COURT_COLORS = {
   floor: '#cc9930',
   floorStroke: '#8b6812',
   line: '#ffffff',
-  rim: '#e07820',
+  rim: '#ff5500',
+  rimRing: '#ffffff',
 } as const;
 
 export interface HorizontalCourtMarker {
@@ -46,6 +62,35 @@ export function fitHorizontalCourtDimensions(
   return { width: height * HORIZONTAL_COURT_ASPECT, height };
 }
 
+/**
+ * 3PT line from basket-centered radius (FIBA 6.75 m via horizontalCourtLayout scale).
+ * `radiusFromBasket` is SVG distance from hoop center — must match HORIZONTAL_THREE_ARC_RADIUS_SVG.
+ */
+function buildHorizontalThreePointPath(
+  basketX: number,
+  basketY: number,
+  baselineX: number,
+  cornerY: number,
+  viewHeight: number,
+  radiusFromBasket: number,
+  attacksRight: boolean
+): { path: string; arcMeetX: number } {
+  const dy = basketY - cornerY;
+  const chordHalf = Math.sqrt(Math.max(0, radiusFromBasket ** 2 - dy ** 2));
+  const arcMeetX = attacksRight ? basketX + chordHalf : basketX - chordHalf;
+  const bottomY = viewHeight - cornerY;
+  const sweep = attacksRight ? 1 : 0;
+
+  const path = [
+    `M ${baselineX} ${cornerY}`,
+    `L ${arcMeetX} ${cornerY}`,
+    `A ${radiusFromBasket} ${radiusFromBasket} 0 0 ${sweep} ${arcMeetX} ${bottomY}`,
+    `L ${baselineX} ${bottomY}`,
+  ].join(' ');
+
+  return { path, arcMeetX };
+}
+
 export function FigmaHorizontalCourtSvg({
   className,
   markers = [],
@@ -62,15 +107,35 @@ export function FigmaHorizontalCourtSvg({
 
   const VW = HORIZONTAL_COURT_VW;
   const VH = HORIZONTAL_COURT_VH;
-  const keyW = 33;
-  const keyD = 39;
-  const basketX = 10.5;
-  const lBX = HORIZONTAL_INSET + basketX;
-  const rBX = VW - HORIZONTAL_INSET - basketX;
+  const keyW = HORIZONTAL_PAINT_WIDTH_SVG;
+  const keyD = HORIZONTAL_PAINT_DEPTH_SVG;
+  const lBX = horizontalBasketLeftX();
+  const rBX = horizontalBasketRightX();
+  const backboardLeftX = horizontalBackboardLeftX();
+  const backboardRightX = horizontalBackboardRightX();
   const bY = VH / 2;
-  const arc3R = 45;
-  const c3Y = 9;
-  const { home, away, floorDark, floor, floorStroke, line, rim } = LIVE_HORIZONTAL_COURT_COLORS;
+  const threeR = HORIZONTAL_THREE_ARC_RADIUS_SVG;
+  const c3Y = HORIZONTAL_CORNER_Y_SVG;
+  const leftThree = buildHorizontalThreePointPath(
+    lBX,
+    bY,
+    HORIZONTAL_INSET,
+    c3Y,
+    VH,
+    threeR,
+    true
+  );
+  const rightThree = buildHorizontalThreePointPath(
+    rBX,
+    bY,
+    VW - HORIZONTAL_INSET,
+    c3Y,
+    VH,
+    threeR,
+    false
+  );
+  const { home, away, floorDark, floor, floorStroke, line, rim, rimRing } =
+    LIVE_HORIZONTAL_COURT_COLORS;
 
   return (
     <div
@@ -174,14 +239,15 @@ export function FigmaHorizontalCourtSvg({
           clipPath={`url(#${courtClipId})`}
         />
         <line
-          x1={HORIZONTAL_INSET + 4.5}
+          x1={backboardLeftX}
           y1={bY - 9}
-          x2={HORIZONTAL_INSET + 4.5}
+          x2={backboardLeftX}
           y2={bY + 9}
           stroke={line}
           strokeWidth={0.9}
         />
-        <circle cx={lBX} cy={bY} r={2.6} fill="none" stroke={rim} strokeWidth={0.65} />
+        <circle cx={lBX} cy={bY} r={2.6} fill="none" stroke={rimRing} strokeWidth={0.5} />
+        <circle cx={lBX} cy={bY} r={2.2} fill="none" stroke={rim} strokeWidth={0.85} />
         <circle cx={lBX} cy={bY} r={0.65} fill={rim} />
         <path
           d={`M ${lBX} ${bY - 4.2} A 4.2 4.2 0 0 1 ${lBX} ${bY + 4.2}`}
@@ -190,7 +256,7 @@ export function FigmaHorizontalCourtSvg({
           strokeWidth={0.35}
         />
         <path
-          d={`M ${HORIZONTAL_INSET} ${c3Y} L ${HORIZONTAL_INSET + 14.5} ${c3Y} A ${arc3R} ${arc3R} 0 0 1 ${HORIZONTAL_INSET + 14.5} ${VH - c3Y} L ${HORIZONTAL_INSET} ${VH - c3Y}`}
+          d={leftThree.path}
           fill="none"
           stroke={line}
           strokeWidth={0.4}
@@ -199,7 +265,7 @@ export function FigmaHorizontalCourtSvg({
         <line
           x1={HORIZONTAL_INSET}
           y1={c3Y}
-          x2={HORIZONTAL_INSET + 14.5}
+          x2={leftThree.arcMeetX}
           y2={c3Y}
           stroke={line}
           strokeWidth={0.4}
@@ -207,7 +273,7 @@ export function FigmaHorizontalCourtSvg({
         <line
           x1={HORIZONTAL_INSET}
           y1={VH - c3Y}
-          x2={HORIZONTAL_INSET + 14.5}
+          x2={leftThree.arcMeetX}
           y2={VH - c3Y}
           stroke={line}
           strokeWidth={0.4}
@@ -242,14 +308,15 @@ export function FigmaHorizontalCourtSvg({
           clipPath={`url(#${courtClipId})`}
         />
         <line
-          x1={VW - HORIZONTAL_INSET - 4.5}
+          x1={backboardRightX}
           y1={bY - 9}
-          x2={VW - HORIZONTAL_INSET - 4.5}
+          x2={backboardRightX}
           y2={bY + 9}
           stroke={line}
           strokeWidth={0.9}
         />
-        <circle cx={rBX} cy={bY} r={2.6} fill="none" stroke={rim} strokeWidth={0.65} />
+        <circle cx={rBX} cy={bY} r={2.6} fill="none" stroke={rimRing} strokeWidth={0.5} />
+        <circle cx={rBX} cy={bY} r={2.2} fill="none" stroke={rim} strokeWidth={0.85} />
         <circle cx={rBX} cy={bY} r={0.65} fill={rim} />
         <path
           d={`M ${rBX} ${bY - 4.2} A 4.2 4.2 0 0 0 ${rBX} ${bY + 4.2}`}
@@ -258,7 +325,7 @@ export function FigmaHorizontalCourtSvg({
           strokeWidth={0.35}
         />
         <path
-          d={`M ${VW - HORIZONTAL_INSET} ${c3Y} L ${VW - HORIZONTAL_INSET - 14.5} ${c3Y} A ${arc3R} ${arc3R} 0 0 0 ${VW - HORIZONTAL_INSET - 14.5} ${VH - c3Y} L ${VW - HORIZONTAL_INSET} ${VH - c3Y}`}
+          d={rightThree.path}
           fill="none"
           stroke={line}
           strokeWidth={0.4}
@@ -267,7 +334,7 @@ export function FigmaHorizontalCourtSvg({
         <line
           x1={VW - HORIZONTAL_INSET}
           y1={c3Y}
-          x2={VW - HORIZONTAL_INSET - 14.5}
+          x2={rightThree.arcMeetX}
           y2={c3Y}
           stroke={line}
           strokeWidth={0.4}
@@ -275,7 +342,7 @@ export function FigmaHorizontalCourtSvg({
         <line
           x1={VW - HORIZONTAL_INSET}
           y1={VH - c3Y}
-          x2={VW - HORIZONTAL_INSET - 14.5}
+          x2={rightThree.arcMeetX}
           y2={VH - c3Y}
           stroke={line}
           strokeWidth={0.4}

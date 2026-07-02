@@ -6,7 +6,7 @@ export const ON_COURT_SIDE_THEME = {
     cardBorder: 'var(--live-home-border)',
     cardBorderHover: 'var(--live-home-border-hover)',
     cardBorderSelected: 'var(--live-home)',
-    number: 'var(--live-home)',
+    number: 'var(--live-text)',
     possessionAccent: 'var(--live-home)',
   },
   away: {
@@ -14,7 +14,7 @@ export const ON_COURT_SIDE_THEME = {
     cardBorder: 'var(--live-away-border)',
     cardBorderHover: 'var(--live-away-border-hover)',
     cardBorderSelected: 'var(--live-away)',
-    number: 'var(--live-away)',
+    number: 'var(--live-text)',
     possessionAccent: 'var(--live-away)',
   },
 } as const satisfies Record<

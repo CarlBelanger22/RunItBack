@@ -168,6 +168,113 @@ function testPossessionContextForScoring(): void {
   assert(ctx.offTurnover === true, 'context offTurnover for recovering team');
 }
 
+function testOpeningJumpBallSetsOffenseAndArrow(): void {
+  let game = emptyGame();
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'away',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'away',
+        awardedTeamId: 'away',
+        arrowAfterTeamId: 'home',
+        possessionChanged: true,
+      },
+    })
+  );
+  const snap = derivePossessionSnapshot(game, game.events);
+  assert(snap.offenseTeamId === 'away', 'tip winner has opening possession');
+  assert(game.possessionArrowTeamId === 'home', 'arrow points to tip loser');
+}
+
+function testHeldBallJumpBallWithStats(): void {
+  let game = emptyGame();
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    })
+  );
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      playerId: 'p-home',
+      details: {
+        kind: 'held_ball',
+        arrowBeforeTeamId: 'away',
+        arrowAfterTeamId: 'home',
+        awardedTeamId: 'away',
+        possessionChanged: true,
+        turnoverPlayerId: 'p-home',
+        stealPlayerId: 'p-away',
+      },
+    })
+  );
+  const snap = derivePossessionSnapshot(game, game.events);
+  assert(snap.offenseTeamId === 'away', 'arrow team gets possession after held ball');
+  assert(game.possessionArrowTeamId === 'home', 'arrow flips after held ball');
+  const homeStats = game.gameStats.find((s) => s.playerId === 'p-home');
+  const awayStats = game.gameStats.find((s) => s.playerId === 'p-away');
+  assert((homeStats?.turnovers ?? 0) === 1, 'offense player credited with turnover');
+  assert((awayStats?.steals ?? 0) === 1, 'defense player credited with steal');
+}
+
+function testHeldBallAfterOpeningTipFlipsArrow(): void {
+  let game = emptyGame();
+  // BOS (home) wins tip → arrow points to LAL (away)
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    })
+  );
+  assert(game.possessionArrowTeamId === 'away', 'arrow at LAL after BOS tip');
+
+  // Held ball: arrow team (away) awarded ball — arrow must flip to home (BOS)
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      playerId: 'p-home',
+      details: {
+        kind: 'held_ball',
+        arrowBeforeTeamId: 'away',
+        arrowAfterTeamId: 'home',
+        awardedTeamId: 'away',
+        possessionChanged: true,
+        turnoverPlayerId: 'p-home',
+        stealPlayerId: 'p-away',
+      },
+    })
+  );
+  assert(game.possessionArrowTeamId === 'home', 'arrow flips to BOS after LAL wins held ball');
+  assert(
+    derivePossessionSnapshot(game, game.events).offenseTeamId === 'away',
+    'LAL has possession after held ball'
+  );
+}
+
 function main(): void {
   testTurnoverSetsOffTurnoverFlag();
   testOrbSetsSecondChance();
@@ -175,6 +282,9 @@ function main(): void {
   testScoringAppliesPtsOffTurnover();
   testScoringAppliesSecondChance();
   testPossessionContextForScoring();
+  testOpeningJumpBallSetsOffenseAndArrow();
+  testHeldBallJumpBallWithStats();
+  testHeldBallAfterOpeningTipFlipsArrow();
   console.log('All possession engine tests passed.');
 }
 

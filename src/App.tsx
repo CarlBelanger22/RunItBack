@@ -278,7 +278,8 @@ export type EventType =
   | 'substitution'
   | 'violation'
   | 'technical_foul'
-  | 'timeout';
+  | 'timeout'
+  | 'jump_ball';
 
 export interface GameEvent {
   id: string;
@@ -341,6 +342,8 @@ export interface Game {
   setupCreatedTeamIds?: string[];
   /** Players added to existing teams during setup (removed if game is deleted). */
   setupRosterChanges?: SetupRosterChange[];
+  /** Alternating-possession arrow — team that gets the next jump ball. */
+  possessionArrowTeamId?: string;
 }
 
 export interface SetupRosterChange {
