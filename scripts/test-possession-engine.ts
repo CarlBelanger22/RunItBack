@@ -275,6 +275,47 @@ function testHeldBallAfterOpeningTipFlipsArrow(): void {
   );
 }
 
+function testPeriodStartUsesPossessionArrow(): void {
+  let game = emptyGame();
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    })
+  );
+  assert(game.possessionArrowTeamId === 'away', 'arrow at away after home tip');
+
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'period_start',
+      period: 2,
+      gameTime: '10:00',
+      teamId: 'away',
+      details: {
+        period: 2,
+        clockTime: '10:00',
+        homeLineup: [],
+        awayLineup: [],
+        possessionTeamId: 'away',
+        arrowAfterTeamId: 'home',
+      },
+    })
+  );
+
+  const snap = derivePossessionSnapshot(game, game.events);
+  assert(snap.offenseTeamId === 'away', 'Q2 starts with arrow team on offense');
+  assert(game.possessionArrowTeamId === 'home', 'arrow flips after quarter-start AP');
+}
+
 function main(): void {
   testTurnoverSetsOffTurnoverFlag();
   testOrbSetsSecondChance();
@@ -285,6 +326,7 @@ function main(): void {
   testOpeningJumpBallSetsOffenseAndArrow();
   testHeldBallJumpBallWithStats();
   testHeldBallAfterOpeningTipFlipsArrow();
+  testPeriodStartUsesPossessionArrow();
   console.log('All possession engine tests passed.');
 }
 

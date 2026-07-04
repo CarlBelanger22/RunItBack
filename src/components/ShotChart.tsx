@@ -206,11 +206,23 @@ export function ShotChart({ game }: ShotChartProps) {
             </Badge>
           </CardTitle>
         </CardHeader>
-        <CardContent>
-          <CourtView 
-            shots={filteredShots}
-            useSvgBackground={true}
-          />
+        <CardContent className="space-y-3">
+          <CourtView shots={filteredShots} />
+          {hasShotChartData && (
+            <div className="flex items-center justify-center gap-6 text-sm text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-3 w-3 rounded-full border border-white bg-[#22c55e] shadow-sm" />
+                Made
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="relative inline-flex h-3 w-3 items-center justify-center">
+                  <span className="absolute h-px w-3 rotate-45 bg-[#ef4444]" />
+                  <span className="absolute h-px w-3 -rotate-45 bg-[#ef4444]" />
+                </span>
+                Missed
+              </span>
+            </div>
+          )}
         </CardContent>
       </Card>
 

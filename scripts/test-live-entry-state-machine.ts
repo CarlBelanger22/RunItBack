@@ -88,8 +88,34 @@ function testResetClearsPending(): void {
   assert(state.ctx.pendingShot === null, 'pending cleared');
 }
 
+function testCourtClickIgnoredDuringAwaitOutcome(): void {
+  let state = liveEntryReducer(baseState(), {
+    type: 'COURT_CLICK',
+    point: { xM: 7.5, yM: 2 },
+    zone: {
+      zone: 'paint',
+      isPaint: true,
+      shotValue: 2,
+      distanceFromHoopM: 2,
+    },
+  });
+  const next = liveEntryReducer(state, {
+    type: 'COURT_CLICK',
+    point: { xM: 1, yM: 1 },
+    zone: {
+      zone: 'three',
+      isPaint: false,
+      shotValue: 3,
+      distanceFromHoopM: 9,
+    },
+  });
+  assert(next === state, 'court click ignored while awaiting shot outcome');
+  assert(next.ctx.pendingShot?.point.xM === 7.5, 'pending shot point unchanged');
+}
+
 function main(): void {
   testCourtClickStartsShotFlow();
+  testCourtClickIgnoredDuringAwaitOutcome();
   testMakeOutcomePicksShooter();
   testMissOutcomePicksShooter();
   testResetClearsPending();

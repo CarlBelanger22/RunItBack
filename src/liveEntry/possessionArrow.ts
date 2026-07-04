@@ -18,6 +18,13 @@ export function derivePossessionArrowTeamId(
   return arrow;
 }
 
+/** Opening tip already recorded in the event log. */
+export function hasOpeningTipBeenRecorded(events: GameEvent[]): boolean {
+  return events.some(
+    (e) => e.type === 'jump_ball' && (e.details.kind as string) === 'opening'
+  );
+}
+
 export function gameNeedsOpeningJumpBall(game: Game): boolean {
-  return game.events.length === 0;
+  return !hasOpeningTipBeenRecorded(game.events ?? []);
 }

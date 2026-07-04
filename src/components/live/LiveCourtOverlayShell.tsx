@@ -10,11 +10,15 @@ export function LiveCourtOverlayShell({ children, className }: LiveCourtOverlayS
   return (
     <div
       className={cn(
-        'absolute inset-0 flex items-center justify-center bg-background/40 backdrop-blur-[2px] rounded-xl z-10 pointer-events-auto',
+        'absolute inset-0 z-50 flex items-center justify-center pointer-events-auto',
         className
       )}
     >
-      {children}
+      <div
+        className="absolute inset-0 rounded-xl bg-background/60 pointer-events-none"
+        aria-hidden
+      />
+      <div className="relative z-10 pointer-events-auto">{children}</div>
     </div>
   );
 }

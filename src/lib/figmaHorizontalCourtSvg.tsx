@@ -5,6 +5,7 @@ import {
   HORIZONTAL_COURT_ASPECT,
   HORIZONTAL_COURT_VH,
   HORIZONTAL_COURT_VW,
+  HORIZONTAL_HALF_WIDTH_SVG,
   HORIZONTAL_INSET,
   HORIZONTAL_PAINT_DEPTH_SVG,
   HORIZONTAL_PAINT_WIDTH_SVG,
@@ -19,8 +20,17 @@ export {
   HORIZONTAL_COURT_ASPECT,
   HORIZONTAL_COURT_VH,
   HORIZONTAL_COURT_VW,
+  HORIZONTAL_HALF_WIDTH_SVG,
   HORIZONTAL_INSET,
 } from './horizontalCourtLayout';
+
+/** Left offensive half only (shot chart / summary). */
+export const HORIZONTAL_HALF_COURT_ASPECT =
+  HORIZONTAL_HALF_WIDTH_SVG / HORIZONTAL_COURT_VH;
+
+/** Rim-at-bottom portrait (90° rotation of half-left court). */
+export const HORIZONTAL_HALF_COURT_PORTRAIT_ASPECT =
+  HORIZONTAL_COURT_VH / HORIZONTAL_HALF_WIDTH_SVG;
 
 export const LIVE_HORIZONTAL_COURT_COLORS = {
   /** Court label / key paint tints only — UI chrome uses liveEntryTheme.ts */
@@ -47,6 +57,10 @@ export interface FigmaHorizontalCourtSvgProps {
   awayLabel?: string;
   shotMode?: boolean;
   shotModeColor?: string;
+  /** `left` — single offensive half (baseline left) for game-summary shot charts. */
+  half?: 'full' | 'left';
+  /** `bottom` — rotate half-left court 90° so rim is at bottom (portrait shot chart). */
+  orientation?: 'horizontal' | 'bottom';
   children?: React.ReactNode;
 }
 
@@ -91,6 +105,48 @@ function buildHorizontalThreePointPath(
   return { path, arcMeetX };
 }
 
+function HorizontalCourtMarkers({ markers }: { markers: HorizontalCourtMarker[] }) {
+  return (
+    <>
+      {markers.map((m, i) => {
+        const fill =
+          m.color === 'green' ? '#22c55e' : m.color === 'red' ? '#ef4444' : '#f97316';
+        return m.color === 'red' ? (
+          <g key={i} opacity={0.85}>
+            <line
+              x1={m.x - 1.4}
+              y1={m.y - 1.4}
+              x2={m.x + 1.4}
+              y2={m.y + 1.4}
+              stroke={fill}
+              strokeWidth={0.6}
+            />
+            <line
+              x1={m.x + 1.4}
+              y1={m.y - 1.4}
+              x2={m.x - 1.4}
+              y2={m.y + 1.4}
+              stroke={fill}
+              strokeWidth={0.6}
+            />
+          </g>
+        ) : (
+          <circle
+            key={i}
+            cx={m.x}
+            cy={m.y}
+            r={1.5}
+            fill={fill}
+            stroke="#fff"
+            strokeWidth={0.3}
+            opacity={0.93}
+          />
+        );
+      })}
+    </>
+  );
+}
+
 export function FigmaHorizontalCourtSvg({
   className,
   markers = [],
@@ -98,8 +154,12 @@ export function FigmaHorizontalCourtSvg({
   awayLabel = 'AWAY',
   shotMode = false,
   shotModeColor = LIVE_HORIZONTAL_COURT_COLORS.home,
+  half = 'full',
+  orientation = 'horizontal',
   children,
 }: FigmaHorizontalCourtSvgProps) {
+  const isHalfLeft = half === 'left';
+  const isPortraitBottom = isHalfLeft && orientation === 'bottom';
   const uid = useId().replace(/:/g, '');
   const courtClipId = `court2-${uid}`;
   const lkeyClipId = `lkey2-${uid}`;
@@ -136,23 +196,30 @@ export function FigmaHorizontalCourtSvg({
   );
   const { home, away, floorDark, floor, floorStroke, line, rim, rimRing } =
     LIVE_HORIZONTAL_COURT_COLORS;
+  const viewW = isHalfLeft ? HORIZONTAL_HALF_WIDTH_SVG : VW;
+  const playableInnerW = isHalfLeft
+    ? HORIZONTAL_HALF_WIDTH_SVG - HORIZONTAL_INSET
+    : VW - 3;
+  const visibleMarkers = isHalfLeft
+    ? markers.filter((m) => m.x <= HORIZONTAL_HALF_WIDTH_SVG + 1)
+    : markers;
+  const localW = viewW;
+  const svgViewW = isPortraitBottom ? VH : viewW;
+  const svgViewH = isPortraitBottom ? localW : VH;
+  const courtTransform = isPortraitBottom
+    ? `translate(0, ${localW}) rotate(-90)`
+    : undefined;
 
-  return (
-    <div
-      className={cn('relative overflow-hidden rounded', className)}
-      style={{
-        outline: shotMode ? `2px solid ${shotModeColor}66` : undefined,
-        outlineOffset: 2,
-      }}
-    >
-      <svg
-        viewBox={`0 0 ${VW} ${VH}`}
-        className="block h-full w-full"
-        preserveAspectRatio="xMidYMid meet"
-      >
+  const courtBody = (
+    <>
         <defs>
           <clipPath id={courtClipId}>
-            <rect x={HORIZONTAL_INSET} y={HORIZONTAL_INSET} width={VW - 3} height={VH - 3} />
+            <rect
+              x={HORIZONTAL_INSET}
+              y={HORIZONTAL_INSET}
+              width={playableInnerW}
+              height={VH - 3}
+            />
           </clipPath>
           <clipPath id={lkeyClipId}>
             <rect x={HORIZONTAL_INSET} y={bY - keyW / 2} width={keyD} height={keyW} />
@@ -167,11 +234,11 @@ export function FigmaHorizontalCourtSvg({
           </clipPath>
         </defs>
 
-        <rect x={0} y={0} width={VW} height={VH} fill={floorDark} />
+        <rect x={0} y={0} width={viewW} height={VH} fill={floorDark} />
         <rect
           x={0.5}
           y={0.5}
-          width={VW - 1}
+          width={viewW - 1}
           height={VH - 1}
           fill={floor}
           stroke={floorStroke}
@@ -182,7 +249,7 @@ export function FigmaHorizontalCourtSvg({
             key={i}
             x1={0}
             y1={i * 4.8}
-            x2={VW}
+            x2={viewW}
             y2={i * 4.8}
             stroke={floorDark}
             strokeWidth={0.1}
@@ -193,22 +260,26 @@ export function FigmaHorizontalCourtSvg({
         <rect
           x={HORIZONTAL_INSET}
           y={HORIZONTAL_INSET}
-          width={VW - 3}
+          width={playableInnerW}
           height={VH - 3}
           fill="none"
           stroke={line}
           strokeWidth={0.45}
         />
         <line
-          x1={VW / 2}
+          x1={isHalfLeft ? HORIZONTAL_HALF_WIDTH_SVG : VW / 2}
           y1={HORIZONTAL_INSET}
-          x2={VW / 2}
+          x2={isHalfLeft ? HORIZONTAL_HALF_WIDTH_SVG : VW / 2}
           y2={VH - HORIZONTAL_INSET}
           stroke={line}
           strokeWidth={0.4}
         />
-        <circle cx={VW / 2} cy={bY} r={6} fill="none" stroke={line} strokeWidth={0.4} />
-        <circle cx={VW / 2} cy={bY} r={0.7} fill={line} />
+        {!isHalfLeft && (
+          <>
+            <circle cx={VW / 2} cy={bY} r={6} fill="none" stroke={line} strokeWidth={0.4} />
+            <circle cx={VW / 2} cy={bY} r={0.7} fill={line} />
+          </>
+        )}
 
         <rect
           x={HORIZONTAL_INSET}
@@ -279,6 +350,8 @@ export function FigmaHorizontalCourtSvg({
           strokeWidth={0.4}
         />
 
+        {!isHalfLeft && (
+          <>
         <rect
           x={VW - HORIZONTAL_INSET - keyD}
           y={bY - keyW / 2}
@@ -347,43 +420,13 @@ export function FigmaHorizontalCourtSvg({
           stroke={line}
           strokeWidth={0.4}
         />
+          </>
+        )}
 
-        {markers.map((m, i) => {
-          const fill =
-            m.color === 'green' ? '#22c55e' : m.color === 'red' ? '#ef4444' : '#f97316';
-          return m.color === 'red' ? (
-            <g key={i} opacity={0.85}>
-              <line
-                x1={m.x - 1.4}
-                y1={m.y - 1.4}
-                x2={m.x + 1.4}
-                y2={m.y + 1.4}
-                stroke={fill}
-                strokeWidth={0.6}
-              />
-              <line
-                x1={m.x + 1.4}
-                y1={m.y - 1.4}
-                x2={m.x - 1.4}
-                y2={m.y + 1.4}
-                stroke={fill}
-                strokeWidth={0.6}
-              />
-            </g>
-          ) : (
-            <circle
-              key={i}
-              cx={m.x}
-              cy={m.y}
-              r={1.5}
-              fill={fill}
-              stroke="#fff"
-              strokeWidth={0.3}
-              opacity={0.93}
-            />
-          );
-        })}
+        <HorizontalCourtMarkers markers={visibleMarkers} />
 
+        {!isHalfLeft && (
+          <>
         <text
           x={VW * 0.25}
           y={bY + 20}
@@ -406,8 +449,32 @@ export function FigmaHorizontalCourtSvg({
         >
           {awayLabel}
         </text>
+          </>
+        )}
+    </>
+  );
+
+  return (
+    <div
+      className={cn('relative overflow-hidden rounded', className)}
+      style={{
+        outline: shotMode ? `2px solid ${shotModeColor}66` : undefined,
+        outlineOffset: 2,
+      }}
+    >
+      <svg
+        viewBox={`0 0 ${svgViewW} ${svgViewH}`}
+        className="block h-full w-full"
+        preserveAspectRatio="xMidYMid meet"
+      >
+        {courtTransform ? (
+          <g transform={courtTransform}>{courtBody}</g>
+        ) : (
+          courtBody
+        )}
       </svg>
 
+      {!isHalfLeft && (
       <div className="pointer-events-none absolute bottom-1 left-0 right-0 flex justify-between px-2">
         <span
           className="live-font-mono text-[8px]"
@@ -422,6 +489,7 @@ export function FigmaHorizontalCourtSvg({
           AWAY ▶
         </span>
       </div>
+      )}
 
       {children}
     </div>

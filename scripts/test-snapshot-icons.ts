@@ -17,7 +17,7 @@ function assert(condition: boolean, message: string): void {
 }
 
 function testSnapshotVersion(): void {
-  assert(APP_DATA_SNAPSHOT_VERSION === 7, 'snapshot version is 7');
+  assert(APP_DATA_SNAPSHOT_VERSION === 8, 'snapshot version is 8');
 }
 
 function testMergeTeamIconMetadata(): void {

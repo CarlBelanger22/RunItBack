@@ -38,6 +38,8 @@
             "cmdk": "^1.1.1",
             "embla-carousel-react": "^8.6.0",
             "input-otp": "^1.4.2",
+            "jspdf": "^4.2.1",
+            "jspdf-autotable": "^5.0.8",
             "lucide-react": "^0.487.0",
             "next-themes": "^0.4.6",
             "react": "^18.3.1",
@@ -123,12 +125,23 @@
             "test:horizontal-court-layout": "tsx scripts/test-horizontal-court-layout.ts",
             "test:possession-engine": "tsx scripts/test-possession-engine.ts",
             "test:live-entry-state-machine": "tsx scripts/test-live-entry-state-machine.ts",
+            "test:live-entry-rebound": "tsx scripts/test-live-entry-rebound.ts",
+            "test:minutes-engine": "tsx scripts/test-minutes-engine.ts",
+            "test:opening-tip": "tsx scripts/test-opening-tip.ts",
+            "test:foul-flow": "tsx scripts/test-foul-flow.ts",
+            "test:and1-ft-flow": "tsx scripts/test-and1-ft-flow.ts",
+            "test:court-overlay-active": "tsx scripts/test-court-overlay-active.ts",
+            "test:live-pbp-rail": "tsx scripts/test-live-pbp-rail.ts",
             "test:game-clock": "tsx scripts/test-game-clock.ts",
+            "test:end-period": "tsx scripts/test-end-period.ts",
             "test:game-setup-roster": "tsx scripts/test-game-setup-roster.ts",
             "test:game-setup-no-club-mutation": "tsx scripts/test-game-setup-no-club-mutation.ts",
             "test:player-deletion": "tsx scripts/test-player-deletion.ts",
             "diagnose:roster-counts": "tsx scripts/diagnose-roster-counts.ts",
             "test:tournament-selection": "tsx scripts/test-tournament-selection.ts",
-            "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts"
+            "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts",
+            "test:game-report-model": "tsx scripts/test-game-report-model.ts",
+            "test:shot-chart-display": "tsx scripts/test-shot-chart-display.ts",
+            "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts"
       }
 }

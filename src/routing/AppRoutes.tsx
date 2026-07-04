@@ -330,7 +330,11 @@ function GameSummaryRoute({
   teams,
   tournaments,
   onGameUpdate,
-}: Pick<AppRoutesProps, 'games' | 'teams' | 'tournaments' | 'onGameUpdate'>) {
+  onDeleteActiveGame,
+}: Pick<
+  AppRoutesProps,
+  'games' | 'teams' | 'tournaments' | 'onGameUpdate' | 'onDeleteActiveGame'
+>) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
@@ -348,6 +352,10 @@ function GameSummaryRoute({
       tournaments={tournaments}
       onBack={() => navigateBack(navigate, location, paths.home)}
       onGameUpdate={onGameUpdate}
+      onDeleteGame={() => {
+        onDeleteActiveGame(gameId);
+        navigate(paths.home);
+      }}
       onNavigateToPlayer={(playerId, teamIdHint) => {
         const found = findPlayer(teams, playerId);
         if (found) {
@@ -563,6 +571,7 @@ export function AppRoutes(props: AppRoutesProps) {
             teams={teams}
             tournaments={tournaments}
             onGameUpdate={onGameUpdate}
+            onDeleteActiveGame={onDeleteActiveGame}
           />
         }
       />

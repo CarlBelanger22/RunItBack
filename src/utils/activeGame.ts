@@ -20,6 +20,24 @@ export function canDeleteIncompleteGame(game: Game): boolean {
   return isGameInProgress(game) || isOrphanedIncompleteGame(game);
 }
 
+/** Confirmation copy for delete-game dialogs. */
+export function deleteGameConfirmDescription(game: Game): string {
+  if (game.isCompleted) {
+    return (
+      'This permanently removes this completed game and all recorded stats. ' +
+      'Teams created only for this game setup are removed, including their players. ' +
+      'Players you added to an existing team during setup are removed too. ' +
+      'Saved teams picked from your roster are kept. This cannot be undone.'
+    );
+  }
+  return (
+    'This permanently removes this game and all stats recorded so far. ' +
+    'Setup-created teams and their players are removed. Players you added to an ' +
+    'existing team during setup are removed too. Saved teams you picked from your roster are kept. ' +
+    'This cannot be undone.'
+  );
+}
+
 /** True only for teams created in setup via onCreateTeam (team-{timestamp}). */
 export function isSetupCreatedTeamId(teamId: string): boolean {
   return /^team-\d{13,}$/.test(teamId);

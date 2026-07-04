@@ -12,6 +12,95 @@ interface LivePlayByPlayRailProps {
 
 type ActionStyle = { label: string; color: string; detail?: string };
 
+type PbpRow =
+  | { kind: 'event'; key: string; event: GameEvent }
+  | {
+      kind: 'block';
+      key: string;
+      shotEvent: GameEvent;
+      blockerId: string;
+      blockerTeamId: string;
+    }
+  | {
+      kind: 'double_foul_partner';
+      key: string;
+      foulEvent: GameEvent;
+      partnerId: string;
+      partnerTeamId: string;
+    };
+
+export function pbpRowSourceEvent(row: PbpRow): GameEvent {
+  switch (row.kind) {
+    case 'event':
+      return row.event;
+    case 'block':
+      return row.shotEvent;
+    case 'double_foul_partner':
+      return row.foulEvent;
+  }
+}
+
+export function buildPbpRows(events: GameEvent[], homeTeam: Team, awayTeam: Team): PbpRow[] {
+  const rows: PbpRow[] = [];
+  for (const event of events) {
+    rows.push({ kind: 'event', key: event.id, event });
+    if (event.type === 'shot_attempt' && event.details.blockedBy) {
+      const blockerId = event.details.blockedBy as string;
+      const blockerTeamId = teamIdForPlayer(homeTeam, awayTeam, blockerId);
+      if (blockerTeamId) {
+        rows.push({
+          kind: 'block',
+          key: `${event.id}-blk`,
+          shotEvent: event,
+          blockerId,
+          blockerTeamId,
+        });
+      }
+    }
+    if (event.type === 'foul') {
+      const category = (event.details.foulCategory as string) ?? 'personal';
+      const foulType = (event.details.foulType as string) ?? '';
+      const partnerId = event.details.doublePartnerPlayerId as string | undefined;
+      const partnerTeamId = event.details.doublePartnerTeamId as string | undefined;
+      if (
+        (category === 'double' || foulType === 'double') &&
+        partnerId &&
+        partnerTeamId
+      ) {
+        rows.push({
+          kind: 'double_foul_partner',
+          key: `${event.id}-dbl2`,
+          foulEvent: event,
+          partnerId,
+          partnerTeamId,
+        });
+      }
+    }
+  }
+  return rows;
+}
+
+function teamIdForPlayer(homeTeam: Team, awayTeam: Team, playerId: string): string | null {
+  if (homeTeam.players.some((p) => p.id === playerId)) return homeTeam.id;
+  if (awayTeam.players.some((p) => p.id === playerId)) return awayTeam.id;
+  return null;
+}
+
+function formatReboundLabel(reboundType: string): string {
+  switch (reboundType) {
+    case 'offensive':
+      return 'ORB';
+    case 'defensive':
+      return 'DRB';
+    case 'team_offensive':
+      return 'TEAM ORB';
+    case 'team_defensive':
+      return 'TEAM DRB';
+    default:
+      return reboundType.toUpperCase();
+  }
+}
+
 function formatPeriodLabel(period: number): string {
   return period <= 4 ? `Q${period}` : `OT${period - 4}`;
 }
@@ -35,11 +124,18 @@ function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): Ac
     case 'shot_attempt': {
       const pts = event.details.isThree ? 3 : 2;
       const made = event.details.made;
-      const blocked = event.details.blockedBy;
+      const blockedBy = event.details.blockedBy as string | undefined;
+      const assistedBy = event.details.assistedBy as string | undefined;
+      const detailParts = [player];
+      if (made && assistedBy) {
+        detailParts.push(`AST ${getPlayerDisplayName(assistedBy, homeTeam, awayTeam)}`);
+      }
       return {
-        label: blocked ? 'BLOCKED' : `${pts}PT ${made ? 'MAKE' : 'MISS'}`,
+        label: blockedBy ? 'BLOCKED' : `${pts}PT ${made ? 'MAKE' : 'MISS'}`,
         color: made ? LIVE_SEMANTIC.success : LIVE_SEMANTIC.destructive,
-        detail: player,
+        detail: blockedBy
+          ? getPlayerDisplayName(blockedBy, homeTeam, awayTeam)
+          : detailParts.join(' · '),
       };
     }
     case 'free_throw':
@@ -50,16 +146,30 @@ function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): Ac
       };
     case 'rebound':
       return {
-        label: `${(event.details.reboundType as string)?.toUpperCase() ?? 'REB'}`,
+        label: formatReboundLabel((event.details.reboundType as string) ?? 'reb'),
         color: LIVE_SEMANTIC.muted,
         detail: player,
       };
-    case 'foul':
+    case 'foul': {
+      const foulType = (event.details.foulType as string) ?? 'normal';
+      const category = (event.details.foulCategory as string) ?? 'personal';
+      let label = 'FOUL';
+      if (category === 'technical' || foulType === 'technical') label = 'TECH';
+      else if (category === 'unsportsmanlike' || foulType === 'unsportsmanlike') label = 'UNS';
+      else if (category === 'double' || foulType === 'double') label = 'DBL FOUL';
+      const drawnBy = event.details.drawnBy as string | undefined;
+      const detailParts = [player];
+      if (drawnBy) {
+        detailParts.push(`FD ${getPlayerDisplayName(drawnBy, homeTeam, awayTeam)}`);
+      }
+      if (event.details.isCoachFoul) detailParts.push('Coach');
+      if (event.details.isTeamFoul) detailParts.push('Team');
       return {
-        label: 'FOUL',
+        label,
         color: 'var(--live-away)',
-        detail: `${player} · ${event.details.foulType ?? 'Personal'}`,
+        detail: detailParts.join(' · '),
       };
+    }
     case 'turnover':
       return {
         label: 'TURNOVER',
@@ -90,12 +200,35 @@ function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): Ac
           : `${abbrev} · arrow flip`,
       };
     }
-    case 'substitution':
+    case 'substitution': {
+      const clock = (event.details.clockTime as string) ?? event.gameTime;
       return {
-        label: 'SUBSTITUTION',
-        color: '#a855f7',
-        detail: undefined,
+        label: 'SUB',
+        color: LIVE_SEMANTIC.muted,
+        detail: `${clock} · ${(event.details.playersIn as string[])?.length ?? 0} in`,
       };
+    }
+    case 'period_start': {
+      const p = (event.details.period as number) ?? event.period;
+      const label = p <= 4 ? `START Q${p}` : `START OT${p - 4}`;
+      const possessionTeamId = event.details.possessionTeamId as string | undefined;
+      const possessionAbbr =
+        possessionTeamId === homeTeam.id
+          ? homeTeam.abbreviation
+          : possessionTeamId === awayTeam.id
+            ? awayTeam.abbreviation
+            : undefined;
+      return {
+        label,
+        color: LIVE_SEMANTIC.muted,
+        detail: possessionAbbr ? `${possessionAbbr} ball` : undefined,
+      };
+    }
+    case 'period_end': {
+      const p = (event.details.period as number) ?? event.period;
+      const label = p <= 4 ? `END Q${p}` : `END OT${p - 4}`;
+      return { label, color: LIVE_SEMANTIC.muted, detail: undefined };
+    }
     default:
       return {
         label: event.type.toUpperCase().replace(/_/g, ' '),
@@ -106,21 +239,48 @@ function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): Ac
 }
 
 function LogCard({
-  event,
+  row,
   homeTeam,
   awayTeam,
   onDoubleClick,
 }: {
-  event: GameEvent;
+  row: PbpRow;
   homeTeam: Team;
   awayTeam: Team;
   onDoubleClick?: () => void;
 }) {
-  const isHome = event.teamId === homeTeam.id;
+  const event = pbpRowSourceEvent(row);
+  const teamId =
+    row.kind === 'block'
+      ? row.blockerTeamId
+      : row.kind === 'double_foul_partner'
+        ? row.partnerTeamId
+        : row.event.teamId;
+  const playerId =
+    row.kind === 'block'
+      ? row.blockerId
+      : row.kind === 'double_foul_partner'
+        ? row.partnerId
+        : row.event.playerId;
+
+  const isHome = teamId === homeTeam.id;
   const color = getLiveTeamColor(isHome ? 'home' : 'away');
   const abbr = isHome ? homeTeam.abbreviation : awayTeam.abbreviation;
-  const action = formatEventAction(event, homeTeam, awayTeam);
-  const playerName = getPlayerDisplayName(event.playerId, homeTeam, awayTeam);
+  const action =
+    row.kind === 'block'
+      ? {
+          label: 'BLOCK',
+          color,
+          detail: getPlayerDisplayName(event.playerId, homeTeam, awayTeam),
+        }
+      : row.kind === 'double_foul_partner'
+        ? {
+            label: 'DBL FOUL',
+            color: 'var(--live-away)',
+            detail: getPlayerDisplayName(row.foulEvent.playerId, homeTeam, awayTeam),
+          }
+        : formatEventAction(row.event, homeTeam, awayTeam);
+  const playerName = getPlayerDisplayName(playerId, homeTeam, awayTeam);
 
   return (
     <button
@@ -163,7 +323,7 @@ export function LivePlayByPlayRail({
   onEventDoubleClick,
 }: LivePlayByPlayRailProps) {
   const logRef = useRef<HTMLDivElement>(null);
-  const displayEvents = [...events].slice(-maxEvents).reverse();
+  const displayRows = buildPbpRows(events.slice(-maxEvents), homeTeam, awayTeam).reverse();
 
   useEffect(() => {
     if (logRef.current) {
@@ -183,18 +343,18 @@ export function LivePlayByPlayRail({
         </span>
       </div>
       <div ref={logRef} className="live-pbp-scroll">
-        {displayEvents.length === 0 ? (
+        {displayRows.length === 0 ? (
           <div className="live-font-mono live-pbp-empty">
             No events yet — select a player and tap the court to log a shot
           </div>
         ) : (
-          displayEvents.map((event) => (
+          displayRows.map((row) => (
             <LogCard
-              key={event.id}
-              event={event}
+              key={row.key}
+              row={row}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
-              onDoubleClick={() => onEventDoubleClick?.(event)}
+              onDoubleClick={() => onEventDoubleClick?.(pbpRowSourceEvent(row))}
             />
           ))
         )}

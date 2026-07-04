@@ -1,4 +1,4 @@
-import type { Game, GameStats, Player, Team, TeamStats, Tournament } from '../App';
+import type { Game, GameEvent, GameStats, Player, Team, TeamStats, Tournament, Shot } from '../App';
 import { DEFAULT_LEAGUE_ID } from '../api/supabaseData';
 import type { LoadedAppData } from '../api/supabaseData';
 import {
@@ -13,8 +13,14 @@ import { dedupeTeamsById } from '../utils/rosterPlayers';
 import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { gameStatsHaveBoxScoreData } from '../utils/gameStatsIntegrity';
 import { isPersistedIconReference } from '../utils/teamAssetStorage';
+import {
+  applySnapshotQuarterStats,
+  ensureGameQuarterStats,
+  snapshotQuarterStatsFromTeamStats,
+  type SnapshotQuarterStats,
+} from '../utils/quarterScoring';
 
-export const APP_DATA_SNAPSHOT_VERSION = 7;
+export const APP_DATA_SNAPSHOT_VERSION = 8;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
 /** Stay under typical 5MB localStorage quota. */
 const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024;
@@ -60,6 +66,19 @@ export interface SnapshotGame {
   currentPeriod: number;
   currentGameTime: string;
   trackBothTeams: boolean;
+  /** Active live session — preserved for cache-first reload (v8+). */
+  liveEvents?: GameEvent[];
+  liveTeamStats?: { home: TeamStats; away: TeamStats };
+  liveShots?: Shot[];
+  possessionArrowTeamId?: string | null;
+  /** Completed game quarter splits — survives localStorage reload (v8+). */
+  completedQuarterStats?: {
+    home: SnapshotQuarterStats;
+    away: SnapshotQuarterStats;
+  };
+  /** Completed game PBP — enables quarter recompute on PDF export when needed. */
+  completedEvents?: GameEvent[];
+  completedShots?: Shot[];
 }
 
 export interface AppDataSnapshot {
@@ -207,22 +226,47 @@ function toSnapshotGameStats(stats: GameStats[]): GameStats[] {
 }
 
 export function toSnapshotGames(games: Game[]): SnapshotGame[] {
-  return games.map((game) => ({
-    id: game.id,
-    homeTeamId: game.homeTeamId || game.homeTeam?.id || '',
-    awayTeamId: game.awayTeamId || game.awayTeam?.id || '',
-    tournamentId: game.tournamentId,
-    date: game.date,
-    isActive: game.isActive,
-    isCompleted: game.isCompleted,
-    gameStats: toSnapshotGameStats(game.gameStats ?? []),
-    homeStarters: game.homeStarters ?? [],
-    awayStarters: game.awayStarters ?? [],
-    finalScore: game.finalScore,
-    currentPeriod: game.currentPeriod ?? 1,
-    currentGameTime: game.currentGameTime ?? '0:00',
-    trackBothTeams: game.trackBothTeams ?? true,
-  }));
+  return games.map((game) => {
+    const base: SnapshotGame = {
+      id: game.id,
+      homeTeamId: game.homeTeamId || game.homeTeam?.id || '',
+      awayTeamId: game.awayTeamId || game.awayTeam?.id || '',
+      tournamentId: game.tournamentId,
+      date: game.date,
+      isActive: game.isActive,
+      isCompleted: game.isCompleted,
+      gameStats: toSnapshotGameStats(game.gameStats ?? []),
+      homeStarters: game.homeStarters ?? [],
+      awayStarters: game.awayStarters ?? [],
+      finalScore: game.finalScore,
+      currentPeriod: game.currentPeriod ?? 1,
+      currentGameTime: game.currentGameTime ?? '0:00',
+      trackBothTeams: game.trackBothTeams ?? true,
+    };
+
+    if (game.isActive && !game.isCompleted) {
+      base.liveEvents = game.events ?? [];
+      base.liveTeamStats = game.teamStats;
+      base.liveShots = game.shots ?? [];
+      base.possessionArrowTeamId = game.possessionArrowTeamId ?? null;
+    }
+
+    if (game.isCompleted) {
+      const stamped = ensureGameQuarterStats(game);
+      base.completedQuarterStats = {
+        home: snapshotQuarterStatsFromTeamStats(stamped.teamStats.home),
+        away: snapshotQuarterStatsFromTeamStats(stamped.teamStats.away),
+      };
+      if ((game.events?.length ?? 0) > 0) {
+        base.completedEvents = game.events;
+      }
+      if ((game.shots?.length ?? 0) > 0) {
+        base.completedShots = game.shots;
+      }
+    }
+
+    return base;
+  });
 }
 
 function playerIdsToGameStats(playerIds: string[]): GameStats[] {
@@ -254,6 +298,23 @@ export function hydrateSnapshotGames(
           ? playerIdsToGameStats(legacyV4.playerIds)
           : [];
 
+    const homeShell = emptyTeamStats(row.homeTeamId);
+    const awayShell = emptyTeamStats(row.awayTeamId);
+    let teamStats = row.liveTeamStats ?? { home: homeShell, away: awayShell };
+
+    if (row.completedQuarterStats) {
+      teamStats = {
+        home: applySnapshotQuarterStats(
+          teamStats.home ?? homeShell,
+          row.completedQuarterStats.home
+        ),
+        away: applySnapshotQuarterStats(
+          teamStats.away ?? awayShell,
+          row.completedQuarterStats.away
+        ),
+      };
+    }
+
     return {
       id: row.id,
       homeTeamId: row.homeTeamId,
@@ -263,12 +324,9 @@ export function hydrateSnapshotGames(
       tournamentId: row.tournamentId,
       date: row.date,
       gameStats,
-      teamStats: {
-        home: emptyTeamStats(row.homeTeamId),
-        away: emptyTeamStats(row.awayTeamId),
-      },
-      shots: [],
-      events: [],
+      teamStats,
+      shots: row.liveShots ?? row.completedShots ?? [],
+      events: row.liveEvents ?? row.completedEvents ?? [],
       lineupStints: [],
       currentPeriod: row.currentPeriod,
       currentGameTime: row.currentGameTime,
@@ -278,6 +336,7 @@ export function hydrateSnapshotGames(
       isActive: row.isActive,
       isCompleted: row.isCompleted,
       finalScore: row.finalScore,
+      possessionArrowTeamId: row.possessionArrowTeamId ?? undefined,
     };
   });
 }

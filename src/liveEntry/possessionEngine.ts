@@ -127,9 +127,30 @@ export function derivePossessionSnapshot(
     }
 
     if (isTerminalFreeThrowEnd(event, events, index)) {
-      offenseTeamId = opponentTeamId(game, event.teamId);
+      const retain = event.details.retainPossession === true;
+      const possessionAfter = event.details.possessionTeamAfterFt as string | undefined;
+      const made =
+        typeof event.details.made === 'boolean'
+          ? event.details.made
+          : ((event.details.attempts as boolean[] | undefined)?.some(Boolean) ?? false);
+      if (possessionAfter) {
+        offenseTeamId = possessionAfter;
+      } else if (retain) {
+        offenseTeamId = event.teamId;
+      } else if (made) {
+        offenseTeamId = opponentTeamId(game, event.teamId);
+      }
       secondChanceTeamId = null;
       offTurnoverTeamId = null;
+    }
+
+    if (event.type === 'period_start') {
+      const possessionTeamId = event.details.possessionTeamId as string | undefined;
+      if (possessionTeamId) {
+        offenseTeamId = possessionTeamId;
+        secondChanceTeamId = null;
+        offTurnoverTeamId = null;
+      }
     }
   });
 

@@ -1,6 +1,7 @@
 import type { Game, GameEvent, Shot } from '../App';
 import type { PendingShot } from './liveEntryStateMachine';
 import { courtPointMToPercent } from '../lib/fibaCourtGeometry';
+import { teamIdForPlayer } from './reboundTeams';
 
 export function buildShotEvent(
   game: Game,
@@ -29,13 +30,15 @@ export function buildShotEvent(
     gameTime: game.currentGameTime,
   };
 
+  const shootingTeamId = teamIdForPlayer(game, pending.shooterId) ?? offenseTeamId;
+
   const event: GameEvent = {
     id: `event-${ts}`,
     type: 'shot_attempt',
     timestamp: ts,
     period: game.currentPeriod,
     gameTime: game.currentGameTime,
-    teamId: offenseTeamId,
+    teamId: shootingTeamId,
     playerId: pending.shooterId,
     details: {
       made,
@@ -163,18 +166,32 @@ export function buildHeldBallJumpBallEvent(
 
 export function buildFoulEvent(
   game: Game,
-  defenseTeamId: string,
-  committerId: string,
-  recipientId: string | undefined,
-  foulCategory: string
+  params: {
+    foulingTeamId: string;
+    committerId?: string;
+    recipientId?: string;
+    foulCategory: string;
+    isTeamFoul?: boolean;
+    isCoachFoul?: boolean;
+    retainPossession?: boolean;
+    offendedTeamId?: string;
+    doublePartnerPlayerId?: string;
+    doublePartnerTeamId?: string;
+  }
 ): GameEvent {
   const ts = Date.now();
+  const foulCategory = params.foulCategory;
   const foulType =
     foulCategory === 'technical'
       ? 'technical'
       : foulCategory === 'unsportsmanlike'
         ? 'unsportsmanlike'
-        : 'normal';
+        : foulCategory === 'double'
+          ? 'double'
+          : 'normal';
+
+  const drawnBy =
+    foulCategory === 'technical' || params.isTeamFoul ? undefined : params.recipientId;
 
   return {
     id: `event-${ts}`,
@@ -182,25 +199,31 @@ export function buildFoulEvent(
     timestamp: ts,
     period: game.currentPeriod,
     gameTime: game.currentGameTime,
-    teamId: defenseTeamId,
-    playerId: committerId,
+    teamId: params.foulingTeamId,
+    playerId: params.committerId,
     details: {
       foulType,
       foulCategory,
-      drawnBy: recipientId,
+      drawnBy,
+      isTeamFoul: params.isTeamFoul ?? false,
+      isCoachFoul: params.isCoachFoul ?? false,
+      retainPossession: params.retainPossession ?? false,
+      offendedTeamId: params.offendedTeamId,
+      doublePartnerPlayerId: params.doublePartnerPlayerId,
+      doublePartnerTeamId: params.doublePartnerTeamId,
     },
     homeScore: game.teamStats.home.total_points,
     awayScore: game.teamStats.away.total_points,
   };
 }
-
 export function buildFreeThrowEvent(
   game: Game,
   teamId: string,
   playerId: string,
   made: boolean,
   ftIndex: number,
-  ftTotal: number
+  ftTotal: number,
+  options?: { retainPossession?: boolean; offendedTeamId?: string; possessionTeamAfterFt?: string }
 ): GameEvent {
   const ts = Date.now();
   return {
@@ -216,6 +239,9 @@ export function buildFreeThrowEvent(
       ftIndex,
       ftTotal,
       isFinal: ftIndex === ftTotal,
+      retainPossession: options?.retainPossession ?? false,
+      offendedTeamId: options?.offendedTeamId,
+      possessionTeamAfterFt: options?.possessionTeamAfterFt,
     },
     homeScore: game.teamStats.home.total_points,
     awayScore: game.teamStats.away.total_points,
@@ -226,7 +252,9 @@ export function buildSubstitutionEvent(
   game: Game,
   teamId: string,
   outIds: string[],
-  inIds: string[]
+  inIds: string[],
+  clockTime: string,
+  checkpointFrom: string
 ): GameEvent {
   const ts = Date.now();
   return {
@@ -234,9 +262,59 @@ export function buildSubstitutionEvent(
     type: 'substitution',
     timestamp: ts,
     period: game.currentPeriod,
-    gameTime: game.currentGameTime,
+    gameTime: clockTime,
     teamId,
-    details: { playersOut: outIds, playersIn: inIds },
+    details: {
+      playersOut: outIds,
+      playersIn: inIds,
+      clockTime,
+      checkpointFrom,
+    },
+    homeScore: game.teamStats.home.total_points,
+    awayScore: game.teamStats.away.total_points,
+  };
+}
+
+export function buildPeriodEndEvent(game: Game, period: number): GameEvent {
+  const ts = Date.now();
+  return {
+    id: `event-${ts}`,
+    type: 'period_end',
+    timestamp: ts,
+    period,
+    gameTime: '0:00',
+    teamId: game.homeTeamId,
+    details: { period, clockTime: '0:00' },
+    homeScore: game.teamStats.home.total_points,
+    awayScore: game.teamStats.away.total_points,
+  };
+}
+
+export function buildPeriodStartEvent(
+  game: Game,
+  period: number,
+  homeLineup: string[],
+  awayLineup: string[],
+  clockTime: string,
+  options?: { possessionTeamId: string; arrowAfterTeamId: string }
+): GameEvent {
+  const ts = Date.now();
+  const possessionTeamId = options?.possessionTeamId;
+  return {
+    id: `event-${ts}`,
+    type: 'period_start',
+    timestamp: ts,
+    period,
+    gameTime: clockTime,
+    teamId: possessionTeamId ?? game.homeTeamId,
+    details: {
+      period,
+      clockTime,
+      homeLineup,
+      awayLineup,
+      possessionTeamId,
+      arrowAfterTeamId: options?.arrowAfterTeamId,
+    },
     homeScore: game.teamStats.home.total_points,
     awayScore: game.teamStats.away.total_points,
   };

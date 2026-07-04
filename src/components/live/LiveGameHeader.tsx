@@ -9,6 +9,7 @@ interface LiveGameHeaderProps {
   homeScore: number;
   awayScore: number;
   possessionArrowTeamId: string | null;
+  endPeriodLabel: 'End Q' | 'End Game';
   onEndPeriod: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -52,6 +53,7 @@ export function LiveGameHeader({
   homeScore,
   awayScore,
   possessionArrowTeamId,
+  endPeriodLabel,
   onEndPeriod,
   onEdit,
   onDelete,
@@ -188,7 +190,7 @@ export function LiveGameHeader({
             <div className="live-ops-row">
               <Button variant="ghost" size="sm" onClick={onEndPeriod} className="live-ops-btn live-ops-btn-sm">
                 <SkipForward className="live-ops-btn-icon" />
-                End Q
+                {endPeriodLabel}
               </Button>
               <Button variant="ghost" size="sm" onClick={onEdit} className="live-ops-btn live-ops-btn-sm">
                 <Edit2 className="live-ops-btn-icon" />
@@ -198,6 +200,7 @@ export function LiveGameHeader({
                 variant="ghost"
                 size="sm"
                 onClick={onDelete}
+                title="Delete this game"
                 className="live-ops-btn live-ops-btn-sm live-ops-btn-danger"
               >
                 <Trash2 className="live-ops-btn-icon" />
