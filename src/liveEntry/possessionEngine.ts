@@ -93,6 +93,7 @@ export function derivePossessionSnapshot(
     }
 
     if (isOffensiveRebound(event)) {
+      offenseTeamId = event.teamId;
       secondChanceTeamId = event.teamId;
       offTurnoverTeamId = null;
     }
@@ -133,13 +134,18 @@ export function derivePossessionSnapshot(
         typeof event.details.made === 'boolean'
           ? event.details.made
           : ((event.details.attempts as boolean[] | undefined)?.some(Boolean) ?? false);
-      if (possessionAfter) {
-        offenseTeamId = possessionAfter;
+      if (made) {
+        if (possessionAfter) {
+          offenseTeamId = possessionAfter;
+        } else if (retain) {
+          offenseTeamId = event.teamId;
+        } else {
+          offenseTeamId = opponentTeamId(game, event.teamId);
+        }
       } else if (retain) {
         offenseTeamId = event.teamId;
-      } else if (made) {
-        offenseTeamId = opponentTeamId(game, event.teamId);
       }
+      // Missed final FT without retain: rebound decides — leave offense unchanged.
       secondChanceTeamId = null;
       offTurnoverTeamId = null;
     }

@@ -108,6 +108,16 @@ Setup: note **who has the ball** before the foul (offense highlight). Run **twic
 
 If you expect **coach technical = team turnover** on the Team/Coach box score line, that is **not implemented yet** (LE-51 backlog) — note in failure log if required for your league.
 
+### 5.7 — Personal foul FT → rebound possession (LE-63)
+
+Setup: team on offense is fouled → shoot **2 FTs**. Note possession dot before rebound.
+
+| # | Test | Pass | Expected |
+|---|------|------|----------|
+| 5.7.1 | Make FT 1, **miss** FT 2 → log **ORB** (shooting team) | [ ] | Possession dot stays on **shooting team** |
+| 5.7.2 | Make FT 1, **miss** FT 2 → log **DRB** (defense) | [ ] | Possession dot flips to **defense** |
+| 5.7.3 | **Make** both FTs (or final FT made) | [ ] | Possession to **defense** (`possessionTeamAfterFt`) |
+
 ---
 
 ## Phase 6 — Jump ball
