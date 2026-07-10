@@ -141,6 +141,11 @@ export function formatReportDecimal(value: number, decimals = 1): string {
   return value.toFixed(decimals);
 }
 
+/** EFF / GmSc and other metrics that may be negative — never clamp to zero. */
+export function formatSignedDecimal(value: number, decimals = 1): string {
+  return formatReportDecimal(value, decimals);
+}
+
 export function formatPlayerDisplayName(fullName: string): string {
   return getPlayerFirstName(fullName);
 }

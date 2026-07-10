@@ -71,6 +71,7 @@
             "restore:supabase": "tsx scripts/restore-supabase-from-json.ts",
             "restore:supabase-raw": "tsx scripts/restore-supabase-raw.ts",
             "import:boxscore": "tsx scripts/import-boxscore.ts",
+            "import:iubit-2026-score-only": "tsx scripts/import-iubit-2026-score-only.ts",
             "seed:team-icons": "tsx scripts/seed-team-icons.ts",
             "normalize:team-icon": "python3 scripts/normalize-team-icon.py",
             "db:migrate:002": "tsx scripts/apply-migration-002.ts",
@@ -142,6 +143,12 @@
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts",
             "test:game-report-model": "tsx scripts/test-game-report-model.ts",
             "test:shot-chart-display": "tsx scripts/test-shot-chart-display.ts",
-            "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts"
+            "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts",
+            "test:game-team-rosters": "tsx scripts/test-game-team-rosters.ts",
+            "test:metrics-display": "tsx scripts/test-metrics-display.ts",
+            "test:iubit-2026-schedule": "tsx scripts/test-iubit-2026-schedule.ts",
+            "test:game-sort": "tsx scripts/test-game-sort.ts",
+            "test:tournament-sort": "tsx scripts/test-tournament-sort.ts",
+            "test:shooting-column-order": "tsx scripts/test-shooting-column-order.ts"
       }
 }

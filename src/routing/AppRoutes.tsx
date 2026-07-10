@@ -30,6 +30,7 @@ import {
 } from './paths';
 import { parsePlayerTab, parseTeamTab, parseTournamentTab, type PlayerTab, type TeamTab, type TournamentTab } from './tabs';
 import { parseGameFormatScope } from '../utils/gameFormat';
+import { normalizeGameTeamRosters } from '../utils/gameTeamRosters';
 import { parseTournamentSelection } from '../utils/tournamentSelection';
 import {
   currentLocationPath,
@@ -379,8 +380,10 @@ function GameSummaryRoute({
 }
 
 function LiveGameRoute({
-  games,
+  teams,
   tournaments,
+  games,
+  tournamentRosters,
   currentGame,
   setCurrentGame,
   onGameUpdate,
@@ -395,8 +398,21 @@ function LiveGameRoute({
       ? games.find((g) => g.id === gameId && g.isActive && !g.isCompleted)
       : undefined;
 
-  const liveGame =
+  const rawLiveGame =
     currentGame?.id === gameId ? currentGame : persistedActive;
+
+  const liveGame = useMemo(() => {
+    if (!rawLiveGame) return undefined;
+    return normalizeGameTeamRosters(rawLiveGame, teams, tournamentRosters);
+  }, [
+    rawLiveGame,
+    rawLiveGame?.id,
+    rawLiveGame?.events?.length,
+    rawLiveGame?.homeTeam?.players?.length,
+    rawLiveGame?.awayTeam?.players?.length,
+    teams,
+    tournamentRosters,
+  ]);
 
   useEffect(() => {
     if (persistedActive && currentGame?.id !== gameId) {
@@ -418,7 +434,9 @@ function LiveGameRoute({
   return (
     <LiveGameEntry
       game={liveGame}
+      teams={teams}
       tournaments={tournaments}
+      tournamentRosters={tournamentRosters}
       onGameUpdate={onGameUpdate}
       onGameComplete={onGameComplete}
       onDeleteGame={() => {

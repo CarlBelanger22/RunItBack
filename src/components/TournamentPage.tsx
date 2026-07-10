@@ -24,6 +24,7 @@ import { TournamentForm } from './forms/TournamentForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
+import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import {
   filterGamesForTournament,
   filterTeamsForTournament,
@@ -836,10 +837,8 @@ export function TournamentPage({
       return true;
     });
 
-    // Sort by date (most recent first)
-    const sortedGames = [...filteredGames].sort((a, b) => 
-      new Date(b.date).getTime() - new Date(a.date).getTime()
-    );
+    // Sort by date, then start time (most recent first)
+    const sortedGames = sortGamesByDateDesc(filteredGames);
 
     return (
       <div className="space-y-6">

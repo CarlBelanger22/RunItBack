@@ -13,7 +13,8 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import { Label } from '../ui/label';
-import type { Game, GameEvent, Player, Tournament } from '../../App';
+import type { Game, GameEvent, Player, Team, Tournament } from '../../App';
+import type { TournamentRosterEntry } from '../../utils/tournamentRosters';
 import { GameForm } from '../forms/GameForm';
 import { buildGameMetadataPatch } from '../../utils/gameMetadata';
 import { useLiveGameSession } from '../../liveEntry/useLiveGameSession';
@@ -47,7 +48,9 @@ import { courtOverlayActive } from '../../liveEntry/courtOverlayActive';
 
 interface LiveGameWorkspaceProps {
   game: Game;
+  teams: Team[];
   tournaments: Tournament[];
+  tournamentRosters: TournamentRosterEntry[];
   onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void;
   onDeleteGame: () => void;
@@ -286,13 +289,15 @@ function resolveColumnPick(
 
 export function LiveGameWorkspace({
   game,
+  teams,
   tournaments,
+  tournamentRosters,
   onGameUpdate,
   onGameComplete,
   onDeleteGame,
 }: LiveGameWorkspaceProps) {
   const navigate = useNavigate();
-  const session = useLiveGameSession(game, onGameUpdate);
+  const session = useLiveGameSession(game, onGameUpdate, { teams, tournamentRosters });
   const {
     currentGame,
     entryState,

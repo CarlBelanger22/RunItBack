@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import type { Game, GameEvent, Player } from '../App';
+import type { Game, GameEvent, Player, Team } from '../App';
+import { normalizeGameTeamRosters } from '../utils/gameTeamRosters';
+import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { GameLogic } from '../utils/GameLogic';
 import { clickToCourtPointM, type CourtPointM } from '../lib/fibaCourtGeometry';
 import { resolveHorizontalShotZone } from '../lib/horizontalCourtClick';
@@ -50,9 +52,15 @@ function resolveOnCourt(game: Game, side: 'home' | 'away'): string[] {
   return team.players.slice(0, 5).map((p) => p.id);
 }
 
+export interface LiveGameRosterContext {
+  teams: Team[];
+  tournamentRosters: TournamentRosterEntry[];
+}
+
 export function useLiveGameSession(
   game: Game,
-  onGameUpdate: (game: Game) => void
+  onGameUpdate: (game: Game) => void,
+  rosterContext?: LiveGameRosterContext
 ) {
   const [currentGame, setCurrentGame] = useState<Game>(game);
   const [onCourtHome, setOnCourtHome] = useState<string[]>(() =>
@@ -87,12 +95,20 @@ export function useLiveGameSession(
   entryStateRef.current = entryState;
 
   useEffect(() => {
-    const replayed = replayMinutesOntoGame(game);
+    const base =
+      rosterContext != null
+        ? normalizeGameTeamRosters(
+            game,
+            rosterContext.teams,
+            rosterContext.tournamentRosters
+          )
+        : game;
+    const replayed = replayMinutesOntoGame(base);
     setCurrentGame(replayed.game);
     setMinutesState(replayed.state);
     setOnCourtHome(replayed.state.onCourtHome);
     setOnCourtAway(replayed.state.onCourtAway);
-  }, [game.id, game.events.length]);
+  }, [game, game.id, game.events.length, rosterContext]);
 
   const openingTipRecorded = hasOpeningTipBeenRecorded(game.events ?? []);
 

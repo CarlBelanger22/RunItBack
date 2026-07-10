@@ -40,9 +40,15 @@ export interface GameLeaderResult {
 }
 
 export function sortGamesByDateDesc(games: Game[]): Game[] {
-  return [...games].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  return [...games].sort((a, b) => {
+    const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+    if (dateDiff !== 0) return dateDiff;
+
+    const timeDiff = (b.startTime ?? '').localeCompare(a.startTime ?? '');
+    if (timeDiff !== 0) return timeDiff;
+
+    return b.id.localeCompare(a.id);
+  });
 }
 
 export function getTeamForSide(game: Game, side: TeamSide): Team {

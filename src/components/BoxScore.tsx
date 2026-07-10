@@ -24,6 +24,7 @@ import {
   resolveTeamTotals,
   type ResolvedTeamTotals,
 } from '../utils/gameDisplay';
+import { formatSignedDecimal } from '../utils/gameReportModel';
 import {
   orderBoxScorePlayers,
   type OrderedBoxScoreRow,
@@ -94,8 +95,13 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
     return value > 0 ? `${value.toFixed(1)}%` : '0.0%';
   };
 
-  const formatStat = (value: number, decimals: number = 1) => {
-    return value > 0 ? value.toFixed(decimals) : '0';
+  const advancedMetricBadgeVariant = (
+    value: number
+  ): 'default' | 'secondary' | 'outline' | 'destructive' => {
+    if (value < 0) return 'destructive';
+    if (value >= 15) return 'default';
+    if (value >= 10) return 'secondary';
+    return 'outline';
   };
 
   const formatTime = (minutes: number) => {
@@ -360,13 +366,13 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                 </TableCell>
                 <TableCell className="text-center font-mono">{formatTime(player.minutes_played)}</TableCell>
                 <TableCell className="text-center font-mono">
-                  <Badge variant={player.advanced.efficiency >= 15 ? "default" : player.advanced.efficiency >= 10 ? "secondary" : "outline"} className="text-xs">
-                    {formatStat(player.advanced.efficiency, 0)}
+                  <Badge variant={advancedMetricBadgeVariant(player.advanced.efficiency)} className="text-xs">
+                    {formatSignedDecimal(player.advanced.efficiency, 0)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-center font-mono">
-                  <Badge variant={player.advanced.gameScore >= 15 ? "default" : player.advanced.gameScore >= 10 ? "secondary" : "outline"} className="text-xs">
-                    {formatStat(player.advanced.gameScore)}
+                  <Badge variant={advancedMetricBadgeVariant(player.advanced.gameScore)} className="text-xs">
+                    {formatSignedDecimal(player.advanced.gameScore, 1)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-center font-mono">{formatPercentage(player.advanced.twoPointPercentage)}</TableCell>

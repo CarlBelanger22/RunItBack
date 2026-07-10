@@ -19,6 +19,7 @@ import { getTeamStatsAbbreviation } from '../utils/teamAbbreviation';
 import type { Team } from '../App';
 import { OptionalStatText, StatTooltipHead } from './StatDisplay';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
+import { STANDARD_SHOOTING_STAT_FIELDS } from '../utils/shootingStatColumns';
 
 type StatsView = 'standard' | 'advanced';
 
@@ -76,15 +77,7 @@ const STANDARD_SORT_FIELDS = new Set<PlayerStatsSortField>([
   'APG',
   'SPG',
   'BPG',
-  'FG%',
-  'FGM',
-  'FGA',
-  '3P%',
-  '3PM',
-  '3PA',
-  'FT%',
-  'FTM',
-  'FTA',
+  ...STANDARD_SHOOTING_STAT_FIELDS,
   'TOPG',
   'FPG',
   '+/-',
@@ -399,15 +392,18 @@ export function PlayerStatsTable({
                       <SortableHead label="APG" field="APG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
                       <SortableHead label="SPG" field="SPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
                       <SortableHead label="BPG" field="BPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FG%" field="FG%" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FGM" field="FGM" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FGA" field="FGA" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="3P%" field="3P%" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="3PM" field="3PM" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="3PA" field="3PA" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FT%" field="FT%" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FTM" field="FTM" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FTA" field="FTA" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
+                      {STANDARD_SHOOTING_STAT_FIELDS.map((field) => (
+                        <SortableHead
+                          key={field}
+                          label={field}
+                          field={field}
+                          sortField={sortField}
+                          sortOrder={sortOrder}
+                          onSort={handleSort}
+                          center
+                          className="text-center"
+                        />
+                      ))}
                       <SortableHead label="TOPG" field="TOPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
                       <SortableHead label="FPG" field="FPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
                       <SortableHead label="+/-" field="+/-" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
@@ -699,6 +695,18 @@ function StandardStatCells({
   const gameSc = MetricsCalculator.calculateGameScore(totalStats);
   const gameScPg = gamesPlayed > 0 ? gameSc / gamesPlayed : 0;
 
+  const shootingValues = {
+    FGM: fgm.toFixed(1),
+    FGA: fga.toFixed(1),
+    'FG%': `${fgPct.toFixed(1)}%`,
+    '3PM': threePm.toFixed(1),
+    '3PA': threePa.toFixed(1),
+    '3P%': `${threePct.toFixed(1)}%`,
+    FTM: ftm.toFixed(1),
+    FTA: fta.toFixed(1),
+    'FT%': `${ftPct.toFixed(1)}%`,
+  };
+
   return (
     <>
       <TableCell className={`${numericCellClass} ${cellHighlight('PPG')}`}>{ppg.toFixed(1)}</TableCell>
@@ -706,15 +714,14 @@ function StandardStatCells({
       <TableCell className={`${numericCellClass} ${cellHighlight('APG')}`}>{apg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('SPG')}`}>{spg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('BPG')}`}>{bpg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FG%')}`}>{fgPct.toFixed(1)}%</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FGM')}`}>{fgm.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FGA')}`}>{fga.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('3P%')}`}>{threePct.toFixed(1)}%</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('3PM')}`}>{threePm.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('3PA')}`}>{threePa.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FT%')}`}>{ftPct.toFixed(1)}%</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FTM')}`}>{ftm.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FTA')}`}>{fta.toFixed(1)}</TableCell>
+      {STANDARD_SHOOTING_STAT_FIELDS.map((field) => (
+        <TableCell
+          key={field}
+          className={`${numericCellClass} ${cellHighlight(field)}`}
+        >
+          {shootingValues[field]}
+        </TableCell>
+      ))}
       <TableCell className={`${numericCellClass} ${cellHighlight('TOPG')}`}>{topg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('FPG')}`}>{fpg.toFixed(1)}</TableCell>
       <TableCell className={`${numericCellClass} ${cellHighlight('+/-')}`}>

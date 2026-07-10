@@ -10,6 +10,7 @@ import {
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { dedupeTeamsById } from '../utils/rosterPlayers';
+import { normalizeGamesTeamRosters } from '../utils/gameTeamRosters';
 import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { gameStatsHaveBoxScoreData } from '../utils/gameStatsIntegrity';
 import { isPersistedIconReference } from '../utils/teamAssetStorage';
@@ -386,7 +387,11 @@ export function processLoadedAppData(data: LoadedAppData): ProcessedAppData {
   const orphanGameIds = dedupedGames
     .filter(isOrphanedIncompleteGame)
     .map((g) => g.id);
-  const games = dedupedGames.filter((g) => !orphanGameIds.includes(g.id));
+  const games = normalizeGamesTeamRosters(
+    dedupedGames.filter((g) => !orphanGameIds.includes(g.id)),
+    teams,
+    data.tournamentRosters ?? []
+  );
   const tournaments = reconcileTournamentsFromGames(data.tournaments, games);
 
   return {

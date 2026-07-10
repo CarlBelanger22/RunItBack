@@ -10,7 +10,7 @@ import {
   isGameInProgress,
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
-import { resolveTeamScore } from '../utils/gameDisplay';
+import { resolveTeamScore, sortGamesByDateDesc } from '../utils/gameDisplay';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,10 +42,8 @@ export function RecentGames({
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   
-  // Sort games by date (most recent first)
-  const sortedGames = [...games].sort((a, b) => 
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  // Sort by date, then start time (most recent first)
+  const sortedGames = sortGamesByDateDesc(games);
   
   // Filter games based on status
   const filteredGames = sortedGames.filter(game => {

@@ -135,6 +135,7 @@ Setup: team on offense is fouled → shoot **2 FTs**. Note possession dot before
 | 7.1 | **Substitution** — column SUB → out + in + clock → confirm | [x] | On-court column updates |
 | 7.2 | Box score on-court dot matches who is on floor | [x] | |
 | 7.3 | **Undo** substitution | [x] | |
+| 7.4 | **Sub bench list after sleep / cloud sync** (LE-64) — mid-game, let Mac sleep or go offline → wake → open SUB | [ ] | **In** list = tournament roster only (not full club); no duplicate jersey ghosts |
 
 ---
 
