@@ -155,6 +155,7 @@ function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): Ac
       const category = (event.details.foulCategory as string) ?? 'personal';
       let label = 'FOUL';
       if (category === 'technical' || foulType === 'technical') label = 'TECH';
+      else if (category === 'offensive' || foulType === 'offensive') label = 'OFF FOUL';
       else if (category === 'unsportsmanlike' || foulType === 'unsportsmanlike') label = 'UNS';
       else if (category === 'double' || foulType === 'double') label = 'DBL FOUL';
       const drawnBy = event.details.drawnBy as string | undefined;

@@ -6,6 +6,8 @@
 import type { Game, GameEvent } from '../src/App';
 import { derivePossessionSnapshot } from '../src/liveEntry/possessionEngine';
 import { ftCountOptionsForCategory } from '../src/liveEntry/foulFlow';
+import { buildFoulEvent } from '../src/liveEntry/liveEntryActions';
+import { GameLogic } from '../src/utils/GameLogic';
 import {
   initialLiveEntryContext,
   liveEntryReducer,
@@ -16,6 +18,42 @@ function assert(condition: boolean, message: string): void {
     console.error(`FAIL: ${message}`);
     process.exit(1);
   }
+}
+
+function emptyTeamStats(teamId: string): Game['teamStats']['home'] {
+  return {
+    teamId,
+    q1_points: 0,
+    q2_points: 0,
+    q3_points: 0,
+    q4_points: 0,
+    ot_points: 0,
+    total_points: 0,
+    fg_made: 0,
+    fg_attempted: 0,
+    three_made: 0,
+    three_attempted: 0,
+    two_made: 0,
+    two_attempted: 0,
+    ft_made: 0,
+    ft_attempted: 0,
+    orb: 0,
+    drb: 0,
+    team_rebounds: 0,
+    total_rebounds: 0,
+    assists: 0,
+    steals: 0,
+    blocks: 0,
+    turnovers: 0,
+    fouls: 0,
+    points_off_turnovers: null,
+    points_in_paint: null,
+    second_chance_points: null,
+    fastbreak_points: null,
+    bench_points: null,
+    biggest_lead: null,
+    biggest_scoring_run: null,
+  };
 }
 
 function baseGame(): Game {
@@ -38,8 +76,8 @@ function baseGame(): Game {
     date: '2026-01-01',
     gameStats: [],
     teamStats: {
-      home: { teamId: 'home', total_points: 2 } as Game['teamStats']['home'],
-      away: { teamId: 'away', total_points: 0 } as Game['teamStats']['away'],
+      home: emptyTeamStats('home'),
+      away: emptyTeamStats('away'),
     },
     shots: [],
     events: [],
@@ -195,6 +233,82 @@ function testFtOptions(): void {
     'unsportsmanlike FT options'
   );
   assert(ftCountOptionsForCategory('personal').includes(0), 'personal allows 0 FT');
+  assert(
+    ftCountOptionsForCategory('offensive').join(',') === '0',
+    'offensive allows 0 FT only'
+  );
+}
+
+function testOffensiveFoulStateFlow(): void {
+  const state = liveEntryReducer(
+    {
+      phase: { kind: 'foul', step: 'category', foulEntity: 'player' },
+      ctx: initialLiveEntryContext('home', ['h1'], ['a1']),
+    },
+    { type: 'FOUL_CATEGORY', category: 'offensive' }
+  );
+  assert(
+    state.phase.kind === 'foul' &&
+      state.phase.step === 'committer' &&
+      state.phase.foulCategory === 'offensive',
+    'offensive category → committer on offense roster (commit on player pick, no confirm step)'
+  );
+}
+
+function testOffensiveFoulPossessionFlip(): void {
+  const game = baseGame();
+  const events: GameEvent[] = [
+    {
+      id: 'ps1',
+      type: 'period_start',
+      timestamp: 0,
+      period: 1,
+      gameTime: '10:00',
+      teamId: 'home',
+      details: { period: 1, possessionTeamId: 'home' },
+      homeScore: 0,
+      awayScore: 0,
+    },
+    {
+      id: 'of1',
+      type: 'foul',
+      timestamp: 1,
+      period: 1,
+      gameTime: '10:00',
+      teamId: 'home',
+      playerId: 'h1',
+      details: {
+        foulType: 'offensive',
+        foulCategory: 'offensive',
+        isOffensiveFoul: true,
+        retainPossession: false,
+      },
+      homeScore: 0,
+      awayScore: 0,
+    },
+  ];
+  const snap = derivePossessionSnapshot(game, events);
+  assert(snap.offenseTeamId === 'away', 'offensive foul flips possession to defense');
+  assert(snap.offTurnoverTeamId === 'away', 'offensive foul sets off-turnover credit team');
+}
+
+function testOffensiveFoulStats(): void {
+  const game = baseGame();
+  const event = buildFoulEvent(game, {
+    foulingTeamId: 'home',
+    committerId: 'h1',
+    foulCategory: 'offensive',
+  });
+  const updated = GameLogic.recordEvent(game, event);
+  const player = updated.gameStats.find((s) => s.playerId === 'h1');
+  assert(player?.fouls === 1, 'offensive foul credits player PF');
+  assert(player?.turnovers === 1, 'offensive foul credits player TO');
+  assert(updated.teamStats.home.fouls === 1, 'offensive foul credits team fouls');
+  assert(updated.teamStats.home.turnovers === 1, 'offensive foul credits team TO');
+  assert(
+    event.details.isOffensiveFoul === true && event.details.drawnBy === undefined,
+    'offensive foul event has no drawnBy'
+  );
 }
 
 function main(): void {
@@ -204,6 +318,9 @@ function main(): void {
   testRetainPossessionOnMadeFt();
   testTechnicalFtRetainsPossessionTeam();
   testFtOptions();
+  testOffensiveFoulStateFlow();
+  testOffensiveFoulPossessionFlip();
+  testOffensiveFoulStats();
   console.log('All foul-flow tests passed.');
 }
 

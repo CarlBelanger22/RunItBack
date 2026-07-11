@@ -1,6 +1,11 @@
 import type { Game } from '../App';
 
-export type FoulCategory = 'personal' | 'technical' | 'unsportsmanlike' | 'double';
+export type FoulCategory =
+  | 'personal'
+  | 'technical'
+  | 'unsportsmanlike'
+  | 'double'
+  | 'offensive';
 export type FoulEntity = 'player' | 'team';
 
 export interface FoulCommitParams {
@@ -39,5 +44,6 @@ export function defaultRetainForCategory(category: FoulCategory): boolean {
 export function ftCountOptionsForCategory(category: FoulCategory): number[] {
   if (category === 'unsportsmanlike') return [1, 2, 3];
   if (category === 'technical' || category === 'double') return [1];
+  if (category === 'offensive') return [0];
   return [0, 1, 2, 3];
 }

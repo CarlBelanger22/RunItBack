@@ -433,6 +433,13 @@ export class GameLogic {
         partnerStats.fouls += 1;
       }
     }
+
+    if (foulCategory === 'offensive') {
+      team.turnovers += 1;
+      if (player) {
+        player.turnovers += 1;
+      }
+    }
   }
 
   private static getOrCreatePlayerStats(

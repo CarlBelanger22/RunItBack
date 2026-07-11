@@ -279,18 +279,28 @@ export function LiveCourtFlowOverlays({
   if (phase.kind === 'foul' && phase.step === 'entity') {
     return (
       <LiveCourtOverlayShell>
-        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-center text-base">Foul — who committed?</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2 pb-4">
-            <Button onClick={overlayClick(() => dispatch({ type: 'FOUL_ENTITY', entity: 'player' }))}>
+        <Card className="border-primary/50 shadow-xl w-[272px] max-w-[95%] gap-0">
+          <CardContent className="flex flex-col gap-2 p-4">
+            <p className="text-center text-sm font-medium whitespace-nowrap">
+              Foul — who committed?
+            </p>
+            <Button
+              className="flex w-full"
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_ENTITY', entity: 'player' }))}
+            >
               Player
             </Button>
-            <Button onClick={overlayClick(() => dispatch({ type: 'FOUL_ENTITY', entity: 'team' }))}>
+            <Button
+              className="flex w-full"
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_ENTITY', entity: 'team' }))}
+            >
               Team
             </Button>
-            <Button variant="outline" className="col-span-2" onClick={overlayClick(() => dispatch({ type: 'RESET' }))}>
+            <Button
+              variant="outline"
+              className="flex w-full"
+              onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
+            >
               Cancel
             </Button>
           </CardContent>
@@ -307,12 +317,37 @@ export function LiveCourtFlowOverlays({
             <CardTitle className="text-center text-base">Foul category</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-2 pb-4">
-            <Button onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'personal' }))}>
+            <Button
+              className="col-span-2"
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'personal' }))}
+            >
               Personal
             </Button>
-            <Button onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' }))}>
-              Technical
-            </Button>
+            {phase.foulEntity === 'player' ? (
+              <>
+                <Button
+                  onClick={overlayClick(() =>
+                    dispatch({ type: 'FOUL_CATEGORY', category: 'offensive' })
+                  )}
+                >
+                  Offensive
+                </Button>
+                <Button
+                  onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' }))}
+                >
+                  Technical
+                </Button>
+              </>
+            ) : (
+              <div className="col-span-2 flex justify-center">
+                <Button
+                  className="w-[calc(50%-4px)]"
+                  onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' }))}
+                >
+                  Technical
+                </Button>
+              </div>
+            )}
             <Button
               onClick={overlayClick(() =>
                 dispatch({ type: 'FOUL_CATEGORY', category: 'unsportsmanlike' })

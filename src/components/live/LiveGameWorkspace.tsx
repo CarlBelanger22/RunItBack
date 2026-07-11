@@ -204,14 +204,16 @@ function resolveColumnPick(
       return null;
     }
 
-    const foulingTeamId =
-      handlers.and1RecipientId && handlers.and1FoulingTeamId
+    const isOffensive = phase.foulCategory === 'offensive';
+    const foulingTeamId = isOffensive
+      ? offenseTeamId
+      : handlers.and1RecipientId && handlers.and1FoulingTeamId
         ? handlers.and1FoulingTeamId
         : defenseTeamId;
 
     return {
       side: teamSide(game, foulingTeamId),
-      hint: 'Foul committed by',
+      hint: isOffensive ? 'Offensive foul — select player' : 'Foul committed by',
       onSelect: (p) => {
         if (handlers.and1RecipientId) {
           commitFoul({
@@ -226,6 +228,15 @@ function resolveColumnPick(
             offendedTeamId: offenseTeamId,
           });
           handlers.clearAnd1Session();
+        } else if (isOffensive) {
+          commitFoul({
+            foulingTeamId,
+            foulCategory: 'offensive',
+            foulEntity: 'player',
+            committerId: p.id,
+            ftCount: 0,
+            retainPossession: false,
+          });
         } else {
           dispatch({
             type: 'PICK_FOUL_COMMITTER',

@@ -182,16 +182,22 @@ export function buildFoulEvent(
   const ts = Date.now();
   const foulCategory = params.foulCategory;
   const foulType =
-    foulCategory === 'technical'
-      ? 'technical'
-      : foulCategory === 'unsportsmanlike'
-        ? 'unsportsmanlike'
-        : foulCategory === 'double'
-          ? 'double'
-          : 'normal';
+    foulCategory === 'offensive'
+      ? 'offensive'
+      : foulCategory === 'technical'
+        ? 'technical'
+        : foulCategory === 'unsportsmanlike'
+          ? 'unsportsmanlike'
+          : foulCategory === 'double'
+            ? 'double'
+            : 'normal';
 
   const drawnBy =
-    foulCategory === 'technical' || params.isTeamFoul ? undefined : params.recipientId;
+    foulCategory === 'technical' ||
+    foulCategory === 'offensive' ||
+    params.isTeamFoul
+      ? undefined
+      : params.recipientId;
 
   return {
     id: `event-${ts}`,
@@ -205,6 +211,7 @@ export function buildFoulEvent(
       foulType,
       foulCategory,
       drawnBy,
+      isOffensiveFoul: foulCategory === 'offensive',
       isTeamFoul: params.isTeamFoul ?? false,
       isCoachFoul: params.isCoachFoul ?? false,
       retainPossession: params.retainPossession ?? false,

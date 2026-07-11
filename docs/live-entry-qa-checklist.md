@@ -75,6 +75,21 @@ Mark results: `[ ]` not tested · `[x]` pass · `[!]` fail (add note inline)
 | 5.4 | **Team foul** — entity Team → category → 0 FT path | [x] | |
 | 5.5 | **Double foul** — both committers → confirm | [x] | 0 FT; both PF |
 | 5.6 | All **foul / rebound / turnover overlay buttons** respond to clicks | [x] | Nested court overlays — test each once |
+| 5.7 | **Offensive foul** — Player → Offensive → offense player (immediate commit) | [ ] | PF + TO; possession flips; no FT |
+
+### 5.7 — Offensive foul: what to check
+
+Setup: note **who has the ball** (offense highlight). Run **Foul → Player → Offensive → pick offense player** (no confirm step).
+
+| Check | Expected |
+|-------|----------|
+| Committer roster | Player picker shows **offense** team only |
+| PF stat | Offender +1 PF; team fouls +1 |
+| TO stat | Offender +1 TO; team TO +1 |
+| Free throws | None — no FT phase |
+| Fouls drawn | None on defender |
+| Possession after | **Defense** has the ball (same as turnover) |
+| Play-by-play | `OFF FOUL` label with offender name |
 
 ### 5.2 — Technical foul: what to check (re-test)
 

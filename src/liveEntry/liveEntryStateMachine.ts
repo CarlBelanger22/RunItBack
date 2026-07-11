@@ -330,6 +330,18 @@ export function liveEntryReducer(
           },
         };
       }
+      if (action.category === 'offensive') {
+        return {
+          ...state,
+          phase: {
+            kind: 'foul',
+            step: 'committer',
+            foulEntity,
+            foulCategory: 'offensive',
+            retainPossession: false,
+          },
+        };
+      }
       return {
         ...state,
         phase: {

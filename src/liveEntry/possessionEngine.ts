@@ -47,6 +47,10 @@ function isTurnover(event: GameEvent): boolean {
   return event.type === 'turnover';
 }
 
+function isOffensiveFoul(event: GameEvent): boolean {
+  return event.type === 'foul' && event.details.foulCategory === 'offensive';
+}
+
 function isJumpBallPossessionChange(event: GameEvent): boolean {
   if (event.type !== 'jump_ball') return false;
   return event.details.possessionChanged === true;
@@ -105,6 +109,13 @@ export function derivePossessionSnapshot(
     }
 
     if (isTurnover(event)) {
+      const recovering = opponentTeamId(game, event.teamId);
+      offenseTeamId = recovering;
+      offTurnoverTeamId = recovering;
+      secondChanceTeamId = null;
+    }
+
+    if (isOffensiveFoul(event)) {
       const recovering = opponentTeamId(game, event.teamId);
       offenseTeamId = recovering;
       offTurnoverTeamId = recovering;
