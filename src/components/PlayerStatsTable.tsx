@@ -2,8 +2,15 @@ import React, { useRef, useState, useMemo, useCallback } from 'react';
 import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
-import { ChevronUp, ChevronDown, ChevronsUpDown, AlertTriangle, Target, TrendingUp } from 'lucide-react';
-import { MetricsCalculator } from './MetricsCalculator';
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  AlertTriangle,
+  Download,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
 import {
   defaultSortOrderForField,
   sortPlayerSeasonRows,
@@ -11,58 +18,25 @@ import {
   type PlayerStatsSortField,
   type ShotDataCoverage,
   type FoulStatCoverage,
-  foulsDrawnPerGameForRow,
-  plusMinusPerGameForRow,
 } from '../utils/playerSeasonStats';
 import { formatDecimalMinutes } from '../utils/formatMinutes';
 import { getTeamStatsAbbreviation } from '../utils/teamAbbreviation';
 import type { Team } from '../App';
-import { OptionalStatText, StatTooltipHead } from './StatDisplay';
+import { NoStatRecorded, StatTooltipHead } from './StatDisplay';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { STANDARD_SHOOTING_STAT_FIELDS } from '../utils/shootingStatColumns';
+import { PLAYER_STATS_COLUMN_TOOLTIPS } from '../utils/playerStatsGlossary';
+import {
+  ADVANCED_PLAYER_STATS_FIELDS,
+  NO_STAT_RECORDED_VALUE,
+  STANDARD_PLAYER_STATS_FIELDS,
+  formatAdvancedPlayerStatsRow,
+  formatStandardPlayerStatsRow,
+} from '../utils/playerStatsDisplay';
 
 type StatsView = 'standard' | 'advanced';
 
-const COLUMN_TOOLTIPS: Record<string, string> = {
-  '#': 'Row number for the current sort order',
-  Tournament: 'Tournament name',
-  Scope: 'Tournament or summary scope',
-  Player: 'Player name',
-  Team: 'Team abbreviation',
-  Age: 'Age during this tournament season (month and year)',
-  Position: 'Primary position',
-  GP: 'Games played',
-  MPG: 'Minutes per game (MM:SS)',
-  PPG: 'Points per game',
-  RPG: 'Rebounds per game',
-  APG: 'Assists per game',
-  SPG: 'Steals per game',
-  BPG: 'Blocks per game',
-  'FG%': 'Field goal percentage',
-  FGM: 'Field goals made per game',
-  FGA: 'Field goal attempts per game',
-  '3P%': 'Three-point percentage',
-  '3PM': 'Three-pointers made per game',
-  '3PA': 'Three-point attempts per game',
-  'FT%': 'Free throw percentage',
-  FTM: 'Free throws made per game',
-  FTA: 'Free throw attempts per game',
-  TOPG: 'Turnovers per game',
-  FPG: 'Personal fouls per game',
-  '+/-': 'Plus/minus per game',
-  GmSc: 'Game score per game (Hollinger formula)',
-  EFF: 'Efficiency rating per game',
-  FG: 'Total field goals made/attempted (season)',
-  '3PT': 'Total three-pointers made/attempted (season)',
-  FT: 'Total free throws made/attempted (season)',
-  ORPG: 'Offensive rebounds per game',
-  FDPG: 'Fouls drawn per game',
-  Paint: 'Points in the paint per game',
-  FB: 'Fast break points per game',
-  BlocksAgainst: 'Blocks against per game',
-  TFPG: 'Technical fouls per game',
-  UFPG: 'Unsportsmanlike fouls per game',
-};
+const COLUMN_TOOLTIPS = PLAYER_STATS_COLUMN_TOOLTIPS;
 
 const STANDARD_SORT_FIELDS = new Set<PlayerStatsSortField>([
   'Scope',
@@ -120,6 +94,8 @@ interface PlayerStatsTableProps {
   onNavigateToTeam?: (teamId: string) => void;
   /** Full league teams for unique stats-table abbreviations when many share "TST". */
   teams?: Team[];
+  onExportPdf?: () => void;
+  exportDisabled?: boolean;
 }
 
 function SortIcon({
@@ -147,6 +123,7 @@ function SortableHead({
   sortField,
   sortOrder,
   onSort,
+  activeSortFields,
   className = '',
   center = false,
   tooltip,
@@ -157,12 +134,13 @@ function SortableHead({
   sortField: PlayerStatsSortField;
   sortOrder: 'asc' | 'desc';
   onSort: (field: PlayerStatsSortField) => void;
+  activeSortFields: Set<PlayerStatsSortField>;
   className?: string;
   center?: boolean;
   tooltip?: string;
   warningTooltip?: string;
 }) {
-  const active = sortField === field;
+  const active = sortField === field && activeSortFields.has(field);
   const hint = tooltip ?? COLUMN_TOOLTIPS[field];
   const labelNode =
     hint && typeof label === 'string' ? (
@@ -200,10 +178,6 @@ function SortableHead({
   );
 }
 
-function madeAttempted(made: number, attempted: number): string {
-  return `${made}/${attempted}`;
-}
-
 const tableLinkButtonClass =
   'text-sm font-normal text-left hover:text-primary hover:underline cursor-pointer';
 
@@ -223,6 +197,8 @@ export function PlayerStatsTable({
   onNavigateToTournament,
   onNavigateToTeam,
   teams: leagueTeamsProp,
+  onExportPdf,
+  exportDisabled = false,
 }: PlayerStatsTableProps) {
   const isBreakdown = layout === 'tournament-breakdown';
   const leagueTeamsForAbbrev = useMemo(
@@ -266,40 +242,52 @@ export function PlayerStatsTable({
     }, 0);
   };
 
-  const switchView = useCallback(
-    (next: StatsView) => {
-      setView(next);
-      const allowed = next === 'standard' ? STANDARD_SORT_FIELDS : ADVANCED_SORT_FIELDS;
-      if (!allowed.has(sortField)) {
-        setSortField(next === 'standard' ? (isBreakdown ? 'Scope' : 'PPG') : 'FG');
-        setSortOrder('desc');
-      }
-    },
-    [sortField, isBreakdown]
-  );
+  const switchView = useCallback((next: StatsView) => {
+    setView(next);
+  }, []);
+
+  const activeSortFields =
+    view === 'standard' ? STANDARD_SORT_FIELDS : ADVANCED_SORT_FIELDS;
+
+  const isActiveSortField = (field: PlayerStatsSortField) =>
+    sortField === field && activeSortFields.has(field);
 
   const cellHighlight = (field: PlayerStatsSortField) =>
-    sortField === field ? 'bg-muted/50' : '';
+    isActiveSortField(field) ? 'bg-muted/50' : '';
 
   return (
     <div className="space-y-3">
-      <div className="flex gap-2">
-        <Button
-          variant={view === 'standard' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => switchView('standard')}
-        >
-          <Target className="w-4 h-4 mr-2" />
-          Standard
-        </Button>
-        <Button
-          variant={view === 'advanced' ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => switchView('advanced')}
-        >
-          <TrendingUp className="w-4 h-4 mr-2" />
-          Advanced
-        </Button>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex gap-2">
+          <Button
+            variant={view === 'standard' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => switchView('standard')}
+          >
+            <Target className="w-4 h-4 mr-2" />
+            Standard
+          </Button>
+          <Button
+            variant={view === 'advanced' ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => switchView('advanced')}
+          >
+            <TrendingUp className="w-4 h-4 mr-2" />
+            Advanced
+          </Button>
+        </div>
+        {onExportPdf && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onExportPdf}
+            disabled={exportDisabled}
+            title="Export player stats PDF"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export PDF
+          </Button>
+        )}
       </div>
 
       <Card>
@@ -325,6 +313,7 @@ export function PlayerStatsTable({
                       sortField={sortField}
                       sortOrder={sortOrder}
                       onSort={handleSort}
+                      activeSortFields={activeSortFields}
                     />
                   ) : (
                     <SortableHead
@@ -333,6 +322,7 @@ export function PlayerStatsTable({
                       sortField={sortField}
                       sortOrder={sortOrder}
                       onSort={handleSort}
+                      activeSortFields={activeSortFields}
                     />
                   )}
                   {showTeamColumn && (
@@ -342,6 +332,7 @@ export function PlayerStatsTable({
                       sortField={sortField}
                       sortOrder={sortOrder}
                       onSort={handleSort}
+                      activeSortFields={activeSortFields}
                       className="w-16"
                     />
                   )}
@@ -352,6 +343,7 @@ export function PlayerStatsTable({
                       sortField={sortField}
                       sortOrder={sortOrder}
                       onSort={handleSort}
+                      activeSortFields={activeSortFields}
                       center
                       className="text-center w-12"
                       tooltip={COLUMN_TOOLTIPS.Age}
@@ -364,6 +356,7 @@ export function PlayerStatsTable({
                       sortField={sortField}
                       sortOrder={sortOrder}
                       onSort={handleSort}
+                      activeSortFields={activeSortFields}
                     />
                   )}
                   <SortableHead
@@ -372,6 +365,7 @@ export function PlayerStatsTable({
                     sortField={sortField}
                     sortOrder={sortOrder}
                     onSort={handleSort}
+                    activeSortFields={activeSortFields}
                     center
                     className="text-center"
                   />
@@ -381,17 +375,18 @@ export function PlayerStatsTable({
                     sortField={sortField}
                     sortOrder={sortOrder}
                     onSort={handleSort}
+                    activeSortFields={activeSortFields}
                     center
                     className="text-center"
                   />
 
                   {view === 'standard' ? (
                     <>
-                      <SortableHead label="PPG" field="PPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="RPG" field="RPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="APG" field="APG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="SPG" field="SPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="BPG" field="BPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
+                      <SortableHead label="PPG" field="PPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="RPG" field="RPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="APG" field="APG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="SPG" field="SPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="BPG" field="BPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       {STANDARD_SHOOTING_STAT_FIELDS.map((field) => (
                         <SortableHead
                           key={field}
@@ -400,29 +395,31 @@ export function PlayerStatsTable({
                           sortField={sortField}
                           sortOrder={sortOrder}
                           onSort={handleSort}
+                          activeSortFields={activeSortFields}
                           center
                           className="text-center"
                         />
                       ))}
-                      <SortableHead label="TOPG" field="TOPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FPG" field="FPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="+/-" field="+/-" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="GmSc" field="GmSc" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="EFF" field="EFF" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
+                      <SortableHead label="TOPG" field="TOPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="FPG" field="FPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="+/-" field="+/-" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="GmSc" field="GmSc" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="EFF" field="EFF" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                     </>
                   ) : (
                     <>
-                      <SortableHead label="FG" field="FG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="3PT" field="3PT" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FT" field="FT" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="ORPG" field="ORPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="FDPG" field="FDPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
+                      <SortableHead label="FG" field="FG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="3PT" field="3PT" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="FT" field="FT" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="ORPG" field="ORPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="FDPG" field="FDPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead
                         label="Paint"
                         field="Paint"
                         sortField={sortField}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        activeSortFields={activeSortFields}
                         center
                         className="text-center"
                         warningTooltip={partialShotTooltip}
@@ -433,6 +430,7 @@ export function PlayerStatsTable({
                         sortField={sortField}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        activeSortFields={activeSortFields}
                         center
                         className="text-center"
                         warningTooltip={partialShotTooltip}
@@ -443,42 +441,25 @@ export function PlayerStatsTable({
                         sortField={sortField}
                         sortOrder={sortOrder}
                         onSort={handleSort}
+                        activeSortFields={activeSortFields}
                         center
                         className="text-center"
                       />
-                      <SortableHead label="TF" field="TFPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
-                      <SortableHead label="UF" field="UFPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} center className="text-center" />
+                      <SortableHead label="TF" field="TFPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="UF" field="UFPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                     </>
                   )}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {sortedRows.map((playerData, index) => {
-                  const { totalStats, gamesPlayed } = playerData;
+                  const { gamesPlayed } = playerData;
                   const rowKey = playerData.scopeId ?? playerData.player.id;
                   const isSummaryRow = playerData.isSummaryRow === true;
                   const mpg =
-                    gamesPlayed > 0 ? totalStats.minutes_played / gamesPlayed : 0;
-                  const paintPg =
-                    playerData.gamesWithShotData > 0
-                      ? playerData.paintPointsTotal / playerData.gamesWithShotData
-                      : null;
-                  const fbPg =
-                    playerData.gamesWithShotData > 0
-                      ? playerData.fastbreakPointsTotal / playerData.gamesWithShotData
-                      : null;
-                  const blocksAgainstPg =
-                    foulStatCoverage?.blocksAgainst && gamesPlayed > 0
-                      ? totalStats.blocks_received / gamesPlayed
-                      : null;
-                  const tfPg =
-                    foulStatCoverage?.techFouls && gamesPlayed > 0
-                      ? totalStats.tech_fouls / gamesPlayed
-                      : null;
-                  const ufPg =
-                    foulStatCoverage?.unsportsmanlikeFouls && gamesPlayed > 0
-                      ? totalStats.unsportsmanlike_fouls / gamesPlayed
-                      : null;
+                    gamesPlayed > 0
+                      ? playerData.totalStats.minutes_played / gamesPlayed
+                      : 0;
 
                   return (
                     <TableRow
@@ -589,57 +570,16 @@ export function PlayerStatsTable({
                       </TableCell>
 
                       {view === 'standard' ? (
-                        <>
-                          <StandardStatCells
-                            playerData={playerData}
-                            cellHighlight={cellHighlight}
-                            plusMinusPg={plusMinusPerGameForRow(playerData)}
-                          />
-                        </>
+                        <StandardStatCells
+                          playerData={playerData}
+                          cellHighlight={cellHighlight}
+                        />
                       ) : (
-                        <>
-                          <TableCell
-                            className={`${numericCellClass} ${cellHighlight('FG')}`}
-                          >
-                            {madeAttempted(totalStats.fg_made, totalStats.fg_attempted)}
-                          </TableCell>
-                          <TableCell
-                            className={`${numericCellClass} ${cellHighlight('3PT')}`}
-                          >
-                            {madeAttempted(totalStats.three_made, totalStats.three_attempted)}
-                          </TableCell>
-                          <TableCell
-                            className={`${numericCellClass} ${cellHighlight('FT')}`}
-                          >
-                            {madeAttempted(totalStats.ft_made, totalStats.ft_attempted)}
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('ORPG')}`}>
-                            {gamesPlayed > 0
-                              ? (totalStats.orb / gamesPlayed).toFixed(1)
-                              : '0.0'}
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('FDPG')}`}>
-                            <OptionalStatText
-                              value={foulsDrawnPerGameForRow(playerData)}
-                              decimals={1}
-                            />
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('Paint')}`}>
-                            <OptionalStatText value={paintPg} decimals={1} />
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('FB')}`}>
-                            <OptionalStatText value={fbPg} decimals={1} />
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('BlocksAgainst')}`}>
-                            <OptionalStatText value={blocksAgainstPg} decimals={1} />
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('TFPG')}`}>
-                            <OptionalStatText value={tfPg} decimals={1} />
-                          </TableCell>
-                          <TableCell className={`${numericCellClass} ${cellHighlight('UFPG')}`}>
-                            <OptionalStatText value={ufPg} decimals={1} />
-                          </TableCell>
-                        </>
+                        <AdvancedStatCells
+                          playerData={playerData}
+                          cellHighlight={cellHighlight}
+                          foulStatCoverage={foulStatCoverage}
+                        />
                       )}
                     </TableRow>
                   );
@@ -656,86 +596,69 @@ export function PlayerStatsTable({
 function StandardStatCells({
   playerData,
   cellHighlight,
-  plusMinusPg,
 }: {
   playerData: PlayerSeasonRow;
   cellHighlight: (field: PlayerStatsSortField) => string;
-  plusMinusPg: number | null;
 }) {
-  const { totalStats, gamesPlayed } = playerData;
-
-  const ppg = gamesPlayed > 0 ? totalStats.points / gamesPlayed : 0;
-  const rpg =
-    gamesPlayed > 0 ? (totalStats.orb + totalStats.drb) / gamesPlayed : 0;
-  const apg = gamesPlayed > 0 ? totalStats.assists / gamesPlayed : 0;
-  const spg = gamesPlayed > 0 ? totalStats.steals / gamesPlayed : 0;
-  const bpg = gamesPlayed > 0 ? totalStats.blocks / gamesPlayed : 0;
-  const fgPct =
-    totalStats.fg_attempted > 0
-      ? (totalStats.fg_made / totalStats.fg_attempted) * 100
-      : 0;
-  const fgm = gamesPlayed > 0 ? totalStats.fg_made / gamesPlayed : 0;
-  const fga = gamesPlayed > 0 ? totalStats.fg_attempted / gamesPlayed : 0;
-  const threePct =
-    totalStats.three_attempted > 0
-      ? (totalStats.three_made / totalStats.three_attempted) * 100
-      : 0;
-  const threePm = gamesPlayed > 0 ? totalStats.three_made / gamesPlayed : 0;
-  const threePa = gamesPlayed > 0 ? totalStats.three_attempted / gamesPlayed : 0;
-  const ftPct =
-    totalStats.ft_attempted > 0
-      ? (totalStats.ft_made / totalStats.ft_attempted) * 100
-      : 0;
-  const ftm = gamesPlayed > 0 ? totalStats.ft_made / gamesPlayed : 0;
-  const fta = gamesPlayed > 0 ? totalStats.ft_attempted / gamesPlayed : 0;
-  const topg = gamesPlayed > 0 ? totalStats.turnovers / gamesPlayed : 0;
-  const fpg = gamesPlayed > 0 ? totalStats.fouls / gamesPlayed : 0;
-  const eff = MetricsCalculator.calculateEfficiency(totalStats);
-  const effPg = gamesPlayed > 0 ? eff / gamesPlayed : 0;
-  const gameSc = MetricsCalculator.calculateGameScore(totalStats);
-  const gameScPg = gamesPlayed > 0 ? gameSc / gamesPlayed : 0;
-
-  const shootingValues = {
-    FGM: fgm.toFixed(1),
-    FGA: fga.toFixed(1),
-    'FG%': `${fgPct.toFixed(1)}%`,
-    '3PM': threePm.toFixed(1),
-    '3PA': threePa.toFixed(1),
-    '3P%': `${threePct.toFixed(1)}%`,
-    FTM: ftm.toFixed(1),
-    FTA: fta.toFixed(1),
-    'FT%': `${ftPct.toFixed(1)}%`,
-  };
+  const values = formatStandardPlayerStatsRow(playerData);
 
   return (
     <>
-      <TableCell className={`${numericCellClass} ${cellHighlight('PPG')}`}>{ppg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('RPG')}`}>{rpg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('APG')}`}>{apg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('SPG')}`}>{spg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('BPG')}`}>{bpg.toFixed(1)}</TableCell>
-      {STANDARD_SHOOTING_STAT_FIELDS.map((field) => (
-        <TableCell
-          key={field}
-          className={`${numericCellClass} ${cellHighlight(field)}`}
-        >
-          {shootingValues[field]}
-        </TableCell>
-      ))}
-      <TableCell className={`${numericCellClass} ${cellHighlight('TOPG')}`}>{topg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('FPG')}`}>{fpg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('+/-')}`}>
-        {plusMinusPg !== null ? (
-          <span className={plusMinusPg >= 0 ? 'text-green-600' : 'text-red-600'}>
-            {plusMinusPg >= 0 ? '+' : ''}
-            {plusMinusPg.toFixed(1)}
-          </span>
-        ) : (
-          <OptionalStatText value={null} />
-        )}
-      </TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('GmSc')}`}>{gameScPg.toFixed(1)}</TableCell>
-      <TableCell className={`${numericCellClass} ${cellHighlight('EFF')}`}>{effPg.toFixed(1)}</TableCell>
+      {STANDARD_PLAYER_STATS_FIELDS.map((field, index) => {
+        const value = values[index] ?? '';
+        return (
+          <TableCell
+            key={field}
+            className={`${numericCellClass} ${cellHighlight(field)}`}
+          >
+            {value === NO_STAT_RECORDED_VALUE ? (
+              <NoStatRecorded />
+            ) : field === '+/-' ? (
+              <span
+                className={
+                  value.startsWith('+') ? 'text-green-600' : 'text-red-600'
+                }
+              >
+                {value}
+              </span>
+            ) : (
+              value
+            )}
+          </TableCell>
+        );
+      })}
+    </>
+  );
+}
+
+function AdvancedStatCells({
+  playerData,
+  cellHighlight,
+  foulStatCoverage,
+}: {
+  playerData: PlayerSeasonRow;
+  cellHighlight: (field: PlayerStatsSortField) => string;
+  foulStatCoverage?: FoulStatCoverage;
+}) {
+  const values = formatAdvancedPlayerStatsRow(playerData, foulStatCoverage);
+
+  return (
+    <>
+      {ADVANCED_PLAYER_STATS_FIELDS.map((field, index) => {
+        const value = values[index] ?? '';
+        return (
+          <TableCell
+            key={field}
+            className={`${numericCellClass} ${cellHighlight(field)}`}
+          >
+            {value === NO_STAT_RECORDED_VALUE ? (
+              <NoStatRecorded />
+            ) : (
+              value
+            )}
+          </TableCell>
+        );
+      })}
     </>
   );
 }

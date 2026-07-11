@@ -1,4 +1,5 @@
 import type { Game, GameStats, Player, Team, Tournament } from '../App';
+import { isScoreOnlyTeam, type TeamSide } from './gameDisplay';
 import {
   getPlayersForTeamInTournament,
   resolvePlayerTeamSideInGame,
@@ -80,29 +81,38 @@ export function getShotDataCoverage(games: Game[] | undefined): ShotDataCoverage
   };
 }
 
-/** True when at least one player-game in scope has a non-zero value (stat was recorded). */
+/** True when BA / TF / UF are tracked for games in scope (zeros display as 0.0). */
 export interface FoulStatCoverage {
   blocksAgainst: boolean;
   techFouls: boolean;
   unsportsmanlikeFouls: boolean;
 }
 
-export function getFoulStatCoverage(games: Game[] | undefined): FoulStatCoverage {
-  const coverage: FoulStatCoverage = {
-    blocksAgainst: false,
-    techFouls: false,
-    unsportsmanlikeFouls: false,
-  };
+function gameTracksFoulSubtypeStats(game: Game, teamId?: string): boolean {
+  if ((game.events?.length ?? 0) > 0) return true;
 
-  for (const game of games ?? []) {
-    for (const stat of game.gameStats ?? []) {
-      if (stat.blocks_received > 0) coverage.blocksAgainst = true;
-      if (stat.tech_fouls > 0) coverage.techFouls = true;
-      if (stat.unsportsmanlike_fouls > 0) coverage.unsportsmanlikeFouls = true;
-    }
+  if (teamId) {
+    if (game.homeTeamId !== teamId && game.awayTeamId !== teamId) return false;
+    const side: TeamSide = game.homeTeamId === teamId ? 'home' : 'away';
+    return !isScoreOnlyTeam(game, side);
   }
 
-  return coverage;
+  return !isScoreOnlyTeam(game, 'home') || !isScoreOnlyTeam(game, 'away');
+}
+
+export function getFoulStatCoverage(
+  games: Game[] | undefined,
+  teamId?: string
+): FoulStatCoverage {
+  const tracks = (games ?? []).some((game) =>
+    gameTracksFoulSubtypeStats(game, teamId)
+  );
+
+  return {
+    blocksAgainst: tracks,
+    techFouls: tracks,
+    unsportsmanlikeFouls: tracks,
+  };
 }
 
 export type PlayerStatsSortField =

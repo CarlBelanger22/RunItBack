@@ -142,6 +142,8 @@
             "test:tournament-selection": "tsx scripts/test-tournament-selection.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts",
             "test:game-report-model": "tsx scripts/test-game-report-model.ts",
+            "test:team-stats-report": "tsx scripts/test-team-stats-report.ts",
+            "test:foul-stat-coverage": "tsx scripts/test-foul-stat-coverage.ts",
             "test:shot-chart-display": "tsx scripts/test-shot-chart-display.ts",
             "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts",
             "test:game-team-rosters": "tsx scripts/test-game-team-rosters.ts",

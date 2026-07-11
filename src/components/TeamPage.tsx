@@ -88,6 +88,7 @@ import {
 import { resolvePlayerAge } from '../utils/playerAge';
 import { resolveLatestJerseyNumber } from '../utils/playerJerseyResolution';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
+import { downloadTeamStatsReportPdf } from '../lib/teamStatsReportPdf';
 import { 
   ArrowLeft,
   Users, 
@@ -524,7 +525,7 @@ export function TeamPage({
       normalizedTeam
         ? aggregatePlayerSeasonStats(filteredStatsGames, [normalizedTeam], {
             restrictTeamId: teamId,
-          })
+          }).filter((row) => row.gamesPlayed > 0)
         : [],
     [filteredStatsGames, normalizedTeam, teamId]
   );
@@ -535,9 +536,34 @@ export function TeamPage({
   );
 
   const playerStatsFoulCoverage = useMemo(
-    () => getFoulStatCoverage(filteredStatsGames),
-    [filteredStatsGames]
+    () => getFoulStatCoverage(filteredStatsGames, teamId),
+    [filteredStatsGames, teamId]
   );
+
+  const handleExportTeamStatsPdf = useCallback(() => {
+    if (!normalizedTeam) return;
+    downloadTeamStatsReportPdf({
+      team: normalizedTeam,
+      rows: playerSeasonRows,
+      tournaments,
+      selectedTournamentIds,
+      allTeamTournamentIds,
+      tournamentOptions: statsTournamentFilterOptions,
+      gameFormatScope: statsGameFormatScope,
+      shotDataCoverage: playerStatsShotCoverage,
+      foulStatCoverage: playerStatsFoulCoverage,
+    });
+  }, [
+    normalizedTeam,
+    playerSeasonRows,
+    tournaments,
+    selectedTournamentIds,
+    allTeamTournamentIds,
+    statsTournamentFilterOptions,
+    statsGameFormatScope,
+    playerStatsShotCoverage,
+    playerStatsFoulCoverage,
+  ]);
 
   const rosterStatsGames = useMemo(
     () =>
@@ -1777,6 +1803,8 @@ export function TeamPage({
             shotDataCoverage={playerStatsShotCoverage}
             foulStatCoverage={playerStatsFoulCoverage}
             onNavigateToPlayer={onNavigateToPlayer}
+            onExportPdf={handleExportTeamStatsPdf}
+            exportDisabled={playerSeasonRows.length === 0}
           />
         </div>
       </div>
