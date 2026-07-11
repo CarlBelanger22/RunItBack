@@ -3833,8 +3833,8 @@ html {
   min-width: 148px;
   max-width: 172px;
   flex-direction: column;
-  gap: 4px;
-  padding: 8px 12px;
+  gap: 6px;
+  padding: 10px 12px;
   border-radius: 6px;
   border: 1px solid;
   text-align: left;
@@ -3866,6 +3866,12 @@ html {
   text-transform: uppercase;
 }
 
+.live-pbp-card-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .live-pbp-player {
   font-size: 11px;
   font-weight: 500;
@@ -3873,18 +3879,20 @@ html {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.35;
 }
 
 .live-pbp-action {
   font-size: 12px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.35;
   text-transform: uppercase;
 }
 
 .live-pbp-detail {
   font-size: 9px;
   color: var(--muted-foreground);
+  line-height: 1.35;
 }
 
 .live-pbp-edit-hint {
@@ -3892,6 +3900,7 @@ html {
   color: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
   opacity: 0;
   transition: opacity 0.15s;
+  margin-top: 2px;
 }
 
 /* LE-11.8 — Dual box score */
