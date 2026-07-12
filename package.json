@@ -131,6 +131,7 @@
             "test:opening-tip": "tsx scripts/test-opening-tip.ts",
             "test:foul-flow": "tsx scripts/test-foul-flow.ts",
             "test:and1-ft-flow": "tsx scripts/test-and1-ft-flow.ts",
+            "test:ft-substitution-flow": "tsx scripts/test-ft-substitution-flow.ts",
             "test:court-overlay-active": "tsx scripts/test-court-overlay-active.ts",
             "test:live-pbp-rail": "tsx scripts/test-live-pbp-rail.ts",
             "test:game-clock": "tsx scripts/test-game-clock.ts",

@@ -450,7 +450,13 @@ export function useLiveGameSession(
   );
 
   const commitSubstitution = useCallback(
-    (teamId: string, outIds: string[], inIds: string[], clockTime: string) => {
+    (
+      teamId: string,
+      outIds: string[],
+      inIds: string[],
+      clockTime: string,
+      options?: { preserveEntryPhase?: boolean }
+    ) => {
       const checkpointFrom = minutesState.checkpointClock;
       if (!isValidSubstitutionClock(checkpointFrom, clockTime)) {
         return { ok: false as const, error: `Time must be at or before ${checkpointFrom}` };
@@ -488,7 +494,9 @@ export function useLiveGameSession(
       setMinutesState(checkpoint.state);
       setOnCourtHome(checkpoint.state.onCourtHome);
       setOnCourtAway(checkpoint.state.onCourtAway);
-      dispatch({ type: 'RESET' });
+      if (!options?.preserveEntryPhase) {
+        dispatch({ type: 'RESET' });
+      }
       return { ok: true as const };
     },
     [currentGame, minutesState, syncGame]

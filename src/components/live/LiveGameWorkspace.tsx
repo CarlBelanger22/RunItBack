@@ -420,7 +420,7 @@ export function LiveGameWorkspace({
   }, [phase.kind, clearAnd1Session]);
 
   useEffect(() => {
-    if (phase.kind !== 'free_throw') return;
+    if (phase.kind !== 'free_throw' || subOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       const target = e.target;
@@ -442,7 +442,7 @@ export function LiveGameWorkspace({
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [phase.kind, commitFreeThrow]);
+  }, [phase.kind, subOpen, commitFreeThrow]);
 
   const isTechFoulCommitter =
     phase.kind === 'foul' &&
@@ -504,7 +504,7 @@ export function LiveGameWorkspace({
   const showShotOverlay =
     phase.kind === 'shot' && phase.step === 'await_outcome' && pending;
 
-  const showFtOverlay = phase.kind === 'free_throw';
+  const showFtOverlay = phase.kind === 'free_throw' && !subOpen;
 
   const portaledCourtOverlayOpen = Boolean(showShotOverlay) || Boolean(showFtOverlay);
 
@@ -615,6 +615,13 @@ export function LiveGameWorkspace({
     lineupOverlayOpen ||
     (phase.kind !== 'idle' && phase.kind !== 'shot');
 
+  const subDisabled =
+    isOpeningJumpBall ||
+    lineupOverlayOpen ||
+    (phase.kind !== 'idle' &&
+      phase.kind !== 'shot' &&
+      phase.kind !== 'free_throw');
+
   if (!trackBoth) {
     return (
       <DesktopOnlyGuard>
@@ -717,7 +724,7 @@ export function LiveGameWorkspace({
                   }
                   excludeId={columnPick?.side === 'home' ? columnPick.excludeId : undefined}
                   onSubstitution={() => openSubForTeam(currentGame.homeTeamId)}
-                  subDisabled={actionBarDisabled}
+                  subDisabled={subDisabled}
                 />
               </section>
 
@@ -823,7 +830,7 @@ export function LiveGameWorkspace({
                   }
                   excludeId={columnPick?.side === 'away' ? columnPick.excludeId : undefined}
                   onSubstitution={() => openSubForTeam(currentGame.awayTeamId)}
-                  subDisabled={actionBarDisabled}
+                  subDisabled={subDisabled}
                 />
               </section>
             </div>
@@ -910,7 +917,8 @@ export function LiveGameWorkspace({
                   subTeamId,
                   subOut,
                   subIn,
-                  subClock.trim()
+                  subClock.trim(),
+                  phase.kind === 'free_throw' ? { preserveEntryPhase: true } : undefined
                 );
                 if (!result.ok) {
                   setSubClockError(result.error);
