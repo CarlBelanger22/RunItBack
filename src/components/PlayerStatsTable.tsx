@@ -72,8 +72,8 @@ const ADVANCED_SORT_FIELDS = new Set<PlayerStatsSortField>([
   'FT',
   'ORPG',
   'FDPG',
-  'Paint',
-  'FB',
+  'PITP',
+  'FB PTS',
   'BlocksAgainst',
   'TFPG',
   'UFPG',
@@ -414,8 +414,8 @@ export function PlayerStatsTable({
                       <SortableHead label="ORPG" field="ORPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="FDPG" field="FDPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead
-                        label="Paint"
-                        field="Paint"
+                        label="PITP"
+                        field="PITP"
                         sortField={sortField}
                         sortOrder={sortOrder}
                         onSort={handleSort}
@@ -425,8 +425,8 @@ export function PlayerStatsTable({
                         warningTooltip={partialShotTooltip}
                       />
                       <SortableHead
-                        label="FB"
-                        field="FB"
+                        label="FB PTS"
+                        field="FB PTS"
                         sortField={sortField}
                         sortOrder={sortOrder}
                         onSort={handleSort}

@@ -106,7 +106,7 @@ function drawReportHeader(doc: jsPDF, model: TeamStatsReportModel): number {
 
   if (model.shotDataCoverage?.isPartial) {
     doc.text(
-      `Paint/FB averages use games with shot chart data (${model.shotDataCoverage.gamesWithShotData} of ${model.shotDataCoverage.gamesTotal}).`,
+      `PITP/FB PTS averages use games with shot chart data (${model.shotDataCoverage.gamesWithShotData} of ${model.shotDataCoverage.gamesTotal}).`,
       pageWidth / 2,
       y,
       { align: 'center' }

@@ -311,8 +311,8 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
               <StatTooltipHead label="GmSc" tooltip="Game Score" className="text-center w-16" />
               <StatTooltipHead label="2P%" tooltip="Two-Point Percentage" className="text-center w-16" />
               <StatTooltipHead label="2P" tooltip="Two-Pointers Made/Attempted" className="text-center w-20" />
-              <StatTooltipHead label="Paint" tooltip="Points in Paint" className="text-center w-16" />
-              <StatTooltipHead label="FB" tooltip="Fast Break Points" className="text-center w-16" />
+              <StatTooltipHead label="PITP" tooltip="Points in Paint" className="text-center w-16" />
+              <StatTooltipHead label="FB PTS" tooltip="Fast Break Points" className="text-center w-20" />
               <StatTooltipHead label="FD" tooltip="Fouls Drawn" className="text-center w-16" />
               <StatTooltipHead label="BA" tooltip="Blocks Against" className="text-center w-16" />
               <StatTooltipHead label="TF" tooltip="Technical Fouls" className="text-center w-16" />

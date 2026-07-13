@@ -192,7 +192,10 @@ function testMajorAndAdvancedRows(): void {
   );
 
   assert(model.advancedRows.length === 5, 'five advanced rows');
-  assert(model.advancedRows[0].key === 'pts_off_to', 'Pts off TO first in advanced');
+  assert(model.advancedRows[0].key === 'pts_off_to', 'Points off Turnovers first in advanced');
+  assert(model.advancedRows[0].label === 'Points off Turnovers', 'full name for Summary Pts off TO');
+  assert(model.advancedRows.find((r) => r.key === 'paint')?.label === 'Points in Paint', 'full paint label');
+  assert(model.advancedRows.find((r) => r.key === 'fastbreak')?.label === 'Fast Break Points', 'full FB label');
   assert(model.advancedRows.some((r) => r.key === 'paint'), 'advanced paint row');
   assert(!model.advancedRows.some((r) => r.key === 'efg'), 'no eFG% in team comparison');
   assert(!model.advancedRows.some((r) => r.key === 'ts'), 'no TS% in team comparison');

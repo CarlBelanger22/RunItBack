@@ -221,17 +221,17 @@ function buildComparisonRows(game: Game): GameReportComparisonRow[] {
     { label: 'BLK', home: String(home.blocks), away: String(away.blocks) },
     { label: 'TO', home: String(home.turnovers), away: String(away.turnovers) },
     {
-      label: 'Pts off TO',
+      label: 'POT',
       home: formatOptionalAdvancedTeamStat(game, 'home', 'points_off_turnovers'),
       away: formatOptionalAdvancedTeamStat(game, 'away', 'points_off_turnovers'),
     },
     {
-      label: 'Fast Break',
+      label: 'FB PTS',
       home: formatOptionalAdvancedTeamStat(game, 'home', 'fastbreak_points'),
       away: formatOptionalAdvancedTeamStat(game, 'away', 'fastbreak_points'),
     },
     {
-      label: 'Pts in Paint',
+      label: 'PITP',
       home: formatOptionalAdvancedTeamStat(game, 'home', 'points_in_paint'),
       away: formatOptionalAdvancedTeamStat(game, 'away', 'points_in_paint'),
     },

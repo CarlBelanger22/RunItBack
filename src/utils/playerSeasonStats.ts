@@ -147,8 +147,8 @@ export type PlayerStatsSortField =
   | 'FG'
   | '3PT'
   | 'FT'
-  | 'Paint'
-  | 'FB'
+  | 'PITP'
+  | 'FB PTS'
   | 'BlocksAgainst'
   | 'TFPG'
   | 'UFPG';
@@ -867,7 +867,7 @@ export function sortPlayerSeasonRows(
           bValue = b.totalStats.ft_made;
         }
         break;
-      case 'Paint':
+      case 'PITP':
         aValue =
           a.gamesWithShotData > 0
             ? a.paintPointsTotal / a.gamesWithShotData
@@ -877,7 +877,7 @@ export function sortPlayerSeasonRows(
             ? b.paintPointsTotal / b.gamesWithShotData
             : Number.NEGATIVE_INFINITY;
         break;
-      case 'FB':
+      case 'FB PTS':
         aValue =
           a.gamesWithShotData > 0
             ? a.fastbreakPointsTotal / a.gamesWithShotData

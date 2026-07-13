@@ -1772,11 +1772,11 @@ export function TeamPage({
 
               <StatColumn title="Advanced">
                 <TeamStatRow
-                  label="Paint Pts"
+                  label="PITP"
                   value={formatAdvancedPerGame(derived.paintPpg)}
                 />
                 <TeamStatRow
-                  label="Fastbreak"
+                  label="FB PTS"
                   value={formatAdvancedPerGame(derived.fastbreakPpg)}
                 />
                 <TeamStatRow
@@ -1784,7 +1784,7 @@ export function TeamPage({
                   value={formatAdvancedPerGame(derived.secondChancePpg)}
                 />
                 <TeamStatRow
-                  label="Pts off TO"
+                  label="POT"
                   value={formatAdvancedPerGame(derived.pointsOffTurnoversPpg)}
                 />
               </StatColumn>

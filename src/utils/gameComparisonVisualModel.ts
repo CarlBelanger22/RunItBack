@@ -257,31 +257,31 @@ export function buildGameComparisonVisualModel(game: Game): GameComparisonVisual
   const advancedRows: MinorComparisonRow[] = [
     {
       key: 'pts_off_to',
-      label: 'Pts off TO',
+      label: 'Points off Turnovers',
       home: optionalValue(game, 'home', 'points_off_turnovers'),
       away: optionalValue(game, 'away', 'points_off_turnovers'),
     },
     {
       key: 'paint',
-      label: 'Pts in Paint',
+      label: 'Points in Paint',
       home: optionalValue(game, 'home', 'points_in_paint'),
       away: optionalValue(game, 'away', 'points_in_paint'),
     },
     {
       key: 'fastbreak',
-      label: 'Fast Break',
+      label: 'Fast Break Points',
       home: optionalValue(game, 'home', 'fastbreak_points'),
       away: optionalValue(game, 'away', 'fastbreak_points'),
     },
     {
       key: 'second_chance',
-      label: '2nd Chance',
+      label: '2nd Chance Points',
       home: optionalValue(game, 'home', 'second_chance_points'),
       away: optionalValue(game, 'away', 'second_chance_points'),
     },
     {
       key: 'bench',
-      label: 'Bench Pts',
+      label: 'Bench Points',
       home: optionalValue(game, 'home', 'bench_points'),
       away: optionalValue(game, 'away', 'bench_points'),
     },

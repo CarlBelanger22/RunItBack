@@ -180,9 +180,9 @@ function testModelStructure(): void {
   assert(benchRow?.away === '0', 'away bench pts (starter only)');
 
   const advancedLabels = [
-    'Pts off TO',
-    'Fast Break',
-    'Pts in Paint',
+    'POT',
+    'FB PTS',
+    'PITP',
     '2nd Chance',
     'Bench Pts',
   ];

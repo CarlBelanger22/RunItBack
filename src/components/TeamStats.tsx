@@ -217,8 +217,8 @@ export function TeamStats({ game, onNavigateToTeam }: TeamStatsProps) {
               <div className="space-y-4">
                 <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Offense</h4>
                 <div className="space-y-3">
-                  <AdvancedStatRow side={side} label="Points in Paint" statKey="points_in_paint" />
-                  <AdvancedStatRow side={side} label="Fast Break Points" statKey="fastbreak_points" />
+                  <AdvancedStatRow side={side} label="PITP" statKey="points_in_paint" />
+                  <AdvancedStatRow side={side} label="FB PTS" statKey="fastbreak_points" />
                   <AdvancedStatRow side={side} label="Second Chance Points" statKey="second_chance_points" />
                   <AdvancedStatRow side={side} label="Bench Points" statKey="bench_points" />
                 </div>
@@ -227,7 +227,7 @@ export function TeamStats({ game, onNavigateToTeam }: TeamStatsProps) {
               <div className="space-y-4">
                 <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wide">Defense</h4>
                 <div className="space-y-3">
-                  <AdvancedStatRow side={side} label="Points off Turnovers" statKey="points_off_turnovers" />
+                  <AdvancedStatRow side={side} label="POT" statKey="points_off_turnovers" />
                   <AdvancedStatRow side={side} label="Steals" numericValue={stats.steals} />
                   <AdvancedStatRow side={side} label="Blocks" numericValue={stats.blocks} />
                   <AdvancedStatRow side={side} label="Defensive Rebounds" numericValue={stats.drb} />

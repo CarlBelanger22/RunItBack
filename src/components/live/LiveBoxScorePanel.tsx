@@ -590,8 +590,8 @@ function LiveBoxScoreTableWithView({
               {renderSortHeader('gameScore', 'GmSc')}
               {renderSortHeader('twoPointPercentage', '2P%')}
               {renderSortHeader('twoPointMade', '2P')}
-              {renderSortHeader('paintPoints', 'Paint')}
-              {renderSortHeader('fastbreakPoints', 'FB')}
+              {renderSortHeader('paintPoints', 'PITP')}
+              {renderSortHeader('fastbreakPoints', 'FB PTS')}
               {renderSortHeader('fouls_drawn', 'FD')}
               {renderSortHeader('blocks_received', 'BA')}
               {renderSortHeader('tech_fouls', 'TF')}
