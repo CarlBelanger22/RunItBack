@@ -382,9 +382,18 @@ function testBrokenPersistedPrefersEvents(): void {
   assert(model.quarterRows[3]?.home === '2', 'Q4 home delta');
 }
 
+function testOverviewTablePayload(): void {
+  const model = buildGameReportModel(makeGame(), tournaments);
+  assert(model.comparisonRows.length >= 20, 'overview comparison rows for Summary tab');
+  assert(model.comparisonRows.every((r) => r.label && r.home !== undefined), 'comparison row shape');
+  assert(model.quarterRows.length >= 4, 'overview quarter rows for Summary tab');
+  assert(model.quarterRows.every((r) => r.label && r.home !== undefined), 'quarter row shape');
+}
+
 function main(): void {
   testFormatting();
   testModelStructure();
+  testOverviewTablePayload();
   testQuarterDerivationFromEvents();
   testQuarterDedupesDuplicatePeriodEnd();
   testBrokenPersistedPrefersEvents();

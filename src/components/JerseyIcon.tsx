@@ -5,6 +5,8 @@ interface JerseyIconProps {
   number: number;
   size?: 'sm' | 'md' | 'lg';
   className?: string;
+  fontSize?: number;
+  fontWeight?: number;
 }
 
 const NUMBER_ANCHOR_X = 50;
@@ -21,9 +23,16 @@ const NUMBER_MASK_HEIGHT = 27;
  * a dynamic number (the PNG ships with "00" baked in).
  * Numbers scale +20% width / +60% height from a top anchor so they fill downward.
  */
-export function JerseyIcon({ number, size = 'md', className }: JerseyIconProps) {
+export function JerseyIcon({
+  number,
+  size = 'md',
+  className,
+  fontSize: fontSizeOverride,
+  fontWeight: fontWeightOverride,
+}: JerseyIconProps) {
   const dim = size === 'sm' ? 40 : size === 'lg' ? 60 : 48;
-  const fontSize = size === 'sm' ? 14 : size === 'lg' ? 19 : 17;
+  const fontSize = fontSizeOverride ?? (size === 'sm' ? 14 : size === 'lg' ? 19 : 17);
+  const fontWeight = fontWeightOverride ?? 800;
 
   return (
     <svg
@@ -51,7 +60,7 @@ export function JerseyIcon({ number, size = 'md', className }: JerseyIconProps) 
           textAnchor="middle"
           dominantBaseline="hanging"
           fontSize={fontSize}
-          fontWeight="800"
+          fontWeight={fontWeight}
           className="fill-foreground"
           style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' }}
         >

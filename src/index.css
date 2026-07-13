@@ -4436,3 +4436,172 @@ html {
     transform: translate3d(var(--tw-exit-translate-x, 0), var(--tw-exit-translate-y, 0), 0) scale3d(var(--tw-exit-scale, 1), var(--tw-exit-scale, 1), var(--tw-exit-scale, 1)) rotate(var(--tw-exit-rotate, 0));
   }
 }
+
+/* LE-81: mobile stack order — duel before quarters inside right column */
+.game-report-right-stack {
+  flex-direction: column-reverse;
+}
+
+@media (width >= 48rem) {
+  .game-report-right-stack {
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .game-report-right-card {
+    flex: 1 1 0;
+    min-height: 0;
+  }
+}
+
+/* LE-81.12: head-to-head avatar — 20% smaller than h-24 (4.8rem) */
+.game-h2h-avatar {
+  width: 4.8rem;
+  height: 4.8rem;
+}
+
+/* LE-81.15: Team Comparison — center-out diverging bars (scoped CSS, no missing Tailwind) */
+.game-compare {
+  --game-compare-home: #2563eb;
+  --game-compare-away: #f59e0b;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+  max-width: 36rem;
+  margin-inline: auto;
+}
+
+.game-compare-headers {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 0.25rem;
+}
+
+.game-compare-header-home {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--game-compare-home);
+}
+
+.game-compare-header-away {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--game-compare-away);
+}
+
+.game-compare-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.game-compare-label {
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+
+.game-compare-row--major .game-compare-label {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.game-compare-body {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr 2.5rem;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.game-compare-value {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.game-compare-value--home {
+  text-align: right;
+}
+
+.game-compare-value--away {
+  text-align: left;
+}
+
+.game-compare-value--leading-home {
+  font-weight: 600;
+  color: var(--game-compare-home);
+}
+
+.game-compare-value--leading-away {
+  font-weight: 600;
+  color: var(--game-compare-away);
+}
+
+.game-compare-value--trailing {
+  color: var(--muted-foreground);
+}
+
+.game-compare-track {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--muted);
+  overflow: hidden;
+}
+
+.game-compare-row--major .game-compare-track {
+  height: 0.75rem;
+}
+
+.game-compare-half {
+  flex: 1 1 0;
+  display: flex;
+  min-width: 0;
+  height: 100%;
+}
+
+.game-compare-half--home {
+  justify-content: flex-end;
+}
+
+.game-compare-half--away {
+  justify-content: flex-start;
+}
+
+.game-compare-fill-slot {
+  height: 100%;
+  min-width: 2px;
+  flex-shrink: 0;
+}
+
+.game-compare-fill {
+  width: 100%;
+  height: 100%;
+}
+
+.game-compare-fill--home {
+  background: var(--game-compare-home);
+  border-radius: 4px 1px 1px 4px;
+}
+
+.game-compare-fill--away {
+  background: var(--game-compare-away);
+  border-radius: 1px 4px 4px 1px;
+}
+
+.game-compare-gap {
+  margin-top: 0.625rem;
+}
+
+.game-compare-section {
+  margin-top: 0.625rem;
+  padding-top: 0.25rem;
+  text-align: center;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--foreground);
+}

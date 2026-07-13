@@ -8,7 +8,7 @@ import { Game, Tournament } from '../App';
 import { ArrowLeft, Calendar, Clock, Download, Edit, Trash2 } from 'lucide-react';
 import { BoxScore } from './BoxScore';
 import { ShotChart } from './ShotChart';
-import { TeamStats } from './TeamStats';
+import { GameReportOverview } from './GameReportOverview';
 import { GameLeadersSection } from './GameLeadersSection';
 import { GameTeamLink } from './GameTeamLink';
 import { TeamBadge } from './TeamBadge';
@@ -21,6 +21,7 @@ import {
 } from '../utils/gameMetadata';
 import { deleteGameConfirmDescription } from '../utils/activeGame';
 import { downloadGameReportPdf } from '../lib/gameReportPdf';
+import { cn } from './ui/utils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,6 +77,8 @@ export function GameSummary({
   const handleExportPdf = useCallback(() => {
     downloadGameReportPdf(game, tournaments);
   }, [game, tournaments]);
+
+  const hasShotChart = game.shots.length > 0;
 
   return (
     <div className="space-y-6">
@@ -196,16 +199,25 @@ export function GameSummary({
       <GameLeadersSection game={game} onNavigateToPlayer={onNavigateToPlayer} />
 
       {/* Game Details Tabs */}
-      <Tabs defaultValue="team-stats" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="team-stats">Team Stats</TabsTrigger>
+      <Tabs defaultValue="summary" className="space-y-6">
+        <TabsList
+          className={cn(
+            'grid w-full',
+            hasShotChart ? 'grid-cols-3' : 'grid-cols-2'
+          )}
+        >
+          <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="box-score">Box Score</TabsTrigger>
+          {hasShotChart && <TabsTrigger value="shot-chart">Shot Chart</TabsTrigger>}
         </TabsList>
 
         <div className="space-y-6">
-          <TabsContent value="team-stats" className="space-y-6">
-            <TeamStats game={game} onNavigateToTeam={onNavigateToTeam} />
-            <ShotChart game={game} />
+          <TabsContent value="summary" className="space-y-6">
+            <GameReportOverview
+              game={game}
+              tournaments={tournaments}
+              onNavigateToPlayer={onNavigateToPlayer}
+            />
           </TabsContent>
 
           <TabsContent value="box-score" className="space-y-6">
@@ -215,6 +227,12 @@ export function GameSummary({
               onNavigateToTeam={onNavigateToTeam}
             />
           </TabsContent>
+
+          {hasShotChart && (
+            <TabsContent value="shot-chart" className="space-y-6">
+              <ShotChart game={game} />
+            </TabsContent>
+          )}
         </div>
       </Tabs>
 
