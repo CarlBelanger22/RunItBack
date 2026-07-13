@@ -5,10 +5,10 @@ import { Badge } from './ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import { Game, Tournament } from '../App';
-import { ArrowLeft, Calendar, Clock, Edit } from 'lucide-react';
+import { ArrowLeft, Calendar, Clock, Download, Edit, Trash2 } from 'lucide-react';
 import { BoxScore } from './BoxScore';
 import { ShotChart } from './ShotChart';
-import { TeamStats } from './TeamStats';
+import { GameReportOverview } from './GameReportOverview';
 import { GameLeadersSection } from './GameLeadersSection';
 import { GameTeamLink } from './GameTeamLink';
 import { TeamBadge } from './TeamBadge';
@@ -19,12 +19,26 @@ import {
   buildGameMetadataPatch,
   getFinalScoreMismatchWarning,
 } from '../utils/gameMetadata';
+import { deleteGameConfirmDescription } from '../utils/activeGame';
+import { downloadGameReportPdf } from '../lib/gameReportPdf';
+import { cn } from './ui/utils';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './ui/alert-dialog';
 
 interface GameSummaryProps {
   game: Game;
   tournaments: Tournament[];
   onBack: () => void;
   onGameUpdate: (game: Game) => void;
+  onDeleteGame?: () => void;
   onNavigateToPlayer?: (playerId: string, teamId: string) => void;
   onNavigateToTeam?: (teamId: string) => void;
 }
@@ -34,10 +48,12 @@ export function GameSummary({
   tournaments,
   onBack,
   onGameUpdate,
+  onDeleteGame,
   onNavigateToPlayer,
   onNavigateToTeam,
 }: GameSummaryProps) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
   const homeScore = resolveTeamScore(game, game.homeTeam.id);
   const awayScore = resolveTeamScore(game, game.awayTeam.id);
@@ -58,6 +74,12 @@ export function GameSummary({
     [game, onGameUpdate]
   );
 
+  const handleExportPdf = useCallback(() => {
+    downloadGameReportPdf(game, tournaments);
+  }, [game, tournaments]);
+
+  const hasShotChart = game.shots.length > 0;
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -76,11 +98,32 @@ export function GameSummary({
           <Button
             variant="outline"
             size="sm"
+            onClick={handleExportPdf}
+            title="Export box score PDF"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            Export PDF
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setIsEditDialogOpen(true)}
           >
             <Edit className="w-4 h-4 mr-2" />
             Edit Game
           </Button>
+          {onDeleteGame && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-destructive hover:text-destructive"
+              title="Delete this game"
+              onClick={() => setDeleteDialogOpen(true)}
+            >
+              <Trash2 className="w-4 h-4 mr-2" />
+              Delete
+            </Button>
+          )}
         </div>
       </div>
 
@@ -156,16 +199,25 @@ export function GameSummary({
       <GameLeadersSection game={game} onNavigateToPlayer={onNavigateToPlayer} />
 
       {/* Game Details Tabs */}
-      <Tabs defaultValue="team-stats" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-2">
-          <TabsTrigger value="team-stats">Team Stats</TabsTrigger>
+      <Tabs defaultValue="summary" className="space-y-6">
+        <TabsList
+          className={cn(
+            'grid w-full',
+            hasShotChart ? 'grid-cols-3' : 'grid-cols-2'
+          )}
+        >
+          <TabsTrigger value="summary">Summary</TabsTrigger>
           <TabsTrigger value="box-score">Box Score</TabsTrigger>
+          {hasShotChart && <TabsTrigger value="shot-chart">Shot Chart</TabsTrigger>}
         </TabsList>
 
         <div className="space-y-6">
-          <TabsContent value="team-stats" className="space-y-6">
-            <TeamStats game={game} onNavigateToTeam={onNavigateToTeam} />
-            <ShotChart game={game} />
+          <TabsContent value="summary" className="space-y-6">
+            <GameReportOverview
+              game={game}
+              tournaments={tournaments}
+              onNavigateToPlayer={onNavigateToPlayer}
+            />
           </TabsContent>
 
           <TabsContent value="box-score" className="space-y-6">
@@ -175,6 +227,12 @@ export function GameSummary({
               onNavigateToTeam={onNavigateToTeam}
             />
           </TabsContent>
+
+          {hasShotChart && (
+            <TabsContent value="shot-chart" className="space-y-6">
+              <ShotChart game={game} />
+            </TabsContent>
+          )}
         </div>
       </Tabs>
 
@@ -199,6 +257,29 @@ export function GameSummary({
           </ErrorBoundary>
         </DialogContent>
       </Dialog>
+
+      {onDeleteGame && (
+        <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this game?</AlertDialogTitle>
+              <AlertDialogDescription>{deleteGameConfirmDescription(game)}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={() => {
+                  setDeleteDialogOpen(false);
+                  onDeleteGame();
+                }}
+              >
+                Delete game
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   );
 }

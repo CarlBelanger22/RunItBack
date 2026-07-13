@@ -1,6 +1,16 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import type { GameEvent, Team } from '../../App';
 import { getLiveTeamColor, liveTeamTint, LIVE_SEMANTIC } from './liveEntryTheme';
+import {
+  buildFirstNameLabels,
+  buildPbpRows,
+  buildPbpStatSnapshots,
+  formatPbpAction,
+  pbpRowSourceEvent,
+  type PbpRow,
+} from '../../liveEntry/pbpDisplay';
+
+export { buildPbpRows, pbpRowSourceEvent } from '../../liveEntry/pbpDisplay';
 
 interface LivePlayByPlayRailProps {
   events: GameEvent[];
@@ -10,117 +20,45 @@ interface LivePlayByPlayRailProps {
   onEventDoubleClick?: (event: GameEvent) => void;
 }
 
-type ActionStyle = { label: string; color: string; detail?: string };
-
-function formatPeriodLabel(period: number): string {
-  return period <= 4 ? `Q${period}` : `OT${period - 4}`;
-}
-
-function getPlayerDisplayName(
-  playerId: string | undefined,
-  homeTeam: Team,
-  awayTeam: Team
-): string {
-  if (!playerId) return '—';
-  const player = [...homeTeam.players, ...awayTeam.players].find((p) => p.id === playerId);
-  if (!player) return 'Unknown';
-  const parts = player.name.trim().split(/\s+/);
-  return parts.length > 1 ? parts[parts.length - 1] : player.name;
-}
-
-function formatEventAction(event: GameEvent, homeTeam: Team, awayTeam: Team): ActionStyle {
-  const player = getPlayerDisplayName(event.playerId, homeTeam, awayTeam);
-
-  switch (event.type) {
-    case 'shot_attempt': {
-      const pts = event.details.isThree ? 3 : 2;
-      const made = event.details.made;
-      const blocked = event.details.blockedBy;
-      return {
-        label: blocked ? 'BLOCKED' : `${pts}PT ${made ? 'MAKE' : 'MISS'}`,
-        color: made ? LIVE_SEMANTIC.success : LIVE_SEMANTIC.destructive,
-        detail: player,
-      };
-    }
-    case 'free_throw':
-      return {
-        label: `FT ${event.details.made ? 'MAKE' : 'MISS'}`,
-        color: event.details.made ? LIVE_SEMANTIC.success : LIVE_SEMANTIC.destructive,
-        detail: player,
-      };
-    case 'rebound':
-      return {
-        label: `${(event.details.reboundType as string)?.toUpperCase() ?? 'REB'}`,
-        color: LIVE_SEMANTIC.muted,
-        detail: player,
-      };
-    case 'foul':
-      return {
-        label: 'FOUL',
-        color: 'var(--live-away)',
-        detail: `${player} · ${event.details.foulType ?? 'Personal'}`,
-      };
-    case 'turnover':
-      return {
-        label: 'TURNOVER',
-        color: LIVE_SEMANTIC.destructive,
-        detail: player,
-      };
-    case 'jump_ball': {
-      const kind = event.details.kind as string;
-      if (kind === 'opening') {
-        const winnerId = event.details.winnerTeamId as string;
-        const abbrev =
-          winnerId === homeTeam.id ? homeTeam.abbreviation : awayTeam.abbreviation;
-        return {
-          label: 'OPENING TIP',
-          color: LIVE_SEMANTIC.muted,
-          detail: abbrev,
-        };
-      }
-      const awardedId = event.details.awardedTeamId as string;
-      const abbrev =
-        awardedId === homeTeam.id ? homeTeam.abbreviation : awayTeam.abbreviation;
-      const stealId = event.details.stealPlayerId as string | undefined;
-      return {
-        label: 'JUMP BALL',
-        color: LIVE_SEMANTIC.muted,
-        detail: stealId
-          ? `${abbrev} · TO ${player} · STL ${getPlayerDisplayName(stealId, homeTeam, awayTeam)}`
-          : `${abbrev} · arrow flip`,
-      };
-    }
-    case 'substitution':
-      return {
-        label: 'SUBSTITUTION',
-        color: '#a855f7',
-        detail: undefined,
-      };
-    default:
-      return {
-        label: event.type.toUpperCase().replace(/_/g, ' '),
-        color: LIVE_SEMANTIC.muted,
-        detail: player,
-      };
-  }
-}
-
 function LogCard({
-  event,
+  row,
   homeTeam,
   awayTeam,
+  labels,
+  snapshots,
   onDoubleClick,
 }: {
-  event: GameEvent;
+  row: PbpRow;
   homeTeam: Team;
   awayTeam: Team;
+  labels: Map<string, string>;
+  snapshots: Map<string, import('../../liveEntry/pbpDisplay').PbpEventSnapshot>;
   onDoubleClick?: () => void;
 }) {
-  const isHome = event.teamId === homeTeam.id;
+  const event = pbpRowSourceEvent(row);
+  const teamId =
+    row.kind === 'block'
+      ? row.blockerTeamId
+      : row.kind === 'double_foul_partner'
+        ? row.partnerTeamId
+        : row.event.teamId;
+
+  const isHome = teamId === homeTeam.id;
   const color = getLiveTeamColor(isHome ? 'home' : 'away');
   const abbr = isHome ? homeTeam.abbreviation : awayTeam.abbreviation;
-  const action = formatEventAction(event, homeTeam, awayTeam);
-  const playerName = getPlayerDisplayName(event.playerId, homeTeam, awayTeam);
+  const snap = snapshots.get(event.id);
+
+  const action = formatPbpAction(row, snap, homeTeam, awayTeam, labels, {
+    success: LIVE_SEMANTIC.success,
+    destructive: LIVE_SEMANTIC.destructive,
+    muted: LIVE_SEMANTIC.muted,
+    away: 'var(--live-away)',
+  });
+
+  const labelColor =
+    row.kind === 'block' || row.kind === 'double_foul_partner'
+      ? color
+      : action.color;
 
   return (
     <button
@@ -134,7 +72,7 @@ function LogCard({
     >
       <div className="live-pbp-card-top">
         <span className="live-font-mono live-pbp-meta">
-          {formatPeriodLabel(event.period)} · {event.gameTime}
+          {(event.period <= 4 ? `Q${event.period}` : `OT${event.period - 4}`)} · {event.gameTime}
         </span>
       </div>
       <div
@@ -143,13 +81,15 @@ function LogCard({
       >
         {abbr}
       </div>
-      <div className="live-pbp-player">{playerName}</div>
-      <div className="live-font-condensed live-pbp-action" style={{ color: action.color }}>
-        {action.label}
+      <div className="live-pbp-card-content">
+        <div className="live-pbp-player">{action.playerLine}</div>
+        <div className="live-font-condensed live-pbp-action" style={{ color: labelColor }}>
+          {action.label}
+        </div>
+        {action.detail && (
+          <div className="live-font-mono live-pbp-detail">{action.detail}</div>
+        )}
       </div>
-      {action.detail && action.detail !== playerName && (
-        <div className="live-font-mono live-pbp-detail">{action.detail}</div>
-      )}
       <div className="live-pbp-edit-hint">dbl-click to edit</div>
     </button>
   );
@@ -163,7 +103,21 @@ export function LivePlayByPlayRail({
   onEventDoubleClick,
 }: LivePlayByPlayRailProps) {
   const logRef = useRef<HTMLDivElement>(null);
-  const displayEvents = [...events].slice(-maxEvents).reverse();
+
+  const labels = useMemo(
+    () => buildFirstNameLabels(homeTeam, awayTeam),
+    [homeTeam, awayTeam]
+  );
+
+  const snapshots = useMemo(
+    () => buildPbpStatSnapshots(homeTeam, awayTeam, events),
+    [events, homeTeam, awayTeam]
+  );
+
+  const displayRows = useMemo(
+    () => buildPbpRows(events.slice(-maxEvents), homeTeam, awayTeam).reverse(),
+    [events, homeTeam, awayTeam, maxEvents]
+  );
 
   useEffect(() => {
     if (logRef.current) {
@@ -183,18 +137,20 @@ export function LivePlayByPlayRail({
         </span>
       </div>
       <div ref={logRef} className="live-pbp-scroll">
-        {displayEvents.length === 0 ? (
+        {displayRows.length === 0 ? (
           <div className="live-font-mono live-pbp-empty">
             No events yet — select a player and tap the court to log a shot
           </div>
         ) : (
-          displayEvents.map((event) => (
+          displayRows.map((row) => (
             <LogCard
-              key={event.id}
-              event={event}
+              key={row.key}
+              row={row}
               homeTeam={homeTeam}
               awayTeam={awayTeam}
-              onDoubleClick={() => onEventDoubleClick?.(event)}
+              labels={labels}
+              snapshots={snapshots}
+              onDoubleClick={() => onEventDoubleClick?.(pbpRowSourceEvent(row))}
             />
           ))
         )}

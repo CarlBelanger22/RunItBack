@@ -5,6 +5,7 @@ import { orderBoxScorePlayers } from '../../utils/boxScoreOrder';
 import { Button } from '../ui/button';
 import { getLiveTeamColor, liveTeamTint, LIVE_SEMANTIC, LIVE_TEAM_HEX } from './liveEntryTheme';
 import { tournamentRecordsStat } from '../../utils/statRecordingCoverage';
+import { formatSignedDecimal } from '../../utils/gameReportModel';
 import { NoStatRecorded } from '../StatDisplay';
 
 interface LiveBoxScorePanelProps {
@@ -50,8 +51,11 @@ function formatPercentage(value: number) {
   return value > 0 ? `${value.toFixed(1)}%` : '0.0%';
 }
 
-function formatStat(value: number, decimals: number = 1) {
-  return value > 0 ? value.toFixed(decimals) : '0';
+function signedMetricColor(value: number): string | undefined {
+  if (value < 0) {
+    return 'color-mix(in srgb, var(--live-danger) 55%, transparent)';
+  }
+  return undefined;
 }
 
 type StatKey =
@@ -69,21 +73,46 @@ type StatKey =
   | 'turnovers'
   | 'fouls';
 
-const COLS: { key: StatKey; label: string }[] = [
-  { key: 'points', label: 'PTS' },
-  { key: 'fg_made', label: 'FGM' },
-  { key: 'fg_attempted', label: 'FGA' },
-  { key: 'three_made', label: '3PM' },
-  { key: 'three_attempted', label: '3PA' },
-  { key: 'ft_made', label: 'FTM' },
-  { key: 'ft_attempted', label: 'FTA' },
-  { key: 'reb', label: 'REB' },
-  { key: 'assists', label: 'AST' },
-  { key: 'steals', label: 'STL' },
-  { key: 'blocks', label: 'BLK' },
-  { key: 'turnovers', label: 'TO' },
-  { key: 'fouls', label: 'PF' },
+type CompactColumn =
+  | { kind: 'stat'; key: StatKey; label: string }
+  | {
+      kind: 'pct';
+      madeKey: 'fg_made' | 'three_made' | 'ft_made';
+      attemptedKey: 'fg_attempted' | 'three_attempted' | 'ft_attempted';
+      label: string;
+    };
+
+const COMPACT_BOX_SCORE_COLUMNS: CompactColumn[] = [
+  { kind: 'stat', key: 'points', label: 'PTS' },
+  { kind: 'stat', key: 'fg_made', label: 'FGM' },
+  { kind: 'stat', key: 'fg_attempted', label: 'FGA' },
+  { kind: 'pct', madeKey: 'fg_made', attemptedKey: 'fg_attempted', label: 'FG%' },
+  { kind: 'stat', key: 'three_made', label: '3PM' },
+  { kind: 'stat', key: 'three_attempted', label: '3PA' },
+  {
+    kind: 'pct',
+    madeKey: 'three_made',
+    attemptedKey: 'three_attempted',
+    label: '3P%',
+  },
+  { kind: 'stat', key: 'ft_made', label: 'FTM' },
+  { kind: 'stat', key: 'ft_attempted', label: 'FTA' },
+  { kind: 'pct', madeKey: 'ft_made', attemptedKey: 'ft_attempted', label: 'FT%' },
+  { kind: 'stat', key: 'reb', label: 'REB' },
+  { kind: 'stat', key: 'assists', label: 'AST' },
+  { kind: 'stat', key: 'steals', label: 'STL' },
+  { kind: 'stat', key: 'blocks', label: 'BLK' },
+  { kind: 'stat', key: 'turnovers', label: 'TO' },
+  { kind: 'stat', key: 'fouls', label: 'PF' },
 ];
+
+const COMPACT_STAT_KEYS = COMPACT_BOX_SCORE_COLUMNS.filter(
+  (column): column is Extract<CompactColumn, { kind: 'stat' }> => column.kind === 'stat'
+).map((column) => column.key);
+
+function fgPct(m: number, a: number): string {
+  return a > 0 ? `${Math.round((m / a) * 100)}%` : '—';
+}
 
 type PlayerRow = GameStats & { name: string; number: number; playerId: string };
 
@@ -94,8 +123,20 @@ function statValue(player: PlayerRow, key: StatKey): number {
   return player[key];
 }
 
-function fgPct(m: number, a: number): string {
-  return a > 0 ? `${Math.round((m / a) * 100)}%` : '—';
+function renderCompactColumnValue(
+  column: CompactColumn,
+  player: PlayerRow | null,
+  totals: Record<StatKey, number>
+): string | number {
+  if (column.kind === 'pct') {
+    const made = player ? player[column.madeKey] : (totals[column.madeKey] ?? 0);
+    const attempted = player
+      ? player[column.attemptedKey]
+      : (totals[column.attemptedKey] ?? 0);
+    return fgPct(made, attempted);
+  }
+
+  return player ? statValue(player, column.key) : (totals[column.key] ?? 0);
 }
 
 function FigmaBoxScoreTable({
@@ -146,8 +187,8 @@ function FigmaBoxScoreTable({
   const totals = useMemo(() => {
     return players.reduce(
       (acc, p) => {
-        COLS.forEach((c) => {
-          acc[c.key] = (acc[c.key] ?? 0) + statValue(p, c.key);
+        COMPACT_STAT_KEYS.forEach((key) => {
+          acc[key] = (acc[key] ?? 0) + statValue(p, key);
         });
         return acc;
       },
@@ -171,23 +212,27 @@ function FigmaBoxScoreTable({
         <thead>
           <tr>
             <th className="live-box-th-player">PLAYER</th>
-            {COLS.map((c) => (
-              <th
-                key={c.key}
-                className="live-box-th-stat"
-                style={{ color: sortKey === c.key ? color : LIVE_SEMANTIC.muted }}
-                onClick={() => handleSort(c.key)}
-              >
-                {c.label}
-                {sortKey === c.key ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ''}
-              </th>
-            ))}
-            <th className="live-box-th-stat" style={{ color: LIVE_SEMANTIC.muted }}>
-              FG%
-            </th>
-            <th className="live-box-th-stat" style={{ color: LIVE_SEMANTIC.muted }}>
-              3P%
-            </th>
+            {COMPACT_BOX_SCORE_COLUMNS.map((column) =>
+              column.kind === 'stat' ? (
+                <th
+                  key={column.label}
+                  className="live-box-th-stat"
+                  style={{ color: sortKey === column.key ? color : LIVE_SEMANTIC.muted }}
+                  onClick={() => handleSort(column.key)}
+                >
+                  {column.label}
+                  {sortKey === column.key ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ''}
+                </th>
+              ) : (
+                <th
+                  key={column.label}
+                  className="live-box-th-stat"
+                  style={{ color: LIVE_SEMANTIC.muted }}
+                >
+                  {column.label}
+                </th>
+              )
+            )}
           </tr>
         </thead>
         <tbody>
@@ -203,29 +248,25 @@ function FigmaBoxScoreTable({
                   <span className="live-box-name">{p.name}</span>
                 </div>
               </td>
-              {COLS.map((c) => (
+              {COMPACT_BOX_SCORE_COLUMNS.map((column) => (
                 <td
-                  key={c.key}
+                  key={`${p.playerId}-${column.label}`}
                   className="live-box-td-stat"
                   style={{
                     color:
-                      c.key === 'points'
+                      column.kind === 'stat' && column.key === 'points'
                         ? LIVE_SEMANTIC.foreground
-                        : c.key === 'turnovers' || c.key === 'fouls'
+                        : column.kind === 'stat' &&
+                            (column.key === 'turnovers' || column.key === 'fouls')
                           ? 'color-mix(in srgb, var(--live-danger) 55%, transparent)'
                           : LIVE_SEMANTIC.muted,
-                    fontWeight: c.key === 'points' ? 700 : 400,
+                    fontWeight:
+                      column.kind === 'stat' && column.key === 'points' ? 700 : 400,
                   }}
                 >
-                  {statValue(p, c.key)}
+                  {renderCompactColumnValue(column, p, totals)}
                 </td>
               ))}
-              <td className="live-box-td-stat" style={{ color: LIVE_SEMANTIC.muted }}>
-                {fgPct(p.fg_made, p.fg_attempted)}
-              </td>
-              <td className="live-box-td-stat" style={{ color: LIVE_SEMANTIC.muted }}>
-                {fgPct(p.three_made, p.three_attempted)}
-              </td>
             </tr>
           ))}
           {sorted.length > 0 && (
@@ -233,22 +274,20 @@ function FigmaBoxScoreTable({
               <td className="live-box-td-player live-font-condensed live-box-totals-label">
                 TEAM TOTALS
               </td>
-              {COLS.map((c) => (
-                <td key={c.key} className="live-box-td-stat live-box-totals-val" style={{ color }}>
-                  {totals[c.key] ?? 0}
+              {COMPACT_BOX_SCORE_COLUMNS.map((column) => (
+                <td
+                  key={`totals-${column.label}`}
+                  className="live-box-td-stat live-box-totals-val"
+                  style={{ color }}
+                >
+                  {renderCompactColumnValue(column, null, totals)}
                 </td>
               ))}
-              <td className="live-box-td-stat live-box-totals-val" style={{ color }}>
-                {fgPct(totals.fg_made ?? 0, totals.fg_attempted ?? 0)}
-              </td>
-              <td className="live-box-td-stat live-box-totals-val" style={{ color }}>
-                {fgPct(totals.three_made ?? 0, totals.three_attempted ?? 0)}
-              </td>
             </tr>
           )}
           {sorted.length === 0 && (
             <tr>
-              <td colSpan={COLS.length + 3} className="live-box-empty">
+              <td colSpan={COMPACT_BOX_SCORE_COLUMNS.length + 1} className="live-box-empty">
                 No stats yet
               </td>
             </tr>
@@ -576,8 +615,12 @@ function LiveBoxScoreTableWithView({
                 </td>
 
                 <td className="live-box-td-stat">{formatTime(p.minutes_played)}</td>
-                <td className="live-box-td-stat">{formatStat(p.efficiency, 0)}</td>
-                <td className="live-box-td-stat">{formatStat(p.gameScore, 1)}</td>
+                <td className="live-box-td-stat" style={{ color: signedMetricColor(p.efficiency) }}>
+                  {formatSignedDecimal(p.efficiency, 0)}
+                </td>
+                <td className="live-box-td-stat" style={{ color: signedMetricColor(p.gameScore) }}>
+                  {formatSignedDecimal(p.gameScore, 1)}
+                </td>
                 <td className="live-box-td-stat">{formatPercentage(p.twoPointPercentage)}</td>
                 <td className="live-box-td-stat">
                   {p.twoPointMade}/{p.twoPointAttempted}

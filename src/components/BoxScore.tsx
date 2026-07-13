@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
+import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 import { Game, GameStats } from '../App';
@@ -17,18 +16,18 @@ import {
 import { tournamentRecordsStat } from '../utils/statRecordingCoverage';
 import {
   getPlayerPaintAndFastbreakPoints,
-  hasAwayTeamContent,
   isScoreOnlyTeam,
   playerPlayedInGame,
   resolveSideScore,
   resolveTeamTotals,
   type ResolvedTeamTotals,
 } from '../utils/gameDisplay';
+import { formatSignedDecimal } from '../utils/gameReportModel';
 import {
   orderBoxScorePlayers,
   type OrderedBoxScoreRow,
 } from '../utils/boxScoreOrder';
-import { TrendingUp, Users, Calculator, Download, Target } from 'lucide-react';
+import { TrendingUp, Target } from 'lucide-react';
 
 interface BoxScoreProps {
   game: Game;
@@ -44,7 +43,6 @@ interface PlayerBoxScore extends GameStats {
 }
 
 export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScoreProps) {
-  const [selectedTeam, setSelectedTeam] = useState<'home' | 'away'>('home');
   const [view, setView] = useState<'traditional' | 'advanced'>('traditional');
   const recordsFoulsDrawn = tournamentRecordsStat(game.tournamentId, 'fouls_drawn');
   const recordsPlusMinus = tournamentRecordsStat(game.tournamentId, 'plus_minus');
@@ -86,7 +84,6 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
   const awayBoxScore = getOrderedTeamBoxScore('away');
   const homeTotals = resolveTeamTotals(game, 'home');
   const awayTotals = resolveTeamTotals(game, 'away');
-  const homeScore = resolveSideScore(game, 'home');
   const awayScore = resolveSideScore(game, 'away');
   const awayScoreOnly = isScoreOnlyTeam(game, 'away');
 
@@ -94,8 +91,13 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
     return value > 0 ? `${value.toFixed(1)}%` : '0.0%';
   };
 
-  const formatStat = (value: number, decimals: number = 1) => {
-    return value > 0 ? value.toFixed(decimals) : '0';
+  const advancedMetricBadgeVariant = (
+    value: number
+  ): 'default' | 'secondary' | 'outline' | 'destructive' => {
+    if (value < 0) return 'destructive';
+    if (value >= 15) return 'default';
+    if (value >= 10) return 'secondary';
+    return 'outline';
   };
 
   const formatTime = (minutes: number) => {
@@ -128,9 +130,6 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
           <Badge variant="outline" className="font-mono">
             {totals.points} PTS
           </Badge>
-          <Button size="sm" variant="ghost">
-            <Download className="w-4 h-4" />
-          </Button>
         </div>
       </div>
       
@@ -360,13 +359,13 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                 </TableCell>
                 <TableCell className="text-center font-mono">{formatTime(player.minutes_played)}</TableCell>
                 <TableCell className="text-center font-mono">
-                  <Badge variant={player.advanced.efficiency >= 15 ? "default" : player.advanced.efficiency >= 10 ? "secondary" : "outline"} className="text-xs">
-                    {formatStat(player.advanced.efficiency, 0)}
+                  <Badge variant={advancedMetricBadgeVariant(player.advanced.efficiency)} className="text-xs">
+                    {formatSignedDecimal(player.advanced.efficiency, 0)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-center font-mono">
-                  <Badge variant={player.advanced.gameScore >= 15 ? "default" : player.advanced.gameScore >= 10 ? "secondary" : "outline"} className="text-xs">
-                    {formatStat(player.advanced.gameScore)}
+                  <Badge variant={advancedMetricBadgeVariant(player.advanced.gameScore)} className="text-xs">
+                    {formatSignedDecimal(player.advanced.gameScore, 1)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-center font-mono">{formatPercentage(player.advanced.twoPointPercentage)}</TableCell>
@@ -390,54 +389,18 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
 
   return (
     <div className="space-y-6">
-      {/* Game Summary */}
-      <Card className="shadow-lg rounded-2xl">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Calculator className="w-5 h-5" />
-            Box Score - {new Date(game.date).toLocaleDateString()}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-3 gap-6 text-center">
-            <div>
-              <GameTeamLink
-                teamId={game.homeTeam.id}
-                teamName={game.homeTeam.name}
-                onNavigateToTeam={onNavigateToTeam}
-                className="font-medium text-lg block"
-              />
-              <div className="text-3xl font-bold text-primary mt-2">{homeScore}</div>
-            </div>
-            <div className="flex items-center justify-center">
-              <div className="text-muted-foreground">vs</div>
-            </div>
-            <div>
-              <GameTeamLink
-                teamId={game.awayTeam.id}
-                teamName={game.awayTeam.name}
-                onNavigateToTeam={onNavigateToTeam}
-                className="font-medium text-lg block"
-              />
-              <div className="text-3xl font-bold text-primary mt-2">{awayScore}</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* View Toggle */}
       <div className="flex gap-2">
-        <Button 
-          variant={view === 'traditional' ? 'default' : 'outline'} 
-          size="sm" 
+        <Button
+          variant={view === 'traditional' ? 'default' : 'outline'}
+          size="sm"
           onClick={() => setView('traditional')}
         >
           <Target className="w-4 h-4 mr-2" />
           Traditional
         </Button>
-        <Button 
-          variant={view === 'advanced' ? 'default' : 'outline'} 
-          size="sm" 
+        <Button
+          variant={view === 'advanced' ? 'default' : 'outline'}
+          size="sm"
           onClick={() => setView('advanced')}
         >
           <TrendingUp className="w-4 h-4 mr-2" />
@@ -445,73 +408,56 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
         </Button>
       </div>
 
-      <Tabs value={selectedTeam} onValueChange={(value) => setSelectedTeam(value as 'home' | 'away')} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-2">
-            <TabsTrigger value="home" className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              {game.homeTeam.name}
-            </TabsTrigger>
-            <TabsTrigger value="away" disabled={!hasAwayTeamContent(game)} className="flex items-center gap-2">
-              <Users className="w-4 h-4" />
-              {game.awayTeam.name}
-            </TabsTrigger>
-          </TabsList>
+      <Card className="shadow-lg rounded-2xl">
+        <CardContent className="p-6">
+          {view === 'traditional' ? (
+            <TraditionalStatsTable
+              rows={homeBoxScore}
+              teamName={game.homeTeam.name}
+              teamId={game.homeTeam.id}
+              totals={homeTotals}
+            />
+          ) : (
+            <AdvancedStatsTable
+              rows={homeBoxScore}
+              teamName={game.homeTeam.name}
+              teamId={game.homeTeam.id}
+            />
+          )}
+        </CardContent>
+      </Card>
 
-          <TabsContent value="home">
-            <Card className="shadow-lg rounded-2xl">
-              <CardContent className="p-6">
-                {view === 'traditional' ? (
-                  <TraditionalStatsTable
-                    rows={homeBoxScore}
-                    teamName={game.homeTeam.name}
-                    teamId={game.homeTeam.id}
-                    totals={homeTotals}
-                  />
-                ) : (
-                  <AdvancedStatsTable
-                    rows={homeBoxScore}
-                    teamName={game.homeTeam.name}
-                    teamId={game.homeTeam.id}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="away">
-            <Card className="shadow-lg rounded-2xl">
-              <CardContent className="p-6">
-                {awayScoreOnly ? (
-                  <div className="text-center py-12">
-                    <GameTeamLink
-                      teamId={game.awayTeam.id}
-                      teamName={game.awayTeam.name}
-                      onNavigateToTeam={onNavigateToTeam}
-                      className="font-medium text-lg mb-2 block"
-                    />
-                    <div className="text-4xl font-bold text-primary mb-4">{awayScore}</div>
-                    <p className="text-sm text-muted-foreground">
-                      No player box score recorded for this team.
-                    </p>
-                  </div>
-                ) : view === 'traditional' ? (
-                  <TraditionalStatsTable
-                    rows={awayBoxScore}
-                    teamName={game.awayTeam.name}
-                    teamId={game.awayTeam.id}
-                    totals={awayTotals}
-                  />
-                ) : (
-                  <AdvancedStatsTable
-                    rows={awayBoxScore}
-                    teamName={game.awayTeam.name}
-                    teamId={game.awayTeam.id}
-                  />
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
-        </Tabs>
+      <Card className="shadow-lg rounded-2xl">
+        <CardContent className="p-6">
+          {awayScoreOnly ? (
+            <div className="text-center py-12">
+              <GameTeamLink
+                teamId={game.awayTeam.id}
+                teamName={game.awayTeam.name}
+                onNavigateToTeam={onNavigateToTeam}
+                className="font-medium text-lg mb-2 block"
+              />
+              <div className="text-4xl font-bold text-primary mb-4">{awayScore}</div>
+              <p className="text-sm text-muted-foreground">
+                No player box score recorded for this team.
+              </p>
+            </div>
+          ) : view === 'traditional' ? (
+            <TraditionalStatsTable
+              rows={awayBoxScore}
+              teamName={game.awayTeam.name}
+              teamId={game.awayTeam.id}
+              totals={awayTotals}
+            />
+          ) : (
+            <AdvancedStatsTable
+              rows={awayBoxScore}
+              teamName={game.awayTeam.name}
+              teamId={game.awayTeam.id}
+            />
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

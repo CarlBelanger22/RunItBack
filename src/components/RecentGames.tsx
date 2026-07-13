@@ -6,10 +6,11 @@ import { ArrowLeft, Calendar, Filter, Play, Trash2 } from 'lucide-react';
 import { Game } from '../App';
 import {
   canDeleteIncompleteGame,
+  deleteGameConfirmDescription,
   isGameInProgress,
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
-import { resolveTeamScore } from '../utils/gameDisplay';
+import { resolveTeamScore, sortGamesByDateDesc } from '../utils/gameDisplay';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,10 +42,8 @@ export function RecentGames({
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   
-  // Sort games by date (most recent first)
-  const sortedGames = [...games].sort((a, b) => 
-    new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  // Sort by date, then start time (most recent first)
+  const sortedGames = sortGamesByDateDesc(games);
   
   // Filter games based on status
   const filteredGames = sortedGames.filter(game => {
@@ -54,6 +53,10 @@ export function RecentGames({
     }
     return true;
   });
+
+  const deleteTarget = deleteTargetId
+    ? games.find((g) => g.id === deleteTargetId)
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -123,6 +126,8 @@ export function RecentGames({
             const inProgress = isGameInProgress(game);
             const orphaned = isOrphanedIncompleteGame(game);
             const showIncompleteActions = canDeleteIncompleteGame(game);
+            const showDelete = Boolean(onDeleteActiveGame);
+            const showCardActions = showIncompleteActions || (showDelete && game.isCompleted);
             return (
               <Card 
                 key={game.id} 
@@ -191,7 +196,7 @@ export function RecentGames({
                         )}
                       </div>
 
-                      {showIncompleteActions && (
+                      {showCardActions && (
                         <div
                           className="flex flex-wrap gap-2 mt-4 justify-center"
                           onClick={(e) => e.stopPropagation()}
@@ -205,11 +210,12 @@ export function RecentGames({
                               Resume
                             </Button>
                           )}
-                          {onDeleteActiveGame && (
+                          {showDelete && (
                             <Button
                               size="sm"
                               variant="outline"
                               className="text-destructive hover:text-destructive"
+                              title="Delete this game"
                               onClick={() => setDeleteTargetId(game.id)}
                             >
                               <Trash2 className="w-4 h-4 mr-1" />
@@ -235,9 +241,9 @@ export function RecentGames({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this game?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the in-progress game and all stats recorded so far.
-              Setup-created teams and their players are removed. Players you added to an
-              existing team during setup are removed too. This cannot be undone.
+              {deleteTarget
+                ? deleteGameConfirmDescription(deleteTarget)
+                : 'This permanently removes the game and all stats. This cannot be undone.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

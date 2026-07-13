@@ -46,6 +46,8 @@ export interface FibaCourtSvgProps {
   variant?: 'default' | 'live';
   /** Live entry: basket at bottom of the viewport (Figma orientation). */
   hoopBottom?: boolean;
+  /** `labeled` — filled circle with ✓/× (game summary). Default `dot`. */
+  markerStyle?: 'dot' | 'labeled';
 }
 
 export function buildThreePointArcPath(): string {
@@ -53,6 +55,70 @@ export function buildThreePointArcPath(): string {
   const rightX = THREE_CORNER_RIGHT_M;
   const breakY = THREE_ARC_BREAK_Y_M;
   return `M ${leftX} ${breakY} A ${THREE_ARC_RADIUS_M} ${THREE_ARC_RADIUS_M} 0 0 1 ${rightX} ${breakY}`;
+}
+
+function markerFill(color: CourtMarker['color']): string {
+  if (color === 'green') return LIVE_COURT_COLORS.markerMake;
+  if (color === 'red') return LIVE_COURT_COLORS.markerMiss;
+  return LIVE_COURT_COLORS.markerOther;
+}
+
+function CourtShotMarker({
+  x,
+  y,
+  color,
+  markerStyle,
+  counterFlip,
+}: {
+  x: number;
+  y: number;
+  color: CourtMarker['color'];
+  markerStyle: 'dot' | 'labeled';
+  counterFlip: boolean;
+}) {
+  const fill = markerFill(color);
+  const radius = markerStyle === 'labeled' ? 0.28 : 0.22;
+
+  if (markerStyle === 'dot') {
+    return (
+      <circle
+        cx={x}
+        cy={y}
+        r={radius}
+        fill={fill}
+        stroke="#fff"
+        strokeWidth={0.06}
+      />
+    );
+  }
+
+  const label = color === 'green' ? '✓' : color === 'red' ? '×' : '•';
+  const textTransform = counterFlip ? `rotate(180 ${x} ${y})` : undefined;
+
+  return (
+    <g>
+      <circle
+        cx={x}
+        cy={y}
+        r={radius}
+        fill={fill}
+        stroke="#fff"
+        strokeWidth={0.07}
+      />
+      <text
+        x={x}
+        y={y}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill="#fff"
+        fontSize={0.38}
+        fontWeight={700}
+        transform={textTransform}
+      >
+        {label}
+      </text>
+    </g>
+  );
 }
 
 function CourtMarkings({
@@ -199,6 +265,7 @@ export function FibaCourtSvg({
   children,
   variant = 'default',
   hoopBottom = false,
+  markerStyle = 'dot',
 }: FibaCourtSvgProps) {
   const live = variant === 'live';
   const stroke = live ? LIVE_COURT_COLORS.line : 'currentColor';
@@ -231,21 +298,14 @@ export function FibaCourtSvg({
           />
           {markers.map((m, i) => {
             const { x, y } = courtPointMToSvg(m.point);
-            const fill =
-              m.color === 'green'
-                ? LIVE_COURT_COLORS.markerMake
-                : m.color === 'red'
-                  ? LIVE_COURT_COLORS.markerMiss
-                  : LIVE_COURT_COLORS.markerOther;
             return (
-              <circle
+              <CourtShotMarker
                 key={i}
-                cx={x}
-                cy={y}
-                r={0.22}
-                fill={fill}
-                stroke="#fff"
-                strokeWidth={0.06}
+                x={x}
+                y={y}
+                color={m.color}
+                markerStyle={markerStyle}
+                counterFlip
               />
             );
           })}
@@ -261,21 +321,14 @@ export function FibaCourtSvg({
           />
           {markers.map((m, i) => {
             const { x, y } = courtPointMToSvg(m.point);
-            const fill =
-              m.color === 'green'
-                ? LIVE_COURT_COLORS.markerMake
-                : m.color === 'red'
-                  ? LIVE_COURT_COLORS.markerMiss
-                  : LIVE_COURT_COLORS.markerOther;
             return (
-              <circle
+              <CourtShotMarker
                 key={i}
-                cx={x}
-                cy={y}
-                r={0.22}
-                fill={fill}
-                stroke="#fff"
-                strokeWidth={0.06}
+                x={x}
+                y={y}
+                color={m.color}
+                markerStyle={markerStyle}
+                counterFlip={false}
               />
             );
           })}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
@@ -13,7 +13,8 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog';
 import { Label } from '../ui/label';
-import type { Game, GameEvent, Player, Tournament } from '../../App';
+import type { Game, GameEvent, Player, Team, Tournament } from '../../App';
+import type { TournamentRosterEntry } from '../../utils/tournamentRosters';
 import { GameForm } from '../forms/GameForm';
 import { buildGameMetadataPatch } from '../../utils/gameMetadata';
 import { useLiveGameSession } from '../../liveEntry/useLiveGameSession';
@@ -25,16 +26,31 @@ import { LivePlayByPlayRail } from './LivePlayByPlayRail';
 import { LiveBoxScorePanel } from './LiveBoxScorePanel';
 import { EventEditDialog } from './EventEditDialog';
 import { ShotOutcomeOverlay } from './ShotOutcomeOverlay';
+import { FreeThrowOutcomeOverlay } from './FreeThrowOutcomeOverlay';
+import { CourtAnchoredOverlayPortal } from './CourtAnchoredOverlayPortal';
 import { LiveCourtFlowOverlays } from './LiveCourtFlowOverlays';
 import { LiveOpeningJumpBallOverlay } from './LiveOpeningJumpBallOverlay';
+import {
+  LiveQuarterLineupOverlay,
+  SubstitutionClockInput,
+} from './LiveQuarterLineupOverlay';
+import {
+  endPeriodButtonLabel,
+  shouldCompleteGameOnPeriodEnd,
+  shouldPromptLineupAfterPeriodEnd,
+} from '../../utils/gameClock';
 import { DesktopOnlyGuard } from './DesktopOnlyGuard';
 import { paths } from '../../routing/paths';
 import { getLiveTeamColor, liveTeamTint } from './liveEntryTheme';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
+import { resolveReboundTeams } from '../../liveEntry/reboundTeams';
+import { courtOverlayActive } from '../../liveEntry/courtOverlayActive';
 
 interface LiveGameWorkspaceProps {
   game: Game;
+  teams: Team[];
   tournaments: Tournament[];
+  tournamentRosters: TournamentRosterEntry[];
   onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void;
   onDeleteGame: () => void;
@@ -119,9 +135,10 @@ function resolveColumnPick(
     pendingReboundType &&
     (pendingReboundType === 'offensive' || pendingReboundType === 'defensive')
   ) {
-    const shootingTeam = reboundShootingTeamId ?? offenseTeamId;
-    const defendingTeam = reboundDefendingTeamId ?? defenseTeamId;
-    const teamId = pendingReboundType === 'offensive' ? shootingTeam : defendingTeam;
+    const teams = resolveReboundTeams(game, reboundShootingTeamId, reboundDefendingTeamId);
+    if (!teams) return null;
+    const teamId =
+      pendingReboundType === 'offensive' ? teams.shootingTeamId : teams.defendingTeamId;
     return {
       side: teamSide(game, teamId),
       hint: `${pendingReboundType === 'offensive' ? 'ORB' : 'DRB'} — select player`,
@@ -183,27 +200,49 @@ function resolveColumnPick(
   }
 
   if (phase.kind === 'foul' && phase.step === 'committer') {
-    const foulingTeamId =
-      handlers.and1RecipientId && handlers.and1FoulingTeamId
+    if (phase.foulCategory === 'technical' || phase.foulEntity === 'team') {
+      return null;
+    }
+
+    const isOffensive = phase.foulCategory === 'offensive';
+    const foulingTeamId = isOffensive
+      ? offenseTeamId
+      : handlers.and1RecipientId && handlers.and1FoulingTeamId
         ? handlers.and1FoulingTeamId
         : defenseTeamId;
 
     return {
       side: teamSide(game, foulingTeamId),
-      hint: 'Foul committed by',
+      hint: isOffensive ? 'Offensive foul — select player' : 'Foul committed by',
       onSelect: (p) => {
         if (handlers.and1RecipientId) {
-          commitFoul(
-            p.id,
-            handlers.and1RecipientId,
-            phase.foulCategory ?? 'personal',
-            1,
-            handlers.and1RecipientId,
-            handlers.and1FoulingTeamId ?? undefined
-          );
+          commitFoul({
+            foulingTeamId,
+            foulCategory: 'personal',
+            foulEntity: 'player',
+            committerId: p.id,
+            recipientId: handlers.and1RecipientId,
+            ftCount: 1,
+            ftShooterId: handlers.and1RecipientId,
+            retainPossession: false,
+            offendedTeamId: offenseTeamId,
+          });
           handlers.clearAnd1Session();
+        } else if (isOffensive) {
+          commitFoul({
+            foulingTeamId,
+            foulCategory: 'offensive',
+            foulEntity: 'player',
+            committerId: p.id,
+            ftCount: 0,
+            retainPossession: false,
+          });
         } else {
-          dispatch({ type: 'PICK_FOUL_COMMITTER', playerId: p.id });
+          dispatch({
+            type: 'PICK_FOUL_COMMITTER',
+            playerId: p.id,
+            teamId: foulingTeamId,
+          });
         }
       },
     };
@@ -217,18 +256,59 @@ function resolveColumnPick(
     };
   }
 
+  if (phase.kind === 'foul' && phase.step === 'double_committer_a') {
+    return {
+      side: teamSide(game, offenseTeamId),
+      hint: 'Double foul — offense player',
+      onSelect: (p) => dispatch({ type: 'PICK_DOUBLE_COMMITTER_A', playerId: p.id }),
+    };
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'double_committer_b') {
+    return {
+      side: teamSide(game, defenseTeamId),
+      hint: 'Double foul — defense player',
+      onSelect: (p) => dispatch({ type: 'PICK_DOUBLE_COMMITTER_B', playerId: p.id }),
+    };
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'tech_shooter' && phase.committerTeamId) {
+    const nonOffendingTeamId =
+      phase.committerTeamId === game.homeTeamId ? game.awayTeamId : game.homeTeamId;
+    return {
+      side: teamSide(game, nonOffendingTeamId),
+      hint: 'Technical — free throw shooter',
+      onSelect: (p) => {
+        commitFoul({
+          foulingTeamId: phase.committerTeamId!,
+          foulCategory: 'technical',
+          foulEntity: phase.isCoachFoul ? 'team' : 'player',
+          committerId: phase.committerId,
+          isCoachFoul: phase.isCoachFoul,
+          ftCount: 1,
+          ftShooterId: p.id,
+          retainPossession: true,
+          offendedTeamId: nonOffendingTeamId,
+          possessionTeamAfterFt: offenseTeamId,
+        });
+      },
+    };
+  }
+
   return null;
 }
 
 export function LiveGameWorkspace({
   game,
+  teams,
   tournaments,
+  tournamentRosters,
   onGameUpdate,
   onGameComplete,
   onDeleteGame,
 }: LiveGameWorkspaceProps) {
   const navigate = useNavigate();
-  const session = useLiveGameSession(game, onGameUpdate);
+  const session = useLiveGameSession(game, onGameUpdate, { teams, tournamentRosters });
   const {
     currentGame,
     entryState,
@@ -244,15 +324,15 @@ export function LiveGameWorkspace({
     commitFoul,
     commitFreeThrow,
     commitSubstitution,
+    commitPeriodEnd,
+    commitPeriodStart,
     undo,
     replayEvents,
-    endPeriod,
     getTeamPlayers,
     getOnCourtIds,
     offenseTeamId,
     defenseTeamId,
     possessionArrowTeamId,
-    ftSession,
   } = session;
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -262,6 +342,9 @@ export function LiveGameWorkspace({
   const [subOut, setSubOut] = useState<string[]>([]);
   const [subIn, setSubIn] = useState<string[]>([]);
   const [subTeamId, setSubTeamId] = useState<string>(game.homeTeamId);
+  const [subClock, setSubClock] = useState('');
+  const [subClockError, setSubClockError] = useState<string | null>(null);
+  const [lineupOverlayOpen, setLineupOverlayOpen] = useState(false);
   const [and1RecipientId, setAnd1RecipientId] = useState<string | null>(null);
   const [and1FoulingTeamId, setAnd1FoulingTeamId] = useState<string | null>(null);
 
@@ -276,7 +359,7 @@ export function LiveGameWorkspace({
         setAnd1RecipientId(shotPayload.shooterId);
         setAnd1FoulingTeamId(defenseTeamId);
       }
-      commitShot(shotPayload);
+      commitShot(shotPayload, true);
       setFastbreak(false);
       dispatch({ type: 'FOUL_CATEGORY', category: 'personal' });
     },
@@ -288,17 +371,83 @@ export function LiveGameWorkspace({
   const [editEvent, setEditEvent] = useState<GameEvent | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
 
-  const homeScore = currentGame.teamStats.home.total_points;
-  const awayScore = currentGame.teamStats.away.total_points;
   const phase = entryState.phase;
   const pending = entryState.ctx.pendingShot;
   const trackBoth = currentGame.trackBothTeams;
+  const isOpeningJumpBall = phase.kind === 'jumpball' && phase.step === 'opening';
+
+  const handlePendingReboundTypeChange = useCallback(
+    (value: string | null) => {
+      setPendingReboundType(value);
+      if (value === 'offensive' || value === 'defensive') {
+        dispatch({ type: 'REBOUND_TYPE', reboundType: value });
+      }
+    },
+    [dispatch]
+  );
+
+  useEffect(() => {
+    if (
+      phase.kind === 'idle' ||
+      (phase.kind === 'shot' && phase.step === 'await_outcome')
+    ) {
+      setPendingReboundType(null);
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    if (
+      phase.kind === 'rebound' &&
+      phase.step === 'pick_type' &&
+      entryState.ctx.reboundShootingTeamId
+    ) {
+      setPendingReboundType(null);
+    }
+  }, [
+    phase,
+    entryState.ctx.reboundShootingTeamId,
+    entryState.ctx.reboundDefendingTeamId,
+  ]);
+
+  const homeScore = currentGame.teamStats.home.total_points;
+  const awayScore = currentGame.teamStats.away.total_points;
+  const periodEndLabel = endPeriodButtonLabel(currentGame, homeScore, awayScore);
 
   useEffect(() => {
     if (phase.kind === 'idle') {
       clearAnd1Session();
     }
   }, [phase.kind, clearAnd1Session]);
+
+  useEffect(() => {
+    if (phase.kind !== 'free_throw' || subOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const target = e.target;
+      if (
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement
+      ) {
+        return;
+      }
+      if (e.key === 'm' || e.key === 'M') {
+        e.preventDefault();
+        commitFreeThrow(true);
+      } else if (e.key === 'x' || e.key === 'X') {
+        e.preventDefault();
+        commitFreeThrow(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [phase.kind, subOpen, commitFreeThrow]);
+
+  const isTechFoulCommitter =
+    phase.kind === 'foul' &&
+    phase.step === 'committer' &&
+    phase.foulCategory === 'technical';
 
   const columnPick = useMemo(
     () =>
@@ -355,9 +504,31 @@ export function LiveGameWorkspace({
   const showShotOverlay =
     phase.kind === 'shot' && phase.step === 'await_outcome' && pending;
 
+  const showFtOverlay = phase.kind === 'free_throw' && !subOpen;
+
+  const portaledCourtOverlayOpen = Boolean(showShotOverlay) || Boolean(showFtOverlay);
+
+  const courtFrameRef = useRef<HTMLDivElement>(null);
+
+  const courtAcceptsPlacement =
+    !isOpeningJumpBall && phase.kind === 'idle';
+
+  const flowCourtOverlayVisible = useMemo(
+    () =>
+      courtOverlayActive({
+        phase,
+        pending,
+        pendingReboundType,
+        trackBoth,
+        turnoverPlayerId,
+        showShotOverlay: false,
+      }),
+    [phase, pending, pendingReboundType, trackBoth, turnoverPlayerId]
+  );
+
   const contextHint = useMemo(() => {
     if (columnPick) return null;
-    if (showShotOverlay) return 'Tap court — make / miss / block';
+    if (showShotOverlay) return 'Make / miss / block on court overlay';
     if (phase.kind === 'shot' && phase.step === 'fastbreak') return 'Confirm make — commit or + foul';
     if (phase.kind === 'shot' && phase.step === 'pick_assist') return 'Select assister or use overlay';
     if (phase.kind === 'shot' && phase.step === 'pick_shooter') return 'Select shooter on roster';
@@ -378,19 +549,45 @@ export function LiveGameWorkspace({
     if (phase.kind === 'jumpball' && phase.step === 'pick_steal') {
       return 'Jump ball — select steal player';
     }
+    if (phase.kind === 'foul' && phase.step === 'entity') return 'Foul — player or team on court overlay';
     if (phase.kind === 'foul' && phase.step === 'category') return 'Choose foul category on court overlay';
+    if (isTechFoulCommitter) return 'Technical — select committer on either roster or coach in overlay';
     if (phase.kind === 'foul' && phase.step === 'committer') return 'Select foul committer on roster';
     if (phase.kind === 'foul' && phase.step === 'recipient') return 'Select fouled player on roster';
+    if (phase.kind === 'foul' && phase.step === 'double_committer_a') {
+      return 'Double foul — select offense player';
+    }
+    if (phase.kind === 'foul' && phase.step === 'double_committer_b') {
+      return 'Double foul — select defense player';
+    }
+    if (phase.kind === 'foul' && phase.step === 'tech_shooter') {
+      return 'Technical — select free throw shooter';
+    }
     if (phase.kind === 'foul' && phase.step === 'ft_count') return 'Choose free throws on court overlay';
-    if (phase.kind === 'free_throw') return 'Free throw — make / miss on court overlay';
+    if (phase.kind === 'free_throw') return 'Make / miss on court overlay (M / X keys)';
     return '← Tap court to log a shot';
-  }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId]);
+  }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId, isTechFoulCommitter]);
 
   const openSubForTeam = (teamId: string) => {
     setSubTeamId(teamId);
     setSubOut([]);
     setSubIn([]);
+    setSubClock(currentGame.currentGameTime);
+    setSubClockError(null);
     setSubOpen(true);
+  };
+
+  const handleEndPeriod = () => {
+    const complete = shouldCompleteGameOnPeriodEnd(currentGame, homeScore, awayScore);
+    const promptLineup = shouldPromptLineupAfterPeriodEnd(currentGame, homeScore, awayScore);
+    const updatedGame = commitPeriodEnd();
+    if (complete) {
+      onGameComplete(updatedGame);
+      return;
+    }
+    if (promptLineup) {
+      setLineupOverlayOpen(true);
+    }
   };
 
   const benchPlayers = (teamId: string) => {
@@ -413,9 +610,17 @@ export function LiveGameWorkspace({
 
   const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
   const tournament = tournaments.find((t) => t.id === currentGame.tournamentId);
-  const isOpeningJumpBall = phase.kind === 'jumpball' && phase.step === 'opening';
   const actionBarDisabled =
-    isOpeningJumpBall || (phase.kind !== 'idle' && phase.kind !== 'shot');
+    isOpeningJumpBall ||
+    lineupOverlayOpen ||
+    (phase.kind !== 'idle' && phase.kind !== 'shot');
+
+  const subDisabled =
+    isOpeningJumpBall ||
+    lineupOverlayOpen ||
+    (phase.kind !== 'idle' &&
+      phase.kind !== 'shot' &&
+      phase.kind !== 'free_throw');
 
   if (!trackBoth) {
     return (
@@ -443,7 +648,8 @@ export function LiveGameWorkspace({
           homeScore={homeScore}
           awayScore={awayScore}
           possessionArrowTeamId={possessionArrowTeamId}
-          onEndPeriod={endPeriod}
+          endPeriodLabel={periodEndLabel}
+          onEndPeriod={handleEndPeriod}
           onEdit={() => setIsEditDialogOpen(true)}
           onDelete={() => setDeleteDialogOpen(true)}
           onBack={() => navigate(paths.home)}
@@ -453,6 +659,42 @@ export function LiveGameWorkspace({
         {isOpeningJumpBall && (
           <LiveOpeningJumpBallOverlay game={currentGame} onSelectWinner={commitOpeningTip} />
         )}
+
+        {lineupOverlayOpen && (
+          <LiveQuarterLineupOverlay
+            game={currentGame}
+            defaultHomeIds={getOnCourtIds(currentGame.homeTeamId)}
+            defaultAwayIds={getOnCourtIds(currentGame.awayTeamId)}
+            onConfirm={(homeLineup, awayLineup) => {
+              commitPeriodStart(homeLineup, awayLineup);
+              setLineupOverlayOpen(false);
+            }}
+          />
+        )}
+
+        <CourtAnchoredOverlayPortal
+          anchorRef={courtFrameRef}
+          open={portaledCourtOverlayOpen}
+        >
+          {showShotOverlay && pending && (
+            <ShotOutcomeOverlay
+              isThree={pending.isThree}
+              isPaint={pending.isPaint}
+              onMake={() => handleShotOutcome('make', pending.point)}
+              onMiss={() => handleShotOutcome('miss', pending.point)}
+              onBlock={() => handleShotOutcome('block', pending.point)}
+              onCancel={() => dispatch({ type: 'RESET' })}
+            />
+          )}
+          {showFtOverlay && phase.kind === 'free_throw' && (
+            <FreeThrowOutcomeOverlay
+              ftIndex={phase.ftIndex}
+              ftTotal={phase.ftTotal}
+              onMake={() => commitFreeThrow(true)}
+              onMiss={() => commitFreeThrow(false)}
+            />
+          )}
+        </CourtAnchoredOverlayPortal>
 
         <div className="live-entry-main">
           <div className="live-play-band">
@@ -467,11 +709,22 @@ export function LiveGameWorkspace({
                   players={getTeamPlayers(currentGame.homeTeamId)}
                   onCourtIds={getOnCourtIds(currentGame.homeTeamId)}
                   isOffense={homeIsOffense}
-                  pickMode={columnPick?.side === 'home'}
-                  onSelect={columnPick?.side === 'home' ? columnPick.onSelect : undefined}
+                  pickMode={columnPick?.side === 'home' || isTechFoulCommitter}
+                  onSelect={
+                    isTechFoulCommitter
+                      ? (p) =>
+                          dispatch({
+                            type: 'PICK_FOUL_COMMITTER',
+                            playerId: p.id,
+                            teamId: currentGame.homeTeamId,
+                          })
+                      : columnPick?.side === 'home'
+                        ? columnPick.onSelect
+                        : undefined
+                  }
                   excludeId={columnPick?.side === 'home' ? columnPick.excludeId : undefined}
                   onSubstitution={() => openSubForTeam(currentGame.homeTeamId)}
-                  subDisabled={actionBarDisabled}
+                  subDisabled={subDisabled}
                 />
               </section>
 
@@ -497,7 +750,7 @@ export function LiveGameWorkspace({
                 </div>
 
                 <div className="live-court-stage">
-                  <div className="live-court-frame">
+                  <div ref={courtFrameRef} className="live-court-frame relative">
                     <HorizontalFullCourtCanvas
                       className="h-full w-full"
                       game={currentGame}
@@ -507,42 +760,33 @@ export function LiveGameWorkspace({
                       sessionMarkers={entryState.ctx.markers}
                       shots={currentGame.shots}
                       shotMode={showShotOverlay}
-                      interactive={
-                        !isOpeningJumpBall &&
-                        (phase.kind === 'idle' ||
-                          (phase.kind === 'shot' && phase.step === 'await_outcome'))
-                      }
-                    >
-                      {showShotOverlay && pending && (
-                        <ShotOutcomeOverlay
-                          isThree={pending.isThree}
-                          isPaint={pending.isPaint}
-                          onMake={() => handleShotOutcome('make', pending.point)}
-                          onMiss={() => handleShotOutcome('miss', pending.point)}
-                          onBlock={() => handleShotOutcome('block', pending.point)}
-                          onCancel={() => dispatch({ type: 'RESET' })}
+                      interactive={courtAcceptsPlacement}
+                    />
+                    {flowCourtOverlayVisible && (
+                      <div className="absolute inset-0 z-30">
+                        <LiveCourtFlowOverlays
+                          phase={phase}
+                          pending={pending}
+                          pendingReboundType={pendingReboundType}
+                          turnoverPlayerId={turnoverPlayerId}
+                          trackBoth={trackBoth}
+                          fastbreak={fastbreak}
+                          offenseTeamId={offenseTeamId}
+                          defenseTeamId={defenseTeamId}
+                          homeTeamId={currentGame.homeTeamId}
+                          awayTeamId={currentGame.awayTeamId}
+                          onFastbreakChange={setFastbreak}
+                          onPendingReboundTypeChange={handlePendingReboundTypeChange}
+                          onTurnoverPlayerIdChange={setTurnoverPlayerId}
+                          onAndOneFoul={handleAndOneFoul}
+                          dispatch={dispatch}
+                          commitShot={commitShot}
+                          commitRebound={commitRebound}
+                          commitTurnover={commitTurnover}
+                          commitFoul={commitFoul}
                         />
-                      )}
-                      <LiveCourtFlowOverlays
-                        phase={phase}
-                        pending={pending}
-                        pendingReboundType={pendingReboundType}
-                        turnoverPlayerId={turnoverPlayerId}
-                        trackBoth={trackBoth}
-                        fastbreak={fastbreak}
-                        ftSession={ftSession}
-                        onFastbreakChange={setFastbreak}
-                        onPendingReboundTypeChange={setPendingReboundType}
-                        onTurnoverPlayerIdChange={setTurnoverPlayerId}
-                        onAndOneFoul={handleAndOneFoul}
-                        dispatch={dispatch}
-                        commitShot={commitShot}
-                        commitRebound={commitRebound}
-                        commitTurnover={commitTurnover}
-                        commitFoul={commitFoul}
-                        commitFreeThrow={commitFreeThrow}
-                      />
-                    </HorizontalFullCourtCanvas>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -571,11 +815,22 @@ export function LiveGameWorkspace({
                   players={getTeamPlayers(currentGame.awayTeamId)}
                   onCourtIds={getOnCourtIds(currentGame.awayTeamId)}
                   isOffense={!homeIsOffense}
-                  pickMode={columnPick?.side === 'away'}
-                  onSelect={columnPick?.side === 'away' ? columnPick.onSelect : undefined}
+                  pickMode={columnPick?.side === 'away' || isTechFoulCommitter}
+                  onSelect={
+                    isTechFoulCommitter
+                      ? (p) =>
+                          dispatch({
+                            type: 'PICK_FOUL_COMMITTER',
+                            playerId: p.id,
+                            teamId: currentGame.awayTeamId,
+                          })
+                      : columnPick?.side === 'away'
+                        ? columnPick.onSelect
+                        : undefined
+                  }
                   excludeId={columnPick?.side === 'away' ? columnPick.excludeId : undefined}
                   onSubstitution={() => openSubForTeam(currentGame.awayTeamId)}
-                  subDisabled={actionBarDisabled}
+                  subDisabled={subDisabled}
                 />
               </section>
             </div>
@@ -645,11 +900,30 @@ export function LiveGameWorkspace({
                 </div>
               </div>
             </div>
+            <SubstitutionClockInput
+              currentClock={currentGame.currentGameTime}
+              value={subClock}
+              onChange={(v) => {
+                setSubClock(v);
+                setSubClockError(null);
+              }}
+              error={subClockError}
+            />
             <Button
               className="w-full"
-              disabled={!subOut.length || subOut.length !== subIn.length}
+              disabled={!subOut.length || subOut.length !== subIn.length || !subClock.trim()}
               onClick={() => {
-                commitSubstitution(subTeamId, subOut, subIn);
+                const result = commitSubstitution(
+                  subTeamId,
+                  subOut,
+                  subIn,
+                  subClock.trim(),
+                  phase.kind === 'free_throw' ? { preserveEntryPhase: true } : undefined
+                );
+                if (!result.ok) {
+                  setSubClockError(result.error);
+                  return;
+                }
                 setSubOpen(false);
               }}
             >

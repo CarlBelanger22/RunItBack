@@ -47,6 +47,10 @@ function isTurnover(event: GameEvent): boolean {
   return event.type === 'turnover';
 }
 
+function isOffensiveFoul(event: GameEvent): boolean {
+  return event.type === 'foul' && event.details.foulCategory === 'offensive';
+}
+
 function isJumpBallPossessionChange(event: GameEvent): boolean {
   if (event.type !== 'jump_ball') return false;
   return event.details.possessionChanged === true;
@@ -93,6 +97,7 @@ export function derivePossessionSnapshot(
     }
 
     if (isOffensiveRebound(event)) {
+      offenseTeamId = event.teamId;
       secondChanceTeamId = event.teamId;
       offTurnoverTeamId = null;
     }
@@ -104,6 +109,13 @@ export function derivePossessionSnapshot(
     }
 
     if (isTurnover(event)) {
+      const recovering = opponentTeamId(game, event.teamId);
+      offenseTeamId = recovering;
+      offTurnoverTeamId = recovering;
+      secondChanceTeamId = null;
+    }
+
+    if (isOffensiveFoul(event)) {
       const recovering = opponentTeamId(game, event.teamId);
       offenseTeamId = recovering;
       offTurnoverTeamId = recovering;
@@ -127,9 +139,35 @@ export function derivePossessionSnapshot(
     }
 
     if (isTerminalFreeThrowEnd(event, events, index)) {
-      offenseTeamId = opponentTeamId(game, event.teamId);
+      const retain = event.details.retainPossession === true;
+      const possessionAfter = event.details.possessionTeamAfterFt as string | undefined;
+      const made =
+        typeof event.details.made === 'boolean'
+          ? event.details.made
+          : ((event.details.attempts as boolean[] | undefined)?.some(Boolean) ?? false);
+      if (made) {
+        if (possessionAfter) {
+          offenseTeamId = possessionAfter;
+        } else if (retain) {
+          offenseTeamId = event.teamId;
+        } else {
+          offenseTeamId = opponentTeamId(game, event.teamId);
+        }
+      } else if (retain) {
+        offenseTeamId = event.teamId;
+      }
+      // Missed final FT without retain: rebound decides — leave offense unchanged.
       secondChanceTeamId = null;
       offTurnoverTeamId = null;
+    }
+
+    if (event.type === 'period_start') {
+      const possessionTeamId = event.details.possessionTeamId as string | undefined;
+      if (possessionTeamId) {
+        offenseTeamId = possessionTeamId;
+        secondChanceTeamId = null;
+        offTurnoverTeamId = null;
+      }
     }
   });
 

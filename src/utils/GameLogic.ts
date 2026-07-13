@@ -15,10 +15,10 @@ export class GameLogic {
 
     if (event.type === 'shot_attempt' && event.details.made) {
       const points = event.details.isThree ? 3 : 2;
-      this.updateScore(updatedGame, event.teamId, points);
+      this.updateScore(updatedGame, event.teamId, points, event.period);
     } else if (event.type === 'free_throw') {
       const points = this.freeThrowPoints(event.details);
-      this.updateScore(updatedGame, event.teamId, points);
+      this.updateScore(updatedGame, event.teamId, points, event.period);
     }
 
     event.homeScore = updatedGame.teamStats.home.total_points;
@@ -49,7 +49,12 @@ export class GameLogic {
     return attempts?.filter(Boolean).length ?? 0;
   }
 
-  private static updateScore(game: Game, teamId: string, points: number) {
+  private static updateScore(
+    game: Game,
+    teamId: string,
+    points: number,
+    period?: number
+  ) {
     if (points === 0) return;
 
     const teamStats =
@@ -57,11 +62,71 @@ export class GameLogic {
 
     teamStats.total_points += points;
 
-    const periodKey = `q${game.currentPeriod}_points` as keyof TeamStats;
+    const scoringPeriod = period ?? game.currentPeriod;
+    const periodKey = `q${scoringPeriod}_points` as keyof TeamStats;
     if (typeof teamStats[periodKey] === 'number') {
       (teamStats[periodKey] as number) += points;
-    } else if (game.currentPeriod > 4) {
+    } else if (scoringPeriod > 4) {
       teamStats.ot_points += points;
+    }
+  }
+
+  private static sumRegulationQuarterPoints(stats: TeamStats): number {
+    return (
+      stats.q1_points +
+      stats.q2_points +
+      stats.q3_points +
+      stats.q4_points
+    );
+  }
+
+  private static sumQuarterPointsBefore(stats: TeamStats, period: number): number {
+    let sum = 0;
+    if (period > 1) sum += stats.q1_points;
+    if (period > 2) sum += stats.q2_points;
+    if (period > 3) sum += stats.q3_points;
+    if (period > 4) sum += stats.q4_points;
+    if (period > 5) sum += stats.ot_points;
+    return sum;
+  }
+
+  private static reconcileQuarterPoints(game: Game, event: GameEvent): void {
+    const period = event.period;
+    const homeCumulative =
+      event.homeScore ?? game.teamStats.home.total_points;
+    const awayCumulative =
+      event.awayScore ?? game.teamStats.away.total_points;
+
+    if (period > 4) {
+      game.teamStats.home.ot_points =
+        homeCumulative - this.sumRegulationQuarterPoints(game.teamStats.home);
+      game.teamStats.away.ot_points =
+        awayCumulative - this.sumRegulationQuarterPoints(game.teamStats.away);
+      return;
+    }
+
+    const homePrev = this.sumQuarterPointsBefore(game.teamStats.home, period);
+    const awayPrev = this.sumQuarterPointsBefore(game.teamStats.away, period);
+
+    switch (period) {
+      case 1:
+        game.teamStats.home.q1_points = homeCumulative - homePrev;
+        game.teamStats.away.q1_points = awayCumulative - awayPrev;
+        break;
+      case 2:
+        game.teamStats.home.q2_points = homeCumulative - homePrev;
+        game.teamStats.away.q2_points = awayCumulative - awayPrev;
+        break;
+      case 3:
+        game.teamStats.home.q3_points = homeCumulative - homePrev;
+        game.teamStats.away.q3_points = awayCumulative - awayPrev;
+        break;
+      case 4:
+        game.teamStats.home.q4_points = homeCumulative - homePrev;
+        game.teamStats.away.q4_points = awayCumulative - awayPrev;
+        break;
+      default:
+        break;
     }
   }
 
@@ -111,7 +176,7 @@ export class GameLogic {
         break;
 
       case 'foul':
-        this.handleFoul(teamStats, playerStats, event.details);
+        this.handleFoul(teamStats, playerStats, event.details, game);
         if (event.details.drawnBy) {
           const drawerStats = this.getOrCreatePlayerStats(
             game,
@@ -123,6 +188,25 @@ export class GameLogic {
 
       case 'substitution':
         break;
+
+      case 'period_end':
+        this.reconcileQuarterPoints(game, event);
+        break;
+
+      case 'period_start':
+        this.handlePeriodStart(game, event);
+        break;
+    }
+  }
+
+  private static handlePeriodStart(game: Game, event: GameEvent) {
+    const period =
+      (event.details.period as number | undefined) ?? game.currentPeriod + 1;
+    game.currentPeriod = period;
+
+    const arrowAfter = event.details.arrowAfterTeamId as string | undefined;
+    if (arrowAfter) {
+      game.possessionArrowTeamId = arrowAfter;
     }
   }
 
@@ -317,14 +401,44 @@ export class GameLogic {
   private static handleFoul(
     team: TeamStats,
     player: GameStats | null,
-    details: Record<string, unknown>
+    details: Record<string, unknown>,
+    game?: Game
   ) {
     team.fouls += 1;
-    if (player) {
+
+    const isTeamFoul = !!details.isTeamFoul;
+    const isCoachFoul = !!details.isCoachFoul;
+    const foulCategory = details.foulCategory as string | undefined;
+
+    if (isTeamFoul || isCoachFoul) {
+      if (!team.team_coach) {
+        team.team_coach = { orb: 0, drb: 0, turnovers: 0, fouls: 0 };
+      }
+      team.team_coach.fouls += 1;
+    } else if (player) {
       player.fouls += 1;
       if (details.foulType === 'technical') player.tech_fouls += 1;
       if (details.foulType === 'unsportsmanlike')
         player.unsportsmanlike_fouls += 1;
+    }
+
+    if (foulCategory === 'double' && game) {
+      const partnerId = details.doublePartnerPlayerId as string | undefined;
+      const partnerTeamId = details.doublePartnerTeamId as string | undefined;
+      if (partnerId && partnerTeamId) {
+        const partnerTeam =
+          partnerTeamId === game.homeTeamId ? game.teamStats.home : game.teamStats.away;
+        partnerTeam.fouls += 1;
+        const partnerStats = this.getOrCreatePlayerStats(game, partnerId);
+        partnerStats.fouls += 1;
+      }
+    }
+
+    if (foulCategory === 'offensive') {
+      team.turnovers += 1;
+      if (player) {
+        player.turnovers += 1;
+      }
     }
   }
 
@@ -354,6 +468,7 @@ export class GameLogic {
       ...game,
       events: [],
       gameStats: [],
+      currentPeriod: 1,
       possessionArrowTeamId: undefined,
       teamStats: {
         home: this.getEmptyTeamStats(game.homeTeamId),
@@ -376,6 +491,7 @@ export class GameLogic {
       ...game,
       events: [],
       gameStats: [],
+      currentPeriod: 1,
       possessionArrowTeamId: undefined,
       teamStats: {
         home: this.getEmptyTeamStats(game.homeTeamId),

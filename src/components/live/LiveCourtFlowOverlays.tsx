@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
+import type { FoulCommitParams } from '../../liveEntry/foulFlow';
+import { ftCountOptionsForCategory } from '../../liveEntry/foulFlow';
 import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
 
 interface LiveCourtFlowOverlaysProps {
@@ -13,7 +15,10 @@ interface LiveCourtFlowOverlaysProps {
   turnoverPlayerId: string | undefined;
   trackBoth: boolean;
   fastbreak: boolean;
-  ftSession: { playerId: string; ftTotal: number; ftIndex: number } | null;
+  offenseTeamId: string;
+  defenseTeamId: string;
+  homeTeamId: string;
+  awayTeamId: string;
   onFastbreakChange: (value: boolean) => void;
   onPendingReboundTypeChange: (value: string | null) => void;
   onTurnoverPlayerIdChange: (value: string | undefined) => void;
@@ -26,15 +31,7 @@ interface LiveCourtFlowOverlaysProps {
     isTeam: boolean,
     stolenBy?: string | null
   ) => void;
-  commitFoul: (
-    committerId: string,
-    recipientId: string | undefined,
-    foulCategory: string,
-    ftCount: number,
-    ftShooterId?: string,
-    foulingTeamId?: string
-  ) => void;
-  commitFreeThrow: (made: boolean) => void;
+  commitFoul: (params: FoulCommitParams) => void;
 }
 
 export function LiveCourtFlowOverlays({
@@ -44,7 +41,10 @@ export function LiveCourtFlowOverlays({
   turnoverPlayerId,
   trackBoth,
   fastbreak,
-  ftSession,
+  offenseTeamId,
+  defenseTeamId,
+  homeTeamId,
+  awayTeamId,
   onFastbreakChange,
   onPendingReboundTypeChange,
   onTurnoverPlayerIdChange,
@@ -54,7 +54,6 @@ export function LiveCourtFlowOverlays({
   commitRebound,
   commitTurnover,
   commitFoul,
-  commitFreeThrow,
 }: LiveCourtFlowOverlaysProps) {
   if (phase.kind === 'shot' && phase.step === 'fastbreak' && pending) {
     const shotPayload: PendingShot = {
@@ -277,28 +276,31 @@ export function LiveCourtFlowOverlays({
     );
   }
 
-  if (phase.kind === 'foul' && phase.step === 'category') {
+  if (phase.kind === 'foul' && phase.step === 'entity') {
     return (
       <LiveCourtOverlayShell>
-        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-center text-base">Foul category</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2 pb-4">
-            <Button onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'personal' }))}>
-              Personal
-            </Button>
-            <Button onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' }))}>
-              Technical
+        <Card className="border-primary/50 shadow-xl w-[272px] max-w-[95%] gap-0">
+          <CardContent className="flex flex-col gap-2 p-4">
+            <p className="text-center text-sm font-medium whitespace-nowrap">
+              Foul — who committed?
+            </p>
+            <Button
+              className="flex w-full"
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_ENTITY', entity: 'player' }))}
+            >
+              Player
             </Button>
             <Button
-              onClick={overlayClick(() =>
-                dispatch({ type: 'FOUL_CATEGORY', category: 'unsportsmanlike' })
-              )}
+              className="flex w-full"
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_ENTITY', entity: 'team' }))}
             >
-              Unsportsmanlike
+              Team
             </Button>
-            <Button variant="outline" onClick={overlayClick(() => dispatch({ type: 'RESET' }))}>
+            <Button
+              variant="outline"
+              className="flex w-full"
+              onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
+            >
               Cancel
             </Button>
           </CardContent>
@@ -307,7 +309,165 @@ export function LiveCourtFlowOverlays({
     );
   }
 
-  if (phase.kind === 'foul' && phase.step === 'ft_count' && phase.recipientId) {
+  if (phase.kind === 'foul' && phase.step === 'category') {
+    return (
+      <LiveCourtOverlayShell>
+        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-center text-base">Foul category</CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-2 pb-4">
+            <Button
+              className="col-span-2"
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'personal' }))}
+            >
+              Personal
+            </Button>
+            {phase.foulEntity === 'player' ? (
+              <>
+                <Button
+                  onClick={overlayClick(() =>
+                    dispatch({ type: 'FOUL_CATEGORY', category: 'offensive' })
+                  )}
+                >
+                  Offensive
+                </Button>
+                <Button
+                  onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' }))}
+                >
+                  Technical
+                </Button>
+              </>
+            ) : (
+              <div className="col-span-2 flex justify-center">
+                <Button
+                  className="w-[calc(50%-4px)]"
+                  onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'technical' }))}
+                >
+                  Technical
+                </Button>
+              </div>
+            )}
+            <Button
+              onClick={overlayClick(() =>
+                dispatch({ type: 'FOUL_CATEGORY', category: 'unsportsmanlike' })
+              )}
+            >
+              Unsportsmanlike
+            </Button>
+            <Button
+              onClick={overlayClick(() => dispatch({ type: 'FOUL_CATEGORY', category: 'double' }))}
+            >
+              Double foul
+            </Button>
+            <Button variant="outline" className="col-span-2" onClick={overlayClick(() => dispatch({ type: 'RESET' }))}>
+              Cancel
+            </Button>
+          </CardContent>
+        </Card>
+      </LiveCourtOverlayShell>
+    );
+  }
+
+  if (
+    phase.kind === 'foul' &&
+    phase.step === 'committer' &&
+    phase.foulEntity === 'team' &&
+    phase.foulCategory === 'personal'
+  ) {
+    return (
+      <LiveCourtOverlayShell>
+        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-center text-base">Team foul</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2 pb-4">
+            <Button
+              className="w-full"
+              onClick={overlayClick(() => dispatch({ type: 'PICK_FOUL_TEAM', teamId: defenseTeamId }))}
+            >
+              Record team foul (defense)
+            </Button>
+            <Button variant="outline" className="w-full" onClick={overlayClick(() => dispatch({ type: 'RESET' }))}>
+              Cancel
+            </Button>
+          </CardContent>
+        </Card>
+      </LiveCourtOverlayShell>
+    );
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'committer' && phase.foulCategory === 'technical') {
+    return (
+      <LiveCourtOverlayShell>
+        <Card className="border-primary/50 shadow-xl w-[min(90%,360px)]">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-center text-base">Technical foul</CardTitle>
+            <p className="text-center text-xs text-muted-foreground">
+              Select player on either roster, or coach below
+            </p>
+          </CardHeader>
+          <CardContent className="grid grid-cols-2 gap-2 pb-4">
+            <Button
+              variant="outline"
+              onClick={overlayClick(() => dispatch({ type: 'PICK_FOUL_COACH', teamId: homeTeamId }))}
+            >
+              Home coach
+            </Button>
+            <Button
+              variant="outline"
+              onClick={overlayClick(() => dispatch({ type: 'PICK_FOUL_COACH', teamId: awayTeamId }))}
+            >
+              Away coach
+            </Button>
+            <Button variant="ghost" className="col-span-2" onClick={overlayClick(() => dispatch({ type: 'RESET' }))}>
+              Cancel
+            </Button>
+          </CardContent>
+        </Card>
+      </LiveCourtOverlayShell>
+    );
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'ft_count' && phase.foulCategory === 'double') {
+    return (
+      <LiveCourtOverlayShell>
+        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-center text-base">Double foul</CardTitle>
+            <p className="text-center text-xs text-muted-foreground">No free throws — possession unchanged</p>
+          </CardHeader>
+          <CardContent className="pb-4">
+            <Button
+              className="w-full"
+              onClick={overlayClick(() =>
+                commitFoul({
+                  foulingTeamId: phase.committerTeamId ?? offenseTeamId,
+                  foulCategory: 'double',
+                  foulEntity: 'player',
+                  committerId: phase.committerId,
+                  doublePartnerPlayerId: phase.doublePartnerId,
+                  doublePartnerTeamId: defenseTeamId,
+                  ftCount: 0,
+                  retainPossession: false,
+                  offendedTeamId: offenseTeamId,
+                })
+              )}
+            >
+              Confirm double foul
+            </Button>
+          </CardContent>
+        </Card>
+      </LiveCourtOverlayShell>
+    );
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'ft_count') {
+    const category = phase.foulCategory ?? 'personal';
+    const ftOptions =
+      phase.foulEntity === 'team' ? [0] : ftCountOptionsForCategory(category);
+    const foulingTeamId = phase.committerTeamId ?? defenseTeamId;
+
     return (
       <LiveCourtOverlayShell>
         <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
@@ -315,45 +475,30 @@ export function LiveCourtFlowOverlays({
             <CardTitle className="text-center text-base">Free throws</CardTitle>
           </CardHeader>
           <CardContent className="flex gap-2 flex-wrap justify-center pb-4">
-            {[0, 1, 2, 3].map((n) => (
+            {ftOptions.map((n) => (
               <Button
                 key={n}
                 variant="outline"
                 onClick={overlayClick(() => {
-                  commitFoul(
-                    phase.committerId!,
-                    phase.recipientId,
-                    phase.foulCategory ?? 'personal',
-                    n,
-                    n > 0 ? phase.recipientId : undefined
-                  );
+                  const shooterId = n > 0 ? phase.recipientId : undefined;
+                  commitFoul({
+                    foulingTeamId,
+                    foulCategory: category,
+                    foulEntity: phase.foulEntity ?? 'player',
+                    committerId: phase.committerId,
+                    recipientId: phase.recipientId,
+                    isCoachFoul: phase.isCoachFoul,
+                    ftCount: n,
+                    ftShooterId: shooterId,
+                    retainPossession: phase.retainPossession ?? false,
+                    offendedTeamId: phase.offendedTeamId ?? offenseTeamId,
+                  });
                 })}
+                disabled={n > 0 && !phase.recipientId}
               >
                 {n} FT{n !== 1 ? 's' : ''}
               </Button>
             ))}
-          </CardContent>
-        </Card>
-      </LiveCourtOverlayShell>
-    );
-  }
-
-  if (phase.kind === 'free_throw' && ftSession) {
-    return (
-      <LiveCourtOverlayShell>
-        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-center text-base">
-              FT {ftSession.ftIndex} of {ftSession.ftTotal}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-2 pb-4">
-            <Button className="live-btn-make h-12 font-bold" onClick={overlayClick(() => commitFreeThrow(true))}>
-              Make
-            </Button>
-            <Button className="live-btn-miss h-12 font-bold" onClick={overlayClick(() => commitFreeThrow(false))}>
-              Miss
-            </Button>
           </CardContent>
         </Card>
       </LiveCourtOverlayShell>

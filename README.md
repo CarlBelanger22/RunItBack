@@ -226,11 +226,20 @@ Header shows a **Live: HOME vs AWAY** pill linking back to the live route.
 - Score header, **game leaders** (PTS, AST, REB, EFF)
 - **Team Stats** tab — quarter scoring, eFG%, TS%, AST/TO, shot chart, advanced team lines (POT, paint, 2nd chance, fastbreak when recorded)
 - **Box Score** tab — traditional + advanced per player; home/away tabs; starter/bench dividers
+- **Export PDF** — print-ready box score (IVP-style layout with EFF/GmSc, team comparison, quarter lines, Team/Coach row)
 - Edit game metadata (date, time, tournament, final score) via game form
 
 ### Delete game
 
 Removes the game and rolls back setup-created teams/players where applicable.
+
+| Where | How |
+|-------|-----|
+| **Live entry** (in progress) | Scoreboard header → **Delete** (top right, next to End Q / Edit) |
+| **Game summary** (completed) | Open game → **Delete** (top right, next to Edit Game) |
+| **Recent Games** | **Delete** on any game card (Live, Incomplete, or Final) |
+
+All paths show a confirmation dialog. This cannot be undone.
 
 ---
 
@@ -385,10 +394,11 @@ Clock defaults: `src/utils/gameClock.ts` · 3×3 scoring: `src/utils/basketball3
 
 ### Game summary
 
-- Final score, tournament context, edit/delete
+- Final score, tournament context, edit/delete, **Export PDF**
 - **Game leaders** — top PTS, AST, REB, EFF per side
 - **Team stats** — quarter breakdown, four factors style metrics, shot chart overlay
 - **Box score** — Traditional columns (PTS, FGM/A, 3PM/A, FTM/A, REB, AST, STL, BLK, TO, PF, +/-, MIN) and advanced view
+- **PDF export** — Landscape report with reference-style player table (`#` through GmSc, plus BA and Team/Coach row), team comparison, quarter scoring, and game leaders
 
 ### Box score ordering
 

@@ -275,6 +275,165 @@ function testHeldBallAfterOpeningTipFlipsArrow(): void {
   );
 }
 
+function testMissedFinalFtOrbRetainsShootingTeamPossession(): void {
+  const game = emptyGame();
+  const events = [
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    }),
+    makeEvent({
+      type: 'free_throw',
+      teamId: 'home',
+      playerId: 'p1',
+      details: {
+        made: true,
+        ftIndex: 1,
+        ftTotal: 2,
+        isFinal: false,
+        possessionTeamAfterFt: 'away',
+      },
+    }),
+    makeEvent({
+      type: 'free_throw',
+      teamId: 'home',
+      playerId: 'p1',
+      details: {
+        made: false,
+        ftIndex: 2,
+        ftTotal: 2,
+        isFinal: true,
+        possessionTeamAfterFt: 'away',
+      },
+    }),
+    makeEvent({
+      type: 'rebound',
+      teamId: 'home',
+      playerId: 'p1',
+      details: { reboundType: 'offensive' },
+    }),
+  ];
+  const snap = derivePossessionSnapshot(game, events);
+  assert(snap.offenseTeamId === 'home', 'ORB after missed final FT keeps shooting team on offense');
+  assert(snap.secondChanceTeamId === 'home', 'ORB sets second chance for shooting team');
+}
+
+function testMissedFinalFtDrbGivesDefensePossession(): void {
+  const game = emptyGame();
+  const events = [
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    }),
+    makeEvent({
+      type: 'free_throw',
+      teamId: 'home',
+      playerId: 'p1',
+      details: {
+        made: false,
+        ftIndex: 2,
+        ftTotal: 2,
+        isFinal: true,
+        possessionTeamAfterFt: 'away',
+      },
+    }),
+    makeEvent({
+      type: 'rebound',
+      teamId: 'away',
+      playerId: 'p2',
+      details: { reboundType: 'defensive' },
+    }),
+  ];
+  const snap = derivePossessionSnapshot(game, events);
+  assert(snap.offenseTeamId === 'away', 'DRB after missed final FT gives defense possession');
+}
+
+function testMadeFinalFtUsesPossessionTeamAfterFt(): void {
+  const game = emptyGame();
+  const events = [
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    }),
+    makeEvent({
+      type: 'free_throw',
+      teamId: 'home',
+      playerId: 'p1',
+      details: {
+        made: true,
+        ftIndex: 2,
+        ftTotal: 2,
+        isFinal: true,
+        possessionTeamAfterFt: 'away',
+      },
+    }),
+  ];
+  const snap = derivePossessionSnapshot(game, events);
+  assert(snap.offenseTeamId === 'away', 'made final FT uses possessionTeamAfterFt');
+}
+
+function testPeriodStartUsesPossessionArrow(): void {
+  let game = emptyGame();
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'jump_ball',
+      teamId: 'home',
+      details: {
+        kind: 'opening',
+        winnerTeamId: 'home',
+        awardedTeamId: 'home',
+        arrowAfterTeamId: 'away',
+        possessionChanged: true,
+      },
+    })
+  );
+  assert(game.possessionArrowTeamId === 'away', 'arrow at away after home tip');
+
+  game = GameLogic.recordEvent(
+    game,
+    makeEvent({
+      type: 'period_start',
+      period: 2,
+      gameTime: '10:00',
+      teamId: 'away',
+      details: {
+        period: 2,
+        clockTime: '10:00',
+        homeLineup: [],
+        awayLineup: [],
+        possessionTeamId: 'away',
+        arrowAfterTeamId: 'home',
+      },
+    })
+  );
+
+  const snap = derivePossessionSnapshot(game, game.events);
+  assert(snap.offenseTeamId === 'away', 'Q2 starts with arrow team on offense');
+  assert(game.possessionArrowTeamId === 'home', 'arrow flips after quarter-start AP');
+}
+
 function main(): void {
   testTurnoverSetsOffTurnoverFlag();
   testOrbSetsSecondChance();
@@ -285,6 +444,10 @@ function main(): void {
   testOpeningJumpBallSetsOffenseAndArrow();
   testHeldBallJumpBallWithStats();
   testHeldBallAfterOpeningTipFlipsArrow();
+  testMissedFinalFtOrbRetainsShootingTeamPossession();
+  testMissedFinalFtDrbGivesDefensePossession();
+  testMadeFinalFtUsesPossessionTeamAfterFt();
+  testPeriodStartUsesPossessionArrow();
   console.log('All possession engine tests passed.');
 }
 

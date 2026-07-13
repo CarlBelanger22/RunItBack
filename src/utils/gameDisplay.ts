@@ -40,9 +40,15 @@ export interface GameLeaderResult {
 }
 
 export function sortGamesByDateDesc(games: Game[]): Game[] {
-  return [...games].sort(
-    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
-  );
+  return [...games].sort((a, b) => {
+    const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
+    if (dateDiff !== 0) return dateDiff;
+
+    const timeDiff = (b.startTime ?? '').localeCompare(a.startTime ?? '');
+    if (timeDiff !== 0) return timeDiff;
+
+    return b.id.localeCompare(a.id);
+  });
 }
 
 export function getTeamForSide(game: Game, side: TeamSide): Team {
@@ -204,6 +210,60 @@ export function formatOptionalAdvancedStat(
   scoreOnly: boolean
 ): string {
   const value = getOptionalAdvancedStatValue(stats, key, scoreOnly);
+  if (value === null) return '-';
+  return String(value);
+}
+
+/** Bench points from non-starter scorers when starters are recorded. */
+export function computeBenchPointsFromStarters(
+  game: Game,
+  side: TeamSide
+): number | null {
+  if (isScoreOnlyTeam(game, side)) return null;
+
+  const starterIds = side === 'home' ? game.homeStarters : game.awayStarters;
+  if (!starterIds?.length) return null;
+
+  const team = getTeamForSide(game, side);
+  const starterSet = new Set(starterIds);
+  let total = 0;
+
+  for (const player of team.players) {
+    if (starterSet.has(player.id)) continue;
+    if (!playerPlayedInGame(game, player.id, team.id)) continue;
+    const stat = game.gameStats.find((s) => s.playerId === player.id);
+    total += stat?.points ?? 0;
+  }
+
+  return total;
+}
+
+/** Persisted advanced stat, with bench derived from starters when not stored. */
+export function resolveOptionalAdvancedTeamStat(
+  game: Game,
+  side: TeamSide,
+  key: OptionalAdvancedTeamStatKey
+): number | null {
+  const scoreOnly = isScoreOnlyTeam(game, side);
+  if (scoreOnly) return null;
+
+  const persisted = getPersistedTeamStats(game, side);
+  if (key === 'bench_points') {
+    if (isOptionalAdvancedStatRecorded(persisted?.bench_points)) {
+      return persisted!.bench_points!;
+    }
+    return computeBenchPointsFromStarters(game, side);
+  }
+
+  return getOptionalAdvancedStatValue(persisted, key, scoreOnly);
+}
+
+export function formatOptionalAdvancedTeamStat(
+  game: Game,
+  side: TeamSide,
+  key: OptionalAdvancedTeamStatKey
+): string {
+  const value = resolveOptionalAdvancedTeamStat(game, side, key);
   if (value === null) return '-';
   return String(value);
 }
@@ -706,6 +766,7 @@ export interface ResolvedTeamTotals {
   turnovers: number;
   fouls: number;
   fouls_drawn: number;
+  blocks_received: number;
   minutes_played: number;
   teamCoach: TeamCoachStats;
   scoreOnly: boolean;
@@ -751,6 +812,7 @@ export function resolveTeamTotals(
       turnovers: 0,
       fouls: 0,
       fouls_drawn: 0,
+      blocks_received: 0,
       minutes_played: 0,
       teamCoach,
       scoreOnly: true,
@@ -778,6 +840,7 @@ export function resolveTeamTotals(
       turnovers: rebToFoul.turnovers,
       fouls: rebToFoul.fouls,
       fouls_drawn: fromPlayers.fouls_drawn,
+      blocks_received: fromPlayers.blocks_received,
       minutes_played: fromPlayers.minutes_played,
       teamCoach,
       scoreOnly: false,
@@ -802,6 +865,7 @@ export function resolveTeamTotals(
       turnovers: rebToFoul.turnovers,
       fouls: rebToFoul.fouls,
       fouls_drawn: fromPlayers.fouls_drawn,
+      blocks_received: fromPlayers.blocks_received,
       minutes_played: fromPlayers.minutes_played,
       teamCoach,
       scoreOnly: false,
@@ -824,6 +888,7 @@ export function resolveTeamTotals(
     turnovers: persisted.turnovers ?? 0,
     fouls: persisted.fouls ?? 0,
     fouls_drawn: 0,
+    blocks_received: fromPlayers.blocks_received,
     minutes_played: 0,
     teamCoach,
     scoreOnly: false,

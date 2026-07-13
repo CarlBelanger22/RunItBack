@@ -114,18 +114,28 @@ export function HorizontalFullCourtCanvas({
             ? { width: courtSize.width, height: courtSize.height }
             : { width: '100%', height: '100%', maxWidth: '100%', maxHeight: '100%' }
         }
-        className={cn('relative mx-auto', interactive && 'cursor-crosshair')}
-        onClick={handleClick}
+        className={cn(
+          'relative mx-auto',
+          interactive && 'cursor-crosshair',
+          !interactive && 'pointer-events-none'
+        )}
+        onClick={interactive ? handleClick : undefined}
       >
-        <FigmaHorizontalCourtSvg
-          className="h-full w-full"
-          markers={markers}
-          homeLabel={game.homeTeam.abbreviation}
-          awayLabel={game.awayTeam.abbreviation}
-          shotMode={shotMode}
-          shotModeColor={shotModeColor}
-        />
-        {children}
+        <div className={cn('h-full w-full', !interactive && 'pointer-events-none')}>
+          <FigmaHorizontalCourtSvg
+            className="h-full w-full"
+            markers={markers}
+            homeLabel={game.homeTeam.abbreviation}
+            awayLabel={game.awayTeam.abbreviation}
+            shotMode={shotMode}
+            shotModeColor={shotModeColor}
+          />
+        </div>
+        {children ? (
+          <div className="absolute inset-0 z-20 flex items-stretch justify-stretch pointer-events-none [&>*]:pointer-events-auto">
+            {children}
+          </div>
+        ) : null}
       </div>
     </div>
   );

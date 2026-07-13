@@ -2,6 +2,7 @@
 
 import {
   DEFAULT_GAME_FORMAT_SCOPE,
+  parseGameFormatScope,
   type GameFormat,
   type GameFormatScope,
 } from './gameFormat';
@@ -270,6 +271,40 @@ export function selectAllTournaments(): TournamentIdSet {
   return null;
 }
 
-export function clearTournamentSelection(): TournamentIdSet {
-  return new Set();
+export function patchStatScopeSearchParams(
+  prev: URLSearchParams,
+  patch: { format?: GameFormatScope; tournamentIds?: TournamentIdSet }
+): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  const format = patch.format ?? parseGameFormatScope(prev.get('format'));
+  if (format === DEFAULT_GAME_FORMAT_SCOPE) {
+    next.delete('format');
+  } else {
+    next.set('format', format);
+  }
+  const tournamentIds =
+    'tournamentIds' in patch
+      ? patch.tournamentIds!
+      : parseTournamentSelection(prev.get('tournaments'));
+  const serialized = serializeTournamentSelection(tournamentIds);
+  if (serialized) {
+    next.set('tournaments', serialized);
+  } else {
+    next.delete('tournaments');
+  }
+  return next;
+}
+
+export function clearStatScopeSearchParams(prev: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(prev);
+  next.delete('format');
+  next.delete('tournaments');
+  return next;
+}
+
+export function shouldResetTeamStatScope(
+  previousTeamId: string | null,
+  nextTeamId: string
+): boolean {
+  return nextTeamId !== '' && previousTeamId !== nextTeamId;
 }

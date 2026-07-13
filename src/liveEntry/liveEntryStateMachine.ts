@@ -1,4 +1,7 @@
 import type { CourtPointM, ResolvedShotZone, ShotZone } from '../lib/fibaCourtGeometry';
+import type { FoulCategory, FoulEntity } from './foulFlow';
+
+export type { FoulCategory, FoulEntity };
 
 export type ShotOutcome = 'make' | 'miss' | 'block';
 
@@ -22,16 +25,38 @@ export type LiveEntryPhase =
   | { kind: 'turnover'; step: 'entity' | 'steal' | 'pick_stealer' }
   | {
       kind: 'foul';
-      step: 'category' | 'committer' | 'recipient' | 'ft_count' | 'ft_attempt';
-      foulCategory?: 'personal' | 'technical' | 'unsportsmanlike' | 'double';
+      step:
+        | 'entity'
+        | 'category'
+        | 'committer'
+        | 'recipient'
+        | 'tech_shooter'
+        | 'double_committer_a'
+        | 'double_committer_b'
+        | 'ft_count';
+      foulEntity?: FoulEntity;
+      foulCategory?: FoulCategory;
       committerId?: string;
+      committerTeamId?: string;
+      isCoachFoul?: boolean;
       recipientId?: string;
+      retainPossession?: boolean;
+      offendedTeamId?: string;
+      doublePartnerId?: string;
       ftTotal?: number;
       ftIndex?: number;
     }
   | { kind: 'substitution'; step: 'pick_out' | 'pick_in' | 'confirm'; outIds?: string[]; inIds?: string[] }
   | { kind: 'and1'; recipientId: string; pendingShot: PendingShot }
-  | { kind: 'free_throw'; playerId: string; ftTotal: number; ftIndex: number }
+  | {
+      kind: 'free_throw';
+      playerId: string;
+      ftTotal: number;
+      ftIndex: number;
+      retainPossession: boolean;
+      offendedTeamId: string;
+      possessionTeamAfterFt: string;
+    }
   | { kind: 'jumpball'; step: 'opening' | 'pick_to' | 'pick_steal'; turnoverPlayerId?: string };
 
 export interface CourtMarker {
@@ -72,11 +97,25 @@ export type LiveEntryAction =
   | { type: 'TURNOVER_STEAL'; hasSteal: boolean }
   | { type: 'PICK_STEALER'; playerId: string | null }
   | { type: 'START_FOUL' }
-  | { type: 'FOUL_CATEGORY'; category: 'personal' | 'technical' | 'unsportsmanlike' | 'double' }
-  | { type: 'PICK_FOUL_COMMITTER'; playerId: string }
+  | { type: 'FOUL_ENTITY'; entity: FoulEntity }
+  | { type: 'FOUL_CATEGORY'; category: FoulCategory }
+  | { type: 'PICK_FOUL_COMMITTER'; playerId: string; teamId: string }
+  | { type: 'PICK_FOUL_COACH'; teamId: string }
+  | { type: 'PICK_FOUL_TEAM'; teamId: string }
   | { type: 'PICK_FOUL_RECIPIENT'; playerId: string }
+  | { type: 'PICK_TECH_SHOOTER'; playerId: string }
+  | { type: 'PICK_DOUBLE_COMMITTER_A'; playerId: string }
+  | { type: 'PICK_DOUBLE_COMMITTER_B'; playerId: string }
   | { type: 'SET_FT_COUNT'; count: number }
-  | { type: 'START_FT'; playerId: string; ftTotal: number }
+  | {
+      type: 'START_FT';
+      playerId: string;
+      ftTotal: number;
+      retainPossession: boolean;
+      offendedTeamId: string;
+      possessionTeamAfterFt: string;
+    }
+  | { type: 'ADVANCE_FT' }
   | { type: 'START_SUBSTITUTION' }
   | { type: 'SUB_PICK_OUT'; playerId: string }
   | { type: 'SUB_PICK_IN'; playerId: string }
@@ -132,6 +171,7 @@ export function liveEntryReducer(
       return { ...state, ctx: { ...state.ctx, offenseTeamId: action.teamId } };
 
     case 'COURT_CLICK':
+      if (state.phase.kind !== 'idle') return state;
       return {
         phase: { kind: 'shot', step: 'await_outcome' },
         ctx: {
@@ -249,55 +289,185 @@ export function liveEntryReducer(
       };
 
     case 'START_FOUL':
-      return { ...state, phase: { kind: 'foul', step: 'category' } };
+      return { ...state, phase: { kind: 'foul', step: 'entity' } };
 
-    case 'FOUL_CATEGORY':
+    case 'FOUL_ENTITY':
       return {
         ...state,
-        phase: { kind: 'foul', step: 'committer', foulCategory: action.category },
-      };
-
-    case 'PICK_FOUL_COMMITTER':
-      return {
         phase: {
           kind: 'foul',
-          step: 'recipient',
-          foulCategory:
-            state.phase.kind === 'foul' ? state.phase.foulCategory : 'personal',
-          committerId: action.playerId,
+          step: 'category',
+          foulEntity: action.entity,
         },
-        ctx: state.ctx,
+      };
+
+    case 'FOUL_CATEGORY': {
+      const foulEntity =
+        state.phase.kind === 'foul' ? state.phase.foulEntity ?? 'player' : 'player';
+      const retainPossession = action.category === 'unsportsmanlike';
+      if (action.category === 'double') {
+        return {
+          ...state,
+          phase: {
+            kind: 'foul',
+            step: 'double_committer_a',
+            foulEntity,
+            foulCategory: action.category,
+            retainPossession: false,
+            offendedTeamId: state.ctx.offenseTeamId,
+          },
+        };
+      }
+      if (action.category === 'technical') {
+        return {
+          ...state,
+          phase: {
+            kind: 'foul',
+            step: 'committer',
+            foulEntity,
+            foulCategory: action.category,
+            retainPossession: false,
+          },
+        };
+      }
+      if (action.category === 'offensive') {
+        return {
+          ...state,
+          phase: {
+            kind: 'foul',
+            step: 'committer',
+            foulEntity,
+            foulCategory: 'offensive',
+            retainPossession: false,
+          },
+        };
+      }
+      return {
+        ...state,
+        phase: {
+          kind: 'foul',
+          step: 'committer',
+          foulEntity,
+          foulCategory: action.category,
+          retainPossession,
+          offendedTeamId: state.ctx.offenseTeamId,
+        },
+      };
+    }
+
+    case 'PICK_FOUL_COMMITTER': {
+      if (state.phase.kind !== 'foul') return state;
+      const category = state.phase.foulCategory ?? 'personal';
+      if (category === 'technical') {
+        return {
+          ...state,
+          phase: {
+            ...state.phase,
+            step: 'tech_shooter',
+            committerId: action.playerId,
+            committerTeamId: action.teamId,
+            isCoachFoul: false,
+          },
+        };
+      }
+      if (state.phase.foulEntity === 'team') {
+        return {
+          ...state,
+          phase: {
+            ...state.phase,
+            step: 'ft_count',
+            committerTeamId: action.teamId,
+            committerId: undefined,
+          },
+        };
+      }
+      if (category === 'unsportsmanlike' || category === 'personal') {
+        return {
+          ...state,
+          phase: {
+            ...state.phase,
+            step: 'recipient',
+            committerId: action.playerId,
+            committerTeamId: action.teamId,
+          },
+        };
+      }
+      return state;
+    }
+
+    case 'PICK_FOUL_COACH':
+      if (state.phase.kind !== 'foul' || state.phase.foulCategory !== 'technical') return state;
+      return {
+        ...state,
+        phase: {
+          ...state.phase,
+          step: 'tech_shooter',
+          committerId: undefined,
+          committerTeamId: action.teamId,
+          isCoachFoul: true,
+        },
+      };
+
+    case 'PICK_FOUL_TEAM':
+      if (state.phase.kind !== 'foul') return state;
+      return {
+        ...state,
+        phase: {
+          ...state.phase,
+          step: 'ft_count',
+          committerTeamId: action.teamId,
+          committerId: undefined,
+          foulEntity: 'team',
+        },
       };
 
     case 'PICK_FOUL_RECIPIENT':
+      if (state.phase.kind !== 'foul') return state;
       return {
+        ...state,
         phase: {
-          kind: 'foul',
+          ...state.phase,
           step: 'ft_count',
-          foulCategory:
-            state.phase.kind === 'foul' ? state.phase.foulCategory : 'personal',
-          committerId:
-            state.phase.kind === 'foul' ? state.phase.committerId : undefined,
           recipientId: action.playerId,
         },
-        ctx: state.ctx,
+      };
+
+    case 'PICK_TECH_SHOOTER':
+      return state;
+
+    case 'PICK_DOUBLE_COMMITTER_A':
+      if (state.phase.kind !== 'foul') return state;
+      return {
+        ...state,
+        phase: {
+          ...state.phase,
+          step: 'double_committer_b',
+          committerId: action.playerId,
+          committerTeamId: state.ctx.offenseTeamId,
+        },
+      };
+
+    case 'PICK_DOUBLE_COMMITTER_B':
+      if (state.phase.kind !== 'foul') return state;
+      return {
+        ...state,
+        phase: {
+          ...state.phase,
+          step: 'ft_count',
+          doublePartnerId: action.playerId,
+          committerTeamId: state.ctx.offenseTeamId,
+          ftTotal: 0,
+        },
       };
 
     case 'SET_FT_COUNT':
+      if (state.phase.kind !== 'foul') return state;
       return {
+        ...state,
         phase: {
-          kind: 'foul',
-          step: 'ft_attempt',
-          foulCategory:
-            state.phase.kind === 'foul' ? state.phase.foulCategory : 'personal',
-          committerId:
-            state.phase.kind === 'foul' ? state.phase.committerId : undefined,
-          recipientId:
-            state.phase.kind === 'foul' ? state.phase.recipientId : undefined,
+          ...state.phase,
           ftTotal: action.count,
-          ftIndex: 1,
         },
-        ctx: state.ctx,
       };
 
     case 'START_FT':
@@ -307,8 +477,22 @@ export function liveEntryReducer(
           playerId: action.playerId,
           ftTotal: action.ftTotal,
           ftIndex: 1,
+          retainPossession: action.retainPossession,
+          offendedTeamId: action.offendedTeamId,
+          possessionTeamAfterFt: action.possessionTeamAfterFt,
         },
         ctx: state.ctx,
+      };
+
+    case 'ADVANCE_FT':
+      if (state.phase.kind !== 'free_throw') return state;
+      if (state.phase.ftIndex >= state.phase.ftTotal) return state;
+      return {
+        ...state,
+        phase: {
+          ...state.phase,
+          ftIndex: state.phase.ftIndex + 1,
+        },
       };
 
     case 'START_SUBSTITUTION':

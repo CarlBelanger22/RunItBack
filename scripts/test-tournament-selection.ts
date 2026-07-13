@@ -14,6 +14,9 @@ import {
   tournamentMatchesSelection,
   tournamentSelectionTriggerLabel,
   toggleTournamentInSelection,
+  patchStatScopeSearchParams,
+  clearStatScopeSearchParams,
+  shouldResetTeamStatScope,
   TOURNAMENT_SELECTION_NONE,
   type TournamentSelectOption,
 } from '../src/utils/tournamentSelection';
@@ -181,6 +184,47 @@ function testFormatAwareToggle(): void {
   assert(selectAll.format === 'combined' && selectAll.selection === null, 'select all → combined');
 }
 
+function testPatchStatScopeSearchParams(): void {
+  const base = new URLSearchParams();
+  const pickOne = patchStatScopeSearchParams(base, {
+    tournamentIds: new Set(['t-iubit']),
+  });
+  assert(
+    pickOne.get('tournaments') === 't-iubit',
+    'tournament filter persists in URL'
+  );
+
+  const changeFormat = patchStatScopeSearchParams(pickOne, { format: '3x3' });
+  assert(changeFormat.get('format') === '3x3', 'format change persists');
+  assert(
+    changeFormat.get('tournaments') === 't-iubit',
+    'tournament filter survives format change'
+  );
+
+  const cleared = clearStatScopeSearchParams(changeFormat);
+  assert(cleared.get('format') === null, 'clear removes format');
+  assert(cleared.get('tournaments') === null, 'clear removes tournaments');
+}
+
+function testTeamStatScopeResetRule(): void {
+  assert(
+    !shouldResetTeamStatScope(null, ''),
+    'empty team id does not reset filters'
+  );
+  assert(
+    shouldResetTeamStatScope(null, 'team-ntu'),
+    'initial real team resets stale filters'
+  );
+  assert(
+    !shouldResetTeamStatScope('team-ntu', 'team-ntu'),
+    'same team does not reset after search-param change'
+  );
+  assert(
+    shouldResetTeamStatScope('team-ntu', 'team-um'),
+    'changing teams resets filters'
+  );
+}
+
 function main(): void {
   testParseSerialize();
   testMatchAndAll();
@@ -188,6 +232,8 @@ function main(): void {
   testLabel();
   testFormatAwareChecks();
   testFormatAwareToggle();
+  testPatchStatScopeSearchParams();
+  testTeamStatScopeResetRule();
   console.log('All tournament selection tests passed.');
 }
 

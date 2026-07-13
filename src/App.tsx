@@ -82,6 +82,7 @@ import {
   findRosterRemovals,
   mergeTeamRostersUnion,
 } from './utils/clubRosterIntegrity';
+import { ensureGameQuarterStats } from './utils/quarterScoring';
 
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
@@ -279,7 +280,9 @@ export type EventType =
   | 'violation'
   | 'technical_foul'
   | 'timeout'
-  | 'jump_ball';
+  | 'jump_ball'
+  | 'period_start'
+  | 'period_end';
 
 export interface GameEvent {
   id: string;
@@ -1649,15 +1652,15 @@ export default function App() {
     // Ensure tournament ID is set (default to Summer League 2024)
     const tournamentId = game.tournamentId || 'tournament-summer-2024';
 
-    const completedGame: Game = {
+    const completedGame = ensureGameQuarterStats({
       ...game,
       tournamentId,
       isActive: false,
       isCompleted: true,
       currentPeriod: game.currentPeriod || 4,
       currentGameTime: game.currentGameTime || '00:00',
-      finalScore: { home: homeScore, away: awayScore }
-    };
+      finalScore: { home: homeScore, away: awayScore },
+    });
     
     setGames((prev) => {
       const nextGames = [
