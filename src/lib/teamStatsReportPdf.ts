@@ -114,6 +114,26 @@ function drawReportHeader(doc: jsPDF, model: TeamStatsReportModel): number {
     y += 9;
   }
 
+  if (model.plusMinusCoverage?.isPartial) {
+    doc.text(
+      `+/- average uses games that recorded +/- (${model.plusMinusCoverage.gamesWithData} of ${model.plusMinusCoverage.gamesTotal}).`,
+      pageWidth / 2,
+      y,
+      { align: 'center' }
+    );
+    y += 9;
+  }
+
+  if (model.foulsDrawnCoverage?.isPartial) {
+    doc.text(
+      `FDPG average uses games that recorded fouls drawn (${model.foulsDrawnCoverage.gamesWithData} of ${model.foulsDrawnCoverage.gamesTotal}).`,
+      pageWidth / 2,
+      y,
+      { align: 'center' }
+    );
+    y += 9;
+  }
+
   doc.setTextColor(0, 0, 0);
   return y + 4;
 }

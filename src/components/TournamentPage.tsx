@@ -21,7 +21,7 @@ import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
 import { TournamentForm } from './forms/TournamentForm';
-import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage } from '../utils/playerSeasonStats';
+import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
@@ -806,6 +806,8 @@ export function TournamentPage({
     });
     const shotDataCoverage = getShotDataCoverage(tournamentGames);
     const foulStatCoverage = getFoulStatCoverage(tournamentGames);
+    const plusMinusCoverage = getPlusMinusCoverage(tournamentGames);
+    const foulsDrawnCoverage = getFoulsDrawnCoverage(tournamentGames);
 
     return (
       <div className="space-y-6">
@@ -819,6 +821,8 @@ export function TournamentPage({
           showTeamColumn
           shotDataCoverage={shotDataCoverage}
           foulStatCoverage={foulStatCoverage}
+          plusMinusCoverage={plusMinusCoverage}
+          foulsDrawnCoverage={foulsDrawnCoverage}
           onNavigateToPlayer={onNavigateToPlayer}
           onNavigateToTeam={onNavigateToTeam}
         />

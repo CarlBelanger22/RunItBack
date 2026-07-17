@@ -13,7 +13,7 @@ import {
   OptionalStatTableCell,
   StatTooltipHead,
 } from './StatDisplay';
-import { tournamentRecordsStat } from '../utils/statRecordingCoverage';
+import { gameRecordsStat } from '../utils/statRecordingCoverage';
 import {
   getPlayerPaintAndFastbreakPoints,
   isScoreOnlyTeam,
@@ -23,6 +23,7 @@ import {
   type ResolvedTeamTotals,
 } from '../utils/gameDisplay';
 import { formatSignedDecimal } from '../utils/gameReportModel';
+import { isFoulOutEnabled, isPlayerFouledOut } from '../utils/foulOut';
 import {
   orderBoxScorePlayers,
   type OrderedBoxScoreRow,
@@ -44,8 +45,9 @@ interface PlayerBoxScore extends GameStats {
 
 export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScoreProps) {
   const [view, setView] = useState<'traditional' | 'advanced'>('traditional');
-  const recordsFoulsDrawn = tournamentRecordsStat(game.tournamentId, 'fouls_drawn');
-  const recordsPlusMinus = tournamentRecordsStat(game.tournamentId, 'plus_minus');
+  const recordsFoulsDrawn = gameRecordsStat(game, 'fouls_drawn');
+  const recordsPlusMinus = gameRecordsStat(game, 'plus_minus');
+  const foulOutEnabled = isFoulOutEnabled(game);
 
   const getPlayerBoxScore = (playerId: string): GameStats => {
     const stats = game.gameStats.find(s => s.playerId === playerId);
@@ -205,7 +207,15 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                 <TableCell className="text-center font-mono">{player.steals}</TableCell>
                 <TableCell className="text-center font-mono">{player.blocks}</TableCell>
                 <TableCell className="text-center font-mono">{player.turnovers}</TableCell>
-                <TableCell className="text-center font-mono">{player.fouls}</TableCell>
+                <TableCell className="text-center font-mono">
+                  {foulOutEnabled && isPlayerFouledOut(player) ? (
+                    <Badge variant="destructive" className="text-xs">
+                      {player.fouls}
+                    </Badge>
+                  ) : (
+                    player.fouls
+                  )}
+                </TableCell>
                 <TableCell className="text-center font-mono">
                   {recordsPlusMinus ? (
                     <Badge variant={player.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
@@ -376,8 +386,24 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                   value={recordsFoulsDrawn ? player.fouls_drawn : null}
                 />
                 <TableCell className="text-center font-mono">{player.blocks_received}</TableCell>
-                <TableCell className="text-center font-mono">{player.tech_fouls}</TableCell>
-                <TableCell className="text-center font-mono">{player.unsportsmanlike_fouls}</TableCell>
+                <TableCell className="text-center font-mono">
+                  {foulOutEnabled && isPlayerFouledOut(player) ? (
+                    <Badge variant="destructive" className="text-xs">
+                      {player.tech_fouls}
+                    </Badge>
+                  ) : (
+                    player.tech_fouls
+                  )}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {foulOutEnabled && isPlayerFouledOut(player) ? (
+                    <Badge variant="destructive" className="text-xs">
+                      {player.unsportsmanlike_fouls}
+                    </Badge>
+                  ) : (
+                    player.unsportsmanlike_fouls
+                  )}
+                </TableCell>
               </TableRow>
               );
             })}

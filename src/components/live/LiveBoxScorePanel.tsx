@@ -4,9 +4,10 @@ import { MetricsCalculator } from '../MetricsCalculator';
 import { orderBoxScorePlayers } from '../../utils/boxScoreOrder';
 import { Button } from '../ui/button';
 import { getLiveTeamColor, liveTeamTint, LIVE_SEMANTIC, LIVE_TEAM_HEX } from './liveEntryTheme';
-import { tournamentRecordsStat } from '../../utils/statRecordingCoverage';
+import { gameRecordsStat } from '../../utils/statRecordingCoverage';
 import { formatSignedDecimal } from '../../utils/gameReportModel';
 import { NoStatRecorded } from '../StatDisplay';
+import { isFoulOutEnabled, isPlayerFouledOut } from '../../utils/foulOut';
 
 interface LiveBoxScorePanelProps {
   game: Game;
@@ -313,8 +314,9 @@ function LiveBoxScoreTableWithView({
   const starterIds = side === 'home' ? game.homeStarters : game.awayStarters;
   const color = getLiveTeamColor(side);
 
-  const recordsPlusMinus = tournamentRecordsStat(game.tournamentId, 'plus_minus');
-  const recordsFoulsDrawn = tournamentRecordsStat(game.tournamentId, 'fouls_drawn');
+  const recordsPlusMinus = gameRecordsStat(game, 'plus_minus');
+  const recordsFoulsDrawn = gameRecordsStat(game, 'fouls_drawn');
+  const foulOutEnabled = isFoulOutEnabled(game);
 
   type TraditionalSortKey =
     | 'minutes_played'
@@ -399,8 +401,8 @@ function LiveBoxScoreTableWithView({
           twoPointMade: adv.twoPointMade,
           twoPointAttempted: adv.twoPointAttempted,
 
-          paintPoints: hasShotChart ? paintTotals?.paintPoints ?? 0 : null,
-          fastbreakPoints: hasShotChart ? paintTotals?.fastbreakPoints ?? 0 : null,
+          paintPoints: paintTotals?.paintPoints ?? 0,
+          fastbreakPoints: paintTotals?.fastbreakPoints ?? 0,
         } satisfies PlayerRowLiveFull;
       }),
       starterIds ?? []
@@ -635,8 +637,26 @@ function LiveBoxScoreTableWithView({
                   {recordsFoulsDrawn ? p.fouls_drawn : <NoStatRecorded />}
                 </td>
                 <td className="live-box-td-stat">{p.blocks_received}</td>
-                <td className="live-box-td-stat">{p.tech_fouls}</td>
-                <td className="live-box-td-stat">{p.unsportsmanlike_fouls}</td>
+                <td
+                  className="live-box-td-stat"
+                  style={
+                    foulOutEnabled && isPlayerFouledOut(p)
+                      ? { color: 'var(--live-danger)', fontWeight: 700 }
+                      : undefined
+                  }
+                >
+                  {p.tech_fouls}
+                </td>
+                <td
+                  className="live-box-td-stat"
+                  style={
+                    foulOutEnabled && isPlayerFouledOut(p)
+                      ? { color: 'var(--live-danger)', fontWeight: 700 }
+                      : undefined
+                  }
+                >
+                  {p.unsportsmanlike_fouls}
+                </td>
               </tr>
             ))}
 
@@ -742,10 +762,15 @@ function LiveBoxScoreTableWithView({
               <td className="live-box-td-stat">{p.steals}</td>
               <td className="live-box-td-stat">{p.blocks}</td>
 
-              <td className="live-box-td-stat" style={{ color: 'color-mix(in srgb, var(--live-danger) 55%, transparent)' }}>
-                {p.turnovers}
-              </td>
-              <td className="live-box-td-stat" style={{ color: 'color-mix(in srgb, var(--live-danger) 55%, transparent)' }}>
+              <td className="live-box-td-stat">{p.turnovers}</td>
+              <td
+                className="live-box-td-stat"
+                style={
+                  foulOutEnabled && isPlayerFouledOut(p)
+                    ? { color: 'var(--live-danger)', fontWeight: 700 }
+                    : undefined
+                }
+              >
                 {p.fouls}
               </td>
 
@@ -817,16 +842,10 @@ function LiveBoxScoreTableWithView({
               <td className="live-box-td-stat live-box-totals-val">{totalsTraditional.steals}</td>
               <td className="live-box-td-stat live-box-totals-val">{totalsTraditional.blocks}</td>
 
-              <td
-                className="live-box-td-stat live-box-totals-val"
-                style={{ color: 'color-mix(in srgb, var(--live-danger) 55%, transparent)' }}
-              >
+              <td className="live-box-td-stat live-box-totals-val">
                 {totalsTraditional.turnovers}
               </td>
-              <td
-                className="live-box-td-stat live-box-totals-val"
-                style={{ color: 'color-mix(in srgb, var(--live-danger) 55%, transparent)' }}
-              >
+              <td className="live-box-td-stat live-box-totals-val">
                 {totalsTraditional.fouls}
               </td>
               <td className="live-box-td-stat live-box-totals-val">

@@ -227,6 +227,87 @@ function testTechnicalFtRetainsPossessionTeam(): void {
   assert(snap.offenseTeamId === 'home', 'technical FT keeps possession team that had the ball');
 }
 
+function testUnsportsmanlikeByOffenseFlipsPossession(): void {
+  const game = baseGame();
+  // LE-85: home is on offense and commits the unsportsmanlike foul →
+  // away (defense/offended) shoots the FTs and receives the ball.
+  const events: GameEvent[] = [
+    {
+      id: 'ps',
+      type: 'period_start',
+      timestamp: 0,
+      period: 1,
+      gameTime: '10:00',
+      teamId: 'home',
+      details: { period: 1, possessionTeamId: 'home' },
+      homeScore: 0,
+      awayScore: 0,
+    },
+    {
+      id: 'f1',
+      type: 'foul',
+      timestamp: 1,
+      period: 1,
+      gameTime: '10:00',
+      teamId: 'home',
+      playerId: 'h1',
+      details: {
+        foulType: 'unsportsmanlike',
+        foulCategory: 'unsportsmanlike',
+        retainPossession: true,
+        offendedTeamId: 'away',
+      },
+      homeScore: 0,
+      awayScore: 0,
+    },
+    {
+      id: 'ft1',
+      type: 'free_throw',
+      timestamp: 2,
+      period: 1,
+      gameTime: '10:00',
+      teamId: 'away',
+      playerId: 'a1',
+      details: {
+        made: false,
+        ftIndex: 1,
+        ftTotal: 2,
+        isFinal: false,
+        retainPossession: true,
+        offendedTeamId: 'away',
+        possessionTeamAfterFt: 'away',
+      },
+      homeScore: 0,
+      awayScore: 0,
+    },
+    {
+      id: 'ft2',
+      type: 'free_throw',
+      timestamp: 3,
+      period: 1,
+      gameTime: '10:00',
+      teamId: 'away',
+      playerId: 'a1',
+      details: {
+        made: true,
+        ftIndex: 2,
+        ftTotal: 2,
+        isFinal: true,
+        retainPossession: true,
+        offendedTeamId: 'away',
+        possessionTeamAfterFt: 'away',
+      },
+      homeScore: 0,
+      awayScore: 1,
+    },
+  ];
+  const snap = derivePossessionSnapshot(game, events);
+  assert(
+    snap.offenseTeamId === 'away',
+    'offense-committed unsportsmanlike gives FTs + ball to the offended defense'
+  );
+}
+
 function testFtOptions(): void {
   assert(
     ftCountOptionsForCategory('unsportsmanlike').join(',') === '1,2,3',
@@ -316,6 +397,7 @@ function main(): void {
   testUnsportsmanlikeRetainFlag();
   testDoubleFoulFlow();
   testRetainPossessionOnMadeFt();
+  testUnsportsmanlikeByOffenseFlipsPossession();
   testTechnicalFtRetainsPossessionTeam();
   testFtOptions();
   testOffensiveFoulStateFlow();

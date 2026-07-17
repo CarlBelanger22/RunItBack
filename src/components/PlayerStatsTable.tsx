@@ -18,6 +18,7 @@ import {
   type PlayerStatsSortField,
   type ShotDataCoverage,
   type FoulStatCoverage,
+  type ScopedStatCoverage,
 } from '../utils/playerSeasonStats';
 import { formatDecimalMinutes } from '../utils/formatMinutes';
 import { getTeamStatsAbbreviation } from '../utils/teamAbbreviation';
@@ -86,6 +87,8 @@ interface PlayerStatsTableProps {
   showAgeColumn?: boolean;
   shotDataCoverage?: ShotDataCoverage;
   foulStatCoverage?: FoulStatCoverage;
+  plusMinusCoverage?: ScopedStatCoverage;
+  foulsDrawnCoverage?: ScopedStatCoverage;
   disableRowNavigation?: boolean;
   defaultSortField?: PlayerStatsSortField;
   defaultSortOrder?: 'asc' | 'desc';
@@ -190,6 +193,8 @@ export function PlayerStatsTable({
   showAgeColumn = false,
   shotDataCoverage,
   foulStatCoverage,
+  plusMinusCoverage,
+  foulsDrawnCoverage,
   disableRowNavigation = false,
   defaultSortField,
   defaultSortOrder,
@@ -218,6 +223,16 @@ export function PlayerStatsTable({
   const partialShotTooltip =
     shotDataCoverage?.isPartial
       ? `Averages use only games with shot chart data (${shotDataCoverage.gamesWithShotData} of ${shotDataCoverage.gamesTotal} games in this view).`
+      : undefined;
+
+  const partialPlusMinusTooltip =
+    plusMinusCoverage?.isPartial
+      ? `Averages use only games that recorded +/- (${plusMinusCoverage.gamesWithData} of ${plusMinusCoverage.gamesTotal} games in this view).`
+      : undefined;
+
+  const partialFoulsDrawnTooltip =
+    foulsDrawnCoverage?.isPartial
+      ? `Averages use only games that recorded fouls drawn (${foulsDrawnCoverage.gamesWithData} of ${foulsDrawnCoverage.gamesTotal} games in this view).`
       : undefined;
 
   const sortedRows = useMemo(
@@ -402,7 +417,7 @@ export function PlayerStatsTable({
                       ))}
                       <SortableHead label="TOPG" field="TOPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="FPG" field="FPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
-                      <SortableHead label="+/-" field="+/-" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="+/-" field="+/-" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" warningTooltip={partialPlusMinusTooltip} />
                       <SortableHead label="GmSc" field="GmSc" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="EFF" field="EFF" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                     </>
@@ -412,7 +427,7 @@ export function PlayerStatsTable({
                       <SortableHead label="3PT" field="3PT" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="FT" field="FT" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="ORPG" field="ORPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
-                      <SortableHead label="FDPG" field="FDPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="FDPG" field="FDPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" warningTooltip={partialFoulsDrawnTooltip} />
                       <SortableHead
                         label="PITP"
                         field="PITP"

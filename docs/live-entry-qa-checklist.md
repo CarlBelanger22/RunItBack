@@ -201,6 +201,39 @@ Before **End Q1**: note possession **arrow** team (header arrow indicator).
 
 ---
 
+## Phase 11 — Foul-out / forced bench (LE-36, 5v5 only)
+
+**Foul-out triggers (any one):** 5 total fouls · 2 technical · 2 unsportsmanlike · 1 technical + 1 unsportsmanlike.
+
+| # | Test | Pass | Expected |
+|---|------|------|----------|
+| 11.1 | **5th personal foul** (no FT) on an on-court player | [ ] | Blocking **"Foul out — #n Name must be replaced"** dialog opens for that team; can't close (no X / Esc / outside click) |
+| 11.2 | Pick replacement + clock → **Confirm replacement** | [ ] | Player subbed out; on-court column updates; play resumes |
+| 11.3 | **Foul-out via FTs** — 5th foul that awards FTs (foul the shooter) | [ ] | Replace dialog appears **before** FTs; after confirming, FT overlay resumes and FTs are shot |
+| 11.4 | **Re-entry lock** — open any later SUB for that team | [ ] | Fouled-out player is **not** in the "In" bench list |
+| 11.5 | **2 technical fouls** on one player | [ ] | Foul-out dialog triggers (even if total < 5) |
+| 11.6 | **2 unsportsmanlike fouls** on one player | [ ] | Foul-out dialog triggers |
+| 11.7 | **1 technical + 1 unsportsmanlike** on one player | [ ] | Foul-out dialog triggers |
+| 11.8 | **Live box score** PF for fouled-out player | [ ] | `PF` shows **solid red + bold** (others stay faint) |
+| 11.9 | **Completed-game box score** PF (Complete game → open Box Score) | [ ] | Fouled-out player's `PF` shows a **red badge** (like negative EFF/GmSc) |
+| 11.10 | **Undo** the forced sub, then undo the disqualifying foul | [ ] | Sub reverts, then PF drops below limit and red highlight clears |
+| 11.11 | **3×3 game** — give a player 5 fouls | [ ] | **No** foul-out prompt and **no** red PF highlight (foul-out is 5v5 only) |
+| 11.13 | **Escape hatch** — in the blocking dialog, click **"Cancel & undo foul (wrong entry)"** | [ ] | Triggering foul is undone, dialog closes, app returns to idle (recovery from a mis-click) |
+| 11.14 | **Locked cards** — open the forced sub "In" list and the period-start lineup picker | [ ] | Fouled-out players show as **dimmed/disabled cards with a red "Fouled out" tag** (visible but not selectable) |
+
+### 11.12 — Short-handed continuation (rare: no eligible bench)
+
+Setup: reduce a team so it has **no eligible bench** (e.g. dress exactly 5, or foul out enough that no one is left on the bench), then foul out an on-court player.
+
+| Check | Expected |
+|-------|----------|
+| Dialog "In" column | Shows **"No available substitutes — {ABBR} continues with N players"** (no bench list) |
+| Confirm button | Reads **"Acknowledge — continue short-handed"**; enabled once clock is valid |
+| After acknowledge | That team plays on with **4 on court**; minutes/±/box score stay correct |
+| **Next period start** | Lineup picker lets the depleted team start with **4** (`n/4`); the full-roster team still requires **5** |
+
+---
+
 ## Mini-game script (optional single sitting)
 
 Do in one session after Phase 1–4 pass:
@@ -226,6 +259,7 @@ Run before final sign-off:
 npm run test:live-entry-state-machine && \
 npm run test:live-entry-rebound && \
 npm run test:foul-flow && \
+npm run test:foul-out && \
 npm run test:and1-ft-flow && \
 npm run test:court-overlay-active && \
 npm run test:opening-tip && \

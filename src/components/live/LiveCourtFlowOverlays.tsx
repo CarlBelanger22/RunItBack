@@ -481,6 +481,13 @@ export function LiveCourtFlowOverlays({
                 variant="outline"
                 onClick={overlayClick(() => {
                   const shooterId = n > 0 ? phase.recipientId : undefined;
+                  // Offended = the committer's opponent (supports either-team unsportsmanlike;
+                  // equals offense for legacy defense-committed fouls).
+                  const offendedTeamId = phase.committerTeamId
+                    ? phase.committerTeamId === homeTeamId
+                      ? awayTeamId
+                      : homeTeamId
+                    : phase.offendedTeamId ?? offenseTeamId;
                   commitFoul({
                     foulingTeamId,
                     foulCategory: category,
@@ -491,7 +498,7 @@ export function LiveCourtFlowOverlays({
                     ftCount: n,
                     ftShooterId: shooterId,
                     retainPossession: phase.retainPossession ?? false,
-                    offendedTeamId: phase.offendedTeamId ?? offenseTeamId,
+                    offendedTeamId,
                   });
                 })}
                 disabled={n > 0 && !phase.recipientId}

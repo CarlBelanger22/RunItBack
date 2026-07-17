@@ -25,7 +25,7 @@ import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMea
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import {
   perGameAverageOrNull,
-  tournamentRecordsStat,
+  gameRecordsStat,
 } from '../utils/statRecordingCoverage';
 import { NoStatRecorded, OptionalStatBadge, OptionalStatText } from './StatDisplay';
 import {
@@ -34,6 +34,8 @@ import {
   filterPlayerSeasonRowsForTournamentSelection,
   getFoulStatCoverage,
   getShotDataCoverage,
+  getPlusMinusCoverage,
+  getFoulsDrawnCoverage,
 } from '../utils/playerSeasonStats';
 import { getPlayerParticipatedTournaments } from '../utils/teamTournaments';
 import {
@@ -86,12 +88,27 @@ import {
   Crown,
   Edit,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
+import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import {
   evaluatePlayerDeletion,
   playerDeletionBlockMessage,
   playerDeletionConfirmMessage,
 } from '../utils/rosterPlayerRemoval';
+
+/** Amber ⚠ + tooltip shown next to an average that only covers a subset of games. */
+function PartialAverageWarning({ tooltip }: { tooltip?: string }) {
+  if (!tooltip) return null;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{tooltip}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 interface PlayerPageProps {
   player: Player;
@@ -405,6 +422,12 @@ export function PlayerPage({
       stats: GameStats;
       games: number;
       advanced: AdvancedMetrics;
+      // Per-game coverage: count/sum only games that actually recorded the stat
+      // (live-entered games always do; imported CSV games in "without" tournaments don't).
+      foulsDrawnTrackedTotal: number;
+      gamesWithFoulsDrawnData: number;
+      plusMinusTrackedTotal: number;
+      gamesWithPlusMinusData: number;
     }>();
     
     // Group games by tournament
@@ -417,7 +440,11 @@ export function PlayerPage({
           tournament,
           stats: MetricsCalculator.getEmptyStats(player.id),
           games: 0,
-          advanced: MetricsCalculator.calculateAdvancedMetrics(MetricsCalculator.getEmptyStats(player.id))
+          advanced: MetricsCalculator.calculateAdvancedMetrics(MetricsCalculator.getEmptyStats(player.id)),
+          foulsDrawnTrackedTotal: 0,
+          gamesWithFoulsDrawnData: 0,
+          plusMinusTrackedTotal: 0,
+          gamesWithPlusMinusData: 0,
         });
       }
       
@@ -429,6 +456,15 @@ export function PlayerPage({
           (tournamentData.stats as any)[key] += (stats as any)[key];
         }
       });
+      
+      if (gameRecordsStat(game, 'fouls_drawn')) {
+        tournamentData.foulsDrawnTrackedTotal += stats.fouls_drawn;
+        tournamentData.gamesWithFoulsDrawnData += 1;
+      }
+      if (gameRecordsStat(game, 'plus_minus')) {
+        tournamentData.plusMinusTrackedTotal += stats.plus_minus;
+        tournamentData.gamesWithPlusMinusData += 1;
+      }
       
       tournamentData.games++;
     });
@@ -786,7 +822,7 @@ export function PlayerPage({
                       {gameAdvanced.freeThrowPercentage.toFixed(1)}%
                     </TableCell>
                     <TableCell className="text-center font-mono">
-                      {tournamentRecordsStat(game.tournamentId, 'plus_minus') ? (
+                      {gameRecordsStat(game, 'plus_minus') ? (
                         <Badge variant={stats.plus_minus >= 0 ? "default" : "destructive"} className="text-xs">
                           {stats.plus_minus >= 0 ? '+' : ''}{stats.plus_minus}
                         </Badge>
@@ -870,6 +906,8 @@ export function PlayerPage({
 
     const shotDataCoverage = getShotDataCoverage(coverageGames);
     const foulStatCoverage = getFoulStatCoverage(coverageGames);
+    const plusMinusCoverage = getPlusMinusCoverage(coverageGames);
+    const foulsDrawnCoverage = getFoulsDrawnCoverage(coverageGames);
 
     return (
       <div className="space-y-6">
@@ -883,6 +921,8 @@ export function PlayerPage({
           disableRowNavigation
           shotDataCoverage={shotDataCoverage}
           foulStatCoverage={foulStatCoverage}
+          plusMinusCoverage={plusMinusCoverage}
+          foulsDrawnCoverage={foulsDrawnCoverage}
           onNavigateToTournament={onNavigateToTournament}
           onNavigateToTeam={onNavigateToTeam}
           teams={teams}
@@ -923,6 +963,8 @@ export function PlayerPage({
           advanced: MetricsCalculator.calculateAdvancedMetrics(MetricsCalculator.getEmptyStats(player.id)),
           foulsDrawnPerGame: null,
           plusMinusPerGame: null,
+          gamesWithFoulsDrawnData: 0,
+          gamesWithPlusMinusData: 0,
         };
       }
       
@@ -944,14 +986,10 @@ export function PlayerPage({
       let gamesWithPlusMinusData = 0;
 
       for (const tournamentData of filteredTournamentStats) {
-        if (tournamentRecordsStat(tournamentData.tournamentId, 'fouls_drawn')) {
-          foulsDrawnTotal += tournamentData.stats.fouls_drawn;
-          gamesWithFoulsDrawnData += tournamentData.games;
-        }
-        if (tournamentRecordsStat(tournamentData.tournamentId, 'plus_minus')) {
-          plusMinusTotal += tournamentData.stats.plus_minus;
-          gamesWithPlusMinusData += tournamentData.games;
-        }
+        foulsDrawnTotal += tournamentData.foulsDrawnTrackedTotal;
+        gamesWithFoulsDrawnData += tournamentData.gamesWithFoulsDrawnData;
+        plusMinusTotal += tournamentData.plusMinusTrackedTotal;
+        gamesWithPlusMinusData += tournamentData.gamesWithPlusMinusData;
       }
       
       // Calculate averages
@@ -976,6 +1014,8 @@ export function PlayerPage({
           plusMinusTotal,
           gamesWithPlusMinusData
         ),
+        gamesWithFoulsDrawnData,
+        gamesWithPlusMinusData,
       };
     };
     
@@ -1071,14 +1111,25 @@ export function PlayerPage({
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-sm">Plus/Minus</span>
-                    {filteredData.plusMinusPerGame !== null ? (
-                      <Badge variant={filteredData.plusMinusPerGame >= 0 ? "default" : "destructive"}>
-                        {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
-                        {filteredData.plusMinusPerGame.toFixed(1)}
-                      </Badge>
-                    ) : (
-                      <OptionalStatBadge value={null} />
-                    )}
+                    <span className="flex items-center gap-1">
+                      <PartialAverageWarning
+                        tooltip={
+                          filteredData.plusMinusPerGame !== null &&
+                          filteredData.gamesWithPlusMinusData > 0 &&
+                          filteredData.gamesWithPlusMinusData < filteredData.gamesPlayed
+                            ? `Average uses only games that recorded +/- (${filteredData.gamesWithPlusMinusData} of ${filteredData.gamesPlayed} games in this view).`
+                            : undefined
+                        }
+                      />
+                      {filteredData.plusMinusPerGame !== null ? (
+                        <Badge variant={filteredData.plusMinusPerGame >= 0 ? "default" : "destructive"}>
+                          {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
+                          {filteredData.plusMinusPerGame.toFixed(1)}
+                        </Badge>
+                      ) : (
+                        <OptionalStatBadge value={null} />
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1124,10 +1175,19 @@ export function PlayerPage({
                 <div className="text-sm text-muted-foreground">Blocks per game</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">
+                <div className="text-2xl font-bold flex items-center justify-center gap-1">
                   <OptionalStatText
                     value={filteredData.foulsDrawnPerGame}
                     decimals={1}
+                  />
+                  <PartialAverageWarning
+                    tooltip={
+                      filteredData.foulsDrawnPerGame !== null &&
+                      filteredData.gamesWithFoulsDrawnData > 0 &&
+                      filteredData.gamesWithFoulsDrawnData < filteredData.gamesPlayed
+                        ? `Average uses only games that recorded fouls drawn (${filteredData.gamesWithFoulsDrawnData} of ${filteredData.gamesPlayed} games in this view).`
+                        : undefined
+                    }
                   />
                 </div>
                 <div className="text-sm text-muted-foreground">Fouls drawn per game</div>

@@ -18,7 +18,7 @@ import {
   resolveTeamTotals,
   type TeamSide,
 } from './gameDisplay';
-import { tournamentRecordsStat } from './statRecordingCoverage';
+import { gameRecordsStat } from './statRecordingCoverage';
 import { buildTeamDisplayStats } from './teamDisplayStats';
 import {
   deriveQuarterScoringRows,
@@ -451,8 +451,8 @@ export function buildGameReportModel(
 ): GameReportModel {
   const gameWithQuarters = ensureGameQuarterStats(game);
   const tournament = tournaments.find((t) => t.id === gameWithQuarters.tournamentId);
-  const recordsFd = tournamentRecordsStat(gameWithQuarters.tournamentId, 'fouls_drawn');
-  const recordsPm = tournamentRecordsStat(gameWithQuarters.tournamentId, 'plus_minus');
+  const recordsFd = gameRecordsStat(gameWithQuarters, 'fouls_drawn');
+  const recordsPm = gameRecordsStat(gameWithQuarters, 'plus_minus');
 
   const gameDate = new Date(gameWithQuarters.date);
   const formattedDate = gameDate.toLocaleDateString('en-US', {

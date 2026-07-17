@@ -2,7 +2,7 @@ import type { Game, GameStats, Player, Team, TeamCoachStats, TeamStats } from '.
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
   perGameAverageOrNull,
-  tournamentRecordsStat,
+  gameRecordsStat,
 } from './statRecordingCoverage';
 import { resolvePlayerTeamSideInGame } from './tournamentRosters';
 import {
@@ -578,7 +578,7 @@ export function aggregateTeamSeasonAverages(
 
     gamesInSample++;
     totals = addTeamSeasonBuckets(totals, contribution);
-    if (tournamentRecordsStat(game.tournamentId, 'fouls_drawn')) {
+    if (gameRecordsStat(game, 'fouls_drawn')) {
       foulsDrawnTotal += contribution.fouls_drawn;
       gamesWithFoulsDrawnData++;
     }

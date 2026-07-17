@@ -45,6 +45,12 @@ import { getLiveTeamColor, liveTeamTint } from './liveEntryTheme';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 import { resolveReboundTeams } from '../../liveEntry/reboundTeams';
 import { courtOverlayActive } from '../../liveEntry/courtOverlayActive';
+import {
+  getFouledOutOnCourt,
+  isFoulOutEnabled,
+  isPlayerFouledOut,
+  type FouledOutPlayer,
+} from '../../utils/foulOut';
 
 interface LiveGameWorkspaceProps {
   game: Game;
@@ -200,7 +206,12 @@ function resolveColumnPick(
   }
 
   if (phase.kind === 'foul' && phase.step === 'committer') {
-    if (phase.foulCategory === 'technical' || phase.foulEntity === 'team') {
+    if (
+      phase.foulCategory === 'technical' ||
+      phase.foulCategory === 'unsportsmanlike' ||
+      phase.foulEntity === 'team'
+    ) {
+      // Committer selectable on either roster (handled by both on-court columns).
       return null;
     }
 
@@ -249,8 +260,14 @@ function resolveColumnPick(
   }
 
   if (phase.kind === 'foul' && phase.step === 'recipient') {
+    // The fouled player is on the committer's opponent (falls back to offense for legacy personal fouls).
+    const recipientTeamId = phase.committerTeamId
+      ? phase.committerTeamId === game.homeTeamId
+        ? game.awayTeamId
+        : game.homeTeamId
+      : offenseTeamId;
     return {
-      side: teamSide(game, offenseTeamId),
+      side: teamSide(game, recipientTeamId),
       hint: 'Fouled player',
       onSelect: (p) => dispatch({ type: 'PICK_FOUL_RECIPIENT', playerId: p.id }),
     };
@@ -344,6 +361,7 @@ export function LiveGameWorkspace({
   const [subTeamId, setSubTeamId] = useState<string>(game.homeTeamId);
   const [subClock, setSubClock] = useState('');
   const [subClockError, setSubClockError] = useState<string | null>(null);
+  const [foulOutQueue, setFoulOutQueue] = useState<FouledOutPlayer[]>([]);
   const [lineupOverlayOpen, setLineupOverlayOpen] = useState(false);
   const [and1RecipientId, setAnd1RecipientId] = useState<string | null>(null);
   const [and1FoulingTeamId, setAnd1FoulingTeamId] = useState<string | null>(null);
@@ -449,6 +467,15 @@ export function LiveGameWorkspace({
     phase.step === 'committer' &&
     phase.foulCategory === 'technical';
 
+  const isUnsportsmanlikeFoulCommitter =
+    phase.kind === 'foul' &&
+    phase.step === 'committer' &&
+    phase.foulCategory === 'unsportsmanlike';
+
+  // Fouls whose committer can be picked from either team's on-court roster.
+  const isBothRosterFoulCommitter =
+    isTechFoulCommitter || isUnsportsmanlikeFoulCommitter;
+
   const columnPick = useMemo(
     () =>
       resolveColumnPick(
@@ -552,6 +579,7 @@ export function LiveGameWorkspace({
     if (phase.kind === 'foul' && phase.step === 'entity') return 'Foul — player or team on court overlay';
     if (phase.kind === 'foul' && phase.step === 'category') return 'Choose foul category on court overlay';
     if (isTechFoulCommitter) return 'Technical — select committer on either roster or coach in overlay';
+    if (isUnsportsmanlikeFoulCommitter) return 'Unsportsmanlike — select committer on either roster';
     if (phase.kind === 'foul' && phase.step === 'committer') return 'Select foul committer on roster';
     if (phase.kind === 'foul' && phase.step === 'recipient') return 'Select fouled player on roster';
     if (phase.kind === 'foul' && phase.step === 'double_committer_a') {
@@ -566,7 +594,7 @@ export function LiveGameWorkspace({
     if (phase.kind === 'foul' && phase.step === 'ft_count') return 'Choose free throws on court overlay';
     if (phase.kind === 'free_throw') return 'Make / miss on court overlay (M / X keys)';
     return '← Tap court to log a shot';
-  }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId, isTechFoulCommitter]);
+  }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId, isTechFoulCommitter, isUnsportsmanlikeFoulCommitter]);
 
   const openSubForTeam = (teamId: string) => {
     setSubTeamId(teamId);
@@ -590,15 +618,73 @@ export function LiveGameWorkspace({
     }
   };
 
+  const tournament = tournaments.find((t) => t.id === currentGame.tournamentId);
+  const foulOutEnabled = isFoulOutEnabled(currentGame, tournament);
+  const fouledOutIds = foulOutEnabled
+    ? currentGame.gameStats
+        .filter((s) => isPlayerFouledOut(s))
+        .map((s) => s.playerId)
+    : [];
+
+  // A fouled-out player stays visible but locked (cannot re-enter for the rest of the game).
+  const isPlayerLockedOut = (playerId: string) =>
+    foulOutEnabled &&
+    isPlayerFouledOut(currentGame.gameStats.find((s) => s.playerId === playerId));
+
   const benchPlayers = (teamId: string) => {
-    const all = getTeamPlayers(teamId);
     const onCourt = new Set(getOnCourtIds(teamId));
-    return all.filter((p) => !onCourt.has(p.id));
+    return getTeamPlayers(teamId).filter((p) => !onCourt.has(p.id));
   };
+
+  // Bench players who can actually be brought in (excludes fouled-out/locked).
+  const eligibleBench = (teamId: string) =>
+    benchPlayers(teamId).filter((p) => !isPlayerLockedOut(p.id));
 
   const toggleSub = (id: string, list: string[], setList: (v: string[]) => void) => {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   };
+
+  // LE-36: detect on-court players who have fouled out and queue them for a
+  // forced substitution (one dialog at a time; a double foul can queue two).
+  useEffect(() => {
+    const fouledOut = getFouledOutOnCourt(
+      currentGame,
+      getOnCourtIds(currentGame.homeTeamId),
+      getOnCourtIds(currentGame.awayTeamId),
+      tournament
+    );
+    if (fouledOut.length === 0) return;
+    setFoulOutQueue((prev) => {
+      const known = new Set(prev.map((p) => p.playerId));
+      const additions = fouledOut.filter((p) => !known.has(p.playerId));
+      return additions.length === 0 ? prev : [...prev, ...additions];
+    });
+  }, [currentGame, getOnCourtIds, tournament]);
+
+  const forcedFoulOut = foulOutQueue[0] ?? null;
+  const isForcedSub = Boolean(forcedFoulOut);
+  const forcedFoulOutPlayer = forcedFoulOut
+    ? getTeamPlayers(forcedFoulOut.teamId).find(
+        (p) => p.id === forcedFoulOut.playerId
+      ) ?? null
+    : null;
+  // Short-handed: fouled-out player's team has no eligible replacement.
+  const forcedNoBench =
+    isForcedSub && forcedFoulOut
+      ? eligibleBench(forcedFoulOut.teamId).length === 0
+      : false;
+
+  // Open/configure the substitution dialog in forced mode for the queued player.
+  useEffect(() => {
+    if (!forcedFoulOut) return;
+    setSubTeamId(forcedFoulOut.teamId);
+    setSubOut([forcedFoulOut.playerId]);
+    setSubIn([]);
+    setSubClock(currentGame.currentGameTime);
+    setSubClockError(null);
+    setSubOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forcedFoulOut?.playerId]);
 
   const handleSaveEventEdit = (updated: GameEvent) => {
     const idx = currentGame.events.findIndex((e) => e.id === updated.id);
@@ -609,7 +695,6 @@ export function LiveGameWorkspace({
   };
 
   const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
-  const tournament = tournaments.find((t) => t.id === currentGame.tournamentId);
   const actionBarDisabled =
     isOpeningJumpBall ||
     lineupOverlayOpen ||
@@ -665,6 +750,7 @@ export function LiveGameWorkspace({
             game={currentGame}
             defaultHomeIds={getOnCourtIds(currentGame.homeTeamId)}
             defaultAwayIds={getOnCourtIds(currentGame.awayTeamId)}
+            fouledOutIds={fouledOutIds}
             onConfirm={(homeLineup, awayLineup) => {
               commitPeriodStart(homeLineup, awayLineup);
               setLineupOverlayOpen(false);
@@ -709,9 +795,9 @@ export function LiveGameWorkspace({
                   players={getTeamPlayers(currentGame.homeTeamId)}
                   onCourtIds={getOnCourtIds(currentGame.homeTeamId)}
                   isOffense={homeIsOffense}
-                  pickMode={columnPick?.side === 'home' || isTechFoulCommitter}
+                  pickMode={columnPick?.side === 'home' || isBothRosterFoulCommitter}
                   onSelect={
-                    isTechFoulCommitter
+                    isBothRosterFoulCommitter
                       ? (p) =>
                           dispatch({
                             type: 'PICK_FOUL_COMMITTER',
@@ -815,9 +901,9 @@ export function LiveGameWorkspace({
                   players={getTeamPlayers(currentGame.awayTeamId)}
                   onCourtIds={getOnCourtIds(currentGame.awayTeamId)}
                   isOffense={!homeIsOffense}
-                  pickMode={columnPick?.side === 'away' || isTechFoulCommitter}
+                  pickMode={columnPick?.side === 'away' || isBothRosterFoulCommitter}
                   onSelect={
-                    isTechFoulCommitter
+                    isBothRosterFoulCommitter
                       ? (p) =>
                           dispatch({
                             type: 'PICK_FOUL_COMMITTER',
@@ -854,50 +940,126 @@ export function LiveGameWorkspace({
           />
         </div>
 
-        <Dialog open={subOpen} onOpenChange={setSubOpen}>
-          <DialogContent className="max-w-lg">
+        <Dialog
+          open={subOpen}
+          onOpenChange={(open) => {
+            if (!open && isForcedSub) return; // forced foul-out sub is non-dismissible
+            setSubOpen(open);
+          }}
+        >
+          <DialogContent
+            className="max-w-lg"
+            hideCloseButton={isForcedSub}
+            onEscapeKeyDown={(e) => {
+              if (isForcedSub) e.preventDefault();
+            }}
+            onInteractOutside={(e) => {
+              if (isForcedSub) e.preventDefault();
+            }}
+          >
             <DialogHeader>
               <DialogTitle>
-                Substitution —{' '}
-                {subTeamId === currentGame.homeTeamId
-                  ? currentGame.homeTeam.abbreviation
-                  : currentGame.awayTeam.abbreviation}
+                {isForcedSub && forcedFoulOutPlayer ? (
+                  <span style={{ color: '#ff3838' }}>
+                    Foul out — #{forcedFoulOutPlayer.number}{' '}
+                    {forcedFoulOutPlayer.name} must be replaced
+                  </span>
+                ) : (
+                  <>
+                    Substitution —{' '}
+                    {subTeamId === currentGame.homeTeamId
+                      ? currentGame.homeTeam.abbreviation
+                      : currentGame.awayTeam.abbreviation}
+                  </>
+                )}
               </DialogTitle>
             </DialogHeader>
             <div className="grid grid-cols-2 gap-4 mt-2">
               <div>
                 <Label>Out</Label>
                 <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
-                  {getTeamPlayers(subTeamId)
-                    .filter((p) => getOnCourtIds(subTeamId).includes(p.id))
-                    .map((p) => (
-                      <Button
-                        key={p.id}
-                        variant={subOut.includes(p.id) ? 'default' : 'outline'}
-                        size="sm"
-                        className="w-full justify-start"
-                        onClick={() => toggleSub(p.id, subOut, setSubOut)}
-                      >
-                        #{p.number} {p.name}
-                      </Button>
-                    ))}
+                  {isForcedSub && forcedFoulOutPlayer ? (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      className="w-full justify-start"
+                      disabled
+                    >
+                      #{forcedFoulOutPlayer.number} {forcedFoulOutPlayer.name}
+                    </Button>
+                  ) : (
+                    getTeamPlayers(subTeamId)
+                      .filter((p) => getOnCourtIds(subTeamId).includes(p.id))
+                      .map((p) => (
+                        <Button
+                          key={p.id}
+                          variant={subOut.includes(p.id) ? 'default' : 'outline'}
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => toggleSub(p.id, subOut, setSubOut)}
+                        >
+                          #{p.number} {p.name}
+                        </Button>
+                      ))
+                  )}
                 </div>
               </div>
               <div>
                 <Label>In</Label>
-                <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
-                  {benchPlayers(subTeamId).map((p) => (
-                    <Button
-                      key={p.id}
-                      variant={subIn.includes(p.id) ? 'default' : 'outline'}
-                      size="sm"
-                      className="w-full justify-start"
-                      onClick={() => toggleSub(p.id, subIn, setSubIn)}
-                    >
-                      #{p.number} {p.name}
-                    </Button>
-                  ))}
-                </div>
+                {forcedNoBench ? (
+                  <div className="mt-2 rounded-md border border-border p-3 text-sm text-muted-foreground">
+                    No available substitutes —{' '}
+                    <span className="font-medium">
+                      {subTeamId === currentGame.homeTeamId
+                        ? currentGame.homeTeam.abbreviation
+                        : currentGame.awayTeam.abbreviation}
+                    </span>{' '}
+                    continues with {Math.max(0, getOnCourtIds(subTeamId).length - 1)}{' '}
+                    players.
+                  </div>
+                ) : (
+                  <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
+                    {benchPlayers(subTeamId).map((p) =>
+                      isPlayerLockedOut(p.id) ? (
+                        <Button
+                          key={p.id}
+                          variant="outline"
+                          size="sm"
+                          className="w-full justify-start"
+                          disabled
+                          style={{
+                            opacity: 0.55,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <span>
+                            #{p.number} {p.name}
+                          </span>
+                          <span
+                            style={{
+                              color: '#ff3838',
+                              fontSize: '0.7rem',
+                              fontWeight: 600,
+                            }}
+                          >
+                            Fouled out
+                          </span>
+                        </Button>
+                      ) : (
+                        <Button
+                          key={p.id}
+                          variant={subIn.includes(p.id) ? 'default' : 'outline'}
+                          size="sm"
+                          className="w-full justify-start"
+                          onClick={() => toggleSub(p.id, subIn, setSubIn)}
+                        >
+                          #{p.number} {p.name}
+                        </Button>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <SubstitutionClockInput
@@ -911,7 +1073,11 @@ export function LiveGameWorkspace({
             />
             <Button
               className="w-full"
-              disabled={!subOut.length || subOut.length !== subIn.length || !subClock.trim()}
+              disabled={
+                !subOut.length ||
+                !subClock.trim() ||
+                (!forcedNoBench && subOut.length !== subIn.length)
+              }
               onClick={() => {
                 const result = commitSubstitution(
                   subTeamId,
@@ -924,11 +1090,31 @@ export function LiveGameWorkspace({
                   setSubClockError(result.error);
                   return;
                 }
+                if (isForcedSub) {
+                  setFoulOutQueue((prev) => prev.slice(1));
+                }
                 setSubOpen(false);
               }}
             >
-              Confirm substitution
+              {forcedNoBench
+                ? 'Acknowledge — continue short-handed'
+                : isForcedSub
+                  ? 'Confirm replacement'
+                  : 'Confirm substitution'}
             </Button>
+            {isForcedSub && (
+              <Button
+                variant="ghost"
+                className="w-full -mt-2"
+                onClick={() => {
+                  undo();
+                  setFoulOutQueue([]);
+                  setSubOpen(false);
+                }}
+              >
+                Cancel &amp; undo foul (wrong entry)
+              </Button>
+            )}
           </DialogContent>
         </Dialog>
 

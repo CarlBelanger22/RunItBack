@@ -12,6 +12,7 @@ import {
   type FoulStatCoverage,
   type PlayerSeasonRow,
   type ShotDataCoverage,
+  type ScopedStatCoverage,
 } from './playerSeasonStats';
 import {
   isAllTournamentsSelected,
@@ -70,6 +71,8 @@ export interface TeamStatsReportModel {
   advancedBody: string[][];
   shotDataCoverage?: ShotDataCoverage;
   foulStatCoverage?: FoulStatCoverage;
+  plusMinusCoverage?: ScopedStatCoverage;
+  foulsDrawnCoverage?: ScopedStatCoverage;
 }
 
 export interface BuildTeamStatsReportModelInput {
@@ -82,6 +85,8 @@ export interface BuildTeamStatsReportModelInput {
   gameFormatScope: GameFormatScope;
   shotDataCoverage?: ShotDataCoverage;
   foulStatCoverage?: FoulStatCoverage;
+  plusMinusCoverage?: ScopedStatCoverage;
+  foulsDrawnCoverage?: ScopedStatCoverage;
   exportedAt?: Date;
 }
 
@@ -190,6 +195,8 @@ export function buildTeamStatsReportModel(
     gameFormatScope,
     shotDataCoverage,
     foulStatCoverage,
+    plusMinusCoverage,
+    foulsDrawnCoverage,
     exportedAt = new Date(),
   } = input;
 
@@ -230,5 +237,7 @@ export function buildTeamStatsReportModel(
     advancedBody,
     shotDataCoverage,
     foulStatCoverage,
+    plusMinusCoverage,
+    foulsDrawnCoverage,
   };
 }

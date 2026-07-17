@@ -60,6 +60,8 @@ import {
   filterTeamScopeGames,
   getShotDataCoverage,
   getFoulStatCoverage,
+  getPlusMinusCoverage,
+  getFoulsDrawnCoverage,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
 import {
@@ -540,6 +542,16 @@ export function TeamPage({
     [filteredStatsGames, teamId]
   );
 
+  const playerStatsPlusMinusCoverage = useMemo(
+    () => getPlusMinusCoverage(filteredStatsGames),
+    [filteredStatsGames]
+  );
+
+  const playerStatsFoulsDrawnCoverage = useMemo(
+    () => getFoulsDrawnCoverage(filteredStatsGames),
+    [filteredStatsGames]
+  );
+
   const handleExportTeamStatsPdf = useCallback(() => {
     if (!normalizedTeam) return;
     downloadTeamStatsReportPdf({
@@ -552,6 +564,8 @@ export function TeamPage({
       gameFormatScope: statsGameFormatScope,
       shotDataCoverage: playerStatsShotCoverage,
       foulStatCoverage: playerStatsFoulCoverage,
+      plusMinusCoverage: playerStatsPlusMinusCoverage,
+      foulsDrawnCoverage: playerStatsFoulsDrawnCoverage,
     });
   }, [
     normalizedTeam,
@@ -563,6 +577,8 @@ export function TeamPage({
     statsGameFormatScope,
     playerStatsShotCoverage,
     playerStatsFoulCoverage,
+    playerStatsPlusMinusCoverage,
+    playerStatsFoulsDrawnCoverage,
   ]);
 
   const rosterStatsGames = useMemo(
@@ -1802,6 +1818,8 @@ export function TeamPage({
             showTeamColumn={false}
             shotDataCoverage={playerStatsShotCoverage}
             foulStatCoverage={playerStatsFoulCoverage}
+            plusMinusCoverage={playerStatsPlusMinusCoverage}
+            foulsDrawnCoverage={playerStatsFoulsDrawnCoverage}
             onNavigateToPlayer={onNavigateToPlayer}
             onExportPdf={handleExportTeamStatsPdf}
             exportDisabled={playerSeasonRows.length === 0}

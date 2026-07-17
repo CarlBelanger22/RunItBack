@@ -22,6 +22,21 @@ export function tournamentRecordsStat(
   return !TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS.has(tournamentId);
 }
 
+/**
+ * Per-game stat coverage. The tournament-level flag only reflects what legacy
+ * CSV imports captured; a game entered live in that same tournament tracks
+ * everything natively. A non-empty event log means the game was entered live
+ * (all import builders set `events: []`), so it always records these stats.
+ */
+export function gameRecordsStat(
+  game: { tournamentId?: string; events?: unknown[] } | null | undefined,
+  stat: TournamentScopedStat
+): boolean {
+  if (!game) return true;
+  if ((game.events?.length ?? 0) > 0) return true;
+  return tournamentRecordsStat(game.tournamentId, stat);
+}
+
 export function perGameAverageOrNull(total: number, games: number): number | null {
   return games > 0 ? total / games : null;
 }

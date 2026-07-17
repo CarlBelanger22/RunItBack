@@ -18,7 +18,8 @@ import { getPlayerAgeAtTournamentSeason } from './playerAge';
 import { getTournamentDateMs } from './tournamentSort';
 import {
   perGameAverageOrNull,
-  tournamentRecordsStat,
+  gameRecordsStat,
+  type TournamentScopedStat,
 } from './statRecordingCoverage';
 import {
   allTimeScopeLabel,
@@ -79,6 +80,43 @@ export function getShotDataCoverage(games: Game[] | undefined): ShotDataCoverage
     gamesTotal,
     isPartial: gamesWithShotData > 0 && gamesWithShotData < gamesTotal,
   };
+}
+
+/**
+ * Per-game coverage for a tournament-scoped stat (+/- or fouls drawn). `isPartial`
+ * is true when some — but not all — games in scope recorded the stat, which means
+ * the season average is computed over a subset (drives the amber ⚠ tooltip).
+ */
+export interface ScopedStatCoverage {
+  gamesWithData: number;
+  gamesTotal: number;
+  isPartial: boolean;
+}
+
+function getScopedStatCoverage(
+  games: Game[] | undefined,
+  stat: TournamentScopedStat
+): ScopedStatCoverage {
+  const scoped = games ?? [];
+  const gamesTotal = scoped.length;
+  const gamesWithData = scoped.filter((g) => gameRecordsStat(g, stat)).length;
+  return {
+    gamesWithData,
+    gamesTotal,
+    isPartial: gamesWithData > 0 && gamesWithData < gamesTotal,
+  };
+}
+
+export function getPlusMinusCoverage(
+  games: Game[] | undefined
+): ScopedStatCoverage {
+  return getScopedStatCoverage(games, 'plus_minus');
+}
+
+export function getFoulsDrawnCoverage(
+  games: Game[] | undefined
+): ScopedStatCoverage {
+  return getScopedStatCoverage(games, 'fouls_drawn');
 }
 
 /** True when BA / TF / UF are tracked for games in scope (zeros display as 0.0). */
@@ -189,11 +227,11 @@ function accumulateRecordedFoulAndPlusMinus(
   game: Game,
   stat: GameStats
 ): void {
-  if (tournamentRecordsStat(game.tournamentId, 'fouls_drawn')) {
+  if (gameRecordsStat(game, 'fouls_drawn')) {
     row.foulsDrawnTotal += stat.fouls_drawn;
     row.gamesWithFoulsDrawnData += 1;
   }
-  if (tournamentRecordsStat(game.tournamentId, 'plus_minus')) {
+  if (gameRecordsStat(game, 'plus_minus')) {
     row.plusMinusTotal += stat.plus_minus;
     row.gamesWithPlusMinusData += 1;
   }
@@ -450,11 +488,11 @@ export function aggregateSinglePlayerSeasonStats(
       gamesWithShotData++;
     }
 
-    if (tournamentRecordsStat(game.tournamentId, 'fouls_drawn')) {
+    if (gameRecordsStat(game, 'fouls_drawn')) {
       foulsDrawnTotal += stat.fouls_drawn;
       gamesWithFoulsDrawnData += 1;
     }
-    if (tournamentRecordsStat(game.tournamentId, 'plus_minus')) {
+    if (gameRecordsStat(game, 'plus_minus')) {
       plusMinusTotal += stat.plus_minus;
       gamesWithPlusMinusData += 1;
     }
