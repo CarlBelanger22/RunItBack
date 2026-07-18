@@ -10,8 +10,10 @@ import {
 } from '../src/lib/fibaCourtGeometry';
 import {
   halfCourtPointToHorizontalSvg,
+  homeAttacksLeft,
   horizontalClickToHalfCourtPoint,
   resolveHorizontalShotZone,
+  shooterAttacksLeft,
 } from '../src/lib/horizontalCourtClick';
 import {
   HORIZONTAL_CORNER_Y_SVG,
@@ -118,10 +120,21 @@ function testBaselineClickRegisters(): void {
   assert(approx(paintPoint!.yM, 0), 'behind-rim strip maps to yM=0');
 }
 
+function testCourtSidesFlip(): void {
+  const home = 'home';
+  assert(homeAttacksLeft(home, home, false) === true, 'default: home offense → left');
+  assert(homeAttacksLeft(home, home, true) === false, 'flipped: home offense → right');
+  assert(homeAttacksLeft(home, 'away', false) === false, 'default: away offense → right');
+  assert(homeAttacksLeft(home, 'away', true) === true, 'flipped: away offense → left');
+  assert(shooterAttacksLeft(true, false) === true, 'home shooter left by default');
+  assert(shooterAttacksLeft(true, true) === false, 'home shooter right when flipped');
+}
+
 function main(): void {
   testThreeArcRadiusMatchesDrawAndClicks();
   testCornerInsetMatchesFiba();
   testBaselineClickRegisters();
+  testCourtSidesFlip();
   console.log('All horizontalCourtLayout tests passed.');
 }
 

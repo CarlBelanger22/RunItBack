@@ -30,6 +30,7 @@ export type LiveEntryPhase =
         | 'category'
         | 'committer'
         | 'recipient'
+        | 'charge_drawer'
         | 'tech_shooter'
         | 'double_committer_a'
         | 'double_committer_b'
@@ -387,6 +388,18 @@ export function liveEntryReducer(
           phase: {
             ...state.phase,
             step: 'recipient',
+            committerId: action.playerId,
+            committerTeamId: action.teamId,
+          },
+        };
+      }
+      if (category === 'offensive') {
+        // After the offense committer, pick the defender who drew the foul (required).
+        return {
+          ...state,
+          phase: {
+            ...state.phase,
+            step: 'charge_drawer',
             committerId: action.playerId,
             committerTeamId: action.teamId,
           },

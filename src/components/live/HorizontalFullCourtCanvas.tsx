@@ -7,6 +7,7 @@ import {
 } from '../../lib/figmaHorizontalCourtSvg';
 import {
   homeAttacksLeft,
+  shooterAttacksLeft,
   horizontalClickToHalfCourtPoint,
   halfCourtPointToHorizontalSvg,
 } from '../../lib/horizontalCourtClick';
@@ -30,7 +31,7 @@ interface HorizontalFullCourtCanvasProps {
 
 function shotAttacksLeft(shot: Shot, game: Game): boolean {
   const isHome = game.homeTeam.players.some((p) => p.id === shot.playerId);
-  return isHome;
+  return shooterAttacksLeft(isHome, !!game.courtSidesFlipped);
 }
 
 export function HorizontalFullCourtCanvas({
@@ -48,6 +49,7 @@ export function HorizontalFullCourtCanvas({
   const clickRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
   const [courtSize, setCourtSize] = useState<{ width: number; height: number } | null>(null);
+  const flipped = !!game.courtSidesFlipped;
 
   useEffect(() => {
     const fitEl = fitRef.current;
@@ -77,12 +79,12 @@ export function HorizontalFullCourtCanvas({
     const liveMarkers = sessionMarkers.map((m) => {
       const { x, y } = halfCourtPointToHorizontalSvg(
         m.point,
-        homeAttacksLeft(homeTeamId, offenseTeamId)
+        homeAttacksLeft(homeTeamId, offenseTeamId, flipped)
       );
       return { x, y, color: m.color };
     });
     return [...shotMarkers, ...liveMarkers];
-  }, [game, homeTeamId, offenseTeamId, sessionMarkers, shots]);
+  }, [game, homeTeamId, offenseTeamId, sessionMarkers, shots, flipped]);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -93,17 +95,26 @@ export function HorizontalFullCourtCanvas({
         e.clientY,
         rect,
         homeTeamId,
-        offenseTeamId
+        offenseTeamId,
+        flipped
       );
       if (!point) return;
       onPointClick(point);
     },
-    [homeTeamId, offenseTeamId, interactive, onPointClick]
+    [homeTeamId, offenseTeamId, interactive, onPointClick, flipped]
   );
 
-  const shotModeColor = homeAttacksLeft(homeTeamId, offenseTeamId)
+  const shotModeColor = homeAttacksLeft(homeTeamId, offenseTeamId, flipped)
     ? LIVE_HORIZONTAL_COURT_COLORS.home
     : LIVE_HORIZONTAL_COURT_COLORS.away;
+
+  // SVG slots are positional (left / right). When flipped, swap which abbrev appears where.
+  const leftLabel = flipped
+    ? game.awayTeam.abbreviation
+    : game.homeTeam.abbreviation;
+  const rightLabel = flipped
+    ? game.homeTeam.abbreviation
+    : game.awayTeam.abbreviation;
 
   return (
     <div ref={fitRef} className={cn('h-full w-full min-h-0', className)}>
@@ -125,8 +136,8 @@ export function HorizontalFullCourtCanvas({
           <FigmaHorizontalCourtSvg
             className="h-full w-full"
             markers={markers}
-            homeLabel={game.homeTeam.abbreviation}
-            awayLabel={game.awayTeam.abbreviation}
+            homeLabel={leftLabel}
+            awayLabel={rightLabel}
             shotMode={shotMode}
             shotModeColor={shotModeColor}
           />

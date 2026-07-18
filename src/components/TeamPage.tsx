@@ -1943,19 +1943,19 @@ export function TeamPage({
         </TabsList>
 
         <TabsContent value="overview">
-          <OverviewTab />
+          {OverviewTab()}
         </TabsContent>
 
         <TabsContent value="roster" className="mt-0 w-full pt-0">
-          <RosterTab />
+          {RosterTab()}
         </TabsContent>
 
         <TabsContent value="stats">
-          <StatsTab />
+          {StatsTab()}
         </TabsContent>
 
         <TabsContent value="games">
-          <GamesTab />
+          {GamesTab()}
         </TabsContent>
       </Tabs>
 

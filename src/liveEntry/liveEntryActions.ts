@@ -170,6 +170,7 @@ export function buildFoulEvent(
     foulingTeamId: string;
     committerId?: string;
     recipientId?: string;
+    chargeDrawnBy?: string;
     foulCategory: string;
     isTeamFoul?: boolean;
     isCoachFoul?: boolean;
@@ -193,11 +194,11 @@ export function buildFoulEvent(
             : 'normal';
 
   const drawnBy =
-    foulCategory === 'technical' ||
-    foulCategory === 'offensive' ||
-    params.isTeamFoul
-      ? undefined
-      : params.recipientId;
+    foulCategory === 'offensive'
+      ? params.chargeDrawnBy
+      : foulCategory === 'technical' || params.isTeamFoul
+        ? undefined
+        : params.recipientId;
 
   return {
     id: `event-${ts}`,

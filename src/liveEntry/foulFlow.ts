@@ -14,6 +14,8 @@ export interface FoulCommitParams {
   foulEntity: FoulEntity;
   committerId?: string;
   recipientId?: string;
+  /** Defender credited with a foul drawn on an offensive foul (charge). */
+  chargeDrawnBy?: string;
   isCoachFoul?: boolean;
   ftCount: number;
   ftShooterId?: string;

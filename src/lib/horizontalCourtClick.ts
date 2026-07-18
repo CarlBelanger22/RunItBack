@@ -18,9 +18,22 @@ import {
   horizontalThreeArcRadiusM,
 } from './horizontalCourtLayout';
 
-/** Home attacks the left basket; away attacks the right basket. */
-export function homeAttacksLeft(homeTeamId: string, offenseTeamId: string): boolean {
-  return offenseTeamId === homeTeamId;
+/** Home's offensive half is the left basket (unless court sides are flipped). */
+export function homeAttacksLeft(
+  homeTeamId: string,
+  offenseTeamId: string,
+  courtSidesFlipped = false
+): boolean {
+  const homeIsOffense = offenseTeamId === homeTeamId;
+  return courtSidesFlipped ? !homeIsOffense : homeIsOffense;
+}
+
+/** Whether a home-team shooter maps to the left basket under the current orientation. */
+export function shooterAttacksLeft(
+  isHomeShooter: boolean,
+  courtSidesFlipped = false
+): boolean {
+  return courtSidesFlipped ? !isHomeShooter : isHomeShooter;
 }
 
 /**
@@ -32,7 +45,8 @@ export function horizontalClickToHalfCourtPoint(
   clientY: number,
   rect: DOMRect,
   homeTeamId: string,
-  offenseTeamId: string
+  offenseTeamId: string,
+  courtSidesFlipped = false
 ): CourtPointM | null {
   if (rect.width <= 0 || rect.height <= 0) return null;
 
@@ -44,7 +58,7 @@ export function horizontalClickToHalfCourtPoint(
   }
 
   const xM = ((ySvg - HORIZONTAL_INSET) / HORIZONTAL_PLAYABLE_H) * COURT_WIDTH_M;
-  const attacksLeft = homeAttacksLeft(homeTeamId, offenseTeamId);
+  const attacksLeft = homeAttacksLeft(homeTeamId, offenseTeamId, courtSidesFlipped);
 
   if (attacksLeft) {
     if (xSvg > HORIZONTAL_HALF_WIDTH_SVG) return null;

@@ -11,6 +11,7 @@ export function buildGameMetadataPatch(
     date: values.date,
     startTime: values.startTime,
     tournamentId: values.tournamentId,
+    courtSidesFlipped: values.courtSidesFlipped ?? false,
   };
 
   if (game.isCompleted && values.finalScoreHome != null && values.finalScoreAway != null) {

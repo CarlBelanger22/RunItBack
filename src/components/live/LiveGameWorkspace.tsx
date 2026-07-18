@@ -24,7 +24,9 @@ import { LiveGameHeader } from './LiveGameHeader';
 import { LiveActionBar } from './LiveActionBar';
 import { LivePlayByPlayRail } from './LivePlayByPlayRail';
 import { LiveBoxScorePanel } from './LiveBoxScorePanel';
-import { EventEditDialog } from './EventEditDialog';
+import { EventEditDialog, type EventEditSaveResult } from './EventEditDialog';
+import { resolveHorizontalShotZone, homeAttacksLeft } from '../../lib/horizontalCourtClick';
+import { courtPointMToPercent, type CourtPointM } from '../../lib/fibaCourtGeometry';
 import { ShotOutcomeOverlay } from './ShotOutcomeOverlay';
 import { FreeThrowOutcomeOverlay } from './FreeThrowOutcomeOverlay';
 import { CourtAnchoredOverlayPortal } from './CourtAnchoredOverlayPortal';
@@ -36,6 +38,7 @@ import {
 } from './LiveQuarterLineupOverlay';
 import {
   endPeriodButtonLabel,
+  isValidSubstitutionClock,
   shouldCompleteGameOnPeriodEnd,
   shouldPromptLineupAfterPeriodEnd,
 } from '../../utils/gameClock';
@@ -43,7 +46,8 @@ import { DesktopOnlyGuard } from './DesktopOnlyGuard';
 import { paths } from '../../routing/paths';
 import { getLiveTeamColor, liveTeamTint } from './liveEntryTheme';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
-import { resolveReboundTeams } from '../../liveEntry/reboundTeams';
+import { resolveReboundTeams, teamIdForPlayer } from '../../liveEntry/reboundTeams';
+import { getLineupStateBeforeEvent } from '../../liveEntry/minutesEngine';
 import { courtOverlayActive } from '../../liveEntry/courtOverlayActive';
 import {
   getFouledOutOnCourt,
@@ -239,22 +243,37 @@ function resolveColumnPick(
             offendedTeamId: offenseTeamId,
           });
           handlers.clearAnd1Session();
-        } else if (isOffensive) {
-          commitFoul({
-            foulingTeamId,
-            foulCategory: 'offensive',
-            foulEntity: 'player',
-            committerId: p.id,
-            ftCount: 0,
-            retainPossession: false,
-          });
         } else {
+          // Offensive fouls also route through PICK_FOUL_COMMITTER now, then the
+          // required charge_drawer step credits the defender with a foul drawn.
           dispatch({
             type: 'PICK_FOUL_COMMITTER',
             playerId: p.id,
             teamId: foulingTeamId,
           });
         }
+      },
+    };
+  }
+
+  if (phase.kind === 'foul' && phase.step === 'charge_drawer') {
+    // Offensive foul: the defender who drew it is on the committer's opponent.
+    const committerTeamId = phase.committerTeamId ?? offenseTeamId;
+    const drawerTeamId =
+      committerTeamId === game.homeTeamId ? game.awayTeamId : game.homeTeamId;
+    return {
+      side: teamSide(game, drawerTeamId),
+      hint: 'Foul drawn by (defender)',
+      onSelect: (p) => {
+        commitFoul({
+          foulingTeamId: committerTeamId,
+          foulCategory: 'offensive',
+          foulEntity: 'player',
+          committerId: phase.committerId,
+          chargeDrawnBy: p.id,
+          ftCount: 0,
+          retainPossession: false,
+        });
       },
     };
   }
@@ -361,6 +380,11 @@ export function LiveGameWorkspace({
   const [subTeamId, setSubTeamId] = useState<string>(game.homeTeamId);
   const [subClock, setSubClock] = useState('');
   const [subClockError, setSubClockError] = useState<string | null>(null);
+  /** When set, the sub dialog is editing this past substitution (not creating a new one). */
+  const [editingSubEventId, setEditingSubEventId] = useState<string | null>(null);
+  /** On-court IDs for the sub team at the moment before the edited substitution. */
+  const [editSubOnCourtIds, setEditSubOnCourtIds] = useState<string[]>([]);
+  const [editSubCheckpointFrom, setEditSubCheckpointFrom] = useState<string | null>(null);
   const [foulOutQueue, setFoulOutQueue] = useState<FouledOutPlayer[]>([]);
   const [lineupOverlayOpen, setLineupOverlayOpen] = useState(false);
   const [and1RecipientId, setAnd1RecipientId] = useState<string | null>(null);
@@ -388,6 +412,8 @@ export function LiveGameWorkspace({
   const [turnoverPlayerId, setTurnoverPlayerId] = useState<string | undefined>();
   const [editEvent, setEditEvent] = useState<GameEvent | null>(null);
   const [editDialogOpen, setEditDialogOpen] = useState(false);
+  /** Shot PBP edit: dialog closed while user re-taps the court for a new location. */
+  const [relocatingShot, setRelocatingShot] = useState(false);
 
   const phase = entryState.phase;
   const pending = entryState.ctx.pendingShot;
@@ -538,7 +564,15 @@ export function LiveGameWorkspace({
   const courtFrameRef = useRef<HTMLDivElement>(null);
 
   const courtAcceptsPlacement =
-    !isOpeningJumpBall && phase.kind === 'idle';
+    (!isOpeningJumpBall && phase.kind === 'idle') || relocatingShot;
+
+  /** During relocate, orient the court to the shot's shooting team — not live possession. */
+  const canvasOffenseTeamId =
+    relocatingShot && editEvent
+      ? (editEvent.playerId
+          ? teamIdForPlayer(currentGame, editEvent.playerId)
+          : null) ?? editEvent.teamId
+      : offenseTeamId;
 
   const flowCourtOverlayVisible = useMemo(
     () =>
@@ -597,6 +631,9 @@ export function LiveGameWorkspace({
   }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId, isTechFoulCommitter, isUnsportsmanlikeFoulCommitter]);
 
   const openSubForTeam = (teamId: string) => {
+    setEditingSubEventId(null);
+    setEditSubOnCourtIds([]);
+    setEditSubCheckpointFrom(null);
     setSubTeamId(teamId);
     setSubOut([]);
     setSubIn([]);
@@ -605,10 +642,47 @@ export function LiveGameWorkspace({
     setSubOpen(true);
   };
 
+  const openSubEdit = (event: GameEvent) => {
+    if (event.type !== 'substitution') return;
+    const before = getLineupStateBeforeEvent(currentGame, event.id);
+    if (!before) return;
+    const onCourt =
+      event.teamId === currentGame.homeTeamId ? before.onCourtHome : before.onCourtAway;
+    const outIds = (event.details.playersOut as string[]) ?? [];
+    const inIds = (event.details.playersIn as string[]) ?? [];
+    const clock =
+      (event.details.clockTime as string) ??
+      (event.details.checkpointTo as string) ??
+      event.gameTime;
+    const checkpointFrom =
+      (event.details.checkpointFrom as string) ?? before.checkpointClock;
+
+    setEditingSubEventId(event.id);
+    setEditSubOnCourtIds(onCourt);
+    setEditSubCheckpointFrom(checkpointFrom);
+    setSubTeamId(event.teamId);
+    setSubOut([...outIds]);
+    setSubIn([...inIds]);
+    setSubClock(clock);
+    setSubClockError(null);
+    setEditDialogOpen(false);
+    setEditEvent(null);
+    setSubOpen(true);
+  };
+
   const handleEndPeriod = () => {
+    const endingPeriod = currentGame.currentPeriod;
     const complete = shouldCompleteGameOnPeriodEnd(currentGame, homeScore, awayScore);
     const promptLineup = shouldPromptLineupAfterPeriodEnd(currentGame, homeScore, awayScore);
-    const updatedGame = commitPeriodEnd();
+    let updatedGame = commitPeriodEnd();
+    // LE-90: always flip court sides at half (end of Q2).
+    if (endingPeriod === 2) {
+      updatedGame = {
+        ...updatedGame,
+        courtSidesFlipped: !updatedGame.courtSidesFlipped,
+      };
+      onGameUpdate(updatedGame);
+    }
     if (complete) {
       onGameComplete(updatedGame);
       return;
@@ -632,9 +706,18 @@ export function LiveGameWorkspace({
     isPlayerFouledOut(currentGame.gameStats.find((s) => s.playerId === playerId));
 
   const benchPlayers = (teamId: string) => {
-    const onCourt = new Set(getOnCourtIds(teamId));
+    const onCourt = new Set(
+      editingSubEventId && teamId === subTeamId
+        ? editSubOnCourtIds
+        : getOnCourtIds(teamId)
+    );
     return getTeamPlayers(teamId).filter((p) => !onCourt.has(p.id));
   };
+
+  const subDialogOnCourtIds =
+    editingSubEventId && subTeamId
+      ? editSubOnCourtIds
+      : getOnCourtIds(subTeamId);
 
   // Bench players who can actually be brought in (excludes fouled-out/locked).
   const eligibleBench = (teamId: string) =>
@@ -686,18 +769,91 @@ export function LiveGameWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forcedFoulOut?.playerId]);
 
-  const handleSaveEventEdit = (updated: GameEvent) => {
+  const handleSaveEventEdit = (result: EventEditSaveResult) => {
+    const { event: updated, reboundAfter, removeFollowingRebound } = result;
     const idx = currentGame.events.findIndex((e) => e.id === updated.id);
     if (idx < 0) return;
     const next = [...currentGame.events];
     next[idx] = updated;
+
+    const following = next[idx + 1];
+    const followingIsRebound = following?.type === 'rebound';
+
+    if (removeFollowingRebound && followingIsRebound) {
+      next.splice(idx + 1, 1);
+    } else if (reboundAfter) {
+      const rebDetails = {
+        reboundType: reboundAfter.reboundType,
+      };
+      if (followingIsRebound) {
+        next[idx + 1] = {
+          ...following,
+          teamId: reboundAfter.teamId,
+          playerId: reboundAfter.playerId,
+          details: { ...following.details, ...rebDetails },
+        };
+      } else {
+        const ts = Date.now();
+        next.splice(idx + 1, 0, {
+          id: `event-${ts}`,
+          type: 'rebound',
+          timestamp: ts,
+          period: updated.period,
+          gameTime: updated.gameTime,
+          teamId: reboundAfter.teamId,
+          playerId: reboundAfter.playerId,
+          details: rebDetails,
+          homeScore: updated.homeScore,
+          awayScore: updated.awayScore,
+        });
+      }
+    }
+
+    setRelocatingShot(false);
+    setEditEvent(null);
     replayEvents(next);
   };
+
+  const handleRequestShotRelocate = useCallback((draft: GameEvent, _reboundKey: string) => {
+    setEditEvent(draft);
+    setEditDialogOpen(false);
+    setRelocatingShot(true);
+  }, []);
+
+  const handleCancelShotRelocate = useCallback(() => {
+    setRelocatingShot(false);
+    if (editEvent) setEditDialogOpen(true);
+  }, [editEvent]);
+
+  const handleCourtPointForEditOrShot = useCallback(
+    (point: CourtPointM) => {
+      if (relocatingShot && editEvent?.type === 'shot_attempt') {
+        const zone = resolveHorizontalShotZone(point);
+        const pct = courtPointMToPercent(point);
+        setEditEvent({
+          ...editEvent,
+          details: {
+            ...editEvent.details,
+            x: pct.x,
+            y: pct.y,
+            isThree: zone.shotValue === 3,
+            inPaint: zone.isPaint,
+          },
+        });
+        setRelocatingShot(false);
+        setEditDialogOpen(true);
+        return;
+      }
+      handleCourtPoint(point);
+    },
+    [relocatingShot, editEvent, handleCourtPoint]
+  );
 
   const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
   const actionBarDisabled =
     isOpeningJumpBall ||
     lineupOverlayOpen ||
+    relocatingShot ||
     (phase.kind !== 'idle' && phase.kind !== 'shot');
 
   const subDisabled =
@@ -784,7 +940,14 @@ export function LiveGameWorkspace({
 
         <div className="live-entry-main">
           <div className="live-play-band">
-            <div className="live-play-flex">
+            <div
+              className="live-play-flex"
+              style={
+                currentGame.courtSidesFlipped
+                  ? { flexDirection: 'row-reverse' }
+                  : undefined
+              }
+            >
               <section
                 className="live-play-side live-play-side--home"
                 style={{ background: liveTeamTint('home', '06') }}
@@ -816,7 +979,42 @@ export function LiveGameWorkspace({
 
               <section className="live-play-center">
                 <div className="live-context-bar">
-                  {columnPick ? (
+                  {relocatingShot && editEvent ? (
+                    <div className="flex items-center gap-2">
+                      <span className="live-font-condensed rounded px-2 py-0.5 text-xs font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400">
+                        Tap new location on the{' '}
+                        {(() => {
+                          const attacksLeft = homeAttacksLeft(
+                            currentGame.homeTeamId,
+                            canvasOffenseTeamId,
+                            !!currentGame.courtSidesFlipped
+                          );
+                          const teamLabel =
+                            canvasOffenseTeamId === currentGame.homeTeamId
+                              ? 'home'
+                              : 'away';
+                          return `${attacksLeft ? 'left' : 'right'} (${teamLabel})`;
+                        })()}{' '}
+                        half
+                        {editEvent.playerId
+                          ? ` — ${
+                              [...currentGame.homeTeam.players, ...currentGame.awayTeam.players].find(
+                                (p) => p.id === editEvent.playerId
+                              )?.name ?? 'shooter'
+                            }`
+                          : ''}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={handleCancelShotRelocate}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : columnPick ? (
                     <>
                       <span
                         className="live-font-condensed rounded px-2 py-0.5 text-xs font-bold"
@@ -841,11 +1039,11 @@ export function LiveGameWorkspace({
                       className="h-full w-full"
                       game={currentGame}
                       homeTeamId={currentGame.homeTeamId}
-                      offenseTeamId={offenseTeamId}
-                      onPointClick={handleCourtPoint}
+                      offenseTeamId={canvasOffenseTeamId}
+                      onPointClick={handleCourtPointForEditOrShot}
                       sessionMarkers={entryState.ctx.markers}
                       shots={currentGame.shots}
-                      shotMode={showShotOverlay}
+                      shotMode={showShotOverlay || relocatingShot}
                       interactive={courtAcceptsPlacement}
                     />
                     {flowCourtOverlayVisible && (
@@ -927,6 +1125,13 @@ export function LiveGameWorkspace({
             homeTeam={currentGame.homeTeam}
             awayTeam={currentGame.awayTeam}
             onEventDoubleClick={(event) => {
+              if (event.type === 'substitution') {
+                openSubEdit(event);
+                return;
+              }
+              if (event.type === 'jump_ball' || event.type === 'period_start' || event.type === 'period_end') {
+                return;
+              }
               setEditEvent(event);
               setEditDialogOpen(true);
             }}
@@ -945,6 +1150,11 @@ export function LiveGameWorkspace({
           onOpenChange={(open) => {
             if (!open && isForcedSub) return; // forced foul-out sub is non-dismissible
             setSubOpen(open);
+            if (!open) {
+              setEditingSubEventId(null);
+              setEditSubOnCourtIds([]);
+              setEditSubCheckpointFrom(null);
+            }
           }}
         >
           <DialogContent
@@ -966,7 +1176,7 @@ export function LiveGameWorkspace({
                   </span>
                 ) : (
                   <>
-                    Substitution —{' '}
+                    {editingSubEventId ? 'Edit substitution' : 'Substitution'} —{' '}
                     {subTeamId === currentGame.homeTeamId
                       ? currentGame.homeTeam.abbreviation
                       : currentGame.awayTeam.abbreviation}
@@ -989,7 +1199,7 @@ export function LiveGameWorkspace({
                     </Button>
                   ) : (
                     getTeamPlayers(subTeamId)
-                      .filter((p) => getOnCourtIds(subTeamId).includes(p.id))
+                      .filter((p) => subDialogOnCourtIds.includes(p.id))
                       .map((p) => (
                         <Button
                           key={p.id}
@@ -1014,13 +1224,13 @@ export function LiveGameWorkspace({
                         ? currentGame.homeTeam.abbreviation
                         : currentGame.awayTeam.abbreviation}
                     </span>{' '}
-                    continues with {Math.max(0, getOnCourtIds(subTeamId).length - 1)}{' '}
+                    continues with {Math.max(0, subDialogOnCourtIds.length - 1)}{' '}
                     players.
                   </div>
                 ) : (
                   <div className="space-y-1 mt-2 max-h-48 overflow-y-auto">
                     {benchPlayers(subTeamId).map((p) =>
-                      isPlayerLockedOut(p.id) ? (
+                      isPlayerLockedOut(p.id) && !editingSubEventId ? (
                         <Button
                           key={p.id}
                           variant="outline"
@@ -1063,7 +1273,7 @@ export function LiveGameWorkspace({
               </div>
             </div>
             <SubstitutionClockInput
-              currentClock={currentGame.currentGameTime}
+              currentClock={editSubCheckpointFrom ?? currentGame.currentGameTime}
               value={subClock}
               onChange={(v) => {
                 setSubClock(v);
@@ -1079,11 +1289,41 @@ export function LiveGameWorkspace({
                 (!forcedNoBench && subOut.length !== subIn.length)
               }
               onClick={() => {
+                const clock = subClock.trim();
+                if (editingSubEventId) {
+                  const checkpointFrom = editSubCheckpointFrom ?? clock;
+                  if (!isValidSubstitutionClock(checkpointFrom, clock)) {
+                    setSubClockError(`Time must be at or before ${checkpointFrom}`);
+                    return;
+                  }
+                  const idx = currentGame.events.findIndex((e) => e.id === editingSubEventId);
+                  if (idx < 0) return;
+                  const prev = currentGame.events[idx];
+                  const next = [...currentGame.events];
+                  next[idx] = {
+                    ...prev,
+                    gameTime: clock,
+                    details: {
+                      ...prev.details,
+                      playersOut: [...subOut],
+                      playersIn: [...subIn],
+                      clockTime: clock,
+                      checkpointFrom,
+                    },
+                  };
+                  setEditingSubEventId(null);
+                  setEditSubOnCourtIds([]);
+                  setEditSubCheckpointFrom(null);
+                  setSubOpen(false);
+                  replayEvents(next);
+                  return;
+                }
+
                 const result = commitSubstitution(
                   subTeamId,
                   subOut,
                   subIn,
-                  subClock.trim(),
+                  clock,
                   phase.kind === 'free_throw' ? { preserveEntryPhase: true } : undefined
                 );
                 if (!result.ok) {
@@ -1096,11 +1336,13 @@ export function LiveGameWorkspace({
                 setSubOpen(false);
               }}
             >
-              {forcedNoBench
-                ? 'Acknowledge — continue short-handed'
-                : isForcedSub
-                  ? 'Confirm replacement'
-                  : 'Confirm substitution'}
+              {editingSubEventId
+                ? 'Save & recalculate'
+                : forcedNoBench
+                  ? 'Acknowledge — continue short-handed'
+                  : isForcedSub
+                    ? 'Confirm replacement'
+                    : 'Confirm substitution'}
             </Button>
             {isForcedSub && (
               <Button
@@ -1139,10 +1381,17 @@ export function LiveGameWorkspace({
         <EventEditDialog
           event={editEvent}
           open={editDialogOpen}
-          onOpenChange={setEditDialogOpen}
+          onOpenChange={(open) => {
+            setEditDialogOpen(open);
+            if (!open && !relocatingShot) {
+              setEditEvent(null);
+            }
+          }}
           homeTeam={currentGame.homeTeam}
           awayTeam={currentGame.awayTeam}
+          events={currentGame.events}
           onSave={handleSaveEventEdit}
+          onRequestRelocate={handleRequestShotRelocate}
         />
 
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

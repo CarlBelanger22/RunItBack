@@ -431,8 +431,13 @@ export function FigmaHorizontalCourtSvg({
           x={VW * 0.25}
           y={bY + 20}
           textAnchor="middle"
-          fill="rgba(255,255,255,0.10)"
-          fontSize={4.5}
+          fill={home}
+          opacity={0.55}
+          stroke={floorStroke}
+          strokeWidth={0.35}
+          paintOrder="stroke"
+          fontSize={5.5}
+          fontWeight={700}
           fontFamily="JetBrains Mono, monospace"
           letterSpacing={1.5}
         >
@@ -442,8 +447,13 @@ export function FigmaHorizontalCourtSvg({
           x={VW * 0.75}
           y={bY + 20}
           textAnchor="middle"
-          fill="rgba(255,255,255,0.10)"
-          fontSize={4.5}
+          fill={away}
+          opacity={0.55}
+          stroke={floorStroke}
+          strokeWidth={0.35}
+          paintOrder="stroke"
+          fontSize={5.5}
+          fontWeight={700}
           fontFamily="JetBrains Mono, monospace"
           letterSpacing={1.5}
         >

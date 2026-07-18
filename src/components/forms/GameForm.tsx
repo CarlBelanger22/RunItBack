@@ -12,6 +12,7 @@ import {
 import { Game, Tournament } from '../../App';
 import { TeamBadge } from '../TeamBadge';
 import { sortTournamentsByDateDesc } from '../../utils/tournamentSort';
+import { Switch } from '../ui/switch';
 
 export interface GameFormValues {
   date: string;
@@ -19,6 +20,8 @@ export interface GameFormValues {
   tournamentId: string;
   finalScoreHome?: number;
   finalScoreAway?: number;
+  /** Visual court orientation — home on the right when true. */
+  courtSidesFlipped?: boolean;
 }
 
 interface GameFormProps {
@@ -45,6 +48,9 @@ export const GameForm = React.memo(function GameForm({
   const finalHomeRef = useRef<HTMLInputElement>(null);
   const finalAwayRef = useRef<HTMLInputElement>(null);
   const [tournamentId, setTournamentId] = React.useState(game.tournamentId ?? '');
+  const [courtSidesFlipped, setCourtSidesFlipped] = React.useState(
+    !!game.courtSidesFlipped
+  );
 
   const sortedTournaments = useMemo(
     () => sortTournamentsByDateDesc(tournaments),
@@ -71,9 +77,10 @@ export const GameForm = React.memo(function GameForm({
         tournamentId,
         finalScoreHome: Number.isFinite(finalScoreHome) ? finalScoreHome : undefined,
         finalScoreAway: Number.isFinite(finalScoreAway) ? finalScoreAway : undefined,
+        courtSidesFlipped,
       });
     },
-    [onSubmit, tournamentId, isCompleted]
+    [onSubmit, tournamentId, isCompleted, courtSidesFlipped]
   );
 
   return (
@@ -99,6 +106,23 @@ export const GameForm = React.memo(function GameForm({
             <span className="text-sm font-medium text-center">{game.awayTeam.name}</span>
           </div>
         </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+        <div className="space-y-1 min-w-0">
+          <Label htmlFor="game-form-flip-sides">Flip court sides (camera view)</Label>
+          <p className="text-xs text-muted-foreground">
+            {courtSidesFlipped
+              ? 'Away left / Home right — use when filming from the opposite sideline.'
+              : 'Home left / Away right (default).'}{' '}
+            Sides also flip automatically at half (after Q2).
+          </p>
+        </div>
+        <Switch
+          id="game-form-flip-sides"
+          checked={courtSidesFlipped}
+          onCheckedChange={setCourtSidesFlipped}
+        />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

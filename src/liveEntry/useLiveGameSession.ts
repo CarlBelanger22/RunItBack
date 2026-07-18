@@ -43,6 +43,7 @@ import {
   startPeriodLineups,
   type MinutesTrackingState,
 } from './minutesEngine';
+import { stripPossessionContext } from './eventEditGuards';
 import { isValidSubstitutionClock } from '../utils/gameClock';
 
 function resolveOnCourt(game: Game, side: 'home' | 'away'): string[] {
@@ -171,7 +172,8 @@ export function useLiveGameSession(
 
   const replayEvents = useCallback(
     (events: GameEvent[]) => {
-      const base = GameLogic.replayFromEvents(currentGame, events);
+      const cleaned = stripPossessionContext(events);
+      const base = GameLogic.replayFromEvents(currentGame, cleaned);
       const replayed = replayMinutesOntoGame(base);
       syncGame(replayed.game);
       syncMinutesFromGame(replayed.game);
@@ -341,6 +343,7 @@ export function useLiveGameSession(
         foulingTeamId: params.foulingTeamId,
         committerId: params.committerId,
         recipientId: params.recipientId,
+        chargeDrawnBy: params.chargeDrawnBy,
         foulCategory: params.foulCategory,
         isTeamFoul: params.foulEntity === 'team',
         isCoachFoul: params.isCoachFoul,

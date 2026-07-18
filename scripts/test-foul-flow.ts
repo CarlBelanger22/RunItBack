@@ -321,7 +321,7 @@ function testFtOptions(): void {
 }
 
 function testOffensiveFoulStateFlow(): void {
-  const state = liveEntryReducer(
+  let state = liveEntryReducer(
     {
       phase: { kind: 'foul', step: 'category', foulEntity: 'player' },
       ctx: initialLiveEntryContext('home', ['h1'], ['a1']),
@@ -332,7 +332,21 @@ function testOffensiveFoulStateFlow(): void {
     state.phase.kind === 'foul' &&
       state.phase.step === 'committer' &&
       state.phase.foulCategory === 'offensive',
-    'offensive category → committer on offense roster (commit on player pick, no confirm step)'
+    'offensive category → committer on offense roster'
+  );
+
+  // LE-71 v2: after the committer, a required charge_drawer step credits the defender.
+  state = liveEntryReducer(state, {
+    type: 'PICK_FOUL_COMMITTER',
+    playerId: 'h1',
+    teamId: 'home',
+  });
+  assert(
+    state.phase.kind === 'foul' &&
+      state.phase.step === 'charge_drawer' &&
+      state.phase.committerId === 'h1' &&
+      state.phase.committerTeamId === 'home',
+    'offensive committer pick → charge_drawer step (stores committer)'
   );
 }
 
@@ -388,8 +402,26 @@ function testOffensiveFoulStats(): void {
   assert(updated.teamStats.home.turnovers === 1, 'offensive foul credits team TO');
   assert(
     event.details.isOffensiveFoul === true && event.details.drawnBy === undefined,
-    'offensive foul event has no drawnBy'
+    'offensive foul without a charge-drawer has no drawnBy'
   );
+}
+
+function testOffensiveFoulChargeDrawnStats(): void {
+  const game = baseGame();
+  const event = buildFoulEvent(game, {
+    foulingTeamId: 'home',
+    committerId: 'h1',
+    chargeDrawnBy: 'a1',
+    foulCategory: 'offensive',
+  });
+  assert(event.details.drawnBy === 'a1', 'offensive foul carries chargeDrawnBy as drawnBy');
+  const updated = GameLogic.recordEvent(game, event);
+  const committer = updated.gameStats.find((s) => s.playerId === 'h1');
+  const drawer = updated.gameStats.find((s) => s.playerId === 'a1');
+  assert(committer?.fouls === 1, 'charge: committer still gets PF');
+  assert(committer?.turnovers === 1, 'charge: committer still gets TO');
+  assert(drawer?.fouls_drawn === 1, 'charge: defender gets fouls_drawn +1');
+  assert((drawer?.fouls ?? 0) === 0, 'charge: defender does not get a PF');
 }
 
 function main(): void {
@@ -403,6 +435,7 @@ function main(): void {
   testOffensiveFoulStateFlow();
   testOffensiveFoulPossessionFlip();
   testOffensiveFoulStats();
+  testOffensiveFoulChargeDrawnStats();
   console.log('All foul-flow tests passed.');
 }
 

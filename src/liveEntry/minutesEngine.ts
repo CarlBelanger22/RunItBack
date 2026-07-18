@@ -286,6 +286,79 @@ export function replayMinutesOntoGame(game: Game): {
   return { game: g, state };
 }
 
+/**
+ * On-court lineups (and checkpoint clock) immediately before `eventId`.
+ * Used when editing a past substitution so Out/In lists match that moment.
+ */
+export function getLineupStateBeforeEvent(
+  game: Game,
+  eventId: string
+): MinutesTrackingState | null {
+  const idx = game.events.findIndex((e) => e.id === eventId);
+  if (idx < 0) return null;
+
+  const settings = resolveGameClockSettings(game);
+  let state = createQ1ReplayState(game);
+  let scores = { home: 0, away: 0 };
+  // Replay with a lightweight game shell — only lineup/clock state matters here.
+  let g: Game = { ...game, events: [] };
+
+  for (let i = 0; i < idx; i++) {
+    const event = game.events[i];
+    if (event.type === 'period_start') {
+      const period = (event.details.period as number) ?? state.currentPeriod + 1;
+      const clock =
+        (event.details.clockTime as string) || clockForPeriod(period, settings);
+      state = {
+        checkpointClock: clock,
+        onCourtHome: [...(event.details.homeLineup as string[])],
+        onCourtAway: [...(event.details.awayLineup as string[])],
+        scoreAtCheckpoint: { ...scores },
+        currentPeriod: period,
+      };
+      continue;
+    }
+
+    if (event.type === 'period_end') {
+      state = {
+        ...state,
+        checkpointClock: '0:00',
+        scoreAtCheckpoint: { ...scores },
+      };
+      continue;
+    }
+
+    if (event.type === 'substitution') {
+      const clockTime =
+        (event.details.clockTime as string) ??
+        (event.details.checkpointTo as string) ??
+        event.gameTime;
+      const outIds = (event.details.playersOut as string[]) ?? [];
+      const inIds = (event.details.playersIn as string[]) ?? [];
+      const stintScores = { home: event.homeScore, away: event.awayScore };
+      const result = applySubstitutionCheckpoint(
+        g,
+        state,
+        {
+          teamId: event.teamId,
+          outIds,
+          inIds,
+          clockTime,
+          onCourtHome: state.onCourtHome,
+          onCourtAway: state.onCourtAway,
+        },
+        stintScores
+      );
+      g = result.game;
+      state = result.state;
+    }
+
+    scores = { home: event.homeScore, away: event.awayScore };
+  }
+
+  return state;
+}
+
 export function minutesToDisplay(minutes: number): string {
   const totalSeconds = Math.round(minutes * 60);
   const mins = Math.floor(totalSeconds / 60);
