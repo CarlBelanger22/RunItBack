@@ -20,9 +20,14 @@ import { buildGameMetadataPatch } from '../../utils/gameMetadata';
 import { useLiveGameSession } from '../../liveEntry/useLiveGameSession';
 import { HorizontalFullCourtCanvas } from './HorizontalFullCourtCanvas';
 import { OnCourtColumn } from './OnCourtColumn';
+import { OppUnitPanel } from './OppUnitPanel';
 import { LiveGameHeader } from './LiveGameHeader';
 import { LiveActionBar } from './LiveActionBar';
 import { LivePlayByPlayRail } from './LivePlayByPlayRail';
+import {
+  canOpenLiveEventEdit,
+  isSingleTeamOppUnitEvent,
+} from '../../liveEntry/eventEditGuards';
 import { LiveBoxScorePanel } from './LiveBoxScorePanel';
 import { EventEditDialog, type EventEditSaveResult } from './EventEditDialog';
 import { resolveHorizontalShotZone, homeAttacksLeft } from '../../lib/horizontalCourtClick';
@@ -109,6 +114,7 @@ function resolveColumnPick(
     handlers;
 
   if (phase.kind === 'shot' && phase.step === 'pick_shooter' && pending) {
+    if (pending.teamOnly) return null;
     return {
       side: teamSide(game, offenseTeamId),
       hint: 'Select shooter',
@@ -123,15 +129,24 @@ function resolveColumnPick(
     };
   }
 
-  if (phase.kind === 'shot' && phase.step === 'pick_blocker' && trackBoth) {
+  if (phase.kind === 'shot' && phase.step === 'pick_blocker') {
+    // Both-team: defense column. Single-team Opp shot: home column. Home shot blocked by Opp: overlay SKIP.
+    if (!trackBoth && !pending?.teamOnly) return null;
     return {
       side: teamSide(game, defenseTeamId),
       hint: 'Select blocker',
-      onSelect: (p) => dispatch({ type: 'PICK_BLOCKER', playerId: p.id }),
+      onSelect: (p) => {
+        if (pending?.teamOnly) {
+          commitShot({ ...pending, blockerId: p.id, outcome: 'block', teamOnly: true });
+          return;
+        }
+        dispatch({ type: 'PICK_BLOCKER', playerId: p.id });
+      },
     };
   }
 
   if (phase.kind === 'shot' && phase.step === 'pick_assist' && pending) {
+    if (pending.teamOnly) return null;
     return {
       side: teamSide(game, offenseTeamId),
       hint: 'Select assister (optional — use overlay for no assist)',
@@ -149,6 +164,8 @@ function resolveColumnPick(
     if (!teams) return null;
     const teamId =
       pendingReboundType === 'offensive' ? teams.shootingTeamId : teams.defendingTeamId;
+    // Single-team: Opp has no roster — team rebounds are overlay one-clicks only.
+    if (!trackBoth && teamId === game.awayTeamId) return null;
     return {
       side: teamSide(game, teamId),
       hint: `${pendingReboundType === 'offensive' ? 'ORB' : 'DRB'} — select player`,
@@ -160,6 +177,8 @@ function resolveColumnPick(
   }
 
   if (phase.kind === 'turnover' && phase.step === 'entity') {
+    // Opp unit: no away roster — use overlay for team TO / TO+steal.
+    if (!trackBoth && offenseTeamId === game.awayTeamId) return null;
     return {
       side: teamSide(game, offenseTeamId),
       hint: 'Select turnover player (or use overlay for team TO)',
@@ -171,6 +190,21 @@ function resolveColumnPick(
   }
 
   if (phase.kind === 'turnover' && phase.step === 'pick_stealer') {
+    // Opp TO+steal → pick home stealer (works for both-team and single-team).
+    if (!trackBoth && offenseTeamId === game.awayTeamId) {
+      return {
+        side: teamSide(game, game.homeTeamId),
+        hint: 'Select stealer',
+        onSelect: (p) => {
+          commitTurnover(undefined, true, p.id);
+          handlers.setTurnoverPlayerId(undefined);
+        },
+      };
+    }
+    // Home TO when single-team: no Opp stealer — should not stay here; overlay commits plain TO.
+    if (!trackBoth && offenseTeamId === game.homeTeamId) {
+      return null;
+    }
     if (!turnoverPlayerId) {
       return {
         side: teamSide(game, offenseTeamId),
@@ -191,6 +225,8 @@ function resolveColumnPick(
   }
 
   if (phase.kind === 'jumpball' && phase.step === 'pick_to') {
+    // Opp unit losing possession — overlay confirms team TO.
+    if (!trackBoth && offenseTeamId === game.awayTeamId) return null;
     return {
       side: teamSide(game, offenseTeamId),
       hint: 'Jump ball — turnover player',
@@ -198,13 +234,21 @@ function resolveColumnPick(
     };
   }
 
-  if (phase.kind === 'jumpball' && phase.step === 'pick_steal' && phase.turnoverPlayerId) {
+  if (phase.kind === 'jumpball' && phase.step === 'pick_steal') {
     const arrowTeamId = possessionArrowTeamId ?? defenseTeamId;
+    // Opp unit awarded possession — overlay confirms (no steal player).
+    if (!trackBoth && arrowTeamId === game.awayTeamId) return null;
+    // Still need a turnover player before steal when home lost it (unless Opp TO already set undefined).
+    if (phase.turnoverPlayerId == null && trackBoth) return null;
+    if (phase.turnoverPlayerId == null && !trackBoth && offenseTeamId === game.homeTeamId) {
+      // Should not happen — home always picks TO player first.
+      return null;
+    }
     return {
       side: teamSide(game, arrowTeamId),
       hint: 'Jump ball — steal player',
       onSelect: (p) => {
-        commitJumpBallWithStats(phase.turnoverPlayerId!, p.id);
+        commitJumpBallWithStats(phase.turnoverPlayerId, p.id);
       },
     };
   }
@@ -226,6 +270,17 @@ function resolveColumnPick(
         ? handlers.and1FoulingTeamId
         : defenseTeamId;
 
+    // Single-team: Opp unit fouls (defense/and-1) — no away roster; use overlay.
+    if (!trackBoth && foulingTeamId === game.awayTeamId) {
+      return null;
+    }
+
+    const skipRecipient =
+      !trackBoth &&
+      !isOffensive &&
+      foulingTeamId === game.homeTeamId &&
+      !handlers.and1RecipientId;
+
     return {
       side: teamSide(game, foulingTeamId),
       hint: isOffensive ? 'Offensive foul — select player' : 'Foul committed by',
@@ -244,12 +299,11 @@ function resolveColumnPick(
           });
           handlers.clearAnd1Session();
         } else {
-          // Offensive fouls also route through PICK_FOUL_COMMITTER now, then the
-          // required charge_drawer step credits the defender with a foul drawn.
           dispatch({
             type: 'PICK_FOUL_COMMITTER',
             playerId: p.id,
             teamId: foulingTeamId,
+            skipRecipient: skipRecipient || undefined,
           });
         }
       },
@@ -261,6 +315,8 @@ function resolveColumnPick(
     const committerTeamId = phase.committerTeamId ?? offenseTeamId;
     const drawerTeamId =
       committerTeamId === game.homeTeamId ? game.awayTeamId : game.homeTeamId;
+    // Single-team: only home can be charge drawer (Opp commits offensive foul).
+    if (!trackBoth && drawerTeamId !== game.homeTeamId) return null;
     return {
       side: teamSide(game, drawerTeamId),
       hint: 'Foul drawn by (defender)',
@@ -268,7 +324,7 @@ function resolveColumnPick(
         commitFoul({
           foulingTeamId: committerTeamId,
           foulCategory: 'offensive',
-          foulEntity: 'player',
+          foulEntity: committerTeamId === game.awayTeamId && !trackBoth ? 'team' : 'player',
           committerId: phase.committerId,
           chargeDrawnBy: p.id,
           ftCount: 0,
@@ -285,6 +341,7 @@ function resolveColumnPick(
         ? game.awayTeamId
         : game.homeTeamId
       : offenseTeamId;
+    if (!trackBoth && recipientTeamId === game.awayTeamId) return null;
     return {
       side: teamSide(game, recipientTeamId),
       hint: 'Fouled player',
@@ -397,15 +454,28 @@ export function LiveGameWorkspace({
 
   const handleAndOneFoul = useCallback(
     (shotPayload: PendingShot) => {
-      if (shotPayload.shooterId) {
-        setAnd1RecipientId(shotPayload.shooterId);
-        setAnd1FoulingTeamId(defenseTeamId);
-      }
+      if (!shotPayload.shooterId) return;
       commitShot(shotPayload, true);
       setFastbreak(false);
+      // Single-team: and-1 fouler is Opp unit — commit immediately (no away roster).
+      if (!currentGame.trackBothTeams && defenseTeamId === currentGame.awayTeamId) {
+        commitFoul({
+          foulingTeamId: defenseTeamId,
+          foulCategory: 'personal',
+          foulEntity: 'player',
+          recipientId: shotPayload.shooterId,
+          ftCount: 1,
+          ftShooterId: shotPayload.shooterId,
+          retainPossession: false,
+          offendedTeamId: offenseTeamId,
+        });
+        return;
+      }
+      setAnd1RecipientId(shotPayload.shooterId);
+      setAnd1FoulingTeamId(defenseTeamId);
       dispatch({ type: 'FOUL_CATEGORY', category: 'personal' });
     },
-    [commitShot, defenseTeamId, dispatch]
+    [commitFoul, commitShot, currentGame, defenseTeamId, dispatch, offenseTeamId]
   );
 
   const [pendingReboundType, setPendingReboundType] = useState<string | null>(null);
@@ -456,6 +526,7 @@ export function LiveGameWorkspace({
   const homeScore = currentGame.teamStats.home.total_points;
   const awayScore = currentGame.teamStats.away.total_points;
   const periodEndLabel = endPeriodButtonLabel(currentGame, homeScore, awayScore);
+  const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
 
   useEffect(() => {
     if (phase.kind === 'idle') {
@@ -583,8 +654,10 @@ export function LiveGameWorkspace({
         trackBoth,
         turnoverPlayerId,
         showShotOverlay: false,
+        offenseTeamId,
+        awayTeamId: currentGame.awayTeamId,
       }),
-    [phase, pending, pendingReboundType, trackBoth, turnoverPlayerId]
+    [phase, pending, pendingReboundType, trackBoth, turnoverPlayerId, offenseTeamId, currentGame.awayTeamId]
   );
 
   const contextHint = useMemo(() => {
@@ -598,6 +671,9 @@ export function LiveGameWorkspace({
       if (pendingReboundType === 'offensive' || pendingReboundType === 'defensive') {
         return `${pendingReboundType === 'offensive' ? 'ORB' : 'DRB'} — select player on roster`;
       }
+      if (!trackBoth) {
+        return 'Rebound — Home ORB/DRB or Opp team rebound on overlay';
+      }
       return 'Choose rebound type on court overlay';
     }
     if (phase.kind === 'turnover' && phase.step === 'entity') return 'Turnover — select player or use overlay';
@@ -605,15 +681,25 @@ export function LiveGameWorkspace({
       return turnoverPlayerId ? 'Select stealer on roster' : 'Select turnover player on roster';
     }
     if (phase.kind === 'jumpball' && phase.step === 'pick_to') {
-      return 'Jump ball — select turnover player';
+      return !trackBoth && !homeIsOffense
+        ? 'Jump ball — confirm Opp turnover on overlay'
+        : 'Jump ball — select turnover player';
     }
     if (phase.kind === 'jumpball' && phase.step === 'pick_steal') {
-      return 'Jump ball — select steal player';
+      return 'Jump ball — select steal player (or confirm Opp recovery)';
     }
     if (phase.kind === 'foul' && phase.step === 'entity') return 'Foul — player or team on court overlay';
     if (phase.kind === 'foul' && phase.step === 'category') return 'Choose foul category on court overlay';
-    if (isTechFoulCommitter) return 'Technical — select committer on either roster or coach in overlay';
-    if (isUnsportsmanlikeFoulCommitter) return 'Unsportsmanlike — select committer on either roster';
+    if (isTechFoulCommitter) {
+      return trackBoth
+        ? 'Technical — select committer on either roster or coach in overlay'
+        : 'Technical — select home committer on roster, or Opp/coach in overlay';
+    }
+    if (isUnsportsmanlikeFoulCommitter) {
+      return trackBoth
+        ? 'Unsportsmanlike — select committer on either roster'
+        : 'Unsportsmanlike — select home committer, or Opp in overlay';
+    }
     if (phase.kind === 'foul' && phase.step === 'committer') return 'Select foul committer on roster';
     if (phase.kind === 'foul' && phase.step === 'recipient') return 'Select fouled player on roster';
     if (phase.kind === 'foul' && phase.step === 'double_committer_a') {
@@ -627,10 +713,24 @@ export function LiveGameWorkspace({
     }
     if (phase.kind === 'foul' && phase.step === 'ft_count') return 'Choose free throws on court overlay';
     if (phase.kind === 'free_throw') return 'Make / miss on court overlay (M / X keys)';
+    if (!trackBoth && !homeIsOffense) {
+      return 'Opp ball — tap court to log Opp shot, or use Opp panel';
+    }
     return '← Tap court to log a shot';
-  }, [columnPick, showShotOverlay, phase, pendingReboundType, turnoverPlayerId, isTechFoulCommitter, isUnsportsmanlikeFoulCommitter]);
+  }, [
+    columnPick,
+    showShotOverlay,
+    phase,
+    pendingReboundType,
+    turnoverPlayerId,
+    isTechFoulCommitter,
+    isUnsportsmanlikeFoulCommitter,
+    trackBoth,
+    homeIsOffense,
+  ]);
 
   const openSubForTeam = (teamId: string) => {
+    if (!currentGame.trackBothTeams && teamId === currentGame.awayTeamId) return;
     setEditingSubEventId(null);
     setEditSubOnCourtIds([]);
     setEditSubCheckpointFrom(null);
@@ -849,7 +949,6 @@ export function LiveGameWorkspace({
     [relocatingShot, editEvent, handleCourtPoint]
   );
 
-  const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
   const actionBarDisabled =
     isOpeningJumpBall ||
     lineupOverlayOpen ||
@@ -862,24 +961,6 @@ export function LiveGameWorkspace({
     (phase.kind !== 'idle' &&
       phase.kind !== 'shot' &&
       phase.kind !== 'free_throw');
-
-  if (!trackBoth) {
-    return (
-      <DesktopOnlyGuard>
-        <div className="h-[calc(100dvh-73px)] flex flex-col items-center justify-center gap-4 p-8 text-center bg-background">
-          <h2 className="text-lg font-semibold">Both-team tracking required</h2>
-          <p className="text-muted-foreground max-w-md">
-            This live game only tracks your team&apos;s stats. Opponent quick-entry is
-            paused while we finish the new courtside UI. Start a new game with{' '}
-            <strong>Track both teams</strong> enabled in game setup.
-          </p>
-          <Button variant="outline" onClick={() => navigate(paths.home)}>
-            Back to dashboard
-          </Button>
-        </div>
-      </DesktopOnlyGuard>
-    );
-  }
 
   return (
     <DesktopOnlyGuard>
@@ -907,8 +988,9 @@ export function LiveGameWorkspace({
             defaultHomeIds={getOnCourtIds(currentGame.homeTeamId)}
             defaultAwayIds={getOnCourtIds(currentGame.awayTeamId)}
             fouledOutIds={fouledOutIds}
+            homeOnly={!trackBoth}
             onConfirm={(homeLineup, awayLineup) => {
-              commitPeriodStart(homeLineup, awayLineup);
+              commitPeriodStart(homeLineup, trackBoth ? awayLineup : []);
               setLineupOverlayOpen(false);
             }}
           />
@@ -1059,6 +1141,9 @@ export function LiveGameWorkspace({
                           defenseTeamId={defenseTeamId}
                           homeTeamId={currentGame.homeTeamId}
                           awayTeamId={currentGame.awayTeamId}
+                          reboundShootingTeamId={entryState.ctx.reboundShootingTeamId}
+                          reboundDefendingTeamId={entryState.ctx.reboundDefendingTeamId}
+                          possessionArrowTeamId={possessionArrowTeamId}
                           onFastbreakChange={setFastbreak}
                           onPendingReboundTypeChange={handlePendingReboundTypeChange}
                           onTurnoverPlayerIdChange={setTurnoverPlayerId}
@@ -1068,6 +1153,7 @@ export function LiveGameWorkspace({
                           commitRebound={commitRebound}
                           commitTurnover={commitTurnover}
                           commitFoul={commitFoul}
+                          commitJumpBallWithStats={commitJumpBallWithStats}
                         />
                       </div>
                     )}
@@ -1093,29 +1179,46 @@ export function LiveGameWorkspace({
                 className="live-play-side live-play-side--away"
                 style={{ background: liveTeamTint('away', '06') }}
               >
-                <OnCourtColumn
-                  side="away"
-                  className="h-full min-h-0 w-full"
-                  players={getTeamPlayers(currentGame.awayTeamId)}
-                  onCourtIds={getOnCourtIds(currentGame.awayTeamId)}
-                  isOffense={!homeIsOffense}
-                  pickMode={columnPick?.side === 'away' || isBothRosterFoulCommitter}
-                  onSelect={
-                    isBothRosterFoulCommitter
-                      ? (p) =>
-                          dispatch({
-                            type: 'PICK_FOUL_COMMITTER',
-                            playerId: p.id,
-                            teamId: currentGame.awayTeamId,
-                          })
-                      : columnPick?.side === 'away'
-                        ? columnPick.onSelect
+                {trackBoth ? (
+                  <OnCourtColumn
+                    side="away"
+                    className="h-full min-h-0 w-full"
+                    players={getTeamPlayers(currentGame.awayTeamId)}
+                    onCourtIds={getOnCourtIds(currentGame.awayTeamId)}
+                    isOffense={!homeIsOffense}
+                    pickMode={columnPick?.side === 'away' || isBothRosterFoulCommitter}
+                    onSelect={
+                      isBothRosterFoulCommitter
+                        ? (p) =>
+                            dispatch({
+                              type: 'PICK_FOUL_COMMITTER',
+                              playerId: p.id,
+                              teamId: currentGame.awayTeamId,
+                            })
+                        : columnPick?.side === 'away'
+                          ? columnPick.onSelect
+                          : undefined
+                    }
+                    excludeId={columnPick?.side === 'away' ? columnPick.excludeId : undefined}
+                    onSubstitution={() => openSubForTeam(currentGame.awayTeamId)}
+                    subDisabled={subDisabled}
+                  />
+                ) : (
+                  <OppUnitPanel
+                    className="h-full min-h-0 w-full"
+                    teamName={currentGame.awayTeam.name}
+                    abbreviation={currentGame.awayTeam.abbreviation}
+                    points={awayScore}
+                    isOffense={!homeIsOffense}
+                    disabled={actionBarDisabled}
+                    onTurnover={
+                      !homeIsOffense
+                        ? () => dispatch({ type: 'START_TURNOVER' })
                         : undefined
-                  }
-                  excludeId={columnPick?.side === 'away' ? columnPick.excludeId : undefined}
-                  onSubstitution={() => openSubForTeam(currentGame.awayTeamId)}
-                  subDisabled={subDisabled}
-                />
+                    }
+                    onFoul={() => dispatch({ type: 'START_FOUL' })}
+                  />
+                )}
               </section>
             </div>
           </div>
@@ -1124,14 +1227,23 @@ export function LiveGameWorkspace({
             events={currentGame.events}
             homeTeam={currentGame.homeTeam}
             awayTeam={currentGame.awayTeam}
+            isEventReadOnly={(event) => isSingleTeamOppUnitEvent(currentGame, event)}
+            subtitle={
+              !trackBoth
+                ? `${currentGame.events.length} events · newest left · home cards editable · Opp read-only`
+                : undefined
+            }
             onEventDoubleClick={(event) => {
               if (event.type === 'substitution') {
+                if (!trackBoth && event.teamId === currentGame.awayTeamId) return;
                 openSubEdit(event);
                 return;
               }
               if (event.type === 'jump_ball' || event.type === 'period_start' || event.type === 'period_end') {
                 return;
               }
+              const guard = canOpenLiveEventEdit(currentGame, event);
+              if (!guard.ok) return;
               setEditEvent(event);
               setEditDialogOpen(true);
             }}

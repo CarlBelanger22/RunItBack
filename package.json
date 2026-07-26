@@ -130,6 +130,8 @@
             "test:minutes-engine": "tsx scripts/test-minutes-engine.ts",
             "test:opening-tip": "tsx scripts/test-opening-tip.ts",
             "test:foul-flow": "tsx scripts/test-foul-flow.ts",
+            "test:single-team-entry": "tsx scripts/test-single-team-entry.ts",
+            "test:single-team-away-identity": "tsx scripts/test-single-team-away-identity.ts",
             "test:foul-out": "tsx scripts/test-foul-out.ts",
             "test:pbp-edit": "tsx scripts/test-pbp-edit.ts",
             "test:and1-ft-flow": "tsx scripts/test-and1-ft-flow.ts",

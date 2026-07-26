@@ -33,9 +33,9 @@ export const HORIZONTAL_HALF_COURT_PORTRAIT_ASPECT =
   HORIZONTAL_COURT_VH / HORIZONTAL_HALF_WIDTH_SVG;
 
 export const LIVE_HORIZONTAL_COURT_COLORS = {
-  /** Court label / key paint tints only — UI chrome uses liveEntryTheme.ts */
-  home: '#1a7eff',
-  away: '#ff6b35',
+  /** Match live UI team accents (`liveEntryTheme` LIVE_PALETTE). */
+  home: '#00D2FF',
+  away: '#FF9F00',
   floorDark: '#b8841e',
   floor: '#cc9930',
   floorStroke: '#8b6812',
@@ -55,6 +55,11 @@ export interface FigmaHorizontalCourtSvgProps {
   markers?: HorizontalCourtMarker[];
   homeLabel?: string;
   awayLabel?: string;
+  /**
+   * When false (after court flip), home abbrev + home color render on the right
+   * half and away on the left — text and color stay paired with the team.
+   */
+  homeOnLeft?: boolean;
   shotMode?: boolean;
   shotModeColor?: string;
   /** `left` — single offensive half (baseline left) for game-summary shot charts. */
@@ -152,6 +157,7 @@ export function FigmaHorizontalCourtSvg({
   markers = [],
   homeLabel = 'HOME',
   awayLabel = 'AWAY',
+  homeOnLeft = true,
   shotMode = false,
   shotModeColor = LIVE_HORIZONTAL_COURT_COLORS.home,
   half = 'full',
@@ -196,6 +202,14 @@ export function FigmaHorizontalCourtSvg({
   );
   const { home, away, floorDark, floor, floorStroke, line, rim, rimRing } =
     LIVE_HORIZONTAL_COURT_COLORS;
+  const leftFloorLabel = homeOnLeft ? homeLabel : awayLabel;
+  const rightFloorLabel = homeOnLeft ? awayLabel : homeLabel;
+  const leftFloorColor = homeOnLeft ? home : away;
+  const rightFloorColor = homeOnLeft ? away : home;
+  const leftChromeLabel = homeOnLeft ? 'HOME' : 'AWAY';
+  const rightChromeLabel = homeOnLeft ? 'AWAY' : 'HOME';
+  const leftPaintFill = `${leftFloorColor}26`;
+  const rightPaintFill = `${rightFloorColor}1f`;
   const viewW = isHalfLeft ? HORIZONTAL_HALF_WIDTH_SVG : VW;
   const playableInnerW = isHalfLeft
     ? HORIZONTAL_HALF_WIDTH_SVG - HORIZONTAL_INSET
@@ -286,7 +300,7 @@ export function FigmaHorizontalCourtSvg({
           y={bY - keyW / 2}
           width={keyD}
           height={keyW}
-          fill="rgba(26,126,255,0.15)"
+          fill={leftPaintFill}
           stroke={line}
           strokeWidth={0.4}
         />
@@ -357,7 +371,7 @@ export function FigmaHorizontalCourtSvg({
           y={bY - keyW / 2}
           width={keyD}
           height={keyW}
-          fill="rgba(255,107,53,0.12)"
+          fill={rightPaintFill}
           stroke={line}
           strokeWidth={0.4}
         />
@@ -431,7 +445,7 @@ export function FigmaHorizontalCourtSvg({
           x={VW * 0.25}
           y={bY + 20}
           textAnchor="middle"
-          fill={home}
+          fill={leftFloorColor}
           opacity={0.55}
           stroke={floorStroke}
           strokeWidth={0.35}
@@ -441,13 +455,13 @@ export function FigmaHorizontalCourtSvg({
           fontFamily="JetBrains Mono, monospace"
           letterSpacing={1.5}
         >
-          {homeLabel}
+          {leftFloorLabel}
         </text>
         <text
           x={VW * 0.75}
           y={bY + 20}
           textAnchor="middle"
-          fill={away}
+          fill={rightFloorColor}
           opacity={0.55}
           stroke={floorStroke}
           strokeWidth={0.35}
@@ -457,7 +471,7 @@ export function FigmaHorizontalCourtSvg({
           fontFamily="JetBrains Mono, monospace"
           letterSpacing={1.5}
         >
-          {awayLabel}
+          {rightFloorLabel}
         </text>
           </>
         )}
@@ -488,15 +502,15 @@ export function FigmaHorizontalCourtSvg({
       <div className="pointer-events-none absolute bottom-1 left-0 right-0 flex justify-between px-2">
         <span
           className="live-font-mono text-[8px]"
-          style={{ color: `${home}66` }}
+          style={{ color: `${leftFloorColor}66` }}
         >
-          ◀ HOME
+          ◀ {leftChromeLabel}
         </span>
         <span
           className="live-font-mono text-[8px]"
-          style={{ color: `${away}66` }}
+          style={{ color: `${rightFloorColor}66` }}
         >
-          AWAY ▶
+          {rightChromeLabel} ▶
         </span>
       </div>
       )}

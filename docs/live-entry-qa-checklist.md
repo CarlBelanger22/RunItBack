@@ -4,7 +4,7 @@ Work through **in order**. For each item, verify **score**, **play-by-play**, **
 
 Mark results: `[ ]` not tested · `[x]` pass · `[!]` fail (add note inline)
 
-**Prerequisites:** Desktop ≥1280px · game with **Track both teams** · active game
+**Prerequisites:** Desktop ≥1280px · active game · **Track both teams** (default) **or** single-team with Opp unit panel
 
 ---
 
@@ -234,6 +234,30 @@ Setup: reduce a team so it has **no eligible bench** (e.g. dress exactly 5, or f
 
 ---
 
+## Phase 12 — Single-team live entry (LE-91)
+
+**Setup:** New game → turn **off** “Track both teams” → pick Opponent from **tournament teams** (or Create new: name + abbrev only) → start live entry (≥1280px). Home = your roster; Away = Opp unit panel (identity only — no Opp player stats). Your team cannot also be selected as Opponent.
+
+| # | Test | Pass | Expected |
+|---|------|------|----------|
+| 12.0 | Opp identity at setup | [x] | Tournament dropdown (not free-text name); create = name+abbrev, no logo; Start enabled; scoreboard shows real Opp name/abbrev |
+| 12.1 | Live UI opens (no “paused” blocker) | [x] | Home column + court + **Opp unit** panel |
+| 12.2 | Tip / possession | [x] | Opening tip works; arrow + possession still tracked |
+| 12.3 | Opp shot make/miss/block | [x] | Court tap while Opp has ball → make/miss; block → **home** blocker; score / Opp FG update |
+| 12.4 | Rebound after Opp miss | [x] | Home DRB / Team DRB / **Opp ORB** / Skip |
+| 12.5 | Rebound after home miss | [x] | Home ORB / Team ORB / **Opp DRB** |
+| 12.6 | Opp TO + steal | [x] | Opp panel TO → TO+steal → pick **home** stealer |
+| 12.7 | Home TO | [x] | No Opp stealer; ball to Opp |
+| 12.8 | Opp foul → home FD / FTs | [x] | Opp foul → home recipient / charge drawer; home FTs when awarded |
+| 12.9 | Home foul → Opp FTs | [x] | Opp **team** FT make/miss; score + FT line on Opp strip |
+| 12.10 | Live box Opp strip | [x] | Home player box; Opp **team totals** (FG/3PT/FT/PTS/REB/TO/PF) — no empty Away player table |
+| 12.11 | End Q lineup | [x] | **Home lineup only** (narrow ~280px panel) |
+| 12.12 | PBP Opp read-only | [x] | Double-click Opp card does **not** open edit; home cards still editable; undo still works |
+
+**Phase 12 sign-off:** User confirmed complete 2026-07-26 (includes LE-91.7–91.9 QA fixes: Opp identity, tip panel, court label colors, Opp strip refresh, End Q width).
+
+---
+
 ## Mini-game script (optional single sitting)
 
 Do in one session after Phase 1–4 pass:
@@ -267,7 +291,10 @@ npm run test:possession-engine && \
 npm run test:minutes-engine && \
 npm run test:game-clock && \
 npm run test:end-period && \
-npm run test:stat-recording
+npm run test:stat-recording && \
+npm run test:single-team-entry && \
+npm run test:single-team-away-identity && \
+npm run test:pbp-edit
 ```
 
 | Suite | Pass | Notes |

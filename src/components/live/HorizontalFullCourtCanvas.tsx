@@ -15,6 +15,7 @@ import { percentToCourtPointM, type CourtPointM } from '../../lib/fibaCourtGeome
 import type { CourtMarker as SessionMarker } from '../../liveEntry/liveEntryStateMachine';
 import type { Game, Shot } from '../../App';
 import { cn } from '../ui/utils';
+import { isOpponentUnitShotPlayerId } from '../../liveEntry/opponentUnit';
 
 interface HorizontalFullCourtCanvasProps {
   game: Game;
@@ -30,7 +31,9 @@ interface HorizontalFullCourtCanvasProps {
 }
 
 function shotAttacksLeft(shot: Shot, game: Game): boolean {
-  const isHome = game.homeTeam.players.some((p) => p.id === shot.playerId);
+  const isHome =
+    !isOpponentUnitShotPlayerId(shot.playerId) &&
+    game.homeTeam.players.some((p) => p.id === shot.playerId);
   return shooterAttacksLeft(isHome, !!game.courtSidesFlipped);
 }
 
@@ -108,13 +111,8 @@ export function HorizontalFullCourtCanvas({
     ? LIVE_HORIZONTAL_COURT_COLORS.home
     : LIVE_HORIZONTAL_COURT_COLORS.away;
 
-  // SVG slots are positional (left / right). When flipped, swap which abbrev appears where.
-  const leftLabel = flipped
-    ? game.awayTeam.abbreviation
-    : game.homeTeam.abbreviation;
-  const rightLabel = flipped
-    ? game.homeTeam.abbreviation
-    : game.awayTeam.abbreviation;
+  // Keep abbrev text paired with that team's color; only position swaps on flip.
+  const homeOnLeft = !flipped;
 
   return (
     <div ref={fitRef} className={cn('h-full w-full min-h-0', className)}>
@@ -136,8 +134,9 @@ export function HorizontalFullCourtCanvas({
           <FigmaHorizontalCourtSvg
             className="h-full w-full"
             markers={markers}
-            homeLabel={leftLabel}
-            awayLabel={rightLabel}
+            homeLabel={game.homeTeam.abbreviation}
+            awayLabel={game.awayTeam.abbreviation}
+            homeOnLeft={homeOnLeft}
             shotMode={shotMode}
             shotModeColor={shotModeColor}
           />

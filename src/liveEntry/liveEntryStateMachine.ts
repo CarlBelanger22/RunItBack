@@ -13,6 +13,8 @@ export interface PendingShot {
   shotValue: 2 | 3;
   outcome?: ShotOutcome;
   shooterId?: string;
+  /** Single-team Opp unit: no shooter pick; event has teamId only. */
+  teamOnly?: boolean;
   assistId?: string | null;
   blockerId?: string;
   isTransition?: boolean;
@@ -51,7 +53,10 @@ export type LiveEntryPhase =
   | { kind: 'and1'; recipientId: string; pendingShot: PendingShot }
   | {
       kind: 'free_throw';
-      playerId: string;
+      /** Undefined = Opp / team-only FTs. */
+      playerId?: string;
+      /** Team awarded the free throws. */
+      shootingTeamId: string;
       ftTotal: number;
       ftIndex: number;
       retainPossession: boolean;
@@ -83,7 +88,14 @@ export type LiveEntryAction =
   | { type: 'RESET' }
   | { type: 'SET_OFFENSE'; teamId: string }
   | { type: 'COURT_CLICK'; point: CourtPointM; zone: ResolvedShotZone }
-  | { type: 'SHOT_OUTCOME'; outcome: ShotOutcome }
+  | {
+      type: 'SHOT_OUTCOME';
+      outcome: ShotOutcome;
+      /** Opp unit FGA (single-team). */
+      teamOnly?: boolean;
+      /** Home FGA blocked by Opp — skip away blocker pick. */
+      skipBlockerPick?: boolean;
+    }
   | { type: 'PICK_SHOOTER'; playerId: string }
   | { type: 'PICK_ASSIST'; playerId: string | null }
   | { type: 'SET_FASTBREAK'; value: boolean }
@@ -100,7 +112,7 @@ export type LiveEntryAction =
   | { type: 'START_FOUL' }
   | { type: 'FOUL_ENTITY'; entity: FoulEntity }
   | { type: 'FOUL_CATEGORY'; category: FoulCategory }
-  | { type: 'PICK_FOUL_COMMITTER'; playerId: string; teamId: string }
+  | { type: 'PICK_FOUL_COMMITTER'; playerId?: string; teamId: string; skipRecipient?: boolean }
   | { type: 'PICK_FOUL_COACH'; teamId: string }
   | { type: 'PICK_FOUL_TEAM'; teamId: string }
   | { type: 'PICK_FOUL_RECIPIENT'; playerId: string }
@@ -110,7 +122,8 @@ export type LiveEntryAction =
   | { type: 'SET_FT_COUNT'; count: number }
   | {
       type: 'START_FT';
-      playerId: string;
+      playerId?: string;
+      shootingTeamId: string;
       ftTotal: number;
       retainPossession: boolean;
       offendedTeamId: string;
@@ -123,7 +136,7 @@ export type LiveEntryAction =
   | { type: 'START_AND1'; recipientId: string; pendingShot: PendingShot }
   | { type: 'START_OPENING_JUMPBALL' }
   | { type: 'START_JUMPBALL' }
-  | { type: 'JUMPBALL_PICK_TO'; playerId: string }
+  | { type: 'JUMPBALL_PICK_TO'; playerId?: string }
   | { type: 'TOGGLE_CLOCK' }
   | { type: 'APPLY_SUBSTITUTION'; outIds: string[]; inIds: string[]; teamId: string };
 
@@ -187,12 +200,39 @@ export function liveEntryReducer(
         },
       };
 
-    case 'SHOT_OUTCOME':
+    case 'SHOT_OUTCOME': {
       if (!state.ctx.pendingShot) return state;
-      const pending = { ...state.ctx.pendingShot, outcome: action.outcome };
+      const pending = {
+        ...state.ctx.pendingShot,
+        outcome: action.outcome,
+        teamOnly: action.teamOnly ?? state.ctx.pendingShot.teamOnly,
+        assistId: action.teamOnly ? null : state.ctx.pendingShot.assistId,
+      };
       if (action.outcome === 'block') {
+        if (action.skipBlockerPick) {
+          return {
+            phase: { kind: 'shot', step: 'pick_shooter' },
+            ctx: { ...state.ctx, pendingShot: pending },
+          };
+        }
         return {
           phase: { kind: 'shot', step: 'pick_blocker' },
+          ctx: { ...state.ctx, pendingShot: pending },
+        };
+      }
+      if (action.teamOnly) {
+        if (action.outcome === 'make') {
+          return {
+            phase: { kind: 'shot', step: 'fastbreak' },
+            ctx: {
+              ...state.ctx,
+              pendingShot: { ...pending, assistId: null },
+            },
+          };
+        }
+        // Opp miss: UI commits immediately via session; keep pending stamped.
+        return {
+          phase: { kind: 'shot', step: 'await_outcome' },
           ctx: { ...state.ctx, pendingShot: pending },
         };
       }
@@ -200,6 +240,7 @@ export function liveEntryReducer(
         phase: { kind: 'shot', step: 'pick_shooter' },
         ctx: { ...state.ctx, pendingShot: pending },
       };
+    }
 
     case 'PICK_BLOCKER':
       if (!state.ctx.pendingShot) return state;
@@ -383,6 +424,18 @@ export function liveEntryReducer(
         };
       }
       if (category === 'unsportsmanlike' || category === 'personal') {
+        if (action.skipRecipient) {
+          return {
+            ...state,
+            phase: {
+              ...state.phase,
+              step: 'ft_count',
+              committerId: action.playerId,
+              committerTeamId: action.teamId,
+              recipientId: undefined,
+            },
+          };
+        }
         return {
           ...state,
           phase: {
@@ -488,6 +541,7 @@ export function liveEntryReducer(
         phase: {
           kind: 'free_throw',
           playerId: action.playerId,
+          shootingTeamId: action.shootingTeamId,
           ftTotal: action.ftTotal,
           ftIndex: 1,
           retainPossession: action.retainPossession,
@@ -526,7 +580,11 @@ export function liveEntryReducer(
     case 'JUMPBALL_PICK_TO':
       return {
         ...state,
-        phase: { kind: 'jumpball', step: 'pick_steal', turnoverPlayerId: action.playerId },
+        phase: {
+          kind: 'jumpball',
+          step: 'pick_steal',
+          turnoverPlayerId: action.playerId,
+        },
       };
 
     case 'TOGGLE_CLOCK':

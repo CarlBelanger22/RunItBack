@@ -1,8 +1,28 @@
-import type { GameEvent } from '../App';
+import type { Game, GameEvent } from '../App';
 
 export interface EventEditGuardResult {
   ok: boolean;
   reason?: string;
+}
+
+/** Away-team events in single-team mode are Opp unit rows — not editable (LE-91). */
+export function isSingleTeamOppUnitEvent(game: Game, event: GameEvent): boolean {
+  if (game.trackBothTeams !== false) return false;
+  return event.teamId === game.awayTeamId;
+}
+
+export function canOpenLiveEventEdit(
+  game: Game,
+  event: GameEvent
+): EventEditGuardResult {
+  if (isSingleTeamOppUnitEvent(game, event)) {
+    return {
+      ok: false,
+      reason:
+        'Opponent unit events are read-only in single-team mode. Undo if you need to correct them.',
+    };
+  }
+  return { ok: true };
 }
 
 /**

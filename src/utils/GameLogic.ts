@@ -1,14 +1,35 @@
 import type { Game, GameEvent, GameStats, TeamStats, Shot } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import { possessionContextForScoringTeam } from '../liveEntry/possessionEngine';
+import { OPPONENT_UNIT_SHOT_PLAYER_ID } from '../liveEntry/opponentUnit';
+import { teamIdForPlayer } from '../liveEntry/reboundTeams';
 
 /**
  * GameLogic provides utility functions to update game state based on events.
  */
 export class GameLogic {
   static recordEvent(game: Game, event: GameEvent): Game {
-    const updatedGame = { ...game };
+    const updatedGame: Game = {
+      ...game,
+      // Clone team stat bags so React consumers (e.g. live Opp strip) see new
+      // references after in-place field updates.
+      teamStats: {
+        home: {
+          ...game.teamStats.home,
+          team_coach: game.teamStats.home.team_coach
+            ? { ...game.teamStats.home.team_coach }
+            : game.teamStats.home.team_coach,
+        },
+        away: {
+          ...game.teamStats.away,
+          team_coach: game.teamStats.away.team_coach
+            ? { ...game.teamStats.away.team_coach }
+            : game.teamStats.away.team_coach,
+        },
+      },
+    };
 
+    // Annotate before appending so possession context uses prior events only.
     this.annotatePossessionContext(updatedGame, event);
 
     updatedGame.events = [...game.events, event];
@@ -149,12 +170,17 @@ export class GameLogic {
           teamStats.assists += 1;
         }
         if (!event.details.made && event.details.blockedBy) {
-          const blockerStats = this.getOrCreatePlayerStats(
-            game,
-            event.details.blockedBy
-          );
+          const blockerId = event.details.blockedBy as string;
+          const blockerStats = this.getOrCreatePlayerStats(game, blockerId);
           blockerStats.blocks += 1;
-          teamStats.blocks += 1;
+          const blockerTeamId = teamIdForPlayer(game, blockerId);
+          if (blockerTeamId) {
+            const blockerTeam =
+              blockerTeamId === game.homeTeamId
+                ? game.teamStats.home
+                : game.teamStats.away;
+            blockerTeam.blocks += 1;
+          }
           if (playerStats) playerStats.blocks_received += 1;
         }
         break;
@@ -348,15 +374,16 @@ export class GameLogic {
       game.possessionArrowTeamId = arrowAfter;
     }
 
-    if (d.kind === 'held_ball' && d.possessionChanged && d.turnoverPlayerId) {
+    if (d.kind === 'held_ball' && d.possessionChanged) {
+      const turnoverPlayerId = d.turnoverPlayerId as string | undefined | null;
       const turnoverEvent: GameEvent = {
         ...event,
         type: 'turnover',
         teamId: event.teamId,
-        playerId: d.turnoverPlayerId as string,
+        playerId: turnoverPlayerId ?? undefined,
         details: {
-          isTeamTurnover: false,
-          stolenBy: d.stealPlayerId ?? null,
+          isTeamTurnover: !turnoverPlayerId,
+          stolenBy: (d.stealPlayerId as string | null | undefined) ?? null,
           jumpBall: true,
         },
       };
@@ -502,24 +529,27 @@ export class GameLogic {
 
     let updatedGame = resetGame;
     for (const event of events) {
-      if (event.type === 'shot_attempt' && event.playerId) {
+      if (event.type === 'shot_attempt') {
         const d = event.details;
-        const shot: Shot = {
-          id: `shot-${event.id}`,
-          playerId: event.playerId,
-          x: typeof d.x === 'number' ? d.x : 50,
-          y: typeof d.y === 'number' ? d.y : 50,
-          made: !!d.made,
-          isThree: !!d.isThree,
-          timestamp: event.timestamp,
-          assistedBy: d.assistedBy,
-          blockedBy: d.blockedBy,
-          isTransition: d.isTransition,
-          inPaint: d.inPaint,
-          period: event.period,
-          gameTime: event.gameTime,
-        };
-        updatedGame = { ...updatedGame, shots: [...updatedGame.shots, shot] };
+        const hasCoords = typeof d.x === 'number' || typeof d.y === 'number';
+        if (event.playerId || hasCoords || d.teamOnly) {
+          const shot: Shot = {
+            id: `shot-${event.id}`,
+            playerId: event.playerId ?? OPPONENT_UNIT_SHOT_PLAYER_ID,
+            x: typeof d.x === 'number' ? d.x : 50,
+            y: typeof d.y === 'number' ? d.y : 50,
+            made: !!d.made,
+            isThree: !!d.isThree,
+            timestamp: event.timestamp,
+            assistedBy: d.assistedBy,
+            blockedBy: d.blockedBy,
+            isTransition: d.isTransition,
+            inPaint: d.inPaint,
+            period: event.period,
+            gameTime: event.gameTime,
+          };
+          updatedGame = { ...updatedGame, shots: [...updatedGame.shots, shot] };
+        }
       }
       updatedGame = this.recordEvent(updatedGame, { ...event });
     }

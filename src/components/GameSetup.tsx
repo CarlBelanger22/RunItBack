@@ -42,6 +42,8 @@ import { sortTournamentsByDateDesc } from "../utils/tournamentSort";
 import {
   generateTeamAbbreviation,
   hasDuplicateJerseyNumbers,
+  isValidTeamAbbreviation,
+  normalizeTeamAbbreviation,
 } from "../utils/teamAbbreviation";
 import {
   getPlayersForTeamInTournament,
@@ -52,6 +54,11 @@ import {
   formatPeriodClock,
   type GameClockSettings,
 } from "../utils/gameClock";
+import {
+  isOppIdentityReady,
+  oppTournamentTeamsExcludingHome,
+  toIdentityOnlyAwayTeam,
+} from "../utils/singleTeamAwayIdentity";
 
 const CREATE_NEW_TEAM_VALUE = "__create_new__";
 const POSITIONS = ["PG", "SG", "SF", "PF", "C"] as const;
@@ -443,6 +450,144 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
   );
 });
 
+/** Single-team Opp: tournament team pick or create name+abbrev (no logo, no roster). */
+interface OppIdentityPanelProps {
+  mode: TeamSelectionMode;
+  team: Team;
+  tournamentTeams: Team[];
+  takenAbbreviations: string[];
+  onModeChange: (mode: TeamSelectionMode) => void;
+  onTeamChange: (team: Team) => void;
+  onSelectExisting: (teamId: string) => void;
+}
+
+const OppIdentityPanel = React.memo(function OppIdentityPanel({
+  mode,
+  team,
+  tournamentTeams,
+  takenAbbreviations,
+  onModeChange,
+  onTeamChange,
+  onSelectExisting,
+}: OppIdentityPanelProps) {
+  const selectValue =
+    mode === "create_new"
+      ? CREATE_NEW_TEAM_VALUE
+      : mode === "existing"
+        ? team.id
+        : "";
+
+  const abbrevNormalized = normalizeTeamAbbreviation(team.abbreviation);
+  const abbrevTaken =
+    mode === "create_new" &&
+    abbrevNormalized.length >= 2 &&
+    takenAbbreviations.some((a) => a.toUpperCase() === abbrevNormalized);
+
+  const handleDropdownChange = (value: string) => {
+    if (value === CREATE_NEW_TEAM_VALUE) {
+      onModeChange("create_new");
+      onTeamChange(draftTeam("away"));
+      return;
+    }
+    onSelectExisting(value);
+  };
+
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Opponent is tracked as a single unit. Only your team&apos;s individual
+        stats are recorded. Pick a tournament team for the scoreboard, or create
+        one with a name and abbreviation.
+      </p>
+
+      <div className="space-y-2">
+        <Label>Opponent team</Label>
+        <Select value={selectValue} onValueChange={handleDropdownChange}>
+          <SelectTrigger>
+            <SelectValue placeholder="Select a tournament team" />
+          </SelectTrigger>
+          <SelectContent>
+            {tournamentTeams.map((t) => (
+              <SelectItem key={t.id} value={t.id}>
+                {t.name} ({t.abbreviation})
+              </SelectItem>
+            ))}
+            <SelectItem value={CREATE_NEW_TEAM_VALUE}>
+              Create new team
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {mode === "create_new" && (
+        <div className="space-y-3">
+          <div className="space-y-2">
+            <Label htmlFor="opp-team-name">Name</Label>
+            <Input
+              id="opp-team-name"
+              placeholder="e.g. Lakers"
+              value={team.name}
+              onChange={(e) => {
+                const name = e.target.value;
+                onTeamChange({
+                  ...team,
+                  name,
+                  abbreviation: team.abbreviation.trim()
+                    ? team.abbreviation
+                    : name.trim()
+                      ? generateTeamAbbreviation(name, takenAbbreviations)
+                      : "",
+                });
+              }}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="opp-team-abbrev">Abbreviation</Label>
+            <Input
+              id="opp-team-abbrev"
+              placeholder="e.g. LAL"
+              value={team.abbreviation}
+              maxLength={5}
+              onChange={(e) =>
+                onTeamChange({
+                  ...team,
+                  abbreviation: normalizeTeamAbbreviation(e.target.value),
+                })
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              2–5 letters or numbers. No logo needed for opponent identity.
+            </p>
+            {team.abbreviation && !isValidTeamAbbreviation(team.abbreviation) && (
+              <p className="text-sm text-destructive">
+                Abbreviation must be 2–5 characters.
+              </p>
+            )}
+            {abbrevTaken && (
+              <p className="text-sm text-destructive">
+                That abbreviation is already used. Choose another.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {mode === "existing" && team.name && (
+        <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-3">
+          {team.name} ({team.abbreviation}) — identity only for this game (no
+          opponent player stats).
+        </p>
+      )}
+
+      {mode === "none" && (
+        <p className="text-sm text-muted-foreground py-2 text-center">
+          Select a tournament team or create a new one.
+        </p>
+      )}
+    </div>
+  );
+});
+
 export function GameSetup({
   tournaments,
   teams,
@@ -465,8 +610,6 @@ export function GameSetup({
   const [clockSettings, setClockSettings] = useState<GameClockSettings>(() =>
     defaultClockForTournament("", null)
   );
-  const [opponentName, setOpponentName] = useState("");
-
   const [homeMode, setHomeMode] = useState<TeamSelectionMode>("none");
   const [awayMode, setAwayMode] = useState<TeamSelectionMode>("none");
   const [homeTeam, setHomeTeam] = useState<Team>(() => draftTeam("home"));
@@ -515,7 +658,6 @@ export function GameSetup({
     setAwayMode("none");
     setHomeTeam(draftTeam("home"));
     setAwayTeam(draftTeam("away"));
-    setOpponentName("");
     rosterBaselineRef.current = {};
   }, []);
 
@@ -523,6 +665,12 @@ export function GameSetup({
     setTournamentId(id);
     resetSidesForTournament();
   };
+
+  const oppTeamsForPicker = useMemo(
+    () =>
+      oppTournamentTeamsExcludingHome(tournamentTeams, homeMode, homeTeam.id),
+    [tournamentTeams, homeMode, homeTeam.id]
+  );
 
   const selectExistingTeam = useCallback(
     (teamId: string, side: TeamSide) => {
@@ -544,12 +692,27 @@ export function GameSetup({
       if (side === "home") {
         setHomeMode("existing");
         setHomeTeam(copy);
+        if (awayMode === "existing" && awayTeam.id === teamId) {
+          setAwayMode("none");
+          setAwayTeam(draftTeam("away"));
+        }
       } else {
         setAwayMode("existing");
         setAwayTeam(copy);
       }
     },
-    [tournamentTeams, tournamentId, teams, tournamentRosters]
+    [tournamentTeams, tournamentId, teams, tournamentRosters, awayMode, awayTeam.id]
+  );
+
+  const selectOppIdentityTeam = useCallback(
+    (teamId: string) => {
+      const selected = tournamentTeams.find((t) => t.id === teamId);
+      if (!selected) return;
+      if (homeMode === "existing" && homeTeam.id === teamId) return;
+      setAwayMode("existing");
+      setAwayTeam(toIdentityOnlyAwayTeam(selected));
+    },
+    [tournamentTeams, homeMode, homeTeam.id]
   );
 
   const reorderPlayers = useCallback(
@@ -672,14 +835,25 @@ export function GameSetup({
         setupCreatedTeamIds.push(resolvedAway.id);
       }
     } else {
-      const name = opponentName.trim();
-      if (!name) return;
-      resolvedAway = {
-        id: `opponent-${Date.now()}`,
-        name,
-        abbreviation: generateTeamAbbreviation(name, takenAbbreviations),
-        players: [],
-      };
+      if (!isOppIdentityReady(awayMode, awayTeam)) return;
+      if (awayMode === "create_new") {
+        const abbrev = normalizeTeamAbbreviation(awayTeam.abbreviation);
+        if (
+          takenAbbreviations.some((a) => a.toUpperCase() === abbrev)
+        ) {
+          return;
+        }
+        const created = onCreateTeam({
+          name: awayTeam.name.trim(),
+          abbreviation: abbrev,
+          players: [],
+          currentTournamentId: tournamentId,
+        });
+        resolvedAway = toIdentityOnlyAwayTeam(created);
+        setupCreatedTeamIds.push(resolvedAway.id);
+      } else {
+        resolvedAway = toIdentityOnlyAwayTeam(awayTeam);
+      }
     }
 
     const gameId = `game-${Date.now()}`;
@@ -732,10 +906,10 @@ export function GameSetup({
     awayMode,
     awayTeam,
     trackBothTeams,
-    opponentName,
     resolveTeamForGame,
     teams,
     takenAbbreviations,
+    onCreateTeam,
     onGameStart,
   ]);
 
@@ -749,7 +923,21 @@ export function GameSetup({
     if (!tournamentId || !gameDate) return false;
     if (!sideReady(homeMode, homeTeam)) return false;
     if (trackBothTeams) return sideReady(awayMode, awayTeam);
-    return opponentName.trim().length > 0;
+    if (!isOppIdentityReady(awayMode, awayTeam)) return false;
+    if (awayMode === "create_new") {
+      const abbrev = normalizeTeamAbbreviation(awayTeam.abbreviation);
+      if (takenAbbreviations.some((a) => a.toUpperCase() === abbrev)) {
+        return false;
+      }
+    }
+    if (
+      homeMode === "existing" &&
+      awayMode === "existing" &&
+      homeTeam.id === awayTeam.id
+    ) {
+      return false;
+    }
+    return true;
   }, [
     tournamentId,
     gameDate,
@@ -758,7 +946,7 @@ export function GameSetup({
     awayMode,
     awayTeam,
     trackBothTeams,
-    opponentName,
+    takenAbbreviations,
   ]);
 
   const homeTitle = trackBothTeams ? "Home team" : "Your team";
@@ -967,20 +1155,15 @@ export function GameSetup({
                 onReorderPlayers={(players) => reorderPlayers("away", players)}
               />
             ) : (
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground">
-                  Opponent is tracked as a single unit. Only your team&apos;s individual stats are recorded.
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor="opponent-name">Opponent name</Label>
-                  <Input
-                    id="opponent-name"
-                    placeholder="e.g. Lakers"
-                    value={opponentName}
-                    onChange={(e) => setOpponentName(e.target.value)}
-                  />
-                </div>
-              </div>
+              <OppIdentityPanel
+                mode={awayMode}
+                team={awayTeam}
+                tournamentTeams={oppTeamsForPicker}
+                takenAbbreviations={takenAbbreviations}
+                onModeChange={setAwayMode}
+                onTeamChange={setAwayTeam}
+                onSelectExisting={selectOppIdentityTeam}
+              />
             )}
           </CardContent>
         </Card>

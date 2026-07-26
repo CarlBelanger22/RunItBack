@@ -19,6 +19,8 @@ export interface FoulCommitParams {
   isCoachFoul?: boolean;
   ftCount: number;
   ftShooterId?: string;
+  /** When set (and no ftShooterId), team-only FTs for this side (Opp unit). */
+  ftShootingTeamId?: string;
   retainPossession?: boolean;
   offendedTeamId?: string;
   /** Team that receives the ball after the final FT (may differ from offended team on technicals). */
@@ -28,7 +30,8 @@ export interface FoulCommitParams {
 }
 
 export interface FtSessionState {
-  playerId: string;
+  /** Undefined = team-only FTs (Opp unit). */
+  playerId?: string;
   ftTotal: number;
   ftIndex: number;
   retainPossession: boolean;

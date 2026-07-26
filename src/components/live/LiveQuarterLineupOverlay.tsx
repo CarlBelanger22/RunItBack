@@ -14,6 +14,8 @@ interface LiveQuarterLineupOverlayProps {
   defaultAwayIds: string[];
   /** Players who have fouled out — excluded from selection and roster count. */
   fouledOutIds?: string[];
+  /** Single-team live entry: only pick home lineup (away stays empty). */
+  homeOnly?: boolean;
   onConfirm: (homeLineup: string[], awayLineup: string[]) => void;
   onCancel?: () => void;
 }
@@ -111,21 +113,26 @@ export function LiveQuarterLineupOverlay({
   defaultHomeIds,
   defaultAwayIds,
   fouledOutIds,
+  homeOnly = false,
   onConfirm,
   onCancel,
 }: LiveQuarterLineupOverlayProps) {
   const fouledOut = new Set(fouledOutIds ?? []);
   const eligibleHome = game.homeTeam.players.filter((p) => !fouledOut.has(p.id));
-  const eligibleAway = game.awayTeam.players.filter((p) => !fouledOut.has(p.id));
+  const eligibleAway = homeOnly
+    ? []
+    : game.awayTeam.players.filter((p) => !fouledOut.has(p.id));
   // FIBA short-handed: a depleted team fields min(5, eligible players).
   const homeMax = Math.min(5, eligibleHome.length);
-  const awayMax = Math.min(5, eligibleAway.length);
+  const awayMax = homeOnly ? 0 : Math.min(5, eligibleAway.length);
 
   const [homeLineup, setHomeLineup] = useState<string[]>(() =>
     defaultHomeIds.filter((id) => !fouledOut.has(id)).slice(0, homeMax)
   );
   const [awayLineup, setAwayLineup] = useState<string[]>(() =>
-    defaultAwayIds.filter((id) => !fouledOut.has(id)).slice(0, awayMax)
+    homeOnly
+      ? []
+      : defaultAwayIds.filter((id) => !fouledOut.has(id)).slice(0, awayMax)
   );
 
   const valid = homeLineup.length === homeMax && awayLineup.length === awayMax;
@@ -134,15 +141,29 @@ export function LiveQuarterLineupOverlay({
 
   return (
     <LiveCourtOverlayShell>
-      <Card className="border-primary/50 shadow-xl w-[min(96vw,920px)]">
+      <Card
+        className={
+          homeOnly
+            ? 'live-quarter-lineup-card live-quarter-lineup-card--home-only border-primary/50 shadow-xl'
+            : 'live-quarter-lineup-card border-primary/50 shadow-xl'
+        }
+      >
         <CardHeader className="pb-2 pt-4">
           <CardTitle className="text-center text-base">{nextPeriodLabel} — On-court lineups</CardTitle>
           <p className="text-center text-xs text-muted-foreground">
-            Select each team's on-court players for the next period
+            {homeOnly
+              ? 'Select your on-court players for the next period'
+              : "Select each team's on-court players for the next period"}
           </p>
         </CardHeader>
         <CardContent className="space-y-4 pb-4">
-          <div className="grid grid-cols-2 gap-0 divide-x divide-border rounded-lg border border-border overflow-hidden">
+          <div
+            className={
+              homeOnly
+                ? 'rounded-lg border border-border overflow-hidden'
+                : 'grid grid-cols-2 gap-0 divide-x divide-border rounded-lg border border-border overflow-hidden'
+            }
+          >
             <div className="p-3 min-w-0" style={{ background: liveTeamTint('home', '08') }}>
               <LineupPicker
                 side="home"
@@ -155,18 +176,20 @@ export function LiveQuarterLineupOverlay({
                 onToggle={(id) => toggleLineup(id, homeLineup, setHomeLineup, homeMax)}
               />
             </div>
-            <div className="p-3 min-w-0" style={{ background: liveTeamTint('away', '08') }}>
-              <LineupPicker
-                side="away"
-                teamName={game.awayTeam.name}
-                abbrev={game.awayTeam.abbreviation}
-                players={game.awayTeam.players}
-                selected={awayLineup}
-                max={awayMax}
-                lockedIds={fouledOut}
-                onToggle={(id) => toggleLineup(id, awayLineup, setAwayLineup, awayMax)}
-              />
-            </div>
+            {homeOnly ? null : (
+              <div className="p-3 min-w-0" style={{ background: liveTeamTint('away', '08') }}>
+                <LineupPicker
+                  side="away"
+                  teamName={game.awayTeam.name}
+                  abbrev={game.awayTeam.abbreviation}
+                  players={game.awayTeam.players}
+                  selected={awayLineup}
+                  max={awayMax}
+                  lockedIds={fouledOut}
+                  onToggle={(id) => toggleLineup(id, awayLineup, setAwayLineup, awayMax)}
+                />
+              </div>
+            )}
           </div>
           <div className="flex gap-2">
             <Button

@@ -45,6 +45,7 @@ import {
 } from './minutesEngine';
 import { stripPossessionContext } from './eventEditGuards';
 import { isValidSubstitutionClock } from '../utils/gameClock';
+import { isOppUnitOffense, isSingleTeamLive } from './singleTeamFlow';
 
 function resolveOnCourt(game: Game, side: 'home' | 'away'): string[] {
   const starters = side === 'home' ? game.homeStarters : game.awayStarters;
@@ -182,19 +183,6 @@ export function useLiveGameSession(
     [currentGame, syncGame, syncMinutesFromGame]
   );
 
-  const handleShotOutcome = useCallback(
-    (outcome: 'make' | 'miss' | 'block', point?: { xM: number; yM: number }) => {
-      dispatch({ type: 'SHOT_OUTCOME', outcome });
-      if (point) {
-        dispatch({
-          type: 'ADD_MARKER',
-          marker: { point, color: outcome === 'make' ? 'green' : 'red' },
-        });
-      }
-    },
-    []
-  );
-
   const commitShot = useCallback(
     (pending: PendingShot, and1 = false) => {
       const built = buildShotEvent(currentGame, offenseTeamId, pending);
@@ -238,6 +226,45 @@ export function useLiveGameSession(
       }
     },
     [currentGame, offenseTeamId, syncGame]
+  );
+
+  const handleShotOutcome = useCallback(
+    (outcome: 'make' | 'miss' | 'block', point?: { xM: number; yM: number }) => {
+      const pendingBase = entryStateRef.current.ctx.pendingShot;
+      if (!pendingBase) return;
+
+      if (point) {
+        dispatch({
+          type: 'ADD_MARKER',
+          marker: { point, color: outcome === 'make' ? 'green' : 'red' },
+        });
+      }
+
+      const single = isSingleTeamLive(currentGame);
+      const oppOffense = isOppUnitOffense(currentGame, offenseTeamId);
+
+      if (single && oppOffense) {
+        if (outcome === 'miss') {
+          commitShot({ ...pendingBase, outcome: 'miss', teamOnly: true });
+          return;
+        }
+        if (outcome === 'make') {
+          dispatch({ type: 'SHOT_OUTCOME', outcome: 'make', teamOnly: true });
+          return;
+        }
+        // block — pick home blocker next
+        dispatch({ type: 'SHOT_OUTCOME', outcome: 'block', teamOnly: true });
+        return;
+      }
+
+      if (single && !oppOffense && outcome === 'block') {
+        dispatch({ type: 'SHOT_OUTCOME', outcome: 'block', skipBlockerPick: true });
+        return;
+      }
+
+      dispatch({ type: 'SHOT_OUTCOME', outcome });
+    },
+    [commitShot, currentGame, offenseTeamId]
   );
 
   const commitRebound = useCallback(
@@ -317,7 +344,7 @@ export function useLiveGameSession(
   }, [currentGame, offenseTeamId, defenseTeamId, syncGame]);
 
   const commitJumpBallWithStats = useCallback(
-    (turnoverPlayerId: string, stealPlayerId: string) => {
+    (turnoverPlayerId?: string, stealPlayerId?: string) => {
       const arrowTeamId = currentGame.possessionArrowTeamId;
       if (!arrowTeamId) return;
 
@@ -355,12 +382,13 @@ export function useLiveGameSession(
       const g = GameLogic.recordEvent(currentGame, event);
       syncGame(g);
 
-      if (params.ftCount > 0 && params.ftShooterId) {
-        const shooterTeam =
-          teamIdForPlayer(currentGame, params.ftShooterId) ??
-          (currentGame.homeTeam.players.some((p) => p.id === params.ftShooterId)
-            ? currentGame.homeTeamId
-            : currentGame.awayTeamId);
+      if (params.ftCount > 0 && (params.ftShooterId || params.ftShootingTeamId)) {
+        const shooterTeam = params.ftShooterId
+          ? teamIdForPlayer(currentGame, params.ftShooterId) ??
+            (currentGame.homeTeam.players.some((p) => p.id === params.ftShooterId)
+              ? currentGame.homeTeamId
+              : currentGame.awayTeamId)
+          : (params.ftShootingTeamId as string);
         const retainPossession = params.retainPossession ?? false;
         const possessionTeamAfterFt =
           params.possessionTeamAfterFt ??
@@ -371,6 +399,7 @@ export function useLiveGameSession(
         dispatch({
           type: 'START_FT',
           playerId: params.ftShooterId,
+          shootingTeamId: shooterTeam,
           ftTotal: params.ftCount,
           retainPossession,
           offendedTeamId,
@@ -390,6 +419,7 @@ export function useLiveGameSession(
 
       const {
         playerId,
+        shootingTeamId,
         ftTotal,
         ftIndex,
         retainPossession,
@@ -397,9 +427,12 @@ export function useLiveGameSession(
         possessionTeamAfterFt,
       } = phase;
       const shooterTeam =
-        teamIdForPlayer(currentGame, playerId) ??
-        (currentGame.homeTeam.players.some((p) => p.id === playerId)
-          ? currentGame.homeTeamId
+        shootingTeamId ??
+        (playerId
+          ? teamIdForPlayer(currentGame, playerId) ??
+            (currentGame.homeTeam.players.some((p) => p.id === playerId)
+              ? currentGame.homeTeamId
+              : currentGame.awayTeamId)
           : currentGame.awayTeamId);
       const defendingTeamId = opponentTeamId(currentGame, shooterTeam);
 

@@ -7,6 +7,7 @@ import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEnt
 import type { FoulCommitParams } from '../../liveEntry/foulFlow';
 import { ftCountOptionsForCategory } from '../../liveEntry/foulFlow';
 import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
+import { LiveCourtTipPanel } from './LiveCourtTipPanel';
 
 interface LiveCourtFlowOverlaysProps {
   phase: LiveEntryPhase;
@@ -19,6 +20,9 @@ interface LiveCourtFlowOverlaysProps {
   defenseTeamId: string;
   homeTeamId: string;
   awayTeamId: string;
+  reboundShootingTeamId: string | null;
+  reboundDefendingTeamId: string | null;
+  possessionArrowTeamId: string | null;
   onFastbreakChange: (value: boolean) => void;
   onPendingReboundTypeChange: (value: string | null) => void;
   onTurnoverPlayerIdChange: (value: string | undefined) => void;
@@ -32,6 +36,10 @@ interface LiveCourtFlowOverlaysProps {
     stolenBy?: string | null
   ) => void;
   commitFoul: (params: FoulCommitParams) => void;
+  commitJumpBallWithStats: (
+    turnoverPlayerId?: string,
+    stealPlayerId?: string
+  ) => void;
 }
 
 export function LiveCourtFlowOverlays({
@@ -45,6 +53,9 @@ export function LiveCourtFlowOverlays({
   defenseTeamId,
   homeTeamId,
   awayTeamId,
+  reboundShootingTeamId,
+  reboundDefendingTeamId,
+  possessionArrowTeamId,
   onFastbreakChange,
   onPendingReboundTypeChange,
   onTurnoverPlayerIdChange,
@@ -54,6 +65,7 @@ export function LiveCourtFlowOverlays({
   commitRebound,
   commitTurnover,
   commitFoul,
+  commitJumpBallWithStats,
 }: LiveCourtFlowOverlaysProps) {
   if (phase.kind === 'shot' && phase.step === 'fastbreak' && pending) {
     const shotPayload: PendingShot = {
@@ -85,15 +97,28 @@ export function LiveCourtFlowOverlays({
               >
                 Commit
               </Button>
-              <Button
-                variant="secondary"
-                onClick={overlayClick(() => {
-                  onAndOneFoul(shotPayload);
-                })}
-              >
-                + Foul
-              </Button>
+              {pending.teamOnly ? (
+                <Button
+                  variant="ghost"
+                  onClick={overlayClick(() => {
+                    dispatch({ type: 'RESET' });
+                    onFastbreakChange(false);
+                  })}
+                >
+                  Cancel
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  onClick={overlayClick(() => {
+                    onAndOneFoul(shotPayload);
+                  })}
+                >
+                  + Foul
+                </Button>
+              )}
             </div>
+            {pending.teamOnly ? null : (
             <Button
               variant="ghost"
               className="w-full"
@@ -104,6 +129,7 @@ export function LiveCourtFlowOverlays({
             >
               Cancel
             </Button>
+            )}
           </CardContent>
         </Card>
       </LiveCourtOverlayShell>
@@ -113,43 +139,47 @@ export function LiveCourtFlowOverlays({
   if (phase.kind === 'shot' && phase.step === 'pick_assist' && pending) {
     return (
       <LiveCourtOverlayShell>
-        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-center text-base">Assist</CardTitle>
-            <p className="text-center text-xs text-muted-foreground">
-              Select assister on roster, or continue without
-            </p>
-          </CardHeader>
-          <CardContent className="pb-4">
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={overlayClick(() => dispatch({ type: 'PICK_ASSIST', playerId: null }))}
-            >
-              No assist
-            </Button>
-          </CardContent>
-        </Card>
+        <LiveCourtTipPanel
+          title="Assist"
+          description="Select assister on roster, or continue without"
+        >
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={overlayClick(() => dispatch({ type: 'PICK_ASSIST', playerId: null }))}
+          >
+            No assist
+          </Button>
+        </LiveCourtTipPanel>
       </LiveCourtOverlayShell>
     );
   }
 
-  if (phase.kind === 'shot' && phase.step === 'pick_blocker' && !trackBoth) {
+  if (phase.kind === 'shot' && phase.step === 'pick_blocker' && !trackBoth && !pending?.teamOnly) {
     return (
       <LiveCourtOverlayShell>
-        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-center text-base">Blocked shot</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4">
-            <Button
-              className="w-full"
-              onClick={overlayClick(() => dispatch({ type: 'SKIP_BLOCKER' }))}
-            >
-              Opponent block (no individual)
-            </Button>
-          </CardContent>
-        </Card>
+        <LiveCourtTipPanel
+          title="Blocked shot"
+          description="Opponent blocked — no individual credit"
+        >
+          <Button
+            className="w-full"
+            onClick={overlayClick(() => dispatch({ type: 'SKIP_BLOCKER' }))}
+          >
+            Continue — pick shooter
+          </Button>
+        </LiveCourtTipPanel>
+      </LiveCourtOverlayShell>
+    );
+  }
+
+  if (phase.kind === 'shot' && phase.step === 'pick_blocker' && !trackBoth && pending?.teamOnly) {
+    return (
+      <LiveCourtOverlayShell>
+        <LiveCourtTipPanel
+          title="Blocked shot"
+          description="Select home blocker on roster"
+        />
       </LiveCourtOverlayShell>
     );
   }
@@ -166,20 +196,88 @@ export function LiveCourtFlowOverlays({
     if (pendingReboundType === 'offensive' || pendingReboundType === 'defensive') {
       return (
         <LiveCourtOverlayShell>
+          <LiveCourtTipPanel
+            tone="orange"
+            title={
+              pendingReboundType === 'offensive' ? 'Offensive rebound' : 'Defensive rebound'
+            }
+            description="Select player on roster"
+          >
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={overlayClick(() => onPendingReboundTypeChange(null))}
+            >
+              Back to rebound type
+            </Button>
+          </LiveCourtTipPanel>
+        </LiveCourtOverlayShell>
+      );
+    }
+
+    // Single-team: Opp is a unit — label buttons by side; Opp rebounds are one-click team.
+    if (!trackBoth) {
+      const shootingIsHome = reboundShootingTeamId === homeTeamId;
+      const shootingIsOpp = reboundShootingTeamId === awayTeamId;
+      return (
+        <LiveCourtOverlayShell>
           <Card className="border-orange-500/50 shadow-xl w-[min(90%,320px)]">
             <CardHeader className="pb-2 pt-4">
-              <CardTitle className="text-center text-base">
-                {pendingReboundType === 'offensive' ? 'Offensive rebound' : 'Defensive rebound'}
-              </CardTitle>
-              <p className="text-center text-xs text-muted-foreground">Select player on roster</p>
+              <CardTitle className="text-center text-base">Rebound</CardTitle>
+              <p className="text-center text-xs text-muted-foreground">
+                {shootingIsOpp
+                  ? 'Opp missed — home DRB or Opp ORB'
+                  : shootingIsHome
+                    ? 'Your miss — home ORB or Opp DRB'
+                    : 'Who got the rebound?'}
+              </p>
             </CardHeader>
-            <CardContent className="pb-4">
+            <CardContent className="grid grid-cols-2 gap-2 pb-4">
+              {shootingIsHome ? (
+                <>
+                  <Button onClick={overlayClick(() => onPendingReboundTypeChange('offensive'))}>
+                    Home ORB
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={overlayClick(() => commitRebound('team_offensive'))}
+                  >
+                    Home Team ORB
+                  </Button>
+                  <Button
+                    className="col-span-2"
+                    variant="secondary"
+                    onClick={overlayClick(() => commitRebound('team_defensive'))}
+                  >
+                    Opp DRB
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Button onClick={overlayClick(() => onPendingReboundTypeChange('defensive'))}>
+                    Home DRB
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={overlayClick(() => commitRebound('team_defensive'))}
+                  >
+                    Home Team DRB
+                  </Button>
+                  <Button
+                    className="col-span-2"
+                    variant="secondary"
+                    onClick={overlayClick(() => commitRebound('team_offensive'))}
+                  >
+                    Opp ORB
+                  </Button>
+                </>
+              )}
               <Button
                 variant="ghost"
-                className="w-full"
-                onClick={overlayClick(() => onPendingReboundTypeChange(null))}
+                className="col-span-2"
+                onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
               >
-                Back to rebound type
+                Skip
               </Button>
             </CardContent>
           </Card>
@@ -216,13 +314,19 @@ export function LiveCourtFlowOverlays({
   }
 
   if (phase.kind === 'turnover' && phase.step === 'entity') {
+    const oppOffense = !trackBoth && offenseTeamId === awayTeamId;
+    const homeOffenseSingle = !trackBoth && offenseTeamId === homeTeamId;
     return (
       <LiveCourtOverlayShell>
         <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-center text-base">Turnover</CardTitle>
             <p className="text-center text-xs text-muted-foreground">
-              Select player on roster, or choose below
+              {oppOffense
+                ? 'Opponent turnover'
+                : homeOffenseSingle
+                  ? 'Select player on roster, or team TO'
+                  : 'Select player on roster, or choose below'}
             </p>
           </CardHeader>
           <CardContent className="space-y-2 pb-4">
@@ -231,15 +335,17 @@ export function LiveCourtFlowOverlays({
               className="w-full"
               onClick={overlayClick(() => commitTurnover(undefined, true))}
             >
-              Team turnover
+              {oppOffense ? 'Opponent turnover' : 'Team turnover'}
             </Button>
-            <Button
-              variant="secondary"
-              className="w-full"
-              onClick={overlayClick(() => dispatch({ type: 'TURNOVER_STEAL', hasSteal: true }))}
-            >
-              Turnover + steal
-            </Button>
+            {homeOffenseSingle ? null : (
+              <Button
+                variant="secondary"
+                className="w-full"
+                onClick={overlayClick(() => dispatch({ type: 'TURNOVER_STEAL', hasSteal: true }))}
+              >
+                {oppOffense ? 'Opp TO + home steal' : 'Turnover + steal'}
+              </Button>
+            )}
             <Button
               variant="ghost"
               className="w-full"
@@ -253,25 +359,13 @@ export function LiveCourtFlowOverlays({
     );
   }
 
-  if (phase.kind === 'turnover' && phase.step === 'pick_stealer' && turnoverPlayerId && !trackBoth) {
+  if (phase.kind === 'turnover' && phase.step === 'pick_stealer' && !trackBoth && offenseTeamId === awayTeamId) {
     return (
       <LiveCourtOverlayShell>
-        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
-          <CardHeader className="pb-2 pt-4">
-            <CardTitle className="text-center text-base">Steal credit</CardTitle>
-          </CardHeader>
-          <CardContent className="pb-4">
-            <Button
-              className="w-full"
-              onClick={overlayClick(() => {
-                commitTurnover(turnoverPlayerId, false, 'team');
-                onTurnoverPlayerIdChange(undefined);
-              })}
-            >
-              Team steal
-            </Button>
-          </CardContent>
-        </Card>
+        <LiveCourtTipPanel
+          title="Steal"
+          description="Select home stealer on roster"
+        />
       </LiveCourtOverlayShell>
     );
   }
@@ -404,7 +498,9 @@ export function LiveCourtFlowOverlays({
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-center text-base">Technical foul</CardTitle>
             <p className="text-center text-xs text-muted-foreground">
-              Select player on either roster, or coach below
+              {trackBoth
+                ? 'Select player on either roster, or coach below'
+                : 'Select home player on roster, or coach below'}
             </p>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-2 pb-4">
@@ -418,8 +514,18 @@ export function LiveCourtFlowOverlays({
               variant="outline"
               onClick={overlayClick(() => dispatch({ type: 'PICK_FOUL_COACH', teamId: awayTeamId }))}
             >
-              Away coach
+              {trackBoth ? 'Away coach' : 'Opp coach'}
             </Button>
+            {!trackBoth ? (
+              <Button
+                className="col-span-2"
+                onClick={overlayClick(() =>
+                  dispatch({ type: 'PICK_FOUL_COMMITTER', teamId: awayTeamId })
+                )}
+              >
+                Opponent technical
+              </Button>
+            ) : null}
             <Button variant="ghost" className="col-span-2" onClick={overlayClick(() => dispatch({ type: 'RESET' }))}>
               Cancel
             </Button>
@@ -427,6 +533,54 @@ export function LiveCourtFlowOverlays({
         </Card>
       </LiveCourtOverlayShell>
     );
+  }
+
+  // Single-team: Opp unit as foul committer (personal / unsportsmanlike / offensive / and-1).
+  if (
+    phase.kind === 'foul' &&
+    phase.step === 'committer' &&
+    !trackBoth &&
+    phase.foulCategory !== 'technical' &&
+    phase.foulEntity !== 'team'
+  ) {
+    const isOffensive = phase.foulCategory === 'offensive';
+    const foulingIsOpp =
+      isOffensive
+        ? offenseTeamId === awayTeamId
+        : defenseTeamId === awayTeamId;
+    if (foulingIsOpp) {
+      return (
+        <LiveCourtOverlayShell>
+          <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-center text-base">
+                {isOffensive ? 'Opponent offensive foul' : 'Opponent foul'}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 pb-4">
+              <Button
+                className="w-full"
+                onClick={overlayClick(() =>
+                  dispatch({
+                    type: 'PICK_FOUL_COMMITTER',
+                    teamId: awayTeamId,
+                  })
+                )}
+              >
+                Confirm Opponent
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
+              >
+                Cancel
+              </Button>
+            </CardContent>
+          </Card>
+        </LiveCourtOverlayShell>
+      );
+    }
   }
 
   if (phase.kind === 'foul' && phase.step === 'ft_count' && phase.foulCategory === 'double') {
@@ -467,12 +621,22 @@ export function LiveCourtFlowOverlays({
     const ftOptions =
       phase.foulEntity === 'team' ? [0] : ftCountOptionsForCategory(category);
     const foulingTeamId = phase.committerTeamId ?? defenseTeamId;
+    const offendedTeamId = phase.committerTeamId
+      ? phase.committerTeamId === homeTeamId
+        ? awayTeamId
+        : homeTeamId
+      : phase.offendedTeamId ?? offenseTeamId;
+    const oppShootsFts = !trackBoth && offendedTeamId === awayTeamId;
+    const homeShootsFts = offendedTeamId === homeTeamId;
 
     return (
       <LiveCourtOverlayShell>
         <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-center text-base">Free throws</CardTitle>
+            {oppShootsFts ? (
+              <p className="text-center text-xs text-muted-foreground">Opponent team FTs</p>
+            ) : null}
           </CardHeader>
           <CardContent className="flex gap-2 flex-wrap justify-center pb-4">
             {ftOptions.map((n) => (
@@ -480,14 +644,8 @@ export function LiveCourtFlowOverlays({
                 key={n}
                 variant="outline"
                 onClick={overlayClick(() => {
-                  const shooterId = n > 0 ? phase.recipientId : undefined;
-                  // Offended = the committer's opponent (supports either-team unsportsmanlike;
-                  // equals offense for legacy defense-committed fouls).
-                  const offendedTeamId = phase.committerTeamId
-                    ? phase.committerTeamId === homeTeamId
-                      ? awayTeamId
-                      : homeTeamId
-                    : phase.offendedTeamId ?? offenseTeamId;
+                  const shooterId =
+                    n > 0 && homeShootsFts ? phase.recipientId : undefined;
                   commitFoul({
                     foulingTeamId,
                     foulCategory: category,
@@ -497,11 +655,12 @@ export function LiveCourtFlowOverlays({
                     isCoachFoul: phase.isCoachFoul,
                     ftCount: n,
                     ftShooterId: shooterId,
+                    ftShootingTeamId: n > 0 && oppShootsFts ? awayTeamId : undefined,
                     retainPossession: phase.retainPossession ?? false,
                     offendedTeamId,
                   });
                 })}
-                disabled={n > 0 && !phase.recipientId}
+                disabled={n > 0 && homeShootsFts && !phase.recipientId}
               >
                 {n} FT{n !== 1 ? 's' : ''}
               </Button>
@@ -510,6 +669,83 @@ export function LiveCourtFlowOverlays({
         </Card>
       </LiveCourtOverlayShell>
     );
+  }
+
+  // Single-team jump ball: Opp unit as turnover or recovering side.
+  if (phase.kind === 'jumpball' && phase.step === 'pick_to' && !trackBoth && offenseTeamId === awayTeamId) {
+    return (
+      <LiveCourtOverlayShell>
+        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-center text-base">Jump ball</CardTitle>
+            <p className="text-center text-xs text-muted-foreground">
+              Opponent loses possession (team turnover)
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2 pb-4">
+            <Button
+              className="w-full"
+              onClick={overlayClick(() => dispatch({ type: 'JUMPBALL_PICK_TO' }))}
+            >
+              Opp turnover — pick home stealer
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
+            >
+              Cancel
+            </Button>
+          </CardContent>
+        </Card>
+      </LiveCourtOverlayShell>
+    );
+  }
+
+  if (phase.kind === 'jumpball' && phase.step === 'pick_steal' && !trackBoth) {
+    const arrowTeamId = possessionArrowTeamId ?? defenseTeamId;
+    if (arrowTeamId === awayTeamId) {
+      return (
+        <LiveCourtOverlayShell>
+          <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+            <CardHeader className="pb-2 pt-4">
+              <CardTitle className="text-center text-base">Jump ball</CardTitle>
+              <p className="text-center text-xs text-muted-foreground">
+                Arrow awards possession to Opponent
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-2 pb-4">
+              <Button
+                className="w-full"
+                onClick={overlayClick(() =>
+                  commitJumpBallWithStats(phase.turnoverPlayerId, undefined)
+                )}
+              >
+                Confirm — Opp ball
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
+              >
+                Cancel
+              </Button>
+            </CardContent>
+          </Card>
+        </LiveCourtOverlayShell>
+      );
+    }
+    // Opp TO already confirmed — hint while picking home stealer
+    if (offenseTeamId === awayTeamId && phase.turnoverPlayerId == null) {
+      return (
+        <LiveCourtOverlayShell>
+          <LiveCourtTipPanel
+            title="Jump ball — steal"
+            description="Select home stealer on roster"
+          />
+        </LiveCourtOverlayShell>
+      );
+    }
   }
 
   return null;

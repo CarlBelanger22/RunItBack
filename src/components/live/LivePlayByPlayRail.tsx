@@ -18,6 +18,10 @@ interface LivePlayByPlayRailProps {
   awayTeam: Team;
   maxEvents?: number;
   onEventDoubleClick?: (event: GameEvent) => void;
+  /** When true, card is not editable (no double-click, muted affordance). */
+  isEventReadOnly?: (event: GameEvent) => boolean;
+  /** Optional subtitle override (e.g. single-team Opp read-only note). */
+  subtitle?: string;
 }
 
 function LogCard({
@@ -27,6 +31,7 @@ function LogCard({
   labels,
   snapshots,
   onDoubleClick,
+  readOnly,
 }: {
   row: PbpRow;
   homeTeam: Team;
@@ -34,6 +39,7 @@ function LogCard({
   labels: Map<string, string>;
   snapshots: Map<string, import('../../liveEntry/pbpDisplay').PbpEventSnapshot>;
   onDoubleClick?: () => void;
+  readOnly?: boolean;
 }) {
   const event = pbpRowSourceEvent(row);
   const teamId =
@@ -63,8 +69,14 @@ function LogCard({
   return (
     <button
       type="button"
-      onDoubleClick={onDoubleClick}
-      className="live-pbp-card"
+      onDoubleClick={readOnly ? undefined : onDoubleClick}
+      disabled={readOnly}
+      title={
+        readOnly
+          ? 'Opponent unit event — read-only (undo to correct)'
+          : 'Double-click to edit'
+      }
+      className={`live-pbp-card${readOnly ? ' live-pbp-card--readonly' : ''}`}
       style={{
         background: liveTeamTint(isHome ? 'home' : 'away', '0d'),
         borderColor: liveTeamTint(isHome ? 'home' : 'away', '30'),
@@ -90,7 +102,11 @@ function LogCard({
           <div className="live-font-mono live-pbp-detail">{action.detail}</div>
         )}
       </div>
-      <div className="live-pbp-edit-hint">dbl-click to edit</div>
+      {readOnly ? (
+        <div className="live-pbp-edit-hint live-pbp-edit-hint--readonly">read-only</div>
+      ) : (
+        <div className="live-pbp-edit-hint">dbl-click to edit</div>
+      )}
     </button>
   );
 }
@@ -101,6 +117,8 @@ export function LivePlayByPlayRail({
   awayTeam,
   maxEvents = 40,
   onEventDoubleClick,
+  isEventReadOnly,
+  subtitle,
 }: LivePlayByPlayRailProps) {
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -133,7 +151,8 @@ export function LivePlayByPlayRail({
           <span className="live-font-mono live-pbp-rail-title">Live Play-by-Play</span>
         </div>
         <span className="live-font-mono live-pbp-rail-sub">
-          {events.length} events · newest left · double-click any card to edit
+          {subtitle ??
+            `${events.length} events · newest left · double-click any card to edit`}
         </span>
       </div>
       <div ref={logRef} className="live-pbp-scroll">
@@ -142,17 +161,24 @@ export function LivePlayByPlayRail({
             No events yet — select a player and tap the court to log a shot
           </div>
         ) : (
-          displayRows.map((row) => (
-            <LogCard
-              key={row.key}
-              row={row}
-              homeTeam={homeTeam}
-              awayTeam={awayTeam}
-              labels={labels}
-              snapshots={snapshots}
-              onDoubleClick={() => onEventDoubleClick?.(pbpRowSourceEvent(row))}
-            />
-          ))
+          displayRows.map((row) => {
+            const source = pbpRowSourceEvent(row);
+            const readOnly = !!isEventReadOnly?.(source);
+            return (
+              <LogCard
+                key={row.key}
+                row={row}
+                homeTeam={homeTeam}
+                awayTeam={awayTeam}
+                labels={labels}
+                snapshots={snapshots}
+                readOnly={readOnly}
+                onDoubleClick={
+                  readOnly ? undefined : () => onEventDoubleClick?.(source)
+                }
+              />
+            );
+          })
         )}
       </div>
     </div>

@@ -1,6 +1,7 @@
 import type { Game, GameEvent, Shot } from '../App';
 import type { PendingShot } from './liveEntryStateMachine';
 import { courtPointMToPercent } from '../lib/fibaCourtGeometry';
+import { OPPONENT_UNIT_SHOT_PLAYER_ID } from './opponentUnit';
 import { teamIdForPlayer } from './reboundTeams';
 
 export function buildShotEvent(
@@ -8,29 +9,32 @@ export function buildShotEvent(
   offenseTeamId: string,
   pending: PendingShot
 ): { event: GameEvent; shot: Shot } | null {
-  if (!pending.shooterId) return null;
+  const teamOnly = !!pending.teamOnly;
+  if (!teamOnly && !pending.shooterId) return null;
 
   const made = pending.outcome === 'make';
   const pct = courtPointMToPercent(pending.point);
   const ts = Date.now();
 
+  const shootingTeamId = teamOnly
+    ? offenseTeamId
+    : teamIdForPlayer(game, pending.shooterId!) ?? offenseTeamId;
+
   const shot: Shot = {
     id: `shot-${ts}`,
-    playerId: pending.shooterId,
+    playerId: teamOnly ? OPPONENT_UNIT_SHOT_PLAYER_ID : pending.shooterId!,
     x: pct.x,
     y: pct.y,
     made,
     isThree: pending.isThree,
     timestamp: ts,
-    assistedBy: pending.assistId ?? undefined,
+    assistedBy: teamOnly ? undefined : pending.assistId ?? undefined,
     blockedBy: pending.blockerId,
     isTransition: pending.isTransition,
     inPaint: pending.isPaint,
     period: game.currentPeriod,
     gameTime: game.currentGameTime,
   };
-
-  const shootingTeamId = teamIdForPlayer(game, pending.shooterId) ?? offenseTeamId;
 
   const event: GameEvent = {
     id: `event-${ts}`,
@@ -39,14 +43,15 @@ export function buildShotEvent(
     period: game.currentPeriod,
     gameTime: game.currentGameTime,
     teamId: shootingTeamId,
-    playerId: pending.shooterId,
+    playerId: teamOnly ? undefined : pending.shooterId,
     details: {
       made,
       isThree: pending.isThree,
       inPaint: pending.isPaint,
-      assistedBy: pending.assistId,
+      assistedBy: teamOnly ? null : pending.assistId,
       blockedBy: pending.blockerId,
       isTransition: pending.isTransition,
+      teamOnly,
       x: pct.x,
       y: pct.y,
     },
@@ -227,7 +232,7 @@ export function buildFoulEvent(
 export function buildFreeThrowEvent(
   game: Game,
   teamId: string,
-  playerId: string,
+  playerId: string | undefined,
   made: boolean,
   ftIndex: number,
   ftTotal: number,

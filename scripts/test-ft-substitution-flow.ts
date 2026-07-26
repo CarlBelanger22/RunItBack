@@ -78,7 +78,8 @@ function testFtPhaseSurvivesWithoutReset(): void {
     },
     {
       type: 'START_FT',
-      playerId: 'h1',
+      shootingTeamId: 'home',
+    playerId: 'h1',
       ftTotal: 2,
       retainPossession: false,
       offendedTeamId: 'home',
@@ -150,7 +151,8 @@ function testMissedFinalFtReboundRosterIncludesSub(): void {
     },
     {
       type: 'START_FT',
-      playerId: 'h1',
+      shootingTeamId: 'home',
+    playerId: 'h1',
       ftTotal: 2,
       retainPossession: false,
       offendedTeamId: 'home',

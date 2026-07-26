@@ -18,7 +18,14 @@ export function LiveCourtOverlayShell({ children, className }: LiveCourtOverlayS
         className="absolute inset-0 rounded-xl bg-background/60 pointer-events-none"
         aria-hidden
       />
-      <div className="relative z-10 pointer-events-auto">{children}</div>
+      {/*
+        Full-width centering wrapper so child cards with w-[min(90%,320px)] resolve
+        against the court, not a shrink-wrapped parent (which collapses to min-content
+        and stacks overlay text one word per line).
+      */}
+      <div className="relative z-10 flex w-full items-center justify-center px-3 pointer-events-auto">
+        {children}
+      </div>
     </div>
   );
 }

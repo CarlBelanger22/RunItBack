@@ -118,6 +118,7 @@ function testAnd1FoulPhaseWithoutIdleReset(): void {
 function testAnd1FtPhase(): void {
   let state = liveEntryReducer(baseState(), {
     type: 'START_FT',
+    shootingTeamId: 'home',
     playerId: 'h1',
     ftTotal: 1,
     retainPossession: false,
@@ -159,6 +160,7 @@ function testAnd1FtMakeAddsPoint(): void {
 function testCourtClickBlockedDuringFt(): void {
   let state = liveEntryReducer(baseState(), {
     type: 'START_FT',
+    shootingTeamId: 'home',
     playerId: 'h1',
     ftTotal: 1,
     retainPossession: false,
@@ -177,6 +179,7 @@ function testCourtClickBlockedDuringFt(): void {
 function testAdvanceFt(): void {
   let state = liveEntryReducer(baseState(), {
     type: 'START_FT',
+    shootingTeamId: 'home',
     playerId: 'h1',
     ftTotal: 2,
     retainPossession: false,

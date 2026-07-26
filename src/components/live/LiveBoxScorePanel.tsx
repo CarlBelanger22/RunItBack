@@ -8,6 +8,7 @@ import { gameRecordsStat } from '../../utils/statRecordingCoverage';
 import { formatSignedDecimal } from '../../utils/gameReportModel';
 import { NoStatRecorded } from '../StatDisplay';
 import { isFoulOutEnabled, isPlayerFouledOut } from '../../utils/foulOut';
+import { buildOppTeamTotalsStrip } from '../../liveEntry/oppTeamTotals';
 
 interface LiveBoxScorePanelProps {
   game: Game;
@@ -867,6 +868,47 @@ function LiveBoxScoreTableWithView({
   );
 }
 
+function OppTeamTotalsStrip({
+  teamName,
+  stats,
+}: {
+  teamName: string;
+  stats: ReturnType<typeof buildOppTeamTotalsStrip>;
+}) {
+  const awayColor = LIVE_TEAM_HEX.away;
+  const cells: { label: string; value: string }[] = [
+    { label: 'FG', value: `${stats.fgMade}-${stats.fgAttempted}` },
+    { label: 'FG%', value: stats.fgPctLabel },
+    { label: '3PT', value: `${stats.threeMade}-${stats.threeAttempted}` },
+    { label: '3P%', value: stats.threePctLabel },
+    { label: 'FT', value: `${stats.ftMade}-${stats.ftAttempted}` },
+    { label: 'FT%', value: stats.ftPctLabel },
+    { label: 'PTS', value: String(stats.points) },
+    { label: 'REB', value: String(stats.reb) },
+    { label: 'TO', value: String(stats.turnovers) },
+    { label: 'PF', value: String(stats.fouls) },
+  ];
+
+  return (
+    <div className="live-opp-totals-strip" style={{ borderColor: awayColor }}>
+      <div className="live-opp-totals-strip-title" style={{ color: awayColor }}>
+        <span className="live-box-tab-dot" style={{ background: awayColor }} />
+        <span className="live-font-condensed">
+          {teamName} — Team totals
+        </span>
+      </div>
+      <div className="live-opp-totals-strip-grid">
+        {cells.map((c) => (
+          <div key={c.label} className="live-opp-totals-cell">
+            <span className="live-opp-totals-label">{c.label}</span>
+            <span className="live-font-mono live-opp-totals-value">{c.value}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function LiveBoxScorePanel({
   game,
   onCourtHomeIds = [],
@@ -876,6 +918,12 @@ export function LiveBoxScorePanel({
   const homeColor = LIVE_TEAM_HEX.home;
   const awayColor = LIVE_TEAM_HEX.away;
   const [view, setView] = useState<BoxScoreView>('traditional');
+  const singleTeam = game.trackBothTeams === false;
+  // Do not memoize on `game.teamStats.away` by reference — GameLogic mutates
+  // teamStats in place, so the object identity often stays the same while FG/PTS change.
+  const oppStrip = singleTeam
+    ? buildOppTeamTotalsStrip(game.teamStats.away)
+    : null;
 
   return (
     <div className="live-box-panel">
@@ -890,7 +938,9 @@ export function LiveBoxScorePanel({
         <div className="live-box-tab" style={{ borderColor: awayColor }}>
           <span className="live-box-tab-dot" style={{ background: awayColor }} />
           <span className="live-font-condensed live-box-tab-label" style={{ color: awayColor }}>
-            {game.awayTeam.name} — Box Score
+            {singleTeam
+              ? `${game.awayTeam.name} — Team totals`
+              : `${game.awayTeam.name} — Box Score`}
           </span>
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -912,7 +962,7 @@ export function LiveBoxScorePanel({
           </Button>
         </div>
         <span className="live-font-mono live-box-hint" style={{ marginLeft: 0 }}>
-          Click column to sort
+          {singleTeam ? 'Home box · Opp team line' : 'Click column to sort'}
         </span>
         {onCompleteGame && (
           <Button size="sm" className="live-box-complete-btn h-7 text-xs" onClick={onCompleteGame}>
@@ -930,14 +980,20 @@ export function LiveBoxScorePanel({
             view={view}
           />
         </div>
-        <div className="live-box-table-section live-box-table-section--away">
-          <LiveBoxScoreTableWithView
-            game={game}
-            side="away"
-            onCourtIds={onCourtAwayIds}
-            view={view}
-          />
-        </div>
+        {singleTeam && oppStrip ? (
+          <div className="live-box-table-section live-box-table-section--away">
+            <OppTeamTotalsStrip teamName={game.awayTeam.name} stats={oppStrip} />
+          </div>
+        ) : (
+          <div className="live-box-table-section live-box-table-section--away">
+            <LiveBoxScoreTableWithView
+              game={game}
+              side="away"
+              onCourtIds={onCourtAwayIds}
+              view={view}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

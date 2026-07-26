@@ -210,7 +210,7 @@ Blocked when deletion would break stat integrity; user sees a specific reason (s
 
 ### 2. Live entry (`/live/:gameId`)
 
-See [Live stats entry](#live-stats-entry). Requires desktop width (≥1280px) and `trackBothTeams: true`.
+See [Live stats entry](#live-stats-entry). Requires desktop width (≥1280px). Both-team tracking is the default; single-team (`trackBothTeams: false`) uses an Opp unit panel.
 
 Header shows a **Live: HOME vs AWAY** pill linking back to the live route.
 
@@ -313,8 +313,9 @@ Five-player units with start/end period and clock, used for minutes and plus/min
 ### Requirements
 
 - **Viewport ≥ 1280px** (`DesktopOnlyGuard`)
-- **`trackBothTeams: true`** on the game
 - Active game (`isActive: true`, not completed)
+- **`trackBothTeams: true`** — full home + away player tracking (default)
+- **`trackBothTeams: false`** — home players + **Opp unit** panel (team score/FG/FT/TO/PF; no Opp roster). Live box shows Opp **team totals** strip; Opp PBP cards are **read-only** (undo to correct).
 
 ### Layout
 
@@ -322,13 +323,15 @@ Five-player units with start/end period and clock, used for minutes and plus/min
 ┌─────────────────────────────────────────────────────────────┐
 │ Scoreboard header — score, clock, fouls, Back, Undo, End Q  │
 ├──────────┬──────────────────────────────┬───────────────────┤
-│ HOME     │ Context bar + horizontal     │ AWAY              │
-│ on-court │ FIBA court (tap to shoot)    │ on-court          │
-│ players  │ FOUL / TO / SUB action bar   │ players           │
+│ HOME     │ Context bar + horizontal     │ AWAY on-court     │
+│ on-court │ FIBA court (tap to shoot)    │  (both-team)      │
+│ players  │ FOUL / TO / SUB action bar   │ — or —            │
+│          │                              │ OPP unit panel    │
+│          │                              │  (single-team)    │
 ├──────────┴──────────────────────────────┴───────────────────┤
 │ Live play-by-play (horizontal card strip)                   │
 ├─────────────────────────────────────────────────────────────┤
-│ Dual box score tables (home + away, sortable columns)       │
+│ Box score: home players + away players (or Opp team strip)  │
 └─────────────────────────────────────────────────────────────┘
 ```
 

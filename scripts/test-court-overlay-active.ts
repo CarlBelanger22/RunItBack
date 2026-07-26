@@ -56,6 +56,7 @@ function testFreeThrowNotInFlowOverlayHelper(): void {
       phase: {
         kind: 'free_throw',
         playerId: 'p1',
+        shootingTeamId: 'home',
         ftTotal: 2,
         ftIndex: 1,
         retainPossession: false,
