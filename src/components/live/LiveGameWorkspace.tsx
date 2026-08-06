@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
 import {
@@ -17,6 +17,8 @@ import type { Game, GameEvent, Player, Team, Tournament } from '../../App';
 import type { TournamentRosterEntry } from '../../utils/tournamentRosters';
 import { GameForm } from '../forms/GameForm';
 import { buildGameMetadataPatch } from '../../utils/gameMetadata';
+import { navigateBack } from '../../routing/navigation';
+import { paths } from '../../routing/paths';
 import { useLiveGameSession } from '../../liveEntry/useLiveGameSession';
 import { HorizontalFullCourtCanvas } from './HorizontalFullCourtCanvas';
 import { OnCourtColumn } from './OnCourtColumn';
@@ -48,7 +50,6 @@ import {
   shouldPromptLineupAfterPeriodEnd,
 } from '../../utils/gameClock';
 import { DesktopOnlyGuard } from './DesktopOnlyGuard';
-import { paths } from '../../routing/paths';
 import { getLiveTeamColor, liveTeamTint } from './liveEntryTheme';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 import { resolveReboundTeams, teamIdForPlayer } from '../../liveEntry/reboundTeams';
@@ -60,6 +61,8 @@ import {
   isPlayerFouledOut,
   type FouledOutPlayer,
 } from '../../utils/foulOut';
+import { resolveGameMetaLabel } from '../../utils/friendlyGame';
+import { resolveSideScore } from '../../utils/gameDisplay';
 
 interface LiveGameWorkspaceProps {
   game: Game;
@@ -107,6 +110,8 @@ function resolveColumnPick(
     setTurnoverPlayerId: (v: string | undefined) => void;
     and1RecipientId: string | null;
     and1FoulingTeamId: string | null;
+    /** Opp team-only make + foul: home fouler → Opp team FT. */
+    and1OppTeamFt: boolean;
     clearAnd1Session: () => void;
   }
 ): ColumnPick | null {
@@ -266,11 +271,11 @@ function resolveColumnPick(
     const isOffensive = phase.foulCategory === 'offensive';
     const foulingTeamId = isOffensive
       ? offenseTeamId
-      : handlers.and1RecipientId && handlers.and1FoulingTeamId
+      : handlers.and1FoulingTeamId
         ? handlers.and1FoulingTeamId
         : defenseTeamId;
 
-    // Single-team: Opp unit fouls (defense/and-1) — no away roster; use overlay.
+    // Single-team: Opp unit fouls (defense/and-1 on home make) — no away roster; use overlay.
     if (!trackBoth && foulingTeamId === game.awayTeamId) {
       return null;
     }
@@ -279,13 +284,31 @@ function resolveColumnPick(
       !trackBoth &&
       !isOffensive &&
       foulingTeamId === game.homeTeamId &&
-      !handlers.and1RecipientId;
+      !handlers.and1RecipientId &&
+      !handlers.and1OppTeamFt;
 
     return {
       side: teamSide(game, foulingTeamId),
-      hint: isOffensive ? 'Offensive foul — select player' : 'Foul committed by',
+      hint: isOffensive
+        ? 'Offensive foul — select player'
+        : handlers.and1OppTeamFt
+          ? 'And-1 foul — select home player'
+          : 'Foul committed by',
       onSelect: (p) => {
-        if (handlers.and1RecipientId) {
+        if (handlers.and1OppTeamFt) {
+          commitFoul({
+            foulingTeamId,
+            foulCategory: 'personal',
+            foulEntity: 'player',
+            committerId: p.id,
+            ftCount: 1,
+            ftShootingTeamId: game.awayTeamId,
+            retainPossession: false,
+            offendedTeamId: game.awayTeamId,
+            possessionTeamAfterFt: game.homeTeamId,
+          });
+          handlers.clearAnd1Session();
+        } else if (handlers.and1RecipientId) {
           commitFoul({
             foulingTeamId,
             foulCategory: 'personal',
@@ -401,6 +424,7 @@ export function LiveGameWorkspace({
   onDeleteGame,
 }: LiveGameWorkspaceProps) {
   const navigate = useNavigate();
+  const location = useLocation();
   const session = useLiveGameSession(game, onGameUpdate, { teams, tournamentRosters });
   const {
     currentGame,
@@ -446,14 +470,26 @@ export function LiveGameWorkspace({
   const [lineupOverlayOpen, setLineupOverlayOpen] = useState(false);
   const [and1RecipientId, setAnd1RecipientId] = useState<string | null>(null);
   const [and1FoulingTeamId, setAnd1FoulingTeamId] = useState<string | null>(null);
+  const [and1OppTeamFt, setAnd1OppTeamFt] = useState(false);
 
   const clearAnd1Session = useCallback(() => {
     setAnd1RecipientId(null);
     setAnd1FoulingTeamId(null);
+    setAnd1OppTeamFt(false);
   }, []);
 
   const handleAndOneFoul = useCallback(
     (shotPayload: PendingShot) => {
+      // Opp unit make + and-1: no shooter — home fouler → Opp team FT.
+      if (shotPayload.teamOnly) {
+        commitShot(shotPayload, true);
+        setFastbreak(false);
+        setAnd1OppTeamFt(true);
+        setAnd1FoulingTeamId(defenseTeamId);
+        dispatch({ type: 'FOUL_CATEGORY', category: 'personal' });
+        return;
+      }
+
       if (!shotPayload.shooterId) return;
       commitShot(shotPayload, true);
       setFastbreak(false);
@@ -523,8 +559,8 @@ export function LiveGameWorkspace({
     entryState.ctx.reboundDefendingTeamId,
   ]);
 
-  const homeScore = currentGame.teamStats.home.total_points;
-  const awayScore = currentGame.teamStats.away.total_points;
+  const homeScore = resolveSideScore(currentGame, 'home');
+  const awayScore = resolveSideScore(currentGame, 'away');
   const periodEndLabel = endPeriodButtonLabel(currentGame, homeScore, awayScore);
   const homeIsOffense = offenseTeamId === currentGame.homeTeamId;
 
@@ -598,6 +634,7 @@ export function LiveGameWorkspace({
           setTurnoverPlayerId,
           and1RecipientId,
           and1FoulingTeamId,
+          and1OppTeamFt,
           clearAnd1Session,
         }
       ),
@@ -621,6 +658,7 @@ export function LiveGameWorkspace({
       commitFoul,
       and1RecipientId,
       and1FoulingTeamId,
+      and1OppTeamFt,
       clearAnd1Session,
     ]
   );
@@ -793,6 +831,7 @@ export function LiveGameWorkspace({
   };
 
   const tournament = tournaments.find((t) => t.id === currentGame.tournamentId);
+  const headerMetaLabel = resolveGameMetaLabel(currentGame, tournament?.name);
   const foulOutEnabled = isFoulOutEnabled(currentGame, tournament);
   const fouledOutIds = foulOutEnabled
     ? currentGame.gameStats
@@ -974,8 +1013,8 @@ export function LiveGameWorkspace({
           onEndPeriod={handleEndPeriod}
           onEdit={() => setIsEditDialogOpen(true)}
           onDelete={() => setDeleteDialogOpen(true)}
-          onBack={() => navigate(paths.home)}
-          tournamentName={tournament?.name}
+          onBack={() => navigateBack(navigate, location, paths.home)}
+          tournamentName={headerMetaLabel}
         />
 
         {isOpeningJumpBall && (
@@ -1154,6 +1193,7 @@ export function LiveGameWorkspace({
                           commitTurnover={commitTurnover}
                           commitFoul={commitFoul}
                           commitJumpBallWithStats={commitJumpBallWithStats}
+                          and1OppTeamFt={and1OppTeamFt}
                         />
                       </div>
                     )}

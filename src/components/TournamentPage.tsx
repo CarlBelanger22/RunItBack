@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
+import { Input } from './ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import {
@@ -16,7 +17,11 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { Tournament, Team, Game, CreateTeamOptions } from '../App';
+import type { TournamentUpdate } from '../App';
+import type { TournamentTab } from '../routing/tabs';
 import { PlayerStatsTable } from './PlayerStatsTable';
+import { TournamentStructureEditor } from './TournamentStructureEditor';
+import { TournamentClassificationBracket } from './TournamentClassificationBracket';
 import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
@@ -24,11 +29,25 @@ import { TournamentForm } from './forms/TournamentForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
-import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import { sortGamesByDateAsc, sortGamesByDateDesc } from '../utils/gameDisplay';
 import {
   filterGamesForTournament,
   filterTeamsForTournament,
 } from '../utils/tournamentEnrollment';
+import {
+  describeGameStageTag,
+  retagTournamentGames,
+} from '../utils/retagTournamentGames';
+import { tournamentHasStructure, normalizeTournamentStructure } from '../utils/tournamentStructure';
+import {
+  buildGroupStandingsTables,
+  filterGamesForGroup,
+  withExtendedShootingStats,
+  calculateTeamStandings,
+  type ExtendedStandingRow,
+} from '../utils/tournamentStandings';
+import { findH2hTieBlocks } from '../utils/standingsTiebreak';
+import { GroupH2hDetailsDialog } from './GroupH2hDetailsDialog';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
   Trophy, 
@@ -47,6 +66,7 @@ import {
   Shield,
   Edit,
   Trash2,
+  Info,
 } from 'lucide-react';
 import { wouldTournamentEnrollmentViolateOverlap } from '../utils/rosterPlayers';
 
@@ -55,8 +75,8 @@ interface TournamentPageProps {
   teams: Team[];
   games: Game[];
   tournamentRosters: TournamentRosterEntry[];
-  activeTab: 'home' | 'teams' | 'standings' | 'players' | 'games';
-  onTabChange: (tab: 'home' | 'teams' | 'standings' | 'players' | 'games') => void;
+  activeTab: TournamentTab;
+  onTabChange: (tab: TournamentTab) => void;
   onBack: () => void;
   onNavigateToTeam: (teamId: string) => void;
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
@@ -64,8 +84,9 @@ interface TournamentPageProps {
   onCreateTeam: (teamData: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
-  onUpdateTournament: (tournament: Tournament) => void;
+  onUpdateTournament: (update: TournamentUpdate) => void;
   onDeleteTournament: (tournamentId: string) => void;
+  onGamesUpdate: (games: Game[]) => void;
 }
 
 export function TournamentPage({ 
@@ -84,63 +105,16 @@ export function TournamentPage({
   onUpdateTeam,
   onUpdateTournament,
   onDeleteTournament,
+  onGamesUpdate,
 }: TournamentPageProps) {
   
   // Teams/games derived from games table (tournamentId) with enrollment fallback
   const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
   const tournamentGames = filterGamesForTournament(tournament, games);
   
-  // Calculate tournament standings
-  const calculateStandings = () => {
-    const standings = tournamentTeams.map(team => {
-      const teamGames = tournamentGames.filter(game => 
-        game.homeTeamId === team.id || game.awayTeamId === team.id
-      );
-      
-      let wins = 0;
-      let losses = 0;
-      let pointsFor = 0;
-      let pointsAgainst = 0;
-      
-      teamGames.forEach(game => {
-        if (!game.finalScore) return;
-        
-        const isHome = game.homeTeamId === team.id;
-        const teamScore = isHome ? game.finalScore.home : game.finalScore.away;
-        const opponentScore = isHome ? game.finalScore.away : game.finalScore.home;
-        
-        pointsFor += teamScore;
-        pointsAgainst += opponentScore;
-        
-        if (teamScore > opponentScore) wins++;
-        else losses++;
-      });
-      
-      const gamesPlayed = wins + losses;
-      const winPercentage = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
-      const pointsDiff = pointsFor - pointsAgainst;
-      const ppg = gamesPlayed > 0 ? pointsFor / gamesPlayed : 0;
-      const papg = gamesPlayed > 0 ? pointsAgainst / gamesPlayed : 0;
-      
-      return {
-        team,
-        wins,
-        losses,
-        gamesPlayed,
-        winPercentage,
-        pointsFor,
-        pointsAgainst,
-        pointsDiff,
-        ppg,
-        papg
-      };
-    });
-    
-    return standings.sort((a, b) => {
-      if (b.winPercentage !== a.winPercentage) return b.winPercentage - a.winPercentage;
-      return b.pointsDiff - a.pointsDiff;
-    });
-  };
+  // Calculate tournament standings (overall — used on Home + unstructured Standings)
+  const calculateStandings = () =>
+    calculateTeamStandings(tournamentTeams, tournamentGames);
   
   // Get tournament leaders
   const getTournamentLeaders = () => {
@@ -228,60 +202,26 @@ export function TournamentPage({
   };
 
   // Calculate additional team stats for standings
-  const calculateStandingsWithExtendedStats = () => {
-    return standings.map(standing => {
-      const teamTotalStats = tournamentGames.reduce((acc, game) => {
-        let teamStats = null;
-        if (game.homeTeamId === standing.team.id) {
-          teamStats = game.teamStats.home;
-        } else if (game.awayTeamId === standing.team.id) {
-          teamStats = game.teamStats.away;
-        }
-        
-        if (teamStats) {
-          return {
-            fg_made: acc.fg_made + teamStats.fg_made,
-            fg_attempted: acc.fg_attempted + teamStats.fg_attempted,
-            three_made: acc.three_made + teamStats.three_made,
-            three_attempted: acc.three_attempted + teamStats.three_attempted,
-            ft_made: acc.ft_made + teamStats.ft_made,
-            ft_attempted: acc.ft_attempted + teamStats.ft_attempted,
-            orb: acc.orb + teamStats.orb,
-            drb: acc.drb + teamStats.drb,
-            assists: acc.assists + teamStats.assists,
-          };
-        }
-        return acc;
-      }, {
-        fg_made: 0, fg_attempted: 0, three_made: 0, three_attempted: 0,
-        ft_made: 0, ft_attempted: 0, orb: 0, drb: 0, assists: 0
-      });
-
-      const rpg = standing.gamesPlayed > 0 ? (teamTotalStats.orb + teamTotalStats.drb) / standing.gamesPlayed : 0;
-      const apg = standing.gamesPlayed > 0 ? teamTotalStats.assists / standing.gamesPlayed : 0;
-      const fgPct = teamTotalStats.fg_attempted > 0 ? (teamTotalStats.fg_made / teamTotalStats.fg_attempted) * 100 : 0;
-      const threePct = teamTotalStats.three_attempted > 0 ? (teamTotalStats.three_made / teamTotalStats.three_attempted) * 100 : 0;
-      const ftPct = teamTotalStats.ft_attempted > 0 ? (teamTotalStats.ft_made / teamTotalStats.ft_attempted) * 100 : 0;
-
-      return {
-        ...standing,
-        rpg,
-        apg,
-        fgPct,
-        threePct,
-        ftPct
-      };
-    });
-  };
+  const calculateStandingsWithExtendedStats = () =>
+    withExtendedShootingStats(standings, tournamentGames);
   
   const standings = calculateStandings();
   const leaders = getTournamentLeaders();
   const extendedStandings = calculateStandingsWithExtendedStats();
+  const groupStandingsTables = buildGroupStandingsTables(
+    tournament.structure,
+    tournamentTeams,
+    tournamentGames
+  );
   
   // Team dialogs (hoisted outside tab components to avoid remount on keystroke)
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
   const [isAddTeamDialogOpen, setIsAddTeamDialogOpen] = useState(false);
+  const [addTeamQuery, setAddTeamQuery] = useState('');
   const [isEditTournamentDialogOpen, setIsEditTournamentDialogOpen] = useState(false);
+  const [editTournamentPane, setEditTournamentPane] = useState<'details' | 'structure'>(
+    'details'
+  );
   const [isDeleteTournamentDialogOpen, setIsDeleteTournamentDialogOpen] = useState(false);
   const [editTournamentError, setEditTournamentError] = useState<string | null>(null);
   const [createFormKey, setCreateFormKey] = useState(0);
@@ -370,7 +310,17 @@ export function TournamentPage({
   }, []);
 
   // Get teams not in tournament
-  const availableTeams = teams.filter(team => !tournament.teams.includes(team.id));
+  const availableTeams = teams.filter(
+    (team) => !tournament.teams.includes(team.id)
+  );
+  const addTeamQueryNormalized = addTeamQuery.trim().toLowerCase();
+  const filteredAvailableTeams = addTeamQueryNormalized
+    ? availableTeams.filter(
+        (team) =>
+          team.name.toLowerCase().includes(addTeamQueryNormalized) ||
+          team.abbreviation.toLowerCase().includes(addTeamQueryNormalized)
+      )
+    : availableTeams;
   
   const HomeTab = () => (
     <div className="space-y-6">
@@ -730,72 +680,280 @@ export function TournamentPage({
     </div>
   );
 
+  const [h2hDialog, setH2hDialog] = useState<{
+    teamIds: string[];
+    games: Game[];
+  } | null>(null);
+
+  const renderStandingsTable = (
+    rows: ExtendedStandingRow[],
+    opts?: { groupGames?: Game[]; showH2h?: boolean }
+  ) => {
+    const tieBlocks = opts?.showH2h ? findH2hTieBlocks(rows) : [];
+    const tieStartIndexes = new Set(tieBlocks.map((b) => b.startIndex));
+    const blockByStart = new Map(tieBlocks.map((b) => [b.startIndex, b]));
+
+    return (
+    <Table className="tournament-standings-table">
+      <colgroup>
+        <col className="tournament-standings-col-rank" />
+        <col className="tournament-standings-col-team" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
+      </colgroup>
+      <TableHeader>
+        <TableRow>
+          <TableHead>#</TableHead>
+          <TableHead>Team</TableHead>
+          <TableHead className="text-center">W</TableHead>
+          <TableHead className="text-center">L</TableHead>
+          <TableHead className="text-center">PPG</TableHead>
+          <TableHead className="text-center">PAPG</TableHead>
+          <TableHead className="text-center">DIFF</TableHead>
+          <TableHead className="text-center">PF</TableHead>
+          <TableHead className="text-center">PA</TableHead>
+          <TableHead className="text-center">FG%</TableHead>
+          <TableHead className="text-center">3P%</TableHead>
+          <TableHead className="text-center">FT%</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map((standing, index) => (
+          <TableRow
+            key={standing.team.id}
+            className="cursor-pointer hover:bg-muted/50"
+            onClick={() => onNavigateToTeam(standing.team.id)}
+          >
+            <TableCell>
+              <Badge
+                variant={index === 0 ? 'default' : 'secondary'}
+                className="w-6 h-6 p-0 flex items-center justify-center text-xs"
+              >
+                {index + 1}
+              </Badge>
+            </TableCell>
+            <TableCell>
+              <div className="flex min-w-0 items-center gap-2">
+                <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
+                <span className="truncate font-medium">{standing.team.name}</span>
+                {tieStartIndexes.has(index) && opts?.groupGames && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h2h-explain-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const block = blockByStart.get(index);
+                      if (!block) return;
+                      setH2hDialog({
+                        teamIds: block.teamIds,
+                        games: opts.groupGames!,
+                      });
+                    }}
+                  >
+                    <Info className="h-3.5 w-3.5" />
+                    Head to head
+                  </Button>
+                )}
+              </div>
+            </TableCell>
+            <TableCell className="text-center">{standing.wins}</TableCell>
+            <TableCell className="text-center">{standing.losses}</TableCell>
+            <TableCell className="text-center">{standing.ppg.toFixed(1)}</TableCell>
+            <TableCell className="text-center">{standing.papg.toFixed(1)}</TableCell>
+            <TableCell className="text-center">
+              <span
+                className={
+                  standing.pointsDiff >= 0 ? 'text-green-600' : 'text-red-600'
+                }
+              >
+                {standing.pointsDiff >= 0 ? '+' : ''}
+                {standing.pointsDiff}
+              </span>
+            </TableCell>
+            <TableCell className="text-center">{standing.pointsFor}</TableCell>
+            <TableCell className="text-center">{standing.pointsAgainst}</TableCell>
+            <TableCell className="text-center">
+              {standing.fgPct == null ? '—' : `${standing.fgPct.toFixed(1)}%`}
+            </TableCell>
+            <TableCell className="text-center">
+              {standing.threePct == null
+                ? '—'
+                : `${standing.threePct.toFixed(1)}%`}
+            </TableCell>
+            <TableCell className="text-center">
+              {standing.ftPct == null ? '—' : `${standing.ftPct.toFixed(1)}%`}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+    );
+  };
+
   const StandingsTab = () => (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>Tournament Standings</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-12">#</TableHead>
-                  <TableHead>Team</TableHead>
-                  <TableHead className="text-center">W</TableHead>
-                  <TableHead className="text-center">L</TableHead>
-                  <TableHead className="text-center">PPG</TableHead>
-                  <TableHead className="text-center">PAPG</TableHead>
-                  <TableHead className="text-center">DIFF</TableHead>
-                  <TableHead className="text-center">PF</TableHead>
-                  <TableHead className="text-center">PA</TableHead>
-                  <TableHead className="text-center">FG%</TableHead>
-                  <TableHead className="text-center">3P%</TableHead>
-                  <TableHead className="text-center">FT%</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {extendedStandings.map((standing, index) => {
-                  return (
-                    <TableRow 
-                      key={standing.team.id} 
-                      className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => onNavigateToTeam(standing.team.id)}
-                    >
-                      <TableCell>
-                        <Badge variant={index === 0 ? "default" : "secondary"} className="w-6 h-6 p-0 flex items-center justify-center text-xs">
-                          {index + 1}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
-                          <span className="font-medium">{standing.team.name}</span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-center">{standing.wins}</TableCell>
-                      <TableCell className="text-center">{standing.losses}</TableCell>
-                      <TableCell className="text-center">{standing.ppg.toFixed(1)}</TableCell>
-                      <TableCell className="text-center">{standing.papg.toFixed(1)}</TableCell>
-                      <TableCell className="text-center">
-                        <span className={standing.pointsDiff >= 0 ? "text-green-600" : "text-red-600"}>
-                          {standing.pointsDiff >= 0 ? '+' : ''}{standing.pointsDiff}
-                        </span>
-                      </TableCell>
-                      <TableCell className="text-center">{standing.pointsFor}</TableCell>
-                      <TableCell className="text-center">{standing.pointsAgainst}</TableCell>
-                      <TableCell className="text-center">{standing.fgPct.toFixed(1)}%</TableCell>
-                      <TableCell className="text-center">{standing.threePct.toFixed(1)}%</TableCell>
-                      <TableCell className="text-center">{standing.ftPct.toFixed(1)}%</TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
+      {groupStandingsTables.length > 0 ? (
+        <>
+          {groupStandingsTables.map(({ group, standings: groupRows }) => {
+            const groupGames = sortGamesByDateAsc(
+              filterGamesForGroup(tournamentGames, group, tournament.structure)
+            );
+            return (
+              <Card key={group.id}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-base">
+                    {group.name}
+                    <Badge variant="secondary">{group.teamIds.length} teams</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Tabs defaultValue="standings" className="group-standings-tabs">
+                    <TabsList className="group-standings-tabs-list">
+                      <TabsTrigger value="standings">Standings</TabsTrigger>
+                      <TabsTrigger value="matches">Matches</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="standings" className="mt-4">
+                      {renderStandingsTable(groupRows, {
+                        groupGames,
+                        showH2h: true,
+                      })}
+                    </TabsContent>
+                    <TabsContent value="matches" className="mt-4">
+                      {groupGames.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          No matches yet
+                        </p>
+                      ) : (
+                        <ul className="group-matches-list">
+                          {groupGames.map((game) => {
+                            const homeTeam = resolveGameTeam(teams, game, 'home');
+                            const awayTeam = resolveGameTeam(teams, game, 'away');
+                            const dateLabel = new Date(game.date).toLocaleDateString(
+                              'en-US',
+                              { month: 'short', day: 'numeric' }
+                            );
+                            const hasScore =
+                              Boolean(game.finalScore) ||
+                              (typeof game.teamStats?.home?.total_points ===
+                                'number' &&
+                                typeof game.teamStats?.away?.total_points ===
+                                  'number' &&
+                                (game.isCompleted || game.isActive));
+                            const homeScore = game.finalScore
+                              ? game.finalScore.home
+                              : game.teamStats?.home?.total_points;
+                            const awayScore = game.finalScore
+                              ? game.finalScore.away
+                              : game.teamStats?.away?.total_points;
+                            const homeWins =
+                              hasScore &&
+                              typeof homeScore === 'number' &&
+                              typeof awayScore === 'number' &&
+                              homeScore > awayScore;
+                            const awayWins =
+                              hasScore &&
+                              typeof homeScore === 'number' &&
+                              typeof awayScore === 'number' &&
+                              awayScore > homeScore;
+                            const metaLabel =
+                              game.isActive && !hasScore
+                                ? `Live · ${dateLabel}`
+                                : dateLabel;
+                            return (
+                              <li key={game.id}>
+                                <button
+                                  type="button"
+                                  className="group-match-row"
+                                  onClick={() => onNavigateToGame(game.id)}
+                                >
+                                  <div className="group-match-row-teams">
+                                    <div
+                                      className={
+                                        awayWins
+                                          ? 'group-match-side group-match-side--muted'
+                                          : 'group-match-side'
+                                      }
+                                    >
+                                      <TeamBadge
+                                        team={homeTeam}
+                                        teamId={homeTeam.id}
+                                        size="sm"
+                                      />
+                                      <span
+                                        className="group-match-name"
+                                        title={homeTeam.name}
+                                      >
+                                        {homeTeam.name}
+                                      </span>
+                                      <span className="group-match-score">
+                                        {hasScore ? homeScore : '—'}
+                                      </span>
+                                    </div>
+                                    <div
+                                      className={
+                                        homeWins
+                                          ? 'group-match-side group-match-side--muted'
+                                          : 'group-match-side'
+                                      }
+                                    >
+                                      <TeamBadge
+                                        team={awayTeam}
+                                        teamId={awayTeam.id}
+                                        size="sm"
+                                      />
+                                      <span
+                                        className="group-match-name"
+                                        title={awayTeam.name}
+                                      >
+                                        {awayTeam.name}
+                                      </span>
+                                      <span className="group-match-score">
+                                        {hasScore ? awayScore : '—'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <span className="group-match-row-date">
+                                    {metaLabel}
+                                  </span>
+                                </button>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
+            );
+          })}
+          <TournamentClassificationBracket
+            tournament={tournament}
+            games={tournamentGames}
+            mode="view"
+            onUpdateTournament={onUpdateTournament}
+            onGamesUpdate={onGamesUpdate}
+            onNavigateToGame={onNavigateToGame}
+          />
+        </>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle>Tournament Standings</CardTitle>
+          </CardHeader>
+          <CardContent>{renderStandingsTable(extendedStandings)}</CardContent>
+        </Card>
+      )}
     </div>
   );
 
@@ -833,11 +991,18 @@ export function TournamentPage({
   // Games Tab - Shows all tournament games with filtering
   const GamesTab = () => {
     const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
+    const [filterStageId, setFilterStageId] = useState<string>('all');
+    const structure = normalizeTournamentStructure(tournament.structure);
+    const hasStructure = tournamentHasStructure(structure);
     
     // Filter games based on status
     const filteredGames = tournamentGames.filter(game => {
-      if (filterStatus === 'completed') return game.isCompleted;
-      if (filterStatus === 'ongoing') return !game.isCompleted;
+      if (filterStatus === 'completed' && !game.isCompleted) return false;
+      if (filterStatus === 'ongoing' && game.isCompleted) return false;
+      if (filterStageId !== 'all') {
+        if (filterStageId === 'untagged') return !game.stageId;
+        if (game.stageId !== filterStageId) return false;
+      }
       return true;
     });
 
@@ -848,10 +1013,10 @@ export function TournamentPage({
       <div className="space-y-6">
         {/* Filter Buttons */}
         <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-4">
+          <CardContent className="pt-6 space-y-4">
+            <div className="flex items-center gap-4 flex-wrap">
               <span className="text-sm text-muted-foreground">Filter:</span>
-              <div className="flex gap-2">
+              <div className="flex gap-2 flex-wrap">
                 <Button
                   variant={filterStatus === 'all' ? 'default' : 'outline'}
                   size="sm"
@@ -875,6 +1040,35 @@ export function TournamentPage({
                 </Button>
               </div>
             </div>
+            {hasStructure && (
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm text-muted-foreground">Stage:</span>
+                <Button
+                  variant={filterStageId === 'all' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilterStageId('all')}
+                >
+                  All stages
+                </Button>
+                {(structure?.stages ?? []).map((stage) => (
+                  <Button
+                    key={stage.id}
+                    variant={filterStageId === stage.id ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setFilterStageId(stage.id)}
+                  >
+                    {stage.name}
+                  </Button>
+                ))}
+                <Button
+                  variant={filterStageId === 'untagged' ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => setFilterStageId('untagged')}
+                >
+                  Untagged
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -937,7 +1131,7 @@ export function TournamentPage({
                         </div>
                         
                         {/* Date & Status */}
-                        <div className="flex items-center justify-center gap-4 mt-3 text-sm text-muted-foreground">
+                        <div className="flex items-center justify-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
                           <span>{new Date(game.date).toLocaleDateString('en-US', { 
                             year: 'numeric', 
                             month: 'short', 
@@ -947,6 +1141,14 @@ export function TournamentPage({
                             <>
                               <span>•</span>
                               <Badge variant="outline" className="text-xs">Final</Badge>
+                            </>
+                          )}
+                          {hasStructure && (
+                            <>
+                              <span>•</span>
+                              <Badge variant="secondary" className="text-xs">
+                                {describeGameStageTag(game, structure) ?? 'Untagged'}
+                              </Badge>
                             </>
                           )}
                         </div>
@@ -987,6 +1189,7 @@ export function TournamentPage({
           size="sm"
           onClick={() => {
             setEditTournamentError(null);
+            setEditTournamentPane('details');
             setIsEditTournamentDialogOpen(true);
           }}
         >
@@ -996,8 +1199,8 @@ export function TournamentPage({
       </div>
 
       {/* Navigation Tabs */}
-      <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as typeof activeTab)}>
-        <TabsList className="grid w-full grid-cols-5">
+      <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as TournamentTab)}>
+        <TabsList className="flex w-full flex-wrap h-auto gap-1 justify-start">
           <TabsTrigger value="home">Home</TabsTrigger>
           <TabsTrigger value="teams">Teams</TabsTrigger>
           <TabsTrigger value="standings">Standings</TabsTrigger>
@@ -1026,7 +1229,27 @@ export function TournamentPage({
         </TabsContent>
       </Tabs>
 
-      <Dialog open={isAddTeamDialogOpen} onOpenChange={setIsAddTeamDialogOpen}>
+      <GroupH2hDetailsDialog
+        open={h2hDialog != null}
+        onOpenChange={(open) => {
+          if (!open) setH2hDialog(null);
+        }}
+        teamIds={h2hDialog?.teamIds ?? []}
+        teams={teams}
+        games={h2hDialog?.games ?? []}
+        onNavigateToGame={(gameId) => {
+          setH2hDialog(null);
+          onNavigateToGame(gameId);
+        }}
+      />
+
+      <Dialog
+        open={isAddTeamDialogOpen}
+        onOpenChange={(open) => {
+          setIsAddTeamDialogOpen(open);
+          if (!open) setAddTeamQuery('');
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Add Team to Tournament</DialogTitle>
@@ -1034,28 +1257,44 @@ export function TournamentPage({
               Select an existing team to add to this tournament.
             </DialogDescription>
           </DialogHeader>
+          <Input
+            value={addTeamQuery}
+            onChange={(e) => setAddTeamQuery(e.target.value)}
+            placeholder="Search by name or abbreviation…"
+            autoComplete="off"
+            autoFocus
+          />
           <div className="space-y-3 max-h-60 overflow-y-auto">
-            {availableTeams.map((team) => (
-              <div
-                key={team.id}
-                className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
-                onClick={() => {
-                  onAddTeamToTournament(team.id, tournament.id);
-                  setIsAddTeamDialogOpen(false);
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <TeamBadge team={team} teamId={team.id} size="md" />
-                  <div>
-                    <div className="font-medium">{team.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {team.players.length} players
+            {filteredAvailableTeams.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-3">
+                {addTeamQueryNormalized
+                  ? 'No matching teams left to add.'
+                  : 'All teams are enrolled.'}
+              </p>
+            ) : (
+              filteredAvailableTeams.map((team) => (
+                <div
+                  key={team.id}
+                  className="flex items-center justify-between p-3 border rounded-lg hover:bg-muted/50 cursor-pointer"
+                  onClick={() => {
+                    onAddTeamToTournament(team.id, tournament.id);
+                    setIsAddTeamDialogOpen(false);
+                    setAddTeamQuery('');
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <TeamBadge team={team} teamId={team.id} size="md" />
+                    <div>
+                      <div className="font-medium">{team.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {team.players.length} players
+                      </div>
                     </div>
                   </div>
+                  <Button size="sm">Add</Button>
                 </div>
-                <Button size="sm">Add</Button>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -1081,51 +1320,115 @@ export function TournamentPage({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={isEditTournamentDialogOpen} onOpenChange={setIsEditTournamentDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+      <Dialog
+        open={isEditTournamentDialogOpen}
+        onOpenChange={(open) => {
+          setIsEditTournamentDialogOpen(open);
+          if (!open) setEditTournamentPane('details');
+        }}
+      >
+        <DialogContent className="tournament-edit-dialog">
           <DialogHeader>
-            <DialogTitle>Edit Tournament Details</DialogTitle>
+            <DialogTitle>Edit Tournament</DialogTitle>
             <DialogDescription>
-              Update tournament information and team participation.
+              Update details, teams, or the tournament structure (stages, groups,
+              classification).
             </DialogDescription>
           </DialogHeader>
-          {editTournamentError && (
-            <p className="text-sm text-destructive">{editTournamentError}</p>
-          )}
-          <TournamentForm
-            key={tournament.id}
-            initialData={{
-              name: tournament.name,
-              description: tournament.description || '',
-              year: tournament.year,
-              month: tournament.month,
-              selectedTeams: tournament.teams,
-              icon: tournament.icon,
-            }}
-            tournamentId={tournament.id}
-            teams={teams}
-            onSubmit={handleTournamentFormSubmit}
-            onCancel={handleTournamentFormCancel}
-            isEditing
-          />
-          <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
-            <div>
-              <h4 className="text-sm font-medium text-destructive">Danger zone</h4>
-              <p className="text-sm text-muted-foreground mt-1">
-                Permanently delete this tournament from your league.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="text-destructive hover:text-destructive border-destructive/30"
-              onClick={() => setIsDeleteTournamentDialogOpen(true)}
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Delete tournament
-            </Button>
-          </div>
+          <Tabs
+            value={editTournamentPane}
+            onValueChange={(v) =>
+              setEditTournamentPane(v as 'details' | 'structure')
+            }
+          >
+            <TabsList className="flex w-full flex-wrap h-auto gap-1 justify-start">
+              <TabsTrigger value="details">Details</TabsTrigger>
+              <TabsTrigger value="structure">Structure</TabsTrigger>
+            </TabsList>
+            <TabsContent value="details" className="space-y-4 mt-4">
+              {editTournamentError && (
+                <p className="text-sm text-destructive">{editTournamentError}</p>
+              )}
+              <TournamentForm
+                key={tournament.id}
+                initialData={{
+                  name: tournament.name,
+                  description: tournament.description || '',
+                  year: tournament.year,
+                  month: tournament.month,
+                  selectedTeams: tournament.teams,
+                  icon: tournament.icon,
+                }}
+                tournamentId={tournament.id}
+                teams={teams}
+                onSubmit={handleTournamentFormSubmit}
+                onCancel={handleTournamentFormCancel}
+                isEditing
+              />
+              <div className="mt-6 rounded-lg border border-destructive/30 bg-destructive/5 p-4 space-y-3">
+                <div>
+                  <h4 className="text-sm font-medium text-destructive">Danger zone</h4>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Permanently delete this tournament from your league.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive border-destructive/30"
+                  onClick={() => setIsDeleteTournamentDialogOpen(true)}
+                >
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Delete tournament
+                </Button>
+              </div>
+            </TabsContent>
+            <TabsContent value="structure" className="mt-4">
+              <TournamentStructureEditor
+                tournament={tournament}
+                teams={tournamentTeams}
+                onSaveStructure={(structureOrUpdater) => {
+                  if (typeof structureOrUpdater === 'function') {
+                    onUpdateTournament({
+                      id: tournament.id,
+                      patch: (prev) => ({
+                        ...prev,
+                        structure: structureOrUpdater(prev.structure),
+                      }),
+                    });
+                    return;
+                  }
+                  onUpdateTournament({
+                    id: tournament.id,
+                    patch: (prev) => ({
+                      ...prev,
+                      structure: structureOrUpdater,
+                    }),
+                  });
+                }}
+                onRetagGames={() => {
+                  const { games: nextGames, report } = retagTournamentGames(
+                    games,
+                    tournament.id,
+                    tournament.structure
+                  );
+                  onGamesUpdate(nextGames);
+                  return report;
+                }}
+                classificationEditor={
+                  <TournamentClassificationBracket
+                    tournament={tournament}
+                    games={tournamentGames}
+                    mode="edit"
+                    onUpdateTournament={onUpdateTournament}
+                    onGamesUpdate={onGamesUpdate}
+                    onNavigateToGame={onNavigateToGame}
+                  />
+                }
+              />
+            </TabsContent>
+          </Tabs>
         </DialogContent>
       </Dialog>
 

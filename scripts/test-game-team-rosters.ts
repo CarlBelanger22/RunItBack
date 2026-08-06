@@ -264,10 +264,98 @@ function testSetupSnapshotPreservedWithoutTournament(): void {
   assert(normalized.homeTeam.players.length === 5, 'setup snapshot smaller than club');
 }
 
+function testFriendlyUsesEmbeddedActiveRosterForSubs(): void {
+  const club = makeTeam('home', [
+    player('h1', 'One', 1),
+    player('h2', 'Two', 2),
+    player('h3', 'Three', 3),
+    player('h4', 'Four', 4),
+    player('h5', 'Five', 5),
+    player('h6', 'Six', 6),
+    player('h7', 'Seven', 7),
+    player('h8', 'Eight', 8),
+    player('h9', 'Nine', 9),
+  ]);
+  const away = makeTeam('away', [player('a1', 'A', 1)]);
+  // Setup embedded Starters+Bench only (Inactive h8/h9 never on game).
+  const gameDayActive = makeTeam('home', [
+    player('h1', 'One', 1),
+    player('h2', 'Two', 2),
+    player('h3', 'Three', 3),
+    player('h4', 'Four', 4),
+    player('h5', 'Five', 5),
+    player('h6', 'Six', 6),
+    player('h7', 'Seven', 7),
+  ]);
+
+  const game: Game = {
+    id: 'g-friendly',
+    homeTeamId: 'home',
+    awayTeamId: 'away',
+    homeTeam: gameDayActive,
+    awayTeam: away,
+    isFriendly: true,
+    date: '2026-08-04',
+    homeStarters: ['h1', 'h2', 'h3', 'h4', 'h5'],
+    awayStarters: [],
+    gameStats: [
+      {
+        playerId: 'h1',
+        points: 8,
+        fg_made: 3,
+        fg_attempted: 5,
+        three_made: 1,
+        three_attempted: 2,
+        ft_made: 1,
+        ft_attempted: 1,
+        orb: 0,
+        drb: 0,
+        assists: 0,
+        steals: 0,
+        blocks: 0,
+        turnovers: 0,
+        fouls: 0,
+        tech_fouls: 0,
+        unsportsmanlike_fouls: 0,
+        fouls_drawn: 0,
+        blocks_received: 0,
+        plus_minus: 0,
+        minutes_played: 0,
+      },
+    ],
+    teamStats: {
+      home: { teamId: 'home', total_points: 8 } as Game['teamStats']['home'],
+      away: { teamId: 'away', total_points: 0 } as Game['teamStats']['away'],
+    },
+    shots: [],
+    events: [],
+    lineupStints: [],
+    currentPeriod: 1,
+    currentGameTime: '15:00',
+    trackBothTeams: false,
+    isActive: true,
+    isCompleted: false,
+  };
+
+  const normalized = normalizeGameTeamRosters(game, [club, away], []);
+  assert(normalized.homeTeam.players.length === 7, 'friendly keeps setup active roster');
+  assert(
+    normalized.homeTeam.players.some((p) => p.id === 'h6') &&
+      normalized.homeTeam.players.some((p) => p.id === 'h7'),
+    'bench players available for sub In'
+  );
+  assert(
+    !normalized.homeTeam.players.some((p) => p.id === 'h8') &&
+      !normalized.homeTeam.players.some((p) => p.id === 'h9'),
+    'inactive club players stay off game roster'
+  );
+}
+
 function main(): void {
   testNormalizeTournamentGameAfterClubHydration();
   testParticipantUnionKeepsActiveSub();
   testSetupSnapshotPreservedWithoutTournament();
+  testFriendlyUsesEmbeddedActiveRosterForSubs();
   console.log('All game-team-rosters tests passed.');
 }
 

@@ -40,6 +40,8 @@ interface LiveCourtFlowOverlaysProps {
     turnoverPlayerId?: string,
     stealPlayerId?: string
   ) => void;
+  /** Opp make and-1: picking home fouler — do not show Opp foul overlay. */
+  and1OppTeamFt?: boolean;
 }
 
 export function LiveCourtFlowOverlays({
@@ -66,6 +68,7 @@ export function LiveCourtFlowOverlays({
   commitTurnover,
   commitFoul,
   commitJumpBallWithStats,
+  and1OppTeamFt = false,
 }: LiveCourtFlowOverlaysProps) {
   if (phase.kind === 'shot' && phase.step === 'fastbreak' && pending) {
     const shotPayload: PendingShot = {
@@ -97,28 +100,15 @@ export function LiveCourtFlowOverlays({
               >
                 Commit
               </Button>
-              {pending.teamOnly ? (
-                <Button
-                  variant="ghost"
-                  onClick={overlayClick(() => {
-                    dispatch({ type: 'RESET' });
-                    onFastbreakChange(false);
-                  })}
-                >
-                  Cancel
-                </Button>
-              ) : (
-                <Button
-                  variant="secondary"
-                  onClick={overlayClick(() => {
-                    onAndOneFoul(shotPayload);
-                  })}
-                >
-                  + Foul
-                </Button>
-              )}
+              <Button
+                variant="secondary"
+                onClick={overlayClick(() => {
+                  onAndOneFoul(shotPayload);
+                })}
+              >
+                + Foul
+              </Button>
             </div>
-            {pending.teamOnly ? null : (
             <Button
               variant="ghost"
               className="w-full"
@@ -129,7 +119,6 @@ export function LiveCourtFlowOverlays({
             >
               Cancel
             </Button>
-            )}
           </CardContent>
         </Card>
       </LiveCourtOverlayShell>
@@ -535,11 +524,13 @@ export function LiveCourtFlowOverlays({
     );
   }
 
-  // Single-team: Opp unit as foul committer (personal / unsportsmanlike / offensive / and-1).
+  // Single-team: Opp unit as foul committer (personal / unsportsmanlike / offensive / and-1 on home make).
+  // Skip when Opp-make and-1 is active (home fouler via on-court column).
   if (
     phase.kind === 'foul' &&
     phase.step === 'committer' &&
     !trackBoth &&
+    !and1OppTeamFt &&
     phase.foulCategory !== 'technical' &&
     phase.foulEntity !== 'team'
   ) {

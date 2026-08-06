@@ -4,6 +4,7 @@ import { TeamBadge } from '../TeamBadge';
 import type { Game, Team } from '../../App';
 import { resolveTeamScore } from '../../utils/gameDisplay';
 import { resolveGameTeam } from '../../utils/gameTeams';
+import { resolveGameListLabel } from '../../utils/friendlyGame';
 
 interface DashboardGamePreviewProps {
   game: Game;
@@ -30,6 +31,7 @@ export function DashboardGamePreview({
     day: 'numeric',
     year: 'numeric',
   });
+  const classification = resolveGameListLabel(game, tournamentName);
 
   return (
     <button
@@ -40,7 +42,7 @@ export function DashboardGamePreview({
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0 text-xs text-muted-foreground leading-snug">
           <p>{dateLabel}</p>
-          {tournamentName && <p className="mt-0.5">{tournamentName}</p>}
+          {classification && <p className="mt-0.5">{classification}</p>}
         </div>
         <Badge variant="outline" className="text-[10px] shrink-0">
           Final

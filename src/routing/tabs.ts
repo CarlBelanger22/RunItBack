@@ -2,11 +2,19 @@ export type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games'
 export type TeamTab = 'overview' | 'roster' | 'stats' | 'games';
 export type PlayerTab = 'overview' | 'gamelog' | 'stats' | 'advanced';
 
-const TOURNAMENT_TABS: TournamentTab[] = ['home', 'teams', 'standings', 'players', 'games'];
+const TOURNAMENT_TABS: TournamentTab[] = [
+  'home',
+  'teams',
+  'standings',
+  'players',
+  'games',
+];
 const TEAM_TABS: TeamTab[] = ['overview', 'roster', 'stats', 'games'];
 const PLAYER_TABS: PlayerTab[] = ['overview', 'gamelog', 'stats', 'advanced'];
 
 export function parseTournamentTab(value: string | null): TournamentTab {
+  // LE-96 — Structure tab removed; old ?tab=structure deep links → Standings.
+  if (value === 'structure') return 'standings';
   if (value && TOURNAMENT_TABS.includes(value as TournamentTab)) {
     return value as TournamentTab;
   }

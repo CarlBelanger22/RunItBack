@@ -1,6 +1,7 @@
 import type { Game } from '../App';
 import type { GameFormValues } from '../components/forms/GameForm';
 import { resolveTeamScore } from './gameDisplay';
+import { isFriendlyGame } from './friendlyGame';
 
 export function buildGameMetadataPatch(
   game: Game,
@@ -10,9 +11,24 @@ export function buildGameMetadataPatch(
     ...game,
     date: values.date,
     startTime: values.startTime,
-    tournamentId: values.tournamentId,
     courtSidesFlipped: values.courtSidesFlipped ?? false,
   };
+
+  // Friendlies stay tournament-less (no convert official ↔ friendly).
+  if (isFriendlyGame(game)) {
+    next.tournamentId = undefined;
+    next.isFriendly = true;
+    next.stageId = undefined;
+    next.groupId = undefined;
+    next.bracketSlotId = undefined;
+  } else if (values.tournamentId) {
+    next.tournamentId = values.tournamentId;
+    next.stageId = values.stageId;
+    next.groupId = values.groupId;
+    if (!values.stageId) {
+      next.bracketSlotId = undefined;
+    }
+  }
 
   if (game.isCompleted && values.finalScoreHome != null && values.finalScoreAway != null) {
     next.finalScore = {

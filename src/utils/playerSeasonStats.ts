@@ -33,6 +33,7 @@ import {
   tournamentMatchesSelection,
   type TournamentIdSet,
 } from './tournamentSelection';
+import { isCompetitiveGame, isFriendlyGame, FRIENDLIES_SCOPE_ID, FRIENDLIES_SCOPE_LABEL } from './friendlyGame';
 
 export type TournamentScope = 'all' | string;
 
@@ -55,7 +56,7 @@ export interface PlayerSeasonRow {
   gamesWithPlusMinusData: number;
   /** Tournament or summary label for player-page breakdown rows. */
   scopeLabel?: string;
-  /** Tournament id, `no-tournament`, or `all-time`. */
+  /** Tournament id, `no-tournament`, `all-time`, or `friendlies`. */
   scopeId?: string;
   /** Style as summary footer row (e.g. All Time). */
   isSummaryRow?: boolean;
@@ -269,6 +270,7 @@ export function filterTeamScopeGames(
   tournamentScope: TournamentScope | TournamentIdSet
 ): Game[] {
   return (games ?? []).filter((game) => {
+    if (!isCompetitiveGame(game)) return false;
     if (!game.isCompleted) return false;
     if (game.homeTeamId !== teamId && game.awayTeamId !== teamId) return false;
     if (tournamentScope === null) {
@@ -529,6 +531,7 @@ export function buildPlayerTournamentSeasonRows(
   const playerGames = filterGamesByFormatScope(
     (games ?? []).filter(
       (game) =>
+        isCompetitiveGame(game) &&
         game.isCompleted &&
         (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
     ),
@@ -583,9 +586,9 @@ export function buildPlayerTournamentSeasonRows(
     return team ?? leagueTeams[0] ?? ({ id: '', name: '', abbreviation: '-', players: [] } as Team);
   };
 
-  const allTimeTeam = (): Team => {
+  const allTimeTeam = (scopedGames: Game[]): Team => {
     const playedIds = new Set<string>();
-    for (const game of playerGames) {
+    for (const game of scopedGames) {
       const t = resolvePlayerTeamInGame(player.id, game, teams);
       if (t) playedIds.add(t.id);
     }
@@ -614,7 +617,7 @@ export function buildPlayerTournamentSeasonRows(
     });
 
   if (options?.includeAllTime !== false && playerGames.length > 0) {
-    const team = allTimeTeam();
+    const team = allTimeTeam(playerGames);
     const rosterPlayer = rosterPlayerForTeam(
       team.abbreviation === 'Multi' ? null : team.id
     );
@@ -622,6 +625,35 @@ export function buildPlayerTournamentSeasonRows(
       ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, playerGames),
       scopeLabel: allTimeScopeLabel(gameFormatScope),
       scopeId: 'all-time',
+      isSummaryRow: true,
+      ageAtScope: null,
+    });
+  }
+
+  const friendlyGames = filterGamesByFormatScope(
+    (games ?? []).filter(
+      (game) =>
+        isFriendlyGame(game) &&
+        game.isCompleted &&
+        (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+    ),
+    gameFormatScope,
+    tournaments
+  );
+
+  if (friendlyGames.length > 0) {
+    const team = allTimeTeam(friendlyGames);
+    const rosterPlayer = rosterPlayerForTeam(
+      team?.abbreviation === 'Multi' ? null : team?.id ?? null
+    );
+    const safeTeam =
+      team ??
+      leagueTeams[0] ??
+      ({ id: '', name: '', abbreviation: '-', players: [] } as Team);
+    rows.push({
+      ...aggregateSinglePlayerSeasonStats(rosterPlayer, safeTeam, friendlyGames),
+      scopeLabel: FRIENDLIES_SCOPE_LABEL,
+      scopeId: FRIENDLIES_SCOPE_ID,
       isSummaryRow: true,
       ageAtScope: null,
     });
@@ -647,6 +679,7 @@ export function buildSelectedTournamentsSummaryRow(
   const playerGames = filterGamesByFormatScope(
     (games ?? []).filter(
       (game) =>
+        isCompetitiveGame(game) &&
         game.isCompleted &&
         tournamentMatchesSelection(game.tournamentId, selectedIds) &&
         (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
@@ -687,9 +720,11 @@ export function filterPlayerSeasonRowsForTournamentSelection(
   }
 
   if (isAllTournamentsSelected(selection, availableIds)) {
+    // Full view: tournament rows + All Time + Friendlies (when present).
     return rows;
   }
 
+  // Tournament filter active: hide All Time / Friendlies (decision C).
   if (selection.size === 1) {
     const id = [...selection][0];
     return dataRows.filter((row) => row.scopeId === id);
@@ -706,7 +741,16 @@ export function sortPlayerSeasonRows(
   sortField: PlayerStatsSortField,
   sortOrder: 'asc' | 'desc'
 ): PlayerSeasonRow[] {
-  const summaryRows = rows.filter((row) => row.isSummaryRow);
+  const summaryRows = rows
+    .filter((row) => row.isSummaryRow)
+    .sort((a, b) => {
+      const rank = (id?: string) => {
+        if (id === 'all-time') return 0;
+        if (id === FRIENDLIES_SCOPE_ID) return 1;
+        return 2;
+      };
+      return rank(a.scopeId) - rank(b.scopeId);
+    });
   const dataRows = rows.filter((row) => !row.isSummaryRow);
 
   const sorted = [...dataRows].sort((a, b) => {

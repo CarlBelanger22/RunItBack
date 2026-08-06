@@ -106,7 +106,8 @@ export function useLiveGameSession(
           )
         : game;
     const replayed = replayMinutesOntoGame(base);
-    setCurrentGame(replayed.game);
+    const synced = GameLogic.syncTrackedTeamTotalsFromPlayers(replayed.game);
+    setCurrentGame(synced);
     setMinutesState(replayed.state);
     setOnCourtHome(replayed.state.onCourtHome);
     setOnCourtAway(replayed.state.onCourtAway);
@@ -140,18 +141,19 @@ export function useLiveGameSession(
   const syncGame = useCallback(
     (updated: Game, options?: { skipPossessionSync?: boolean }) => {
       const replayed = replayMinutesOntoGame(updated);
-      setCurrentGame(replayed.game);
+      const synced = GameLogic.syncTrackedTeamTotalsFromPlayers(replayed.game);
+      setCurrentGame(synced);
       setMinutesState(replayed.state);
       setOnCourtHome(replayed.state.onCourtHome);
       setOnCourtAway(replayed.state.onCourtAway);
-      onGameUpdate(replayed.game);
+      onGameUpdate(synced);
       if (
         options?.skipPossessionSync ||
         entryStateRef.current.phase.kind === 'free_throw'
       ) {
         return;
       }
-      const snap = derivePossessionSnapshot(replayed.game, replayed.game.events);
+      const snap = derivePossessionSnapshot(synced, synced.events);
       dispatch({ type: 'SET_OFFENSE', teamId: snap.offenseTeamId });
     },
     [onGameUpdate]
@@ -210,7 +212,7 @@ export function useLiveGameSession(
       );
       syncGame(g);
 
-      if (and1 && pending.shooterId) {
+      if (and1 && (pending.shooterId || pending.teamOnly)) {
         dispatch({ type: 'START_FOUL' });
         return;
       }

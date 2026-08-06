@@ -21,6 +21,7 @@ import {
 } from '../utils/gameMetadata';
 import { deleteGameConfirmDescription } from '../utils/activeGame';
 import { downloadGameReportPdf } from '../lib/gameReportPdf';
+import { resolveGameMetaLabel } from '../utils/friendlyGame';
 import { cn } from './ui/utils';
 import {
   AlertDialog,
@@ -60,6 +61,10 @@ export function GameSummary({
 
   const gameDate = new Date(game.date);
   const isRecent = Date.now() - gameDate.getTime() < 7 * 24 * 60 * 60 * 1000;
+  const tournament = game.tournamentId
+    ? tournaments.find((t) => t.id === game.tournamentId)
+    : undefined;
+  const metaLabel = resolveGameMetaLabel(game, tournament?.name);
 
   const scoreMismatchWarning = useMemo(
     () => getFinalScoreMismatchWarning(game),
@@ -133,6 +138,7 @@ export function GameSummary({
           <div className="flex items-center justify-between">
             <CardTitle className="text-2xl">Game Summary</CardTitle>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
+              {metaLabel && <span>{metaLabel}</span>}
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
                 {gameDate.toLocaleDateString()}

@@ -9,6 +9,7 @@ import {
   addTeamCoachToPlayerSums,
   resolveTeamCoach,
 } from './teamCoachStats';
+import { isCompetitiveGame } from './friendlyGame';
 
 export type TeamSide = 'home' | 'away';
 
@@ -48,6 +49,19 @@ export function sortGamesByDateDesc(games: Game[]): Game[] {
     if (timeDiff !== 0) return timeDiff;
 
     return b.id.localeCompare(a.id);
+  });
+}
+
+/** Chronological schedule order (oldest → newest). */
+export function sortGamesByDateAsc(games: Game[]): Game[] {
+  return [...games].sort((a, b) => {
+    const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+    if (dateDiff !== 0) return dateDiff;
+
+    const timeDiff = (a.startTime ?? '').localeCompare(b.startTime ?? '');
+    if (timeDiff !== 0) return timeDiff;
+
+    return a.id.localeCompare(b.id);
   });
 }
 
@@ -238,7 +252,120 @@ export function computeBenchPointsFromStarters(
   return total;
 }
 
-/** Persisted advanced stat, with bench derived from starters when not stored. */
+type EventDerivedAdvancedKey =
+  | 'points_in_paint'
+  | 'fastbreak_points'
+  | 'second_chance_points'
+  | 'points_off_turnovers';
+
+export type EventDerivedAdvancedTotals = Record<EventDerivedAdvancedKey, number>;
+
+function freeThrowMakesFromDetails(details: Record<string, unknown>): number {
+  if (typeof details.made === 'boolean') {
+    return details.made ? 1 : 0;
+  }
+  const attempts = details.attempts;
+  if (Array.isArray(attempts)) {
+    return attempts.filter(Boolean).length;
+  }
+  return 0;
+}
+
+/** True when PBP/shot chart carries paint / transition / possession tags. */
+export function gameHasEventDerivedAdvancedTracking(game: Game): boolean {
+  for (const event of game.events ?? []) {
+    if (event.type === 'shot_attempt') {
+      const d = event.details ?? {};
+      if (
+        d.inPaint !== undefined ||
+        d.isTransition !== undefined ||
+        d.possessionContext != null
+      ) {
+        return true;
+      }
+    }
+    if (event.type === 'free_throw' && event.details?.possessionContext != null) {
+      return true;
+    }
+  }
+  for (const shot of game.shots ?? []) {
+    if (shot.inPaint !== undefined || shot.isTransition !== undefined) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Rebuild PITP / FB / 2nd chance / POT from live PBP (shot chart for paint/FB
+ * when there are no tagged shot events). Returns null when the game has no
+ * advanced tags at all.
+ */
+export function computeAdvancedTeamStatsFromEvents(
+  game: Game,
+  side: TeamSide
+): EventDerivedAdvancedTotals | null {
+  if (!gameHasEventDerivedAdvancedTracking(game)) return null;
+
+  const teamId = getTeamForSide(game, side).id;
+  const totals: EventDerivedAdvancedTotals = {
+    points_in_paint: 0,
+    fastbreak_points: 0,
+    second_chance_points: 0,
+    points_off_turnovers: 0,
+  };
+
+  const events = game.events ?? [];
+  const eventsHavePaintOrFb = events.some(
+    (e) =>
+      e.type === 'shot_attempt' &&
+      (e.details?.inPaint !== undefined || e.details?.isTransition !== undefined)
+  );
+
+  for (const event of events) {
+    const eventTeamId =
+      event.teamId ||
+      (event.playerId
+        ? resolvePlayerTeamSideInGame(event.playerId, game)
+        : null);
+    if (eventTeamId !== teamId) continue;
+
+    if (event.type === 'shot_attempt' && event.details?.made) {
+      const pts = event.details.isThree ? 3 : 2;
+      if (event.details.inPaint) totals.points_in_paint += pts;
+      if (event.details.isTransition) totals.fastbreak_points += pts;
+      const ctx = event.details.possessionContext as
+        | { secondChance?: boolean; offTurnover?: boolean }
+        | undefined;
+      if (ctx?.secondChance) totals.second_chance_points += pts;
+      if (ctx?.offTurnover) totals.points_off_turnovers += pts;
+    }
+
+    if (event.type === 'free_throw') {
+      const made = freeThrowMakesFromDetails(event.details ?? {});
+      if (made <= 0) continue;
+      const ctx = event.details?.possessionContext as
+        | { secondChance?: boolean; offTurnover?: boolean }
+        | undefined;
+      if (ctx?.secondChance) totals.second_chance_points += made;
+      if (ctx?.offTurnover) totals.points_off_turnovers += made;
+    }
+  }
+
+  if (!eventsHavePaintOrFb) {
+    for (const shot of game.shots ?? []) {
+      if (!shot.made) continue;
+      if (resolvePlayerTeamSideInGame(shot.playerId, game) !== teamId) continue;
+      const pts = shot.isThree ? 3 : 2;
+      if (shot.inPaint) totals.points_in_paint += pts;
+      if (shot.isTransition) totals.fastbreak_points += pts;
+    }
+  }
+
+  return totals;
+}
+
+/** Persisted advanced stat, with bench / event-derived fallbacks when not stored. */
 export function resolveOptionalAdvancedTeamStat(
   game: Game,
   side: TeamSide,
@@ -255,7 +382,21 @@ export function resolveOptionalAdvancedTeamStat(
     return computeBenchPointsFromStarters(game, side);
   }
 
-  return getOptionalAdvancedStatValue(persisted, key, scoreOnly);
+  const fromPersisted = getOptionalAdvancedStatValue(persisted, key, scoreOnly);
+  if (fromPersisted !== null) return fromPersisted;
+
+  if (
+    key === 'points_in_paint' ||
+    key === 'fastbreak_points' ||
+    key === 'second_chance_points' ||
+    key === 'points_off_turnovers'
+  ) {
+    const derived = computeAdvancedTeamStatsFromEvents(game, side);
+    if (!derived) return null;
+    return derived[key];
+  }
+
+  return null;
 }
 
 export function formatOptionalAdvancedTeamStat(
@@ -613,6 +754,7 @@ export function computeScopedTeamScoring(
   let gamesWithScore = 0;
 
   for (const game of games ?? []) {
+    if (!isCompetitiveGame(game)) continue;
     if (!game.isCompleted || !game.finalScore) continue;
     if (game.homeTeamId !== teamId && game.awayTeamId !== teamId) continue;
 
@@ -645,6 +787,7 @@ export function getTeamAdvancedStatCoverage(
   let gamesWithPointsOffTurnovers = 0;
 
   for (const game of games ?? []) {
+    if (!isCompetitiveGame(game)) continue;
     if (!game.isCompleted) continue;
     if (game.homeTeamId !== teamId && game.awayTeamId !== teamId) continue;
     gamesInScope++;

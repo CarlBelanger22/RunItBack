@@ -17,6 +17,7 @@ import { getActiveGame } from '../utils/activeGame';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
 import type { Game, Team, Tournament, Player, CreateTeamOptions } from '../App';
+import type { TournamentUpdate } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { TournamentJerseyUpdate } from '../utils/playerJerseyResolution';
 import { parseSlugId, slugify } from './slugs';
@@ -34,7 +35,9 @@ import { normalizeGameTeamRosters } from '../utils/gameTeamRosters';
 import { parseTournamentSelection } from '../utils/tournamentSelection';
 import {
   currentLocationPath,
+  gameSummaryBackFallback,
   navigateBack,
+  navigatePreservingState,
   navigateWithReturnTo,
 } from './navigation';
 
@@ -47,11 +50,15 @@ export interface AppRoutesProps {
   currentGame: Game | null;
   setCurrentGame: (game: Game | null) => void;
   onCreateTournament: (data: Omit<Tournament, 'id'>) => void;
-  onUpdateTournament: (tournament: Tournament) => void;
+  onUpdateTournament: (update: TournamentUpdate) => void;
   onDeleteTournament: (tournamentId: string) => void;
   onCreateTeam: (data: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onUpdateTeam: (team: Team) => void;
-  onUpdateTournamentRosters: (entries: TournamentRosterEntry[]) => void;
+  onUpdateTournamentRosters: (
+    entriesOrUpdater:
+      | TournamentRosterEntry[]
+      | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
+  ) => void;
   onUpdatePlayerProfile: (
     playerId: string,
     profilePatch: Pick<
@@ -72,6 +79,7 @@ export interface AppRoutesProps {
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onGameStart: (game: Game) => boolean;
   onGameUpdate: (game: Game) => void;
+  onGamesUpdate: (games: Game[]) => void;
   onGameComplete: (game: Game) => void;
   onDeleteActiveGame: (gameId: string) => void;
 }
@@ -95,6 +103,7 @@ function TournamentDetailRoute({
   onUpdateTeam,
   onUpdateTournament,
   onDeleteTournament,
+  onGamesUpdate,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -112,14 +121,14 @@ function TournamentDetailRoute({
   const canonical = tournamentPath(tournament, tab);
 
   if (parsed.slug !== slugify(tournament.name)) {
-    return <Navigate to={canonical} replace />;
+    return <Navigate to={canonical} replace state={location.state} />;
   }
 
   const handleTabChange = (nextTab: TournamentTab) => {
     const target = tournamentPath(tournament, nextTab);
     const current = `${location.pathname}${location.search}`;
     if (target !== current) {
-      navigate(target);
+      navigatePreservingState(navigate, location, target);
     }
   };
 
@@ -155,6 +164,7 @@ function TournamentDetailRoute({
       onUpdateTeam={onUpdateTeam}
       onUpdateTournament={onUpdateTournament}
       onDeleteTournament={onDeleteTournament}
+      onGamesUpdate={onGamesUpdate}
     />
   );
 }
@@ -188,14 +198,14 @@ function TeamDetailRoute({
   const canonical = teamPath(team, tab, statsQuery);
 
   if (parsed.slug !== slugify(team.name)) {
-    return <Navigate to={canonical} replace />;
+    return <Navigate to={canonical} replace state={location.state} />;
   }
 
   const handleTabChange = (nextTab: TeamTab) => {
     const target = teamPath(team, nextTab, statsQuery);
     const current = `${location.pathname}${location.search}`;
     if (target !== current) {
-      navigate(target);
+      navigatePreservingState(navigate, location, target);
     }
   };
 
@@ -278,14 +288,14 @@ function PlayerDetailRoute({
   const canonical = playerPath(player, tab, statsQuery);
 
   if (parsed.slug !== slugify(player.name)) {
-    return <Navigate to={canonical} replace />;
+    return <Navigate to={canonical} replace state={location.state} />;
   }
 
   const handleTabChange = (nextTab: PlayerTab) => {
     const target = playerPath(player, nextTab, statsQuery);
     const current = `${location.pathname}${location.search}`;
     if (target !== current) {
-      navigate(target);
+      navigatePreservingState(navigate, location, target);
     }
   };
 
@@ -351,7 +361,13 @@ function GameSummaryRoute({
     <GameSummary
       game={game}
       tournaments={tournaments}
-      onBack={() => navigateBack(navigate, location, paths.home)}
+      onBack={() =>
+        navigateBack(
+          navigate,
+          location,
+          gameSummaryBackFallback(game, tournaments)
+        )
+      }
       onGameUpdate={onGameUpdate}
       onDeleteGame={() => {
         onDeleteActiveGame(gameId);
@@ -466,6 +482,7 @@ export function AppRoutes(props: AppRoutesProps) {
     onAddTeamToTournament,
     onGameStart,
     onGameUpdate,
+    onGamesUpdate,
     onGameComplete,
     onDeleteActiveGame,
   } = props;
@@ -496,7 +513,7 @@ export function AppRoutes(props: AppRoutesProps) {
   const handleGameStart = (game: Game): boolean => {
     const started = onGameStart(game);
     if (started) {
-      navigate(liveGamePath(game.id));
+      navigateWithReturnTo(navigate, liveGamePath(game.id), returnTo);
     }
     return started;
   };
@@ -566,6 +583,7 @@ export function AppRoutes(props: AppRoutesProps) {
           <RecentGames
             games={games}
             teams={teams}
+            tournaments={tournaments}
             onBack={() => navigate(paths.home)}
             onNavigateToGame={(gameId) => {
               const game = games.find((g) => g.id === gameId);

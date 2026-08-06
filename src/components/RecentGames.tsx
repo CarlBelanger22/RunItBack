@@ -3,7 +3,7 @@ import { Card, CardContent } from './ui/card';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { ArrowLeft, Calendar, Filter, Play, Trash2 } from 'lucide-react';
-import { Game } from '../App';
+import { Game, Tournament } from '../App';
 import {
   canDeleteIncompleteGame,
   deleteGameConfirmDescription,
@@ -11,6 +11,7 @@ import {
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { resolveTeamScore, sortGamesByDateDesc } from '../utils/gameDisplay';
+import { resolveGameListLabel } from '../utils/friendlyGame';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -27,6 +28,7 @@ import { resolveGameTeam } from '../utils/gameTeams';
 interface RecentGamesProps {
   games: Game[];
   teams?: Team[];
+  tournaments?: Tournament[];
   onBack: () => void;
   onNavigateToGame: (gameId: string) => void;
   onDeleteActiveGame?: (gameId: string) => void;
@@ -35,6 +37,7 @@ interface RecentGamesProps {
 export function RecentGames({
   games,
   teams = [],
+  tournaments = [],
   onBack,
   onNavigateToGame,
   onDeleteActiveGame,
@@ -128,6 +131,10 @@ export function RecentGames({
             const showIncompleteActions = canDeleteIncompleteGame(game);
             const showDelete = Boolean(onDeleteActiveGame);
             const showCardActions = showIncompleteActions || (showDelete && game.isCompleted);
+            const tournamentName = game.tournamentId
+              ? tournaments.find((t) => t.id === game.tournamentId)?.name
+              : undefined;
+            const classification = resolveGameListLabel(game, tournamentName);
             return (
               <Card 
                 key={game.id} 
@@ -182,10 +189,10 @@ export function RecentGames({
                           month: 'short', 
                           day: 'numeric' 
                         })}</span>
-                        {game.tournamentId && (
+                        {classification && (
                           <>
                             <span>•</span>
-                            <span>Tournament Game</span>
+                            <span>{classification}</span>
                           </>
                         )}
                         {game.isCompleted && (

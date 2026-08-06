@@ -253,8 +253,37 @@ Setup: reduce a team so it has **no eligible bench** (e.g. dress exactly 5, or f
 | 12.10 | Live box Opp strip | [x] | Home player box; Opp **team totals** (FG/3PT/FT/PTS/REB/TO/PF) — no empty Away player table |
 | 12.11 | End Q lineup | [x] | **Home lineup only** (narrow ~280px panel) |
 | 12.12 | PBP Opp read-only | [x] | Double-click Opp card does **not** open edit; home cards still editable; undo still works |
+| 12.13 | Opp make + Foul (and-1) | [x] | Opp MAKE confirm shows **+ Foul** → pick home fouler → Opp 1 team FT → possession to home |
 
-**Phase 12 sign-off:** User confirmed complete 2026-07-26 (includes LE-91.7–91.9 QA fixes: Opp identity, tip panel, court label colors, Opp strip refresh, End Q width).
+**Phase 12 sign-off:** User confirmed complete 2026-07-26 (includes LE-91.7–91.9 QA fixes: Opp identity, tip panel, court label colors, Opp strip refresh, End Q width). **12.13** (LE-93) user-confirmed 2026-08-05.
+
+---
+
+## Phase 13 — Friendly games (LE-92)
+
+**Setup:** Game Setup → turn **on** “Friendly game (not a tournament)” (default is off). No tournament picker. Pick any club / create for home (and Opp if single-team, or both clubs if Track both teams). Complete at least one friendly with player stats so Player Stats can show a Friendlies row.
+
+| # | Test | Pass | Expected |
+|---|------|------|----------|
+| 13.1 | Setup toggle off (default) | [x] | Tournament picker shown; Start still requires a tournament |
+| 13.2 | Setup toggle on | [x] | Tournament picker hidden; club pickers (not tournament-roster-only); Start works without a tournament |
+| 13.3 | Single-team friendly | [x] | Home roster + Opp unit (any club / create name+abbrev); live entry works like LE-91 |
+| 13.4 | Both-team friendly | [x] | Two clubs with rosters; full live entry as usual |
+| 13.5 | Persist / resume | [x] | Friendly stays `isFriendly` after refresh / resume; still no tournament |
+| 13.6 | Lists label | [x] | Dashboard Latest Games, Recent Games, Team Games, Player game log show **Friendly** (plain text; Team Games **not** a tournament link) |
+| 13.7 | Game page + live header | [x] | **Friendly game** on Game Summary header and live scoreboard meta (and resume banner if in progress) |
+| 13.8 | Aggregates excluded | [x] | Friendly points do **not** change team season PPG / W–L, player All Time, or H2H when comparing to before the friendly |
+| 13.9 | Player Stats Friendlies row | [x] | Under All Time: **Friendlies** summary row with GP/PTS matching friendly games only; **not** clickable |
+| 13.10 | Friendlies row + tournament filter | [x] | Filter Player Stats to one tournament → Friendlies row **hidden**; All tournaments → row returns |
+| 13.11 | PDF | [x] | Export game PDF shows **Friendly** in the tournament title slot |
+| 13.12 | Official games unchanged | [x] | Non-friendly games still show real tournament names / links / aggregates |
+| 13.13 | Edit friendly — court flip | [x] | Edit Game on a live friendly: toggle Flip court sides → **Update Game** saves; no tournament picker (shows “Friendly game”) |
+| 13.14 | Friendly subs — game-day roster | [x] | Sub dialog **In** lists only Starters+Bench from setup (not full club; Inactive excluded) |
+| 13.15 | Friendly setup Inactive | [x] | Drag players to **Inactive**; Start game embeds only active; live subs omit Inactive |
+
+**Automated (LE-92):** `npm run test:friendly-game` (+ `npm run test:game-report-model` for PDF classification).
+
+**Phase 13 sign-off:** User confirmed complete 2026-08-05 (LE-92 + LE-94).
 
 ---
 
@@ -294,6 +323,7 @@ npm run test:end-period && \
 npm run test:stat-recording && \
 npm run test:single-team-entry && \
 npm run test:single-team-away-identity && \
+npm run test:friendly-game && \
 npm run test:pbp-edit
 ```
 
@@ -324,4 +354,4 @@ npm run test:pbp-edit
 
 ---
 
-*Last updated: 2026-07-04 (Phases 1–9 pass; ready for real game)*
+*Last updated: 2026-08-04 (Phase 13.14–13.15 LE-94 Inactive / game-day roster)*

@@ -5,6 +5,7 @@ import {
   resolvePlayerTeamSideInGame,
   type TournamentRosterEntry,
 } from './tournamentRosters';
+import { isFriendlyGame } from './friendlyGame';
 
 function sortPlayersByNumber(players: Player[]): Player[] {
   return [...players].sort(
@@ -98,6 +99,20 @@ function resolveSidePlayers(
   }
 
   const embeddedPlayers = embedded?.players ?? [];
+
+  // Friendly: trust game-day snapshot (Starters + Bench from setup).
+  // Inactive players are never embedded — do not expand to full club.
+  if (isFriendlyGame(game) && embeddedPlayers.length > 0) {
+    const byId = new Map(embeddedPlayers.map((p) => [p.id, { ...p }]));
+    for (const id of participants) {
+      if (!byId.has(id)) {
+        const extra = lookupPlayerTemplate(id, teamId, teams, embedded);
+        if (extra) byId.set(id, extra);
+      }
+    }
+    return sortPlayersByNumber([...byId.values()]);
+  }
+
   if (embeddedPlayers.length > 0 && (clubCount === 0 || embeddedPlayers.length < clubCount)) {
     return sortPlayersByNumber(dedupeTeamPlayers(embeddedPlayers));
   }

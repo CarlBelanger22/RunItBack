@@ -32,6 +32,13 @@ export class GameLogic {
     // Annotate before appending so possession context uses prior events only.
     this.annotatePossessionContext(updatedGame, event);
 
+    // Player-attributed scoring must land on that player's team (fixes rare
+    // teamId mismatches that desync scoreboard vs box score).
+    if (event.playerId) {
+      const playerTeamId = teamIdForPlayer(updatedGame, event.playerId);
+      if (playerTeamId) event.teamId = playerTeamId;
+    }
+
     updatedGame.events = [...game.events, event];
 
     if (event.type === 'shot_attempt' && event.details.made) {
@@ -42,12 +49,54 @@ export class GameLogic {
       this.updateScore(updatedGame, event.teamId, points, event.period);
     }
 
+    this.updateStats(updatedGame, event);
+    this.syncTrackedTeamTotalsFromPlayersInPlace(updatedGame);
+
     event.homeScore = updatedGame.teamStats.home.total_points;
     event.awayScore = updatedGame.teamStats.away.total_points;
 
-    this.updateStats(updatedGame, event);
-
     return updatedGame;
+  }
+
+  /**
+   * Scoreboard reads `teamStats.*.total_points`; the live box sums player
+   * `points`. Keep tracked-roster sides aligned so they cannot drift.
+   * Opp-unit (empty roster) sides are left alone — their score lives only on
+   * teamStats.
+   */
+  static syncTrackedTeamTotalsFromPlayers(game: Game): Game {
+    const next: Game = {
+      ...game,
+      teamStats: {
+        home: { ...game.teamStats.home },
+        away: { ...game.teamStats.away },
+      },
+    };
+    this.syncTrackedTeamTotalsFromPlayersInPlace(next);
+    return next;
+  }
+
+  private static sumPointsForTeamRoster(game: Game, side: 'home' | 'away'): number | null {
+    const team = side === 'home' ? game.homeTeam : game.awayTeam;
+    const ids = new Set((team.players ?? []).map((p) => p.id));
+    if (ids.size === 0) return null;
+    return (game.gameStats ?? [])
+      .filter((s) => ids.has(s.playerId))
+      .reduce((sum, s) => sum + (s.points ?? 0), 0);
+  }
+
+  private static syncTrackedTeamTotalsFromPlayersInPlace(game: Game): void {
+    const homeSum = this.sumPointsForTeamRoster(game, 'home');
+    if (homeSum != null) {
+      game.teamStats.home.total_points = homeSum;
+    }
+
+    if (game.trackBothTeams !== false) {
+      const awaySum = this.sumPointsForTeamRoster(game, 'away');
+      if (awaySum != null) {
+        game.teamStats.away.total_points = awaySum;
+      }
+    }
   }
 
   private static annotatePossessionContext(game: Game, event: GameEvent): void {

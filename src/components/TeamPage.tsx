@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -24,6 +24,7 @@ import {
 } from './ui/alert-dialog';
 import { ErrorBoundary } from './ErrorBoundary';
 import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
+import { searchParamsOptionsPreservingState } from '../routing/navigation';
 import {
   formatHeightForDisplay,
   formatWeightForDisplay,
@@ -91,6 +92,10 @@ import { resolvePlayerAge } from '../utils/playerAge';
 import { resolveLatestJerseyNumber } from '../utils/playerJerseyResolution';
 import { getParticipatedTournaments } from '../utils/teamTournaments';
 import { downloadTeamStatsReportPdf } from '../lib/teamStatsReportPdf';
+import {
+  isFriendlyGame,
+  resolveGameListLabel,
+} from '../utils/friendlyGame';
 import { 
   ArrowLeft,
   Users, 
@@ -289,7 +294,11 @@ interface TeamPageProps {
   onNavigateToGame: (gameId: string) => void;
   onNavigateToTournament: (tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
-  onUpdateTournamentRosters: (entries: TournamentRosterEntry[]) => void;
+  onUpdateTournamentRosters: (
+    entriesOrUpdater:
+      | TournamentRosterEntry[]
+      | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
+  ) => void;
   onDeleteTeam: (teamId: string) => void;
 }
 
@@ -311,6 +320,7 @@ export function TeamPage({
   onDeleteTeam,
 }: TeamPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const statsGameFormatScope = parseGameFormatScope(searchParams.get('format'));
   const selectedTournamentIds = useMemo(
     () => parseTournamentSelection(searchParams.get('tournaments')),
@@ -339,11 +349,12 @@ export function TeamPage({
 
   const updateStatsSearchParams = useCallback(
     (patch: { format?: GameFormatScope; tournamentIds?: TournamentIdSet }) => {
-      setSearchParams((prev) => patchStatScopeSearchParams(prev, patch), {
-        replace: true,
-      });
+      setSearchParams(
+        (prev) => patchStatScopeSearchParams(prev, patch),
+        searchParamsOptionsPreservingState(location, { replace: true })
+      );
     },
-    [setSearchParams]
+    [setSearchParams, location]
   );
 
   const setStatsGameFormatScope = useCallback(
@@ -468,8 +479,11 @@ export function TeamPage({
     setRemovePlayerTarget(null);
     setTournamentAddError(null);
     setTournamentRemoveTarget(null);
-    setSearchParams((prev) => clearStatScopeSearchParams(prev), { replace: true });
-  }, [teamId]);
+    setSearchParams(
+      (prev) => clearStatScopeSearchParams(prev),
+      searchParamsOptionsPreservingState(location, { replace: true })
+    );
+  }, [teamId, location, setSearchParams]);
 
   useEffect(() => {
     const pruned = pruneTournamentSelection(
@@ -789,15 +803,14 @@ export function TeamPage({
         tournamentId,
         player
       );
-      onUpdateTournamentRosters(
-        upsertTournamentRosterEntry(tournamentRosters, entry)
+      onUpdateTournamentRosters((prev) =>
+        upsertTournamentRosterEntry(prev, entry)
       );
     },
     [
       normalizedTeam,
       teams,
       tournaments,
-      tournamentRosters,
       onUpdateTournamentRosters,
     ]
   );
@@ -823,9 +836,9 @@ export function TeamPage({
 
   const handleConfirmTournamentRemove = useCallback(() => {
     if (!normalizedTeam || !tournamentRemoveTarget) return;
-    onUpdateTournamentRosters(
+    onUpdateTournamentRosters((prev) =>
       removeTournamentRosterEntry(
-        tournamentRosters,
+        prev,
         tournamentRemoveTarget.tournamentId,
         normalizedTeam.id,
         tournamentRemoveTarget.player.id
@@ -835,7 +848,6 @@ export function TeamPage({
   }, [
     normalizedTeam,
     tournamentRemoveTarget,
-    tournamentRosters,
     onUpdateTournamentRosters,
   ]);
 
@@ -893,6 +905,7 @@ export function TeamPage({
     let pointsAgainst = 0;
     
     teamGames.forEach(game => {
+      if (game.isFriendly) return;
       if (!game.finalScore) return;
       
       const isHome = game.homeTeamId === team.id;
@@ -1854,6 +1867,7 @@ export function TeamPage({
                 const opponentScore = game.finalScore && (isHome ? game.finalScore.away : game.finalScore.home);
                 const won = teamScore && opponentScore && teamScore > opponentScore;
                 const tournament = game.tournamentId ? tournaments.find(t => t.id === game.tournamentId) : null;
+                const listLabel = resolveGameListLabel(game, tournament?.name);
                 
                 return (
                   <TableRow 
@@ -1878,7 +1892,9 @@ export function TeamPage({
                       {game.finalScore ? `${teamScore}-${opponentScore}` : '-'}
                     </TableCell>
                     <TableCell>
-                      {tournament ? (
+                      {isFriendlyGame(game) ? (
+                        <span className="text-muted-foreground">{listLabel}</span>
+                      ) : tournament ? (
                         <Badge 
                           variant="outline" 
                           className="cursor-pointer"

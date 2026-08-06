@@ -9,6 +9,7 @@ import {
 import type { Team, Tournament, Game, GameStats, Player } from '../App';
 import { shouldPreserveExistingGameStats } from '../utils/gameStatsIntegrity';
 import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
+import { normalizeTournamentStructure } from '../utils/tournamentStructure';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -84,6 +85,9 @@ export const MIGRATION_004_HINT =
 export const MIGRATION_006_HINT =
   'Run supabase/migrations/006_team_asset_storage.sql in Supabase SQL Editor, or: npm run db:migrate:006';
 
+export const MIGRATION_007_HINT =
+  'Run supabase/migrations/007_tournament_structure.sql in Supabase SQL Editor (adds tournaments.structure jsonb for LE-95).';
+
 export type { TournamentRosterEntry };
 
 export interface LoadedAppData {
@@ -153,6 +157,7 @@ interface DbTournament {
   year: number;
   month: string;
   standings: Tournament['standings'];
+  structure?: Tournament['structure'] | null;
   created_at?: string;
 }
 
@@ -514,6 +519,10 @@ type GameSetupMeta = {
   setupRosterChanges?: Game['setupRosterChanges'];
   startTime?: string;
   clockSettings?: Game['clockSettings'];
+  isFriendly?: boolean;
+  stageId?: string;
+  groupId?: string;
+  bracketSlotId?: string;
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -529,13 +538,21 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     (game.setupCreatedTeamIds?.length ?? 0) > 0 ||
     (game.setupRosterChanges?.length ?? 0) > 0 ||
     Boolean(game.startTime) ||
-    Boolean(game.clockSettings);
+    Boolean(game.clockSettings) ||
+    game.isFriendly === true ||
+    Boolean(game.stageId) ||
+    Boolean(game.groupId) ||
+    Boolean(game.bracketSlotId);
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
       setupCreatedTeamIds: game.setupCreatedTeamIds,
       setupRosterChanges: game.setupRosterChanges,
       startTime: game.startTime,
       clockSettings: game.clockSettings,
+      isFriendly: game.isFriendly === true ? true : undefined,
+      stageId: game.stageId,
+      groupId: game.groupId,
+      bracketSlotId: game.bracketSlotId,
     };
   }
   return payload;
@@ -547,6 +564,10 @@ function parseTeamStats(row: DbGame['team_stats']): {
   setupRosterChanges?: Game['setupRosterChanges'];
   startTime?: string;
   clockSettings?: Game['clockSettings'];
+  isFriendly?: boolean;
+  stageId?: string;
+  groupId?: string;
+  bracketSlotId?: string;
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -556,6 +577,10 @@ function parseTeamStats(row: DbGame['team_stats']): {
     setupRosterChanges: meta?.setupRosterChanges,
     startTime: meta?.startTime,
     clockSettings: meta?.clockSettings,
+    isFriendly: meta?.isFriendly === true ? true : undefined,
+    stageId: meta?.stageId,
+    groupId: meta?.groupId,
+    bracketSlotId: meta?.bracketSlotId,
   };
 }
 
@@ -597,8 +622,17 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     throw new Error(`Game ${row.id} references missing team(s)`);
   }
 
-  const { teamStats, setupCreatedTeamIds, setupRosterChanges, startTime, clockSettings } =
-    parseTeamStats(row.team_stats);
+  const {
+    teamStats,
+    setupCreatedTeamIds,
+    setupRosterChanges,
+    startTime,
+    clockSettings,
+    isFriendly,
+    stageId,
+    groupId,
+    bracketSlotId,
+  } = parseTeamStats(row.team_stats);
 
   return {
     id: row.id,
@@ -622,6 +656,10 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     homeStarters: row.home_starters ?? [],
     awayStarters: row.away_starters ?? [],
     trackBothTeams: row.track_both_teams,
+    isFriendly,
+    stageId,
+    groupId,
+    bracketSlotId,
     isActive: row.is_active,
     isCompleted: row.is_completed,
     finalScore:
@@ -895,6 +933,7 @@ export async function loadAppDataFromSupabase(
       teams: teamsByTournament.get(row.id) ?? [],
       games: gameIds,
       standings: row.standings ?? [],
+      structure: normalizeTournamentStructure(row.structure),
       createdAt: row.created_at ?? undefined,
     };
   });
@@ -1035,6 +1074,7 @@ export async function saveAppDataToSupabase(
       year: t.year,
       month: t.month,
       standings: t.standings ?? [],
+      structure: normalizeTournamentStructure(t.structure) ?? null,
     };
     if (t.icon !== undefined) row.icon = t.icon ?? null;
     if (t.description !== undefined) row.description = t.description ?? null;

@@ -15,6 +15,7 @@ import {
 } from './ui/alert-dialog';
 import { Badge } from './ui/badge';
 import { Tournament, Team } from '../App';
+import type { TournamentUpdate } from '../App';
 import { Plus, Trophy, Users, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
 import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
 import { TournamentBadge } from './TournamentBadge';
@@ -23,7 +24,7 @@ interface TournamentManagerProps {
   tournaments: Tournament[];
   teams: Team[];
   onCreateTournament: (tournament: Omit<Tournament, 'id'>) => void;
-  onUpdateTournament: (tournament: Tournament) => void;
+  onUpdateTournament: (update: TournamentUpdate) => void;
   onDeleteTournament: (tournamentId: string) => void;
   onBack: () => void;
   onNavigateToTournament: (tournamentId: string) => void;

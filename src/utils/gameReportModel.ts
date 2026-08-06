@@ -25,6 +25,7 @@ import {
   ensureGameQuarterStats,
   formatQuarterRowsForReport,
 } from './quarterScoring';
+import { resolveGameListLabel } from './friendlyGame';
 
 export const PDF_BOX_SCORE_HEADERS = [
   '#',
@@ -477,7 +478,8 @@ export function buildGameReportModel(
 
   return {
     filename: buildGameReportFilename(gameWithQuarters),
-    tournamentName: tournament?.name ?? null,
+    tournamentName:
+      resolveGameListLabel(gameWithQuarters, tournament?.name) ?? null,
     formattedDate,
     homeTeamLabel,
     awayTeamLabel,

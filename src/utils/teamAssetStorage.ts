@@ -20,6 +20,35 @@ export function isPersistedIconReference(icon?: string | null): boolean {
   return /^(https?:\/\/|\/)/.test(trimmed);
 }
 
+/**
+ * LE-107 — Append/replace `?v=` so re-uploads at the same storage path
+ * force browsers to fetch the new image (same public URL otherwise caches for a year).
+ */
+export function withIconCacheBust(
+  publicUrl: string,
+  version: number | string = Date.now()
+): string {
+  const trimmed = publicUrl.trim();
+  if (!trimmed) return trimmed;
+  try {
+    // Absolute http(s) URLs
+    if (/^https?:\/\//i.test(trimmed)) {
+      const url = new URL(trimmed);
+      url.searchParams.set('v', String(version));
+      return url.toString();
+    }
+  } catch {
+    // fall through
+  }
+  // Relative /path or malformed — strip existing v= then append
+  const withoutHash = trimmed.split('#')[0] ?? trimmed;
+  const [base, query = ''] = withoutHash.split('?');
+  const params = new URLSearchParams(query);
+  params.set('v', String(version));
+  const q = params.toString();
+  return q ? `${base}?${q}` : `${base}?v=${version}`;
+}
+
 export function parseIconDataUrl(dataUrl: string): { mime: string; bytes: Uint8Array } {
   const match = /^data:([^;]+);base64,(.+)$/s.exec(dataUrl.trim());
   if (!match) {

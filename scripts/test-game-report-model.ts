@@ -390,10 +390,22 @@ function testOverviewTablePayload(): void {
   assert(model.quarterRows.every((r) => r.label && r.home !== undefined), 'quarter row shape');
 }
 
+function testFriendlyClassification(): void {
+  const friendly = {
+    ...makeGame(),
+    id: 'friendly-1',
+    isFriendly: true as const,
+    tournamentId: undefined,
+  };
+  const model = buildGameReportModel(friendly, tournaments);
+  assert(model.tournamentName === 'Friendly', 'friendly PDF classification');
+}
+
 function main(): void {
   testFormatting();
   testModelStructure();
   testOverviewTablePayload();
+  testFriendlyClassification();
   testQuarterDerivationFromEvents();
   testQuarterDedupesDuplicatePeriodEnd();
   testBrokenPersistedPrefersEvents();

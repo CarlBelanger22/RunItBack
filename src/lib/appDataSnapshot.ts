@@ -1,4 +1,5 @@
 import type { Game, GameEvent, GameStats, Player, Team, TeamStats, Tournament, Shot } from '../App';
+import { normalizeTournamentStructure } from '../utils/tournamentStructure';
 import { DEFAULT_LEAGUE_ID } from '../api/supabaseData';
 import type { LoadedAppData } from '../api/supabaseData';
 import {
@@ -67,6 +68,12 @@ export interface SnapshotGame {
   currentPeriod: number;
   currentGameTime: string;
   trackBothTeams: boolean;
+  /** LE-92 friendly — excluded from competitive aggregates. */
+  isFriendly?: boolean;
+  /** LE-95 stage / group / bracket tags. */
+  stageId?: string;
+  groupId?: string;
+  bracketSlotId?: string;
   /** Active live session — preserved for cache-first reload (v8+). */
   liveEvents?: GameEvent[];
   liveTeamStats?: { home: TeamStats; away: TeamStats };
@@ -181,10 +188,15 @@ function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
     teams: tournament.teams ?? [],
     games: tournament.games ?? [],
     standings: [],
+    structure: normalizeTournamentStructure(tournament.structure),
+    gameFormat: tournament.gameFormat,
   }));
 }
 
-/** Keep logo URLs when a save/reconcile returns teams without icon metadata. */
+/** Keep logo URLs when a save/reconcile returns teams without icon metadata.
+ * LE-107: never overwrite a present local icon (data URL, versioned URL, emoji).
+ * Fallbacks only fill missing icons.
+ */
 export function mergeTeamIconMetadata(teams: Team[], ...fallbacks: Team[]): Team[] {
   const iconById = new Map<string, string>();
   for (const fallback of fallbacks) {
@@ -194,12 +206,14 @@ export function mergeTeamIconMetadata(teams: Team[], ...fallbacks: Team[]): Team
       }
     }
   }
-  return teams.map((team) => ({
-    ...team,
-    icon: isPersistedIconReference(team.icon)
-      ? team.icon!.trim()
-      : iconById.get(team.id),
-  }));
+  return teams.map((team) => {
+    const current = team.icon?.trim();
+    if (current) {
+      return { ...team, icon: current };
+    }
+    const fromFallback = iconById.get(team.id);
+    return fromFallback ? { ...team, icon: fromFallback } : { ...team, icon: undefined };
+  });
 }
 
 export function mergeTournamentIconMetadata(
@@ -214,12 +228,16 @@ export function mergeTournamentIconMetadata(
       }
     }
   }
-  return tournaments.map((tournament) => ({
-    ...tournament,
-    icon: isPersistedIconReference(tournament.icon)
-      ? tournament.icon!.trim()
-      : iconById.get(tournament.id),
-  }));
+  return tournaments.map((tournament) => {
+    const current = tournament.icon?.trim();
+    if (current) {
+      return { ...tournament, icon: current };
+    }
+    const fromFallback = iconById.get(tournament.id);
+    return fromFallback
+      ? { ...tournament, icon: fromFallback }
+      : { ...tournament, icon: undefined };
+  });
 }
 
 function toSnapshotGameStats(stats: GameStats[]): GameStats[] {
@@ -243,6 +261,10 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
       currentPeriod: game.currentPeriod ?? 1,
       currentGameTime: game.currentGameTime ?? '0:00',
       trackBothTeams: game.trackBothTeams ?? true,
+      isFriendly: game.isFriendly === true ? true : undefined,
+      stageId: game.stageId,
+      groupId: game.groupId,
+      bracketSlotId: game.bracketSlotId,
     };
 
     if (game.isActive && !game.isCompleted) {
@@ -334,6 +356,10 @@ export function hydrateSnapshotGames(
       homeStarters: row.homeStarters ?? [],
       awayStarters: row.awayStarters ?? [],
       trackBothTeams: row.trackBothTeams,
+      isFriendly: row.isFriendly === true ? true : undefined,
+      stageId: row.stageId,
+      groupId: row.groupId,
+      bracketSlotId: row.bracketSlotId,
       isActive: row.isActive,
       isCompleted: row.isCompleted,
       finalScore: row.finalScore,
@@ -392,7 +418,12 @@ export function processLoadedAppData(data: LoadedAppData): ProcessedAppData {
     teams,
     data.tournamentRosters ?? []
   );
-  const tournaments = reconcileTournamentsFromGames(data.tournaments, games);
+  const tournaments = reconcileTournamentsFromGames(data.tournaments, games).map(
+    (tournament) => ({
+      ...tournament,
+      structure: normalizeTournamentStructure(tournament.structure),
+    })
+  );
 
   return {
     teams,

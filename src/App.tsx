@@ -19,6 +19,7 @@ import { TeamBadge } from './components/TeamBadge';
 import { TournamentBadge } from './components/TournamentBadge';
 import { isSupabaseConfigured } from './lib/supabase';
 import type { GameClockSettings } from './utils/gameClock';
+import type { TournamentStructure } from './utils/tournamentStructure';
 import {
   deleteGamesFromSupabase,
   deletePlayersFromSupabase,
@@ -45,6 +46,7 @@ import {
   type ProcessedAppData,
 } from './lib/appDataSnapshot';
 import { enqueueCloudSave } from './lib/cloudSaveQueue';
+import { localPersistSliceDiverged } from './lib/cloudPersistApply';
 import { AppRoutes } from './routing/AppRoutes';
 import {
   gamePath,
@@ -69,6 +71,7 @@ import { generateTeamAbbreviation } from './utils/teamAbbreviation';
 import {
   reconcileTournamentRostersFromGames,
   upsertTournamentRosterEntry,
+  type TournamentRosterEntry,
 } from './utils/tournamentRosters';
 import type { TournamentJerseyUpdate } from './utils/playerJerseyResolution';
 import {
@@ -87,6 +90,17 @@ import { ensureGameQuarterStats } from './utils/quarterScoring';
 import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
 
 type CloudSaveKind = 'full' | 'rosters-only';
+
+/** Full replace, or functional patch by id (LE-101 rapid-edit safe). */
+export type TournamentUpdate =
+  | Tournament
+  | { id: string; patch: (prev: Tournament) => Tournament };
+
+function isTournamentPatch(
+  update: TournamentUpdate
+): update is { id: string; patch: (prev: Tournament) => Tournament } {
+  return typeof update === 'object' && update !== null && 'patch' in update;
+}
 
 function formatCloudSaveError(message: string): string {
   if (
@@ -159,6 +173,11 @@ export interface Tournament {
   teams: string[]; // Team IDs
   games: string[]; // Game IDs associated with this tournament
   standings: TournamentStanding[];
+  /**
+   * LE-95 opt-in multi-stage structure (groups / classification).
+   * Omit or empty → unstructured (today's single standings table).
+   */
+  structure?: TournamentStructure;
   createdAt?: string;
 }
 
@@ -335,6 +354,17 @@ export interface Game {
   homeStarters: string[]; // Player IDs of starting 5
   awayStarters: string[]; // Player IDs of starting 5
   trackBothTeams: boolean; // Whether to track both teams individually
+  /**
+   * One-off friendly — not tied to a tournament; excluded from competitive
+   * season / all-time / W–L / H2H aggregates (LE-92).
+   */
+  isFriendly?: boolean;
+  /** LE-95 — stage within tournament.structure (when structured). */
+  stageId?: string;
+  /** LE-95 — group within a round-robin stage. */
+  groupId?: string;
+  /** LE-95 — bracket slot within a classification stage. */
+  bracketSlotId?: string;
   isActive: boolean;
   isCompleted: boolean;
   finalScore?: {
@@ -1137,9 +1167,17 @@ export default function App() {
 
         setSaveError(null);
 
+        const diverged = localPersistSliceDiverged({
+          savedTeams: teamsToSave,
+          savedTournaments: tournamentsToSave,
+          savedRosters: rostersToSave,
+          localTeams: teamsRef.current,
+          localTournaments: tournamentsRef.current,
+          localRosters: tournamentRostersRef.current,
+        });
+
         if (kind === 'rosters-only') {
-          setTournamentRosters(rostersToSave);
-          tournamentRostersRef.current = rostersToSave;
+          // Never replace newer optimistic rosters with the in-flight snapshot.
           prevTournamentRostersRef.current = rostersToSave;
           saveAppDataSnapshot({
             teams: teamsRef.current,
@@ -1147,40 +1185,57 @@ export default function App() {
             games: gamesRef.current,
             darkMode: darkModeRef.current,
             orphanPlayers: loadedOrphanPlayersRef.current,
-            tournamentRosters: rostersToSave,
+            tournamentRosters: tournamentRostersRef.current,
           });
+          if (diverged) {
+            queueMicrotask(() => {
+              void runCloudPersist('rosters-only');
+            });
+          } else {
+            prevTournamentRostersRef.current = tournamentRostersRef.current;
+          }
           return;
         }
 
+        // Prefer current local state; only merge icon URLs from the saved payload.
         const teamsWithIcons = mergeTeamIconMetadata(
-          savedTeams,
           teamsRef.current,
+          savedTeams,
           prevTeamsRef.current
         );
         const tournamentsWithIcons = mergeTournamentIconMetadata(
-          savedTournaments,
           tournamentsRef.current,
+          savedTournaments,
           prevTournamentsRef.current
         );
         setTeams(teamsWithIcons);
         teamsRef.current = teamsWithIcons;
         setTournaments(tournamentsWithIcons);
         tournamentsRef.current = tournamentsWithIcons;
-        setTournamentRosters(rostersToSave);
-        tournamentRostersRef.current = rostersToSave;
         saveAppDataSnapshot({
           teams: teamsWithIcons,
           tournaments: tournamentsWithIcons,
-          games: gamesToSave,
+          games: gamesRef.current,
           darkMode: darkModeToSave,
           orphanPlayers: loadedOrphanPlayersRef.current,
-          tournamentRosters: rostersToSave,
+          tournamentRosters: tournamentRostersRef.current,
         });
-        prevTeamsRef.current = teamsWithIcons;
-        prevTournamentsRef.current = tournamentsWithIcons;
+        // Baseline = what we persisted so a divergent local slice re-triggers save.
+        prevTeamsRef.current = teamsToSave;
+        prevTournamentsRef.current = tournamentsToSave;
         prevGamesRef.current = gamesToSave;
         prevDarkModeRef.current = darkModeToSave;
         prevTournamentRostersRef.current = rostersToSave;
+
+        if (diverged) {
+          queueMicrotask(() => {
+            void runCloudPersist('full');
+          });
+        } else {
+          prevTeamsRef.current = teamsWithIcons;
+          prevTournamentsRef.current = tournamentsWithIcons;
+          prevTournamentRostersRef.current = tournamentRostersRef.current;
+        }
       }).catch((err: Error) => {
         console.error('Supabase save failed:', err);
         setSaveError(formatCloudSaveError(err.message));
@@ -1310,9 +1365,15 @@ export default function App() {
             setTeams(mergedTeams);
             prevTeamsRef.current = mergedTeams;
             teamsRef.current = mergedTeams;
-            setTournamentRosters(processed.tournamentRosters);
-            tournamentRostersRef.current = processed.tournamentRosters;
-            prevTournamentRostersRef.current = processed.tournamentRosters;
+            // Local tournament rosters + structure win while the user is editing.
+            const mergedTournaments = mergeTournamentIconMetadata(
+              tournamentsRef.current,
+              processed.tournaments,
+              prevTournamentsRef.current
+            );
+            setTournaments(mergedTournaments);
+            tournamentsRef.current = mergedTournaments;
+            prevTournamentsRef.current = mergedTournaments;
           } else {
             const mergedTeams = mergeTeamRostersUnion(
               processed.teams,
@@ -1645,6 +1706,18 @@ export default function App() {
     });
   }, [currentGame?.id]);
 
+  const handleGamesUpdate = useCallback((nextGames: Game[]) => {
+    localMutatedSinceMountRef.current = true;
+    setGames(nextGames);
+    setCurrentGame((prev) => {
+      if (!prev) return prev;
+      return nextGames.find((g) => g.id === prev.id) ?? prev;
+    });
+    setTournamentRosters((rosters) =>
+      reconcileTournamentRostersFromGames(nextGames, teamsRef.current, rosters)
+    );
+  }, []);
+
   const handleGameComplete = useCallback((game: Game) => {
     // Calculate final score
     const homeScore = game.gameStats
@@ -1708,12 +1781,15 @@ export default function App() {
     setTournaments(prev => [...prev, tournament]);
   }, []);
 
-  const handleUpdateTournament = useCallback((updatedTournament: Tournament) => {
+  const handleUpdateTournament = useCallback((update: TournamentUpdate) => {
     localMutatedSinceMountRef.current = true;
     setTournaments((prev) => {
-      const next = prev.map((t) =>
-        t.id === updatedTournament.id ? updatedTournament : t
-      );
+      const next = prev.map((t) => {
+        if (isTournamentPatch(update)) {
+          return t.id === update.id ? update.patch(t) : t;
+        }
+        return t.id === update.id ? update : t;
+      });
       tournamentsRef.current = next;
       return next;
     });
@@ -1949,10 +2025,20 @@ export default function App() {
   }, [tournaments]);
 
   const handleUpdateTournamentRosters = useCallback(
-    (entries: import('./utils/tournamentRosters').TournamentRosterEntry[]) => {
+    (
+      entriesOrUpdater:
+        | TournamentRosterEntry[]
+        | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
+    ) => {
       localMutatedSinceMountRef.current = true;
-      tournamentRostersRef.current = entries;
-      setTournamentRosters(entries);
+      setTournamentRosters((prev) => {
+        const next =
+          typeof entriesOrUpdater === 'function'
+            ? entriesOrUpdater(prev)
+            : entriesOrUpdater;
+        tournamentRostersRef.current = next;
+        return next;
+      });
       setSaveError(null);
       if (!skipSaveRef.current && !isDataLoading) {
         queueMicrotask(() => {
@@ -2553,6 +2639,7 @@ export default function App() {
           onAddTeamToTournament={handleAddTeamToTournament}
           onGameStart={handleGameStart}
           onGameUpdate={handleGameUpdate}
+          onGamesUpdate={handleGamesUpdate}
           onGameComplete={handleGameComplete}
           onDeleteActiveGame={handleDeleteActiveGame}
         />

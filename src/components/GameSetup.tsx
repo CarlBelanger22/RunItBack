@@ -37,6 +37,7 @@ import {
 } from "../App";
 import { Plus, Trash2, Users, Calendar, Clock } from "lucide-react";
 import { SortableRosterList } from "./gameSetup/SortableRosterList";
+import { GameStageTagFields } from "./GameStageTagFields";
 import { addedPlayersFromBaseline } from "../utils/activeGame";
 import { sortTournamentsByDateDesc } from "../utils/tournamentSort";
 import {
@@ -153,6 +154,10 @@ interface TeamSidePanelProps {
   newPlayerPosition: string;
   isEditingThisSide: boolean;
   showStarterOrder: boolean;
+  /** Friendly setup: club roster instead of tournament roster. */
+  clubRosterMode?: boolean;
+  /** Friendly triage: players excluded from this game (not embedded on start). */
+  inactivePlayers?: Player[];
   onModeChange: (mode: TeamSelectionMode) => void;
   onTeamChange: (team: Team) => void;
   onSelectExisting: (teamId: string) => void;
@@ -161,6 +166,7 @@ interface TeamSidePanelProps {
   onAddPlayer: (name: string, number: string) => boolean;
   onPersistTeam: (team: Team) => void;
   onReorderPlayers: (players: Player[]) => void;
+  onTriageChange?: (active: Player[], inactive: Player[]) => void;
 }
 
 const TeamSidePanel = React.memo(function TeamSidePanel({
@@ -174,6 +180,8 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
   newPlayerPosition,
   isEditingThisSide,
   showStarterOrder,
+  clubRosterMode = false,
+  inactivePlayers = [],
   onModeChange,
   onTeamChange,
   onSelectExisting,
@@ -182,10 +190,14 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
   onAddPlayer,
   onPersistTeam,
   onReorderPlayers,
+  onTriageChange,
 }: TeamSidePanelProps) {
   const playerNameRef = useRef<HTMLInputElement>(null);
   const playerNumberRef = useRef<HTMLInputElement>(null);
   const [removePlayerTarget, setRemovePlayerTarget] = useState<Player | null>(null);
+
+  const triageEnabled = clubRosterMode && onTriageChange != null;
+  const rosterTotal = team.players.length + (triageEnabled ? inactivePlayers.length : 0);
 
   const selectValue =
     mode === "create_new"
@@ -215,10 +227,17 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
   };
 
   const canAddPlayers = mode === "create_new";
-  const rosterHasDupes = hasDuplicateJerseyNumbers(team.players);
+  const rosterHasDupes = hasDuplicateJerseyNumbers([
+    ...team.players,
+    ...(triageEnabled ? inactivePlayers : []),
+  ]);
   const rosterLabel =
     mode === "existing"
-      ? `${team.name} — Tournament roster (${team.players.length})`
+      ? clubRosterMode
+        ? triageEnabled && inactivePlayers.length > 0
+          ? `${team.name} — Game day (${team.players.length} in / ${inactivePlayers.length} inactive)`
+          : `${team.name} — Club roster (${team.players.length})`
+        : `${team.name} — Tournament roster (${team.players.length})`
       : `${team.name} — Players (${team.players.length})`;
 
   return (
@@ -231,15 +250,16 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
           </SelectTrigger>
           <SelectContent>
             {tournamentTeams.map((t) => {
-              const rosterSize = countTournamentRoster(
-                t.id,
-                tournamentId,
-                tournamentRosters
-              );
+              const rosterSize = clubRosterMode
+                ? t.players.length
+                : countTournamentRoster(t.id, tournamentId, tournamentRosters);
               return (
                 <SelectItem key={t.id} value={t.id}>
-                  {t.name} ({rosterSize} tournament
-                  {rosterSize === 1 ? " player" : " players"})
+                  {clubRosterMode
+                    ? `${t.name} (${rosterSize}${rosterSize === 1 ? " player" : " players"})`
+                    : `${t.name} (${rosterSize} tournament${
+                        rosterSize === 1 ? " player" : " players"
+                      })`}
                 </SelectItem>
               );
             })}
@@ -282,7 +302,7 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
             <h4 className="font-medium">{rosterLabel}</h4>
             {mode === "existing" && (
               <Badge variant="secondary" className="text-xs">
-                Tournament roster
+                {clubRosterMode ? "Club roster" : "Tournament roster"}
               </Badge>
             )}
             {mode === "create_new" && (
@@ -294,15 +314,17 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
 
           {mode === "existing" && team.players.length === 0 && (
             <p className="text-sm text-muted-foreground rounded-lg border border-dashed p-4">
-              No players registered for this team in the selected tournament. Add
-              them on the Team page under the tournament roster, then return here.
+              {clubRosterMode
+                ? "No players on this club roster yet. Create a new team or add players on the Team page, then return here."
+                : "No players registered for this team in the selected tournament. Add them on the Team page under the tournament roster, then return here."}
             </p>
           )}
 
           {showStarterOrder && team.players.length >= MIN_PLAYERS && (
             <p className="text-xs text-muted-foreground">
-              Drag to set starting five — top {MIN_PLAYERS} are on court at
-              tip-off.
+              {triageEnabled
+                ? `Drag to set starting five (top ${MIN_PLAYERS}). Drag to Inactive to leave players off this game.`
+                : `Drag to set starting five — top ${MIN_PLAYERS} are on court at tip-off.`}
             </p>
           )}
 
@@ -372,7 +394,7 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
             </div>
           )}
 
-          {team.players.length === 0 ? (
+          {rosterTotal === 0 ? (
             mode === "create_new" ? (
               <p className="text-sm text-muted-foreground text-center py-4">
                 No players yet
@@ -384,6 +406,8 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
               starterCount={MIN_PLAYERS}
               sortable={showStarterOrder}
               onReorder={onReorderPlayers}
+              inactivePlayers={triageEnabled ? inactivePlayers : undefined}
+              onTriageChange={triageEnabled ? onTriageChange : undefined}
               renderTrailing={
                 canAddPlayers
                   ? (player) => (
@@ -431,12 +455,18 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={() => {
                 if (removePlayerTarget) {
-                  onTeamChange({
-                    ...team,
-                    players: team.players.filter(
-                      (p) => p.id !== removePlayerTarget.id
-                    ),
-                  });
+                  const id = removePlayerTarget.id;
+                  if (triageEnabled && onTriageChange) {
+                    onTriageChange(
+                      team.players.filter((p) => p.id !== id),
+                      inactivePlayers.filter((p) => p.id !== id)
+                    );
+                  } else {
+                    onTeamChange({
+                      ...team,
+                      players: team.players.filter((p) => p.id !== id),
+                    });
+                  }
                 }
                 setRemovePlayerTarget(null);
               }}
@@ -496,8 +526,8 @@ const OppIdentityPanel = React.memo(function OppIdentityPanel({
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
         Opponent is tracked as a single unit. Only your team&apos;s individual
-        stats are recorded. Pick a tournament team for the scoreboard, or create
-        one with a name and abbreviation.
+        stats are recorded. Pick a club for the scoreboard, or create one with a
+        name and abbreviation.
       </p>
 
       <div className="space-y-2">
@@ -602,6 +632,7 @@ export function GameSetup({
   );
 
   const [tournamentId, setTournamentId] = useState("");
+  const [isFriendly, setIsFriendly] = useState(false);
   const [trackBothTeams, setTrackBothTeams] = useState(true);
   const [gameDate, setGameDate] = useState(
     () => new Date().toISOString().split("T")[0]
@@ -614,6 +645,11 @@ export function GameSetup({
   const [awayMode, setAwayMode] = useState<TeamSelectionMode>("none");
   const [homeTeam, setHomeTeam] = useState<Team>(() => draftTeam("home"));
   const [awayTeam, setAwayTeam] = useState<Team>(() => draftTeam("away"));
+  /** Friendly triage: excluded from game snapshot (club-only). */
+  const [homeInactive, setHomeInactive] = useState<Player[]>([]);
+  const [awayInactive, setAwayInactive] = useState<Player[]>([]);
+  const [stageId, setStageId] = useState<string | undefined>();
+  const [groupId, setGroupId] = useState<string | undefined>();
 
   const [newPlayerPosition, setNewPlayerPosition] = useState("");
   const [editingSide, setEditingSide] = useState<TeamSide>("home");
@@ -624,10 +660,11 @@ export function GameSetup({
   const rosterBaselineRef = useRef<Record<string, string[]>>({});
 
   useEffect(() => {
+    if (isFriendly) return;
     if (!tournamentId && sortedTournaments.length > 0) {
       setTournamentId(sortedTournaments[0].id);
     }
-  }, [sortedTournaments, tournamentId]);
+  }, [sortedTournaments, tournamentId, isFriendly]);
 
   const tournament = useMemo(
     () => tournaments.find((t) => t.id === tournamentId),
@@ -642,11 +679,18 @@ export function GameSetup({
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [teams, tournament]);
 
+  /** Friendly: any club; official: tournament-enrolled teams only. */
+  const availableTeams = useMemo(() => {
+    if (!isFriendly) return tournamentTeams;
+    return [...teams].sort((a, b) => a.name.localeCompare(b.name));
+  }, [isFriendly, teams, tournamentTeams]);
+
   useEffect(() => {
+    if (isFriendly) return;
     if (tournament) {
       setClockSettings(defaultClockForTournament(tournament.id, tournament));
     }
-  }, [tournament?.id, tournament?.gameFormat]);
+  }, [tournament?.id, tournament?.gameFormat, isFriendly]);
 
   const takenAbbreviations = useMemo(
     () => teams.map((t) => t.abbreviation).filter(Boolean),
@@ -658,31 +702,39 @@ export function GameSetup({
     setAwayMode("none");
     setHomeTeam(draftTeam("home"));
     setAwayTeam(draftTeam("away"));
+    setHomeInactive([]);
+    setAwayInactive([]);
     rosterBaselineRef.current = {};
   }, []);
 
   const handleTournamentChange = (id: string) => {
     setTournamentId(id);
+    setStageId(undefined);
+    setGroupId(undefined);
     resetSidesForTournament();
   };
 
   const oppTeamsForPicker = useMemo(
     () =>
-      oppTournamentTeamsExcludingHome(tournamentTeams, homeMode, homeTeam.id),
-    [tournamentTeams, homeMode, homeTeam.id]
+      oppTournamentTeamsExcludingHome(availableTeams, homeMode, homeTeam.id),
+    [availableTeams, homeMode, homeTeam.id]
   );
 
   const selectExistingTeam = useCallback(
     (teamId: string, side: TeamSide) => {
-      const selected = tournamentTeams.find((t) => t.id === teamId);
-      if (!selected || !tournamentId) return;
+      const selected = availableTeams.find((t) => t.id === teamId);
+      if (!selected) return;
+      if (!isFriendly && !tournamentId) return;
+
       const rosterPlayers = sortPlayersByNumber(
-        getPlayersForTeamInTournament(
-          teamId,
-          tournamentId,
-          teams,
-          tournamentRosters
-        )
+        isFriendly
+          ? [...(selected.players ?? [])]
+          : getPlayersForTeamInTournament(
+              teamId,
+              tournamentId,
+              teams,
+              tournamentRosters
+            )
       );
       const copy: Team = {
         ...selected,
@@ -692,27 +744,38 @@ export function GameSetup({
       if (side === "home") {
         setHomeMode("existing");
         setHomeTeam(copy);
+        setHomeInactive([]);
         if (awayMode === "existing" && awayTeam.id === teamId) {
           setAwayMode("none");
           setAwayTeam(draftTeam("away"));
+          setAwayInactive([]);
         }
       } else {
         setAwayMode("existing");
         setAwayTeam(copy);
+        setAwayInactive([]);
       }
     },
-    [tournamentTeams, tournamentId, teams, tournamentRosters, awayMode, awayTeam.id]
+    [
+      availableTeams,
+      isFriendly,
+      tournamentId,
+      teams,
+      tournamentRosters,
+      awayMode,
+      awayTeam.id,
+    ]
   );
 
   const selectOppIdentityTeam = useCallback(
     (teamId: string) => {
-      const selected = tournamentTeams.find((t) => t.id === teamId);
+      const selected = availableTeams.find((t) => t.id === teamId);
       if (!selected) return;
       if (homeMode === "existing" && homeTeam.id === teamId) return;
       setAwayMode("existing");
       setAwayTeam(toIdentityOnlyAwayTeam(selected));
     },
-    [tournamentTeams, homeMode, homeTeam.id]
+    [availableTeams, homeMode, homeTeam.id]
   );
 
   const reorderPlayers = useCallback(
@@ -720,6 +783,19 @@ export function GameSetup({
       const apply = (prev: Team): Team => ({ ...prev, players });
       if (side === "home") setHomeTeam(apply);
       else setAwayTeam((prev) => ({ ...prev, players }));
+    },
+    []
+  );
+
+  const triagePlayers = useCallback(
+    (side: TeamSide, active: Player[], inactive: Player[]) => {
+      if (side === "home") {
+        setHomeTeam((prev) => ({ ...prev, players: active }));
+        setHomeInactive(inactive);
+      } else {
+        setAwayTeam((prev) => ({ ...prev, players: active }));
+        setAwayInactive(inactive);
+      }
     },
     []
   );
@@ -778,7 +854,9 @@ export function GameSetup({
             team.abbreviation ||
             generateTeamAbbreviation(team.name, takenAbbreviations),
           players: team.players,
-          currentTournamentId: tournamentId,
+          ...(isFriendly || !tournamentId
+            ? {}
+            : { currentTournamentId: tournamentId }),
         });
         return created;
       }
@@ -788,11 +866,12 @@ export function GameSetup({
       }
       return null;
     },
-    [onCreateTeam, tournamentId, takenAbbreviations]
+    [onCreateTeam, tournamentId, takenAbbreviations, isFriendly]
   );
 
   const handleStartGame = useCallback(() => {
-    if (!tournamentId || !gameDate) return;
+    if (!gameDate) return;
+    if (!isFriendly && !tournamentId) return;
 
     const setupCreatedTeamIds: string[] = [];
     const setupRosterChanges: SetupRosterChange[] = [];
@@ -847,7 +926,9 @@ export function GameSetup({
           name: awayTeam.name.trim(),
           abbreviation: abbrev,
           players: [],
-          currentTournamentId: tournamentId,
+          ...(isFriendly || !tournamentId
+            ? {}
+            : { currentTournamentId: tournamentId }),
         });
         resolvedAway = toIdentityOnlyAwayTeam(created);
         setupCreatedTeamIds.push(resolvedAway.id);
@@ -863,7 +944,9 @@ export function GameSetup({
       awayTeam: resolvedAway,
       homeTeamId: homeSnapshot.id,
       awayTeamId: resolvedAway.id,
-      tournamentId,
+      tournamentId: isFriendly ? undefined : tournamentId,
+      stageId: isFriendly ? undefined : stageId,
+      groupId: isFriendly ? undefined : groupId,
       date: gameDate,
       startTime: startTime.trim() || undefined,
       clockSettings,
@@ -880,6 +963,7 @@ export function GameSetup({
       homeStarters: starterIds(homeTeam.players),
       awayStarters: trackBothTeams ? starterIds(awayTeam.players) : [],
       trackBothTeams,
+      isFriendly: isFriendly ? true : undefined,
       isActive: true,
       isCompleted: false,
       setupCreatedTeamIds:
@@ -898,6 +982,9 @@ export function GameSetup({
     setStartBlockedMessage(null);
   }, [
     tournamentId,
+    isFriendly,
+    stageId,
+    groupId,
     gameDate,
     startTime,
     clockSettings,
@@ -920,7 +1007,8 @@ export function GameSetup({
     !hasDuplicateJerseyNumbers(team.players);
 
   const canStartGame = useMemo(() => {
-    if (!tournamentId || !gameDate) return false;
+    if (!gameDate) return false;
+    if (!isFriendly && !tournamentId) return false;
     if (!sideReady(homeMode, homeTeam)) return false;
     if (trackBothTeams) return sideReady(awayMode, awayTeam);
     if (!isOppIdentityReady(awayMode, awayTeam)) return false;
@@ -940,6 +1028,7 @@ export function GameSetup({
     return true;
   }, [
     tournamentId,
+    isFriendly,
     gameDate,
     homeMode,
     homeTeam,
@@ -982,30 +1071,72 @@ export function GameSetup({
               />
             </div>
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="tournament">Tournament</Label>
-              <Select
-                value={tournamentId}
-                onValueChange={handleTournamentChange}
-                disabled={sortedTournaments.length === 0}
-              >
-                <SelectTrigger id="tournament">
-                  <SelectValue placeholder="Select tournament" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortedTournaments.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {sortedTournaments.length === 0 && (
+              <div className="flex items-center space-x-3 pb-1">
+                <Switch
+                  checked={isFriendly}
+                  onCheckedChange={(checked) => {
+                    setIsFriendly(checked);
+                    setStageId(undefined);
+                    setGroupId(undefined);
+                    resetSidesForTournament();
+                    if (!checked && !tournamentId && sortedTournaments[0]) {
+                      setTournamentId(sortedTournaments[0].id);
+                    }
+                    if (checked) {
+                      setClockSettings(defaultClockForTournament("", null));
+                    }
+                  }}
+                  id="friendly-game"
+                />
+                <Label htmlFor="friendly-game" className="text-sm">
+                  Friendly game (not a tournament)
+                </Label>
+              </div>
+              {isFriendly ? (
                 <p className="text-xs text-muted-foreground">
-                  Create a tournament first to start tracking games.
+                  Stats stay standalone — they will not count toward tournament
+                  or season averages. Pick any club (or create one). Clock is
+                  your choice below.
                 </p>
+              ) : (
+                <>
+                  <Label htmlFor="tournament">Tournament</Label>
+                  <Select
+                    value={tournamentId}
+                    onValueChange={handleTournamentChange}
+                    disabled={sortedTournaments.length === 0}
+                  >
+                    <SelectTrigger id="tournament">
+                      <SelectValue placeholder="Select tournament" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {sortedTournaments.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {sortedTournaments.length === 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      Create a tournament first, or turn on Friendly game above.
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
+
+          {!isFriendly && (
+            <GameStageTagFields
+              tournament={tournament}
+              values={{ stageId, groupId }}
+              onChange={(next) => {
+                setStageId(next.stageId);
+                setGroupId(next.groupId);
+              }}
+            />
+          )}
 
           <div className="rounded-lg border p-4 space-y-4">
             <div className="flex items-center gap-2 text-sm font-medium">
@@ -1069,8 +1200,9 @@ export function GameSetup({
               </div>
             </div>
             <p className="text-xs text-muted-foreground">
-              Defaults from tournament format (FIBA: 4×10 min). Used for live clock
-              and minutes-on-court tracking.
+              {isFriendly
+                ? "Set period length for this friendly (defaults to FIBA 4×10 if unchanged)."
+                : "Defaults from tournament format (FIBA: 4×10 min). Used for live clock and minutes-on-court tracking."}
             </p>
           </div>
 
@@ -1082,6 +1214,7 @@ export function GameSetup({
                 if (!checked) {
                   setAwayMode("none");
                   setAwayTeam(draftTeam("away"));
+                  setAwayInactive([]);
                 }
               }}
               id="track-both-teams"
@@ -1106,14 +1239,19 @@ export function GameSetup({
               side="home"
               mode={homeMode}
               team={homeTeam}
-              tournamentTeams={tournamentTeams}
+              tournamentTeams={availableTeams}
               tournamentId={tournamentId}
               tournamentRosters={tournamentRosters}
               takenAbbreviations={takenAbbreviations}
               newPlayerPosition={newPlayerPosition}
               isEditingThisSide={editingSide === "home"}
               showStarterOrder={homeMode !== "none"}
-              onModeChange={setHomeMode}
+              clubRosterMode={isFriendly}
+              inactivePlayers={homeInactive}
+              onModeChange={(mode) => {
+                setHomeMode(mode);
+                if (mode === "create_new") setHomeInactive([]);
+              }}
               onTeamChange={setHomeTeam}
               onSelectExisting={(id) => selectExistingTeam(id, "home")}
               onEditingSideChange={() => setEditingSide("home")}
@@ -1121,6 +1259,11 @@ export function GameSetup({
               onAddPlayer={(name, num) => addPlayerToSide("home", name, num)}
               onPersistTeam={onUpdateTeam}
               onReorderPlayers={(players) => reorderPlayers("home", players)}
+              onTriageChange={
+                isFriendly
+                  ? (active, inactive) => triagePlayers("home", active, inactive)
+                  : undefined
+              }
             />
           </CardContent>
         </Card>
@@ -1138,14 +1281,19 @@ export function GameSetup({
                 side="away"
                 mode={awayMode}
                 team={awayTeam}
-                tournamentTeams={tournamentTeams}
+                tournamentTeams={availableTeams}
                 tournamentId={tournamentId}
                 tournamentRosters={tournamentRosters}
                 takenAbbreviations={takenAbbreviations}
                 newPlayerPosition={newPlayerPosition}
                 isEditingThisSide={editingSide === "away"}
                 showStarterOrder
-                onModeChange={setAwayMode}
+                clubRosterMode={isFriendly}
+                inactivePlayers={awayInactive}
+                onModeChange={(mode) => {
+                  setAwayMode(mode);
+                  if (mode === "create_new") setAwayInactive([]);
+                }}
                 onTeamChange={setAwayTeam}
                 onSelectExisting={(id) => selectExistingTeam(id, "away")}
                 onEditingSideChange={() => setEditingSide("away")}
@@ -1153,6 +1301,11 @@ export function GameSetup({
                 onAddPlayer={(name, num) => addPlayerToSide("away", name, num)}
                 onPersistTeam={onUpdateTeam}
                 onReorderPlayers={(players) => reorderPlayers("away", players)}
+                onTriageChange={
+                  isFriendly
+                    ? (active, inactive) => triagePlayers("away", active, inactive)
+                    : undefined
+                }
               />
             ) : (
               <OppIdentityPanel

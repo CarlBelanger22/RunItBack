@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import type { Game, Tournament } from '../App';
 import { Play, CalendarDays } from 'lucide-react';
+import { resolveGameMetaLabel } from '../utils/friendlyGame';
 
 interface ActiveGameBannerProps {
   game: Game;
@@ -18,6 +19,7 @@ export function ActiveGameBanner({
     game.awayTeam.abbreviation || game.awayTeam.name
   }`;
   const score = `${game.teamStats.home.total_points} – ${game.teamStats.away.total_points}`;
+  const metaLabel = resolveGameMetaLabel(game, tournament?.name);
 
   return (
     <Card className="shadow-lg rounded-2xl border-primary/30">
@@ -35,7 +37,7 @@ export function ActiveGameBanner({
                 {game.date}
               </span>
             )}
-            {tournament && <span>{tournament.name}</span>}
+            {metaLabel && <span>{metaLabel}</span>}
           </div>
         </div>
         <p className="text-sm text-muted-foreground">

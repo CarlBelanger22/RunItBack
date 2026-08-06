@@ -201,10 +201,90 @@ function testMajorAndAdvancedRows(): void {
   assert(!model.advancedRows.some((r) => r.key === 'ts'), 'no TS% in team comparison');
 }
 
+function testAdvancedDerivedFromEventsWhenTeamStatsNull(): void {
+  const game = makeGame();
+  game.teamStats.home.points_in_paint = null;
+  game.teamStats.home.fastbreak_points = null;
+  game.teamStats.home.second_chance_points = null;
+  game.teamStats.home.points_off_turnovers = null;
+  game.teamStats.away.points_in_paint = null;
+  game.teamStats.away.fastbreak_points = null;
+  game.teamStats.away.second_chance_points = null;
+  game.teamStats.away.points_off_turnovers = null;
+
+  game.events = [
+    {
+      id: 'e1',
+      type: 'shot_attempt',
+      timestamp: 1,
+      period: 1,
+      gameTime: '09:00',
+      teamId: 'home',
+      playerId: 'h1',
+      homeScore: 2,
+      awayScore: 0,
+      details: {
+        made: true,
+        isThree: false,
+        inPaint: true,
+        isTransition: false,
+        possessionContext: { secondChance: true, offTurnover: false },
+      },
+    },
+    {
+      id: 'e2',
+      type: 'shot_attempt',
+      timestamp: 2,
+      period: 1,
+      gameTime: '08:00',
+      teamId: 'home',
+      playerId: 'h1',
+      homeScore: 5,
+      awayScore: 0,
+      details: {
+        made: true,
+        isThree: true,
+        inPaint: false,
+        isTransition: true,
+        possessionContext: { secondChance: false, offTurnover: true },
+      },
+    },
+    {
+      id: 'e3',
+      type: 'free_throw',
+      timestamp: 3,
+      period: 1,
+      gameTime: '07:00',
+      teamId: 'away',
+      playerId: 'a1',
+      homeScore: 5,
+      awayScore: 1,
+      details: {
+        made: true,
+        possessionContext: { secondChance: false, offTurnover: true },
+      },
+    },
+  ];
+
+  const model = buildGameComparisonVisualModel(game);
+  const paint = model.advancedRows.find((r) => r.key === 'paint')!;
+  const fb = model.advancedRows.find((r) => r.key === 'fastbreak')!;
+  const sc = model.advancedRows.find((r) => r.key === 'second_chance')!;
+  const pot = model.advancedRows.find((r) => r.key === 'pts_off_to')!;
+
+  assert(paint.home.display === '2', `home PITP from events, got ${paint.home.display}`);
+  assert(fb.home.display === '3', `home FB from events, got ${fb.home.display}`);
+  assert(sc.home.display === '2', `home 2nd chance from events, got ${sc.home.display}`);
+  assert(pot.home.display === '3', `home POT from events, got ${pot.home.display}`);
+  assert(pot.away.display === '1', `away POT from FT events, got ${pot.away.display}`);
+  assert(paint.away.display === '0', 'away PITP 0 when tracked but none');
+}
+
 function main(): void {
   testBarHelpers();
   testShootingRows();
   testMajorAndAdvancedRows();
+  testAdvancedDerivedFromEventsWhenTeamStatsNull();
   console.log('All game-comparison-visual tests passed.');
 }
 

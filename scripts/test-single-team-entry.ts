@@ -519,6 +519,90 @@ function testOppPbpReadOnlyGuards(): void {
   console.log('OK testOppPbpReadOnlyGuards');
 }
 
+function testScoreboardHealsToPlayerPoints(): void {
+  let game = singleTeamGame();
+  const make = buildShotEvent(game, game.homeTeamId, {
+    outcome: 'make',
+    shooterId: 'h1',
+    isThree: true,
+    shotValue: 3,
+    isPaint: false,
+    isTransition: false,
+    point: { xM: 1, yM: 1 },
+    zone: 'three',
+  } as Parameters<typeof buildShotEvent>[2])!;
+  game = GameLogic.recordEvent({ ...game, shots: [make.shot] }, make.event);
+  assert(game.teamStats.home.total_points === 3, 'make lands on scoreboard');
+  assert(game.gameStats.find((s) => s.playerId === 'h1')?.points === 3, 'player pts');
+
+  // Simulate the live bug: player box ahead of teamStats total.
+  game = {
+    ...game,
+    teamStats: {
+      ...game.teamStats,
+      home: { ...game.teamStats.home, total_points: 0 },
+    },
+  };
+  game = GameLogic.syncTrackedTeamTotalsFromPlayers(game);
+  assert(game.teamStats.home.total_points === 3, 'heal home total from players');
+  assert(game.teamStats.away.total_points === 0, 'Opp unit total untouched');
+  console.log('OK testScoreboardHealsToPlayerPoints');
+}
+
+function testOppAnd1HomeFoulerOppTeamFt(): void {
+  let game = singleTeamGame();
+  const make = buildShotEvent(game, game.awayTeamId, {
+    ...oppPending({ outcome: 'make' }),
+    isThree: false,
+    shotValue: 2,
+  })!;
+  game = GameLogic.recordEvent({ ...game, shots: [make.shot] }, make.event);
+  assert(game.teamStats.away.total_points === 2, 'Opp make 2 pts');
+
+  const foul = buildFoulEvent(game, {
+    foulingTeamId: game.homeTeamId,
+    committerId: 'h1',
+    foulCategory: 'personal',
+    isTeamFoul: false,
+    isCoachFoul: false,
+    retainPossession: false,
+    offendedTeamId: game.awayTeamId,
+  });
+  game = GameLogic.recordEvent(game, foul);
+  assert(game.gameStats.find((s) => s.playerId === 'h1')?.fouls === 1, 'home PF');
+
+  const ft = buildFreeThrowEvent(game, game.awayTeamId, undefined, true, 1, 1, {
+    retainPossession: false,
+    offendedTeamId: game.awayTeamId,
+    possessionTeamAfterFt: game.homeTeamId,
+  });
+  game = GameLogic.recordEvent(game, ft);
+  assert(game.teamStats.away.total_points === 3, 'Opp and-1 FT → 3 pts');
+  assert(game.teamStats.home.total_points === 0, 'home score unchanged');
+  assert(
+    game.events.filter((e) => e.type === 'free_throw').every((e) => !e.playerId),
+    'Opp FT has no playerId'
+  );
+  console.log('OK testOppAnd1HomeFoulerOppTeamFt');
+}
+
+function testOppAnd1StartsFoulWithoutShooter(): void {
+  let state = liveEntryReducer(
+    {
+      phase: { kind: 'idle' },
+      ctx: initialLiveEntryContext('away', ['h1', 'h2'], []),
+    },
+    { type: 'START_FOUL' }
+  );
+  assert(state.phase.kind === 'foul' && state.phase.step === 'entity', 'START_FOUL');
+  state = liveEntryReducer(state, { type: 'FOUL_CATEGORY', category: 'personal' });
+  assert(
+    state.phase.kind === 'foul' && state.phase.step === 'committer',
+    'personal → committer for Opp and-1 home pick'
+  );
+  console.log('OK testOppAnd1StartsFoulWithoutShooter');
+}
+
 testOppMakeUpdatesTeamOnly();
 testOppMissThenHomeDrb();
 testOppBlockCreditsHomeBlocker();
@@ -535,5 +619,8 @@ testJumpBallOppTeamTurnover();
 testJumpBallPickToWithoutPlayer();
 testOppTeamTotalsStrip();
 testOppPbpReadOnlyGuards();
+testScoreboardHealsToPlayerPoints();
+testOppAnd1HomeFoulerOppTeamFt();
+testOppAnd1StartsFoulWithoutShooter();
 
 console.log('All single-team entry engine tests passed.');

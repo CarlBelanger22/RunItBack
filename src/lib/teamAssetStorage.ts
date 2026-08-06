@@ -5,6 +5,7 @@ import {
   iconDataUrlToBlob,
   isIconDataUrl,
   teamAssetStoragePath,
+  withIconCacheBust,
   type TeamAssetKind,
 } from '../utils/teamAssetStorage';
 
@@ -14,6 +15,7 @@ export {
   isPersistedIconReference,
   normalizeIconForDb,
   teamAssetStoragePath,
+  withIconCacheBust,
   type TeamAssetKind,
 } from '../utils/teamAssetStorage';
 
@@ -41,7 +43,7 @@ export async function uploadEntityIcon(
     throw new Error(`icon upload (${kind}/${entityId}): missing public URL`);
   }
 
-  return data.publicUrl;
+  return withIconCacheBust(data.publicUrl);
 }
 
 export function getEntityIconPublicUrl(

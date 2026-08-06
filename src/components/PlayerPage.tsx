@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -17,12 +17,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from './ui/alert-dialog';
+import { searchParamsOptionsPreservingState } from '../routing/navigation';
 import { Player, Team, Game, GameStats, Tournament } from '../App';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
 import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import { isCompetitiveGame, resolveGameListLabel } from '../utils/friendlyGame';
 import {
   perGameAverageOrNull,
   gameRecordsStat,
@@ -169,6 +171,7 @@ export function PlayerPage({
   onDeletePlayer,
 }: PlayerPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
+  const location = useLocation();
   const gameFormatScope = parseGameFormatScope(searchParams.get('format'));
   const selectedTournamentIds = useMemo(
     () => parseTournamentSelection(searchParams.get('tournaments')),
@@ -203,9 +206,18 @@ export function PlayerPage({
       } else {
         next.delete('tournaments');
       }
-      setSearchParams(next, { replace: true });
+      setSearchParams(
+        next,
+        searchParamsOptionsPreservingState(location, { replace: true })
+      );
     },
-    [searchParams, setSearchParams, gameFormatScope, selectedTournamentIds]
+    [
+      searchParams,
+      setSearchParams,
+      gameFormatScope,
+      selectedTournamentIds,
+      location,
+    ]
   );
 
   const setGameFormatScope = useCallback(
@@ -362,7 +374,10 @@ export function PlayerPage({
   );
 
   const { totals, averages, gamesPlayed } = useMemo(() => {
-    if (playerGameStats.length === 0) {
+    const competitiveStats = playerGameStats.filter(({ game }) =>
+      isCompetitiveGame(game)
+    );
+    if (competitiveStats.length === 0) {
       return {
         totals: MetricsCalculator.getEmptyStats(player.id),
         averages: MetricsCalculator.getEmptyStats(player.id),
@@ -370,7 +385,7 @@ export function PlayerPage({
       };
     }
 
-    const seasonTotals = playerGameStats.reduce((acc, { stats }) => {
+    const seasonTotals = competitiveStats.reduce((acc, { stats }) => {
       Object.keys(stats).forEach((key) => {
         if (key !== 'playerId' && typeof stats[key as keyof GameStats] === 'number') {
           (acc as Record<string, number>)[key] += (stats as Record<string, number>)[key];
@@ -379,7 +394,7 @@ export function PlayerPage({
       return acc;
     }, MetricsCalculator.getEmptyStats(player.id));
 
-    const seasonGamesPlayed = playerGameStats.length;
+    const seasonGamesPlayed = competitiveStats.length;
     const seasonAverages = { ...seasonTotals };
 
     Object.keys(seasonAverages).forEach((key) => {
@@ -430,8 +445,9 @@ export function PlayerPage({
       gamesWithPlusMinusData: number;
     }>();
     
-    // Group games by tournament
+    // Group games by tournament (competitive only — friendlies are a separate row later)
     playerGameStats.forEach(({ game, stats }) => {
+      if (!isCompetitiveGame(game)) return;
       const tournamentId = game.tournamentId || 'no-tournament';
       const tournament = game.tournamentId ? tournaments.find(t => t.id === game.tournamentId) : null;
       
@@ -782,6 +798,7 @@ export function PlayerPage({
                 if (!opponent || !opponent.name) return null;
                 const gameAdvanced = MetricsCalculator.calculateAdvancedMetrics(stats);
                 const tournament = game.tournamentId ? tournaments.find(t => t.id === game.tournamentId) : null;
+                const listLabel = resolveGameListLabel(game, tournament?.name);
                 
                 return (
                   <TableRow 
@@ -792,8 +809,8 @@ export function PlayerPage({
                     <TableCell>
                       <div>
                         <div className="text-sm">{new Date(game.date).toLocaleDateString()}</div>
-                        {tournament && (
-                          <div className="text-xs text-muted-foreground">{tournament.name}</div>
+                        {listLabel && (
+                          <div className="text-xs text-muted-foreground">{listLabel}</div>
                         )}
                       </div>
                     </TableCell>
