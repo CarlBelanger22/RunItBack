@@ -3,16 +3,49 @@
  * Run: npm run test:iubit-2026-structure
  */
 import {
+  applyIubitClassificationDisplayNames,
   buildIubit2026Structure,
   canBuildIubit2026Structure,
   IUBIT_2026_GROUPS,
 } from '../src/utils/iubit2026Structure';
+import type { TournamentStructure } from '../src/utils/tournamentStructure';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
+function testDisplayNameMigration(): void {
+  const legacy: TournamentStructure = {
+    stages: [
+      {
+        id: 'iubit-stage-1-4',
+        name: '1–4',
+        kind: 'classification',
+        order: 2,
+      },
+      {
+        id: 'iubit-stage-13-14',
+        name: 'My custom title',
+        kind: 'classification',
+        order: 5,
+      },
+    ],
+  };
+  const next = applyIubitClassificationDisplayNames(legacy);
+  assert(
+    next.stages.find((s) => s.id === 'iubit-stage-1-4')?.name ===
+      'Semis & Finals',
+    'legacy 1–4 migrated'
+  );
+  assert(
+    next.stages.find((s) => s.id === 'iubit-stage-13-14')?.name ===
+      'My custom title',
+    'user rename preserved'
+  );
+}
+
 function main(): void {
+  testDisplayNameMigration();
   const teams = IUBIT_2026_GROUPS.flatMap((g) =>
     g.abbreviations.map((abbreviation) => ({
       id: `id-${abbreviation}`,
@@ -28,11 +61,14 @@ function main(): void {
   assert(groups[0].teamIds.length === 3, 'A=3');
   assert(groups[2].teamIds.length === 4, 'C=4');
   assert(
-    structure.stages.some((s) => s.name === '13th–14th Placement' && s.kind === 'classification'),
+    structure.stages.some(
+      (s) => s.name === '13th–14th Placement' && s.kind === 'classification'
+    ),
     '13-14 stage'
   );
   const slotCount = structure.stages.reduce(
-    (n, s) => n + (s.bracket?.rounds ?? []).reduce((m, r) => m + r.slots.length, 0),
+    (n, s) =>
+      n + (s.bracket?.rounds ?? []).reduce((m, r) => m + r.slots.length, 0),
     0
   );
   assert(slotCount === 13, `expected 13 bracket slots, got ${slotCount}`);

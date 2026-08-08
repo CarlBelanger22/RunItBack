@@ -6,6 +6,7 @@ import type { Game } from '../src/App';
 import { buildIubit2026Structure } from '../src/utils/iubit2026Structure';
 import {
   computeGroupFinishPlaces,
+  describeGameStageTag,
   retagTournamentGames,
 } from '../src/utils/retagTournamentGames';
 
@@ -105,8 +106,69 @@ function testGroupAndClassificationTagging(): void {
   assert(report.classificationTagged >= 2, 'classification tagged');
 }
 
+function testSameGroupRematchPrefersEarliestForRr(): void {
+  const structure: import('../src/utils/tournamentStructure').TournamentStructure = {
+    stages: [
+      {
+        id: 'rr',
+        name: 'Group stage',
+        kind: 'round_robin',
+        order: 1,
+        groups: [
+          { id: 'g-b', name: 'Group B', teamIds: ['sit', 'sutd', 'nus'] },
+        ],
+      },
+      {
+        id: 'place',
+        name: '5th - 7th Placing',
+        kind: 'classification',
+        order: 2,
+      },
+    ],
+  };
+  const games = [
+    baseGame({
+      id: 'sep26',
+      homeTeamId: 'sit',
+      awayTeamId: 'sutd',
+      date: '2025-09-26',
+      tournamentId: 't-sunig',
+    }),
+    baseGame({
+      id: 'oct1',
+      homeTeamId: 'sit',
+      awayTeamId: 'sutd',
+      date: '2025-10-01',
+      tournamentId: 't-sunig',
+    }),
+  ];
+  // Fix tournament ids on games - baseGame hardcodes t-iubit
+  const fixed = games.map((g) => ({ ...g, tournamentId: 't-sunig' }));
+  const { games: tagged } = retagTournamentGames(fixed, 't-sunig', structure);
+  const byId = new Map(tagged.map((g) => [g.id, g]));
+  assert(byId.get('sep26')?.groupId === 'g-b', 'sep26 is RR');
+  assert(byId.get('sep26')?.stageId === 'rr', 'sep26 stage rr');
+  assert(byId.get('oct1')?.stageId === 'place', 'oct1 classification');
+  assert(byId.get('oct1')?.groupId == null, 'oct1 no group');
+}
+
+function testDescribeHidesOrphanStageId(): void {
+  const label = describeGameStageTag(
+    baseGame({
+      id: 'x',
+      homeTeamId: 'a',
+      awayTeamId: 'b',
+      stageId: 'stage-orphan-deleted',
+    }),
+    { stages: [{ id: 'rr', name: 'Group stage', kind: 'round_robin', order: 1 }] }
+  );
+  assert(label == null, `orphan label=${label}`);
+}
+
 function main(): void {
   testGroupAndClassificationTagging();
+  testSameGroupRematchPrefersEarliestForRr();
+  testDescribeHidesOrphanStageId();
   console.log('PASS: test-retag-tournament-games');
 }
 

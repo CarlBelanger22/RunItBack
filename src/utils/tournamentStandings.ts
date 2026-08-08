@@ -11,6 +11,7 @@ import type {
 } from './tournamentStructure';
 import { normalizeTournamentStructure } from './tournamentStructure';
 import { sortStandingRowsWithH2h } from './standingsTiebreak';
+import { matchupGamesSorted } from './matchupGamePick';
 
 export interface StandingRow {
   team: Team;
@@ -28,7 +29,7 @@ export interface StandingRow {
 export interface ExtendedStandingRow extends StandingRow {
   rpg: number;
   apg: number;
-  /** null when no FG attempts were tracked, or when not every scored game has shooting */
+  /** null when no FG attempts were tracked among non-walkover games, or partial coverage */
   fgPct: number | null;
   /** null when no 3PA tracked */
   threePct: number | null;
@@ -86,6 +87,54 @@ function resolveFinalScore(game: Game): { home: number; away: number } | null {
     return { home, away };
   }
   return null;
+}
+
+/**
+ * Walkover / forfeit: counts in W–L, but does not block standings FG%/3P%/FT%.
+ * Detects classic 20–0 (FIBA), explicit meta notes, or 0-point + no box score.
+ */
+export function isWalkoverOrForfeit(game: Game): boolean {
+  const score = resolveFinalScore(game);
+  if (!score) return false;
+
+  const meta = game.teamStats as { __meta?: { note?: string } } | undefined;
+  const note = String(meta?.__meta?.note ?? '').toLowerCase();
+  if (
+    /\bwalkover\b/.test(note) ||
+    /\bforfeit\b/.test(note) ||
+    /\bw\.?\s*o\.?\b/.test(note)
+  ) {
+    return true;
+  }
+
+  // FIBA default forfeit score
+  if (
+    (score.home === 20 && score.away === 0) ||
+    (score.home === 0 && score.away === 20)
+  ) {
+    return true;
+  }
+
+  // One side scored 0 and there is no player box — treat as forfeit/walkover
+  if (
+    (score.home === 0 || score.away === 0) &&
+    (game.gameStats ?? []).length === 0
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/** Group-stage / RR games only (excludes classification + bracket-linked). */
+export function filterRoundRobinGames(
+  games: Game[],
+  structure?: TournamentStructure
+): Game[] {
+  const linkedIds = collectBracketLinkedGameIds(structure);
+  return games.filter(
+    (game) => !isExcludedFromGroupRoundRobin(game, structure, linkedIds)
+  );
 }
 
 function sortStandings(rows: StandingRow[]): StandingRow[] {
@@ -255,10 +304,12 @@ export function withExtendedShootingStats(
       assists: 0,
     };
 
-    // Only publish shooting % when every scored game has tracked shooting —
-    // partial coverage would understate/overstate FG% vs true season.
-    let allGamesTracked = scoredGames.length > 0;
-    for (const game of scoredGames) {
+    // Only publish shooting % when every non-walkover scored game has tracked
+    // shooting — partial coverage would understate/overstate FG% vs true season.
+    // Walkovers/forfeits count in W–L but are exempt from this gate (LE-131).
+    const shootingSample = scoredGames.filter((g) => !isWalkoverOrForfeit(g));
+    let allGamesTracked = shootingSample.length > 0;
+    for (const game of shootingSample) {
       const chunk = shootingTotalsForTeamGame(game, standing.team);
       if (!chunk) {
         allGamesTracked = false;
@@ -306,11 +357,27 @@ export function filterGamesForGroup(
 ): Game[] {
   const members = new Set(group.teamIds);
   const linkedIds = collectBracketLinkedGameIds(structure);
-  return games.filter((game) => {
+  const eligible = games.filter((game) => {
     if (isExcludedFromGroupRoundRobin(game, structure, linkedIds)) return false;
     if (game.groupId === group.id) return true;
     if (game.groupId) return false;
     return members.has(game.homeTeamId) && members.has(game.awayTeamId);
+  });
+
+  // LE-116: same pair met twice → only the earliest counts as RR
+  return eligible.filter((game) => {
+    const siblings = eligible.filter(
+      (g) =>
+        (g.homeTeamId === game.homeTeamId && g.awayTeamId === game.awayTeamId) ||
+        (g.homeTeamId === game.awayTeamId && g.awayTeamId === game.homeTeamId)
+    );
+    if (siblings.length <= 1) return true;
+    const earliest = matchupGamesSorted(
+      siblings,
+      game.homeTeamId,
+      game.awayTeamId
+    )[0];
+    return earliest?.id === game.id;
   });
 }
 

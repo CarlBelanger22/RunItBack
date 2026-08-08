@@ -83,7 +83,18 @@ export function canBuildIubit2026Structure(
   return buildIubit2026Structure(teams) != null;
 }
 
-/** Refresh classification stage titles for an already-applied IUBIT structure (by stage id). */
+/** Legacy short titles that should be upgraded once to current display names. */
+const IUBIT_CLASSIFICATION_LEGACY_NAMES: Record<string, readonly string[]> = {
+  'iubit-stage-1-4': ['1–4', '1-4', '1/4'],
+  'iubit-stage-5-8': ['5–8', '5-8', '5/8'],
+  'iubit-stage-9-12': ['9–12', '9-12', '9/12'],
+  'iubit-stage-13-14': ['13–14', '13-14', '13/14'],
+};
+
+/**
+ * One-shot migration: only rewrite known legacy IUBIT titles.
+ * Does not overwrite user renames (LE-123).
+ */
 export function applyIubitClassificationDisplayNames(
   structure: TournamentStructure
 ): TournamentStructure {
@@ -92,10 +103,12 @@ export function applyIubitClassificationDisplayNames(
   );
   let changed = false;
   const stages = structure.stages.map((stage) => {
-    const name = nameById.get(stage.id);
-    if (!name || stage.name === name) return stage;
+    const display = nameById.get(stage.id);
+    if (!display || stage.name === display) return stage;
+    const legacy = IUBIT_CLASSIFICATION_LEGACY_NAMES[stage.id];
+    if (!legacy?.includes(stage.name)) return stage;
     changed = true;
-    return { ...stage, name };
+    return { ...stage, name: display };
   });
   return changed ? { stages } : structure;
 }

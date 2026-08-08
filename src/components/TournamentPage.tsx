@@ -22,6 +22,7 @@ import type { TournamentTab } from '../routing/tabs';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { TournamentStructureEditor } from './TournamentStructureEditor';
 import { TournamentClassificationBracket } from './TournamentClassificationBracket';
+import { ClassificationVisualEditor } from './ClassificationVisualEditor';
 import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
@@ -38,10 +39,15 @@ import {
   describeGameStageTag,
   retagTournamentGames,
 } from '../utils/retagTournamentGames';
+import {
+  finalizeGroupSeedings,
+  unlockGroupSeedings,
+} from '../utils/finalizeGroupSeedings';
 import { tournamentHasStructure, normalizeTournamentStructure } from '../utils/tournamentStructure';
 import {
   buildGroupStandingsTables,
   filterGamesForGroup,
+  filterRoundRobinGames,
   withExtendedShootingStats,
   calculateTeamStandings,
   type ExtendedStandingRow,
@@ -112,9 +118,13 @@ export function TournamentPage({
   const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
   const tournamentGames = filterGamesForTournament(tournament, games);
   
-  // Calculate tournament standings (overall — used on Home + unstructured Standings)
+  // Home + unstructured Standings: RR/group games only when structure exists
+  // (exclude KO so Home matches Group standings — LE-131).
   const calculateStandings = () =>
-    calculateTeamStandings(tournamentTeams, tournamentGames);
+    calculateTeamStandings(
+      tournamentTeams,
+      filterRoundRobinGames(tournamentGames, tournament.structure)
+    );
   
   // Get tournament leaders
   const getTournamentLeaders = () => {
@@ -203,7 +213,10 @@ export function TournamentPage({
 
   // Calculate additional team stats for standings
   const calculateStandingsWithExtendedStats = () =>
-    withExtendedShootingStats(standings, tournamentGames);
+    withExtendedShootingStats(
+      standings,
+      filterRoundRobinGames(tournamentGames, tournament.structure)
+    );
   
   const standings = calculateStandings();
   const leaders = getTournamentLeaders();
@@ -225,6 +238,11 @@ export function TournamentPage({
   const [isDeleteTournamentDialogOpen, setIsDeleteTournamentDialogOpen] = useState(false);
   const [editTournamentError, setEditTournamentError] = useState<string | null>(null);
   const [createFormKey, setCreateFormKey] = useState(0);
+  // LE-124 — hoist Games filters so `{GamesTab()}` is safe (no hooks inside tab fn)
+  const [gamesFilterStatus, setGamesFilterStatus] = useState<
+    'all' | 'completed' | 'ongoing'
+  >('all');
+  const [gamesFilterStageId, setGamesFilterStageId] = useState<string>('all');
 
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
 
@@ -940,6 +958,7 @@ export function TournamentPage({
           <TournamentClassificationBracket
             tournament={tournament}
             games={tournamentGames}
+            teams={tournamentTeams}
             mode="view"
             onUpdateTournament={onUpdateTournament}
             onGamesUpdate={onGamesUpdate}
@@ -990,18 +1009,16 @@ export function TournamentPage({
 
   // Games Tab - Shows all tournament games with filtering
   const GamesTab = () => {
-    const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
-    const [filterStageId, setFilterStageId] = useState<string>('all');
     const structure = normalizeTournamentStructure(tournament.structure);
     const hasStructure = tournamentHasStructure(structure);
-    
+
     // Filter games based on status
-    const filteredGames = tournamentGames.filter(game => {
-      if (filterStatus === 'completed' && !game.isCompleted) return false;
-      if (filterStatus === 'ongoing' && game.isCompleted) return false;
-      if (filterStageId !== 'all') {
-        if (filterStageId === 'untagged') return !game.stageId;
-        if (game.stageId !== filterStageId) return false;
+    const filteredGames = tournamentGames.filter((game) => {
+      if (gamesFilterStatus === 'completed' && !game.isCompleted) return false;
+      if (gamesFilterStatus === 'ongoing' && game.isCompleted) return false;
+      if (gamesFilterStageId !== 'all') {
+        if (gamesFilterStageId === 'untagged') return !game.stageId;
+        if (game.stageId !== gamesFilterStageId) return false;
       }
       return true;
     });
@@ -1018,23 +1035,27 @@ export function TournamentPage({
               <span className="text-sm text-muted-foreground">Filter:</span>
               <div className="flex gap-2 flex-wrap">
                 <Button
-                  variant={filterStatus === 'all' ? 'default' : 'outline'}
+                  variant={gamesFilterStatus === 'all' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setFilterStatus('all')}
+                  onClick={() => setGamesFilterStatus('all')}
                 >
                   All Games ({tournamentGames.length})
                 </Button>
                 <Button
-                  variant={filterStatus === 'completed' ? 'default' : 'outline'}
+                  variant={
+                    gamesFilterStatus === 'completed' ? 'default' : 'outline'
+                  }
                   size="sm"
-                  onClick={() => setFilterStatus('completed')}
+                  onClick={() => setGamesFilterStatus('completed')}
                 >
-                  Completed ({tournamentGames.filter(g => g.isCompleted).length})
+                  Completed ({tournamentGames.filter((g) => g.isCompleted).length})
                 </Button>
                 <Button
-                  variant={filterStatus === 'ongoing' ? 'default' : 'outline'}
+                  variant={
+                    gamesFilterStatus === 'ongoing' ? 'default' : 'outline'
+                  }
                   size="sm"
-                  onClick={() => setFilterStatus('ongoing')}
+                  onClick={() => setGamesFilterStatus('ongoing')}
                 >
                   Ongoing ({tournamentGames.filter(g => !g.isCompleted).length})
                 </Button>
@@ -1044,26 +1065,30 @@ export function TournamentPage({
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm text-muted-foreground">Stage:</span>
                 <Button
-                  variant={filterStageId === 'all' ? 'default' : 'outline'}
+                  variant={gamesFilterStageId === 'all' ? 'default' : 'outline'}
                   size="sm"
-                  onClick={() => setFilterStageId('all')}
+                  onClick={() => setGamesFilterStageId('all')}
                 >
                   All stages
                 </Button>
                 {(structure?.stages ?? []).map((stage) => (
                   <Button
                     key={stage.id}
-                    variant={filterStageId === stage.id ? 'default' : 'outline'}
+                    variant={
+                      gamesFilterStageId === stage.id ? 'default' : 'outline'
+                    }
                     size="sm"
-                    onClick={() => setFilterStageId(stage.id)}
+                    onClick={() => setGamesFilterStageId(stage.id)}
                   >
                     {stage.name}
                   </Button>
                 ))}
                 <Button
-                  variant={filterStageId === 'untagged' ? 'default' : 'outline'}
+                  variant={
+                    gamesFilterStageId === 'untagged' ? 'default' : 'outline'
+                  }
                   size="sm"
-                  onClick={() => setFilterStageId('untagged')}
+                  onClick={() => setGamesFilterStageId('untagged')}
                 >
                   Untagged
                 </Button>
@@ -1079,7 +1104,7 @@ export function TournamentPage({
               <CardContent className="p-12 text-center">
                 <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
                 <p className="text-muted-foreground">
-                  No {filterStatus !== 'all' && filterStatus} games found
+                  No {gamesFilterStatus !== 'all' && gamesFilterStatus} games found
                 </p>
               </CardContent>
             </Card>
@@ -1087,6 +1112,9 @@ export function TournamentPage({
             sortedGames.map((game) => {
               const homeTeam = resolveGameTeam(teams, game, 'home');
               const awayTeam = resolveGameTeam(teams, game, 'away');
+              const stageTag = hasStructure
+                ? describeGameStageTag(game, structure)
+                : null;
               return (
                 <Card 
                   key={game.id} 
@@ -1143,11 +1171,11 @@ export function TournamentPage({
                               <Badge variant="outline" className="text-xs">Final</Badge>
                             </>
                           )}
-                          {hasStructure && (
+                          {stageTag && (
                             <>
                               <span>•</span>
                               <Badge variant="secondary" className="text-xs">
-                                {describeGameStageTag(game, structure) ?? 'Untagged'}
+                                {stageTag}
                               </Badge>
                             </>
                           )}
@@ -1209,23 +1237,23 @@ export function TournamentPage({
         </TabsList>
 
         <TabsContent value="home" className="space-y-6">
-          <HomeTab />
+          {HomeTab()}
         </TabsContent>
 
         <TabsContent value="teams" className="space-y-6">
-          <TeamsTab />
+          {TeamsTab()}
         </TabsContent>
 
         <TabsContent value="standings" className="space-y-6">
-          <StandingsTab />
+          {StandingsTab()}
         </TabsContent>
 
         <TabsContent value="players" className="space-y-6">
-          <PlayersTab />
+          {PlayersTab()}
         </TabsContent>
 
         <TabsContent value="games" className="space-y-6">
-          <GamesTab />
+          {GamesTab()}
         </TabsContent>
       </Tabs>
 
@@ -1416,11 +1444,36 @@ export function TournamentPage({
                   onGamesUpdate(nextGames);
                   return report;
                 }}
+                onFinalizeSeedings={() => {
+                  const { structure: nextStructure, games: nextGames, report } =
+                    finalizeGroupSeedings(
+                      tournament.structure,
+                      games,
+                      tournament.id,
+                      tournamentTeams
+                    );
+                  onUpdateTournament({
+                    id: tournament.id,
+                    patch: (prev) => ({ ...prev, structure: nextStructure }),
+                  });
+                  onGamesUpdate(nextGames);
+                  return report;
+                }}
+                onUnlockSeedings={() => {
+                  const next = unlockGroupSeedings(tournament.structure, {
+                    clearSnapshot: true,
+                    clearSeedTeamIds: true,
+                  });
+                  onUpdateTournament({
+                    id: tournament.id,
+                    patch: (prev) => ({ ...prev, structure: next }),
+                  });
+                }}
                 classificationEditor={
-                  <TournamentClassificationBracket
+                  <ClassificationVisualEditor
                     tournament={tournament}
                     games={tournamentGames}
-                    mode="edit"
+                    teams={tournamentTeams}
                     onUpdateTournament={onUpdateTournament}
                     onGamesUpdate={onGamesUpdate}
                     onNavigateToGame={onNavigateToGame}

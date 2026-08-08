@@ -20,7 +20,17 @@ const IUBIT_CLASSIFICATION_STAGE_IDS = new Set([
 function slot(
   id: string,
   label: string,
-  opts?: Partial<Pick<BracketSlot, 'homeFromSlotId' | 'awayFromSlotId'>>
+  opts?: Partial<
+    Pick<
+      BracketSlot,
+      | 'homeFromSlotId'
+      | 'awayFromSlotId'
+      | 'homeFromOutcome'
+      | 'awayFromOutcome'
+      | 'winnerPlace'
+      | 'loserPlace'
+    >
+  >
 ): BracketSlot {
   return {
     id,
@@ -30,6 +40,10 @@ function slot(
     gameId: null,
     homeFromSlotId: opts?.homeFromSlotId ?? null,
     awayFromSlotId: opts?.awayFromSlotId ?? null,
+    homeFromOutcome: opts?.homeFromOutcome ?? null,
+    awayFromOutcome: opts?.awayFromOutcome ?? null,
+    winnerPlace: opts?.winnerPlace ?? null,
+    loserPlace: opts?.loserPlace ?? null,
   };
 }
 
@@ -55,10 +69,18 @@ export function iubitClassificationBracketForStage(
             slot('iubit-slot-1-4-final', 'Final', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
+              homeFromOutcome: 'winner',
+              awayFromOutcome: 'winner',
+              winnerPlace: 1,
+              loserPlace: 2,
             }),
             slot('iubit-slot-1-4-3rd', '3rd Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
+              homeFromOutcome: 'loser',
+              awayFromOutcome: 'loser',
+              winnerPlace: 3,
+              loserPlace: 4,
             }),
           ]),
         ],
@@ -77,10 +99,18 @@ export function iubitClassificationBracketForStage(
             slot('iubit-slot-5-8-5th', '5th Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
+              homeFromOutcome: 'winner',
+              awayFromOutcome: 'winner',
+              winnerPlace: 5,
+              loserPlace: 6,
             }),
             slot('iubit-slot-5-8-7th', '7th Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
+              homeFromOutcome: 'loser',
+              awayFromOutcome: 'loser',
+              winnerPlace: 7,
+              loserPlace: 8,
             }),
           ]),
         ],
@@ -99,10 +129,18 @@ export function iubitClassificationBracketForStage(
             slot('iubit-slot-9-12-9th', '9th Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
+              homeFromOutcome: 'winner',
+              awayFromOutcome: 'winner',
+              winnerPlace: 9,
+              loserPlace: 10,
             }),
             slot('iubit-slot-9-12-11th', '11th Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
+              homeFromOutcome: 'loser',
+              awayFromOutcome: 'loser',
+              winnerPlace: 11,
+              loserPlace: 12,
             }),
           ]),
         ],
@@ -112,7 +150,10 @@ export function iubitClassificationBracketForStage(
       return {
         rounds: [
           round('iubit-r-13-14', 'Placement', [
-            slot('iubit-slot-13-14', 'C4 vs D4'),
+            slot('iubit-slot-13-14', 'C4 vs D4', {
+              winnerPlace: 13,
+              loserPlace: 14,
+            }),
           ]),
         ],
       };
@@ -148,6 +189,16 @@ function mergeSlot(existing: BracketSlot | undefined, template: BracketSlot): Br
     label: existing.label ?? template.label,
     homeFromSlotId: existing.homeFromSlotId ?? template.homeFromSlotId,
     awayFromSlotId: existing.awayFromSlotId ?? template.awayFromSlotId,
+    homeFromOutcome: existing.homeFromOutcome ?? template.homeFromOutcome,
+    awayFromOutcome: existing.awayFromOutcome ?? template.awayFromOutcome,
+    homeSeedLabel: existing.homeSeedLabel ?? template.homeSeedLabel,
+    awaySeedLabel: existing.awaySeedLabel ?? template.awaySeedLabel,
+    winnerPlace: existing.winnerPlace ?? template.winnerPlace,
+    loserPlace: existing.loserPlace ?? template.loserPlace,
+    inactive: existing.inactive ?? template.inactive,
+    inactiveFeedSlotId:
+      existing.inactiveFeedSlotId ?? template.inactiveFeedSlotId,
+    inactiveFeedSide: existing.inactiveFeedSide ?? template.inactiveFeedSide,
   };
 }
 

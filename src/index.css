@@ -5147,6 +5147,115 @@ html {
   justify-content: flex-start;
 }
 
+.classification-bracket-tree--multi {
+  gap: 1.25rem;
+  align-items: flex-start;
+}
+
+.classification-bracket-tree--eight {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.classification-bracket-tree--sixteen {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.classification-bracket-sixteen-labels {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.classification-bracket-sixteen-body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.classification-bracket-sixteen-halves {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.classification-bracket-sixteen-half {
+  display: flex;
+  flex-direction: row;
+  /* Center SF on the QF-column mid (same idea as semis-row--eight) */
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.classification-bracket-sixteen-qf-col {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.classification-bracket-eight-labels {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.classification-bracket-eight-label-spacer {
+  width: 2.75rem;
+  flex-shrink: 0;
+}
+
+.classification-bracket-round-label--finals-head {
+  width: 15.5rem;
+}
+
+.classification-bracket-eight-body {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.classification-bracket-eight-pairs {
+  display: flex;
+  flex-direction: column;
+  /* Space between the two QF→SF bands ≈ one match so the tree reads evenly */
+  gap: 1.75rem;
+}
+
+.classification-bracket-eight-finals {
+  min-width: 15.5rem;
+  flex-shrink: 0;
+}
+
+.classification-bracket-eight-finals-anchor {
+  position: relative;
+  min-height: 10rem;
+}
+
+.classification-bracket-eight-finals-main {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.classification-bracket-eight-third {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
 .classification-bracket-round {
   display: flex;
   flex-direction: column;
@@ -5174,6 +5283,14 @@ html {
   flex: 0 0 auto;
 }
 
+.classification-bracket-round-stack--dense {
+  gap: 1.25rem;
+}
+
+.classification-bracket-round-stack--finals-multi {
+  gap: 1.5rem;
+}
+
 /* Stack + measured join share one row so lines track the Semis gap */
 .classification-bracket-semis-row {
   display: flex;
@@ -5181,8 +5298,12 @@ html {
   gap: 0.25rem;
 }
 
+.classification-bracket-semis-row--eight {
+  align-items: center;
+}
+
 .classification-bracket-round--finals {
-  min-width: 16.25rem;
+  min-width: 18.25rem;
 }
 
 /* Height set from measured Semis stack so Final sits on the join midpoint */
@@ -5213,6 +5334,40 @@ html {
   color: var(--border);
 }
 
+/* LE-126b — IVP tree: L16s sit between the two QFs (not row-parallel). */
+.classification-bracket-bye-band {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.25rem;
+}
+
+.classification-bracket-bye-feeders {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.25rem;
+  flex-shrink: 0;
+}
+
+/* Tall QF column: space-between + large gap so feeders land in the middle. */
+.classification-bracket-bye-targets {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 5.5rem;
+  flex-shrink: 0;
+}
+
+.classification-bracket-join--bye-band {
+  align-self: stretch;
+  min-height: 100%;
+}
+
+.classification-bracket-join--single {
+  min-height: 100%;
+}
+
 .classification-bracket-join-svg {
   display: block;
   width: 100%;
@@ -5223,9 +5378,17 @@ html {
 .classification-match-wrap {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.375rem;
-  width: 15.5rem;
+  width: max-content;
+  max-width: 100%;
+}
+
+.classification-match-main {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  gap: 0.375rem;
 }
 
 .classification-bracket-card {
@@ -5241,7 +5404,24 @@ html {
 
 .classification-match-shell {
   position: relative;
-  width: 100%;
+  width: 15.5rem;
+  flex-shrink: 0;
+}
+
+.classification-match-places {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  width: 2.25rem;
+  justify-content: stretch;
+}
+
+.classification-match-place-slot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  flex: 1 1 0;
+  min-height: 2.5rem;
 }
 
 .classification-match-hit {
@@ -5265,6 +5445,15 @@ html {
   border-radius: 0.5rem;
   background: var(--muted);
   overflow: hidden;
+}
+
+.classification-match-box--selected {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.classification-match-inspector {
+  background: var(--background);
 }
 
 .classification-match-row {
@@ -5328,6 +5517,36 @@ html {
   font-weight: 600;
 }
 
+.classification-place-medal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.75rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.01em;
+  background: color-mix(in srgb, var(--muted-foreground) 18%, transparent);
+  color: var(--muted-foreground);
+}
+
+.classification-place-medal--1 {
+  background: color-mix(in srgb, #c9a227 28%, transparent);
+  color: #8a6d12;
+}
+
+.classification-place-medal--2 {
+  background: color-mix(in srgb, #8a8f98 28%, transparent);
+  color: #4b5563;
+}
+
+.classification-place-medal--3 {
+  background: color-mix(in srgb, #b87333 28%, transparent);
+  color: #8a4b1f;
+}
+
 .classification-match-row--loser .classification-match-score {
   font-weight: 500;
 }
@@ -5340,6 +5559,13 @@ html {
   width: 1.75rem;
   padding: 0;
   z-index: 1;
+}
+
+.classification-match-pill-row {
+  width: 15.5rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .classification-match-pill {

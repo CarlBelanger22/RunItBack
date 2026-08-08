@@ -15,7 +15,7 @@ import {
   canBuildIubit2026Structure,
   applyIubitClassificationDisplayNames,
 } from '../utils/iubit2026Structure';
-import { buildFourTeamBracket } from '../utils/fourTeamBracket';
+import { buildEmptyClassificationBracket } from '../utils/fourTeamBracket';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -54,6 +54,15 @@ interface TournamentStructureEditorProps {
   ) => void;
   /** LE-95.3 — auto-assign stage/group on existing tournament games. */
   onRetagGames?: () => { groupTagged: number; classificationTagged: number; skipped: number };
+  /** LE-114 — lock group places, fill bracket seeds, auto-link matching KO games. */
+  onFinalizeSeedings?: () => {
+    seeds: number;
+    slotsFilled: number;
+    gamesLinked: number;
+    details: string[];
+  };
+  /** LE-114 — unlock frozen seeds (keeps linked games). */
+  onUnlockSeedings?: () => void;
   /** Optional classification bracket editor (link/auto-link) below stages. */
   classificationEditor?: React.ReactNode;
 }
@@ -82,10 +91,15 @@ export function TournamentStructureEditor({
   teams,
   onSaveStructure,
   onRetagGames,
+  onFinalizeSeedings,
+  onUnlockSeedings,
   classificationEditor,
 }: TournamentStructureEditorProps) {
   const [confirmClear, setConfirmClear] = useState(false);
+  const [confirmFinalize, setConfirmFinalize] = useState(false);
+  const [confirmUnlock, setConfirmUnlock] = useState(false);
   const [retagSummary, setRetagSummary] = useState<string | null>(null);
+  const [seedSummary, setSeedSummary] = useState<string | null>(null);
   const [newStageName, setNewStageName] = useState('');
   const [newStageKind, setNewStageKind] =
     useState<TournamentStageKind>('round_robin');
@@ -96,6 +110,7 @@ export function TournamentStructureEditor({
   const structure = normalizeTournamentStructure(tournament.structure);
   const hasStructure = tournamentHasStructure(structure);
   const stages = structure?.stages ?? [];
+  const groupStageLocked = structure?.groupStageLocked === true;
 
   // Rename legacy IUBIT "1–4" labels → Semis & Finals, etc. (by stable stage id).
   useEffect(() => {
@@ -178,7 +193,7 @@ export function TournamentStructureEditor({
         groups: newStageKind === 'round_robin' ? [] : undefined,
         bracket:
           newStageKind === 'classification'
-            ? buildFourTeamBracket(stageId)
+            ? buildEmptyClassificationBracket(stageId)
             : undefined,
       },
     ]);
@@ -207,9 +222,14 @@ export function TournamentStructureEditor({
   };
 
   const addGroup = (stageId: string) => {
+    const groupCount =
+      stages.find((s) => s.id === stageId)?.groups?.length ?? 0;
+    const letter =
+      groupCount < 26
+        ? String.fromCharCode(65 + groupCount)
+        : String(groupCount + 1);
     const name =
-      (newGroupNameByStage[stageId] ?? '').trim() ||
-      `Group ${(stages.find((s) => s.id === stageId)?.groups?.length ?? 0) + 1}`;
+      (newGroupNameByStage[stageId] ?? '').trim() || `Group ${letter}`;
     updateStages((prev) =>
       prev.map((s) => {
         if (s.id !== stageId) return s;
@@ -320,6 +340,24 @@ export function TournamentStructureEditor({
                   Retag games from structure
                 </Button>
               )}
+              {onFinalizeSeedings && !groupStageLocked && (
+                <Button
+                  type="button"
+                  variant="default"
+                  onClick={() => setConfirmFinalize(true)}
+                >
+                  Finalize group seedings
+                </Button>
+              )}
+              {onUnlockSeedings && groupStageLocked && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setConfirmUnlock(true)}
+                >
+                  Unlock group seedings
+                </Button>
+              )}
               <Button
                 type="button"
                 variant="outline"
@@ -333,8 +371,20 @@ export function TournamentStructureEditor({
           {canApplyGroupDraw && (
             <p className="text-xs text-muted-foreground">{groupDrawHint}</p>
           )}
+          {groupStageLocked && (
+            <p className="text-sm text-muted-foreground">
+              Group seedings are locked
+              {structure?.seedSnapshot
+                ? ` (${Object.keys(structure.seedSnapshot).sort().join(', ')})`
+                : ''}
+              . Unlock to recompute from current standings.
+            </p>
+          )}
           {retagSummary && (
             <p className="text-sm text-muted-foreground">{retagSummary}</p>
+          )}
+          {seedSummary && (
+            <p className="text-sm text-muted-foreground">{seedSummary}</p>
           )}
         </CardContent>
       </Card>
@@ -391,6 +441,7 @@ export function TournamentStructureEditor({
                         onChange={(e) => renameStage(stage.id, e.target.value)}
                         className="max-w-sm font-medium"
                         aria-label="Stage name"
+                        placeholder="Untitled stage"
                       />
                       <Badge variant="secondary">{stage.kind}</Badge>
                       <Badge variant="outline">#{stage.order}</Badge>
@@ -531,10 +582,14 @@ export function TournamentStructureEditor({
                         </p>
                       )}
                     </>
+                  ) : stage.kind === 'classification' ? (
+                    <p className="text-sm text-muted-foreground">
+                      Edit this stage’s bracket in the visual editor below —
+                      click a match to set seeds, feeders, and link games.
+                    </p>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      Classification stage (4-team: Semis → Final + 3rd). Link
-                      games in the Brackets section below.
+                      Custom stage — use Classification for brackets.
                     </p>
                   )}
                 </CardContent>
@@ -566,6 +621,59 @@ export function TournamentStructureEditor({
               }}
             >
               Clear structure
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmFinalize} onOpenChange={setConfirmFinalize}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Finalize group seedings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Freezes current group places (A1, B2, …), fills classification
+              bracket slots with those teams, and links existing games that
+              match. Seeds stay frozen until you unlock.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (!onFinalizeSeedings) return;
+                const report = onFinalizeSeedings();
+                setSeedSummary(
+                  `Finalized ${report.seeds} seeds · filled ${report.slotsFilled} slots · linked ${report.gamesLinked} games.`
+                );
+                setConfirmFinalize(false);
+              }}
+            >
+              Finalize
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmUnlock} onOpenChange={setConfirmUnlock}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unlock group seedings?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Clears the frozen seed snapshot and unfilled seed team names on
+              bracket slots. Linked games stay linked. You can finalize again
+              after standings change.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                onUnlockSeedings?.();
+                setSeedSummary('Group seedings unlocked.');
+                setConfirmUnlock(false);
+              }}
+            >
+              Unlock
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

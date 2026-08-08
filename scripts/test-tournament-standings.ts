@@ -8,6 +8,8 @@ import {
   buildGroupStandingsTables,
   calculateTeamStandings,
   filterGamesForGroup,
+  filterRoundRobinGames,
+  isWalkoverOrForfeit,
   withExtendedShootingStats,
 } from '../src/utils/tournamentStandings';
 
@@ -296,7 +298,7 @@ function main(): void {
     `NTU FT% from players expected 60, got ${trackedRows[0].ftPct}`
   );
 
-  // Partial coverage (1 tracked + 1 score-only) → null (would be misleading FG%)
+  // Partial coverage (1 tracked + 1 score-only competitive) → null
   const scoreOnlyUmSjtu = game('so2', 'um', 'sjtu', 75, 60, 'iubit-g-a');
   const partialRows = withExtendedShootingStats(
     calculateTeamStandings([umTeam], [tracked, scoreOnlyUmSjtu]),
@@ -307,6 +309,42 @@ function main(): void {
     partialRows[0].fgPct === null,
     'partial shooting coverage must not publish FG%'
   );
+
+  // LE-131: 20–0 walkover does not blank FG% when other games are tracked
+  const walkover = game('wo', 'um', 'sjtu', 20, 0, 'iubit-g-a');
+  const withWalkover = withExtendedShootingStats(
+    calculateTeamStandings([umTeam], [tracked, walkover]),
+    [tracked, walkover]
+  );
+  assert(withWalkover[0].wins === 2, 'walkover still counts as a win');
+  assert(
+    withWalkover[0].fgPct != null,
+    'walkover must not blank FG% when other games tracked'
+  );
+  assert(
+    Math.abs((withWalkover[0].fgPct as number) - 50) < 0.01,
+    `UM FG% from tracked only expected 50, got ${withWalkover[0].fgPct}`
+  );
+
+  // LE-131: note-tagged forfeit also exempt
+  const forfeitNote = game('ff', 'um', 'sjtu', 2, 0, 'iubit-g-a');
+  (forfeitNote.teamStats as { __meta?: { note?: string } }).__meta = {
+    note: 'forfeit — opponent no show',
+  };
+  const withForfeitNote = withExtendedShootingStats(
+    calculateTeamStandings([umTeam], [tracked, forfeitNote]),
+    [tracked, forfeitNote]
+  );
+  assert(
+    withForfeitNote[0].fgPct != null,
+    'forfeit note must not blank FG%'
+  );
+
+  // LE-131: filterRoundRobinGames drops classification / bracket-linked
+  assert(isWalkoverOrForfeit(walkover), '20-0 is walkover');
+  assert(!isWalkoverOrForfeit(tracked), 'tracked game is not walkover');
+  const rrOnly = filterRoundRobinGames([rrNtuNp, koNtuNp], ivpStructure);
+  assert(rrOnly.length === 1 && rrOnly[0].id === 'rr-ntu-np', 'RR filter excludes KO');
 
   // LE-99: group match list uses same filter as standings
   const onlyGroup = filterGamesForGroup(

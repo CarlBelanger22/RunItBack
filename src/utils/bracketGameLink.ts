@@ -92,7 +92,9 @@ export function linkGameToBracketSlot(
   if (existing?.gameId && existing.gameId !== gameId) {
     const prevId = existing.gameId;
     nextGames = nextGames.map((g) =>
-      g.id === prevId ? { ...g, bracketSlotId: undefined } : g
+      g.id === prevId
+        ? { ...g, bracketSlotId: undefined, stageId: undefined, groupId: undefined }
+        : g
     );
   }
 
@@ -127,7 +129,9 @@ export function unlinkGameFromBracketSlot(
   const gameId = existing.gameId;
   const nextStructure = updateSlotGameId(structure, slotId, null);
   const nextGames = games.map((g) =>
-    g.id === gameId ? { ...g, bracketSlotId: undefined } : g
+    g.id === gameId
+      ? { ...g, bracketSlotId: undefined, stageId: undefined, groupId: undefined }
+      : g
   );
   return { structure: nextStructure, games: nextGames };
 }

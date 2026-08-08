@@ -11,6 +11,8 @@ export interface TournamentGroup {
   teamIds: string[];
 }
 
+export type BracketFromOutcome = 'winner' | 'loser';
+
 export interface BracketSlot {
   id: string;
   /** Display label e.g. "SF1", "Final", "13/14". */
@@ -18,9 +20,30 @@ export interface BracketSlot {
   homeTeamId?: string | null;
   awayTeamId?: string | null;
   gameId?: string | null;
-  /** Optional "winner of …" wiring for display / later helpers. */
+  /** Optional "winner/loser of …" wiring for display / later helpers. */
   homeFromSlotId?: string | null;
   awayFromSlotId?: string | null;
+  /** When set with homeFromSlotId — which outcome advances (default: winner). */
+  homeFromOutcome?: BracketFromOutcome | null;
+  awayFromOutcome?: BracketFromOutcome | null;
+  /** Seed placeholder e.g. "B3", "A1" when no team/game yet. */
+  homeSeedLabel?: string | null;
+  awaySeedLabel?: string | null;
+  /**
+   * Finish place for the winner/loser of this slot (medals).
+   * When omitted, display may infer from label (Final → 1/2, 3rd → 3/4, …).
+   * Editor can override explicit values.
+   */
+  winnerPlace?: number | null;
+  loserPlace?: number | null;
+  /**
+   * LE-125 — Soft-removed first-round leg (bye into next round).
+   * Slot stays in the round for layout/restore; tree hides the box.
+   */
+  inactive?: boolean | null;
+  /** When inactive: next-round slot this leg used to feed (restore). */
+  inactiveFeedSlotId?: string | null;
+  inactiveFeedSide?: 'home' | 'away' | null;
 }
 
 export interface BracketRound {
@@ -45,6 +68,13 @@ export interface TournamentStage {
 
 export interface TournamentStructure {
   stages: TournamentStage[];
+  /**
+   * LE-114 — When true, group finish places are frozen in seedSnapshot.
+   * Bracket seed fills use the snapshot until unlocked.
+   */
+  groupStageLocked?: boolean;
+  /** Seed code → teamId, e.g. { A1: "team-…", B3: "team-…" }. */
+  seedSnapshot?: Record<string, string>;
 }
 
 const STAGE_KINDS = new Set<TournamentStageKind>([
@@ -55,6 +85,15 @@ const STAGE_KINDS = new Set<TournamentStageKind>([
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+/**
+ * LE-123 — Stage/group titles: keep spaces while typing; allow "" (do not
+ * drop the entity). Missing/non-string still invalid.
+ */
+function asDisplayName(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  return value;
 }
 
 function asStringList(value: unknown): string[] {
@@ -68,9 +107,26 @@ function normalizeGroup(raw: unknown): TournamentGroup | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
   const id = asString(row.id);
-  const name = asString(row.name);
-  if (!id || !name) return null;
+  const name = asDisplayName(row.name);
+  if (!id || name === undefined) return null;
   return { id, name, teamIds: asStringList(row.teamIds) };
+}
+
+function asOutcome(value: unknown): BracketFromOutcome | null {
+  const s = asString(value)?.toLowerCase();
+  if (s === 'winner' || s === 'loser') return s;
+  return null;
+}
+
+function asPlace(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 1) {
+    return Math.floor(value);
+  }
+  if (typeof value === 'string' && value.trim()) {
+    const n = Number(value.trim());
+    if (Number.isFinite(n) && n >= 1) return Math.floor(n);
+  }
+  return null;
 }
 
 function normalizeSlot(raw: unknown): BracketSlot | null {
@@ -80,12 +136,24 @@ function normalizeSlot(raw: unknown): BracketSlot | null {
   if (!id) return null;
   return {
     id,
-    label: asString(row.label) ?? undefined,
+    label: asDisplayName(row.label),
     homeTeamId: asString(row.homeTeamId),
     awayTeamId: asString(row.awayTeamId),
     gameId: asString(row.gameId),
     homeFromSlotId: asString(row.homeFromSlotId),
     awayFromSlotId: asString(row.awayFromSlotId),
+    homeFromOutcome: asOutcome(row.homeFromOutcome),
+    awayFromOutcome: asOutcome(row.awayFromOutcome),
+    homeSeedLabel: asString(row.homeSeedLabel),
+    awaySeedLabel: asString(row.awaySeedLabel),
+    winnerPlace: asPlace(row.winnerPlace),
+    loserPlace: asPlace(row.loserPlace),
+    inactive: row.inactive === true ? true : null,
+    inactiveFeedSlotId: asString(row.inactiveFeedSlotId),
+    inactiveFeedSide:
+      row.inactiveFeedSide === 'home' || row.inactiveFeedSide === 'away'
+        ? row.inactiveFeedSide
+        : null,
   };
 }
 
@@ -93,8 +161,8 @@ function normalizeRound(raw: unknown): BracketRound | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
   const id = asString(row.id);
-  const name = asString(row.name);
-  if (!id || !name) return null;
+  const name = asDisplayName(row.name);
+  if (!id || name === undefined) return null;
   const slots = Array.isArray(row.slots)
     ? row.slots.map(normalizeSlot).filter((s): s is BracketSlot => s != null)
     : [];
@@ -105,9 +173,14 @@ function normalizeStage(raw: unknown): TournamentStage | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
   const id = asString(row.id);
-  const name = asString(row.name);
+  const name = asDisplayName(row.name);
   const kindRaw = asString(row.kind);
-  if (!id || !name || !kindRaw || !STAGE_KINDS.has(kindRaw as TournamentStageKind)) {
+  if (
+    !id ||
+    name === undefined ||
+    !kindRaw ||
+    !STAGE_KINDS.has(kindRaw as TournamentStageKind)
+  ) {
     return null;
   }
   const order =
@@ -147,7 +220,23 @@ export function normalizeTournamentStructure(
     .filter((s): s is TournamentStage => s != null)
     .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name));
   if (stages.length === 0) return undefined;
-  return { stages };
+
+  const structure: TournamentStructure = { stages };
+  if (row.groupStageLocked === true) {
+    structure.groupStageLocked = true;
+  }
+  if (row.seedSnapshot && typeof row.seedSnapshot === 'object') {
+    const snap: Record<string, string> = {};
+    for (const [key, value] of Object.entries(
+      row.seedSnapshot as Record<string, unknown>
+    )) {
+      const code = asString(key)?.toUpperCase();
+      const teamId = asString(value);
+      if (code && teamId) snap[code] = teamId;
+    }
+    if (Object.keys(snap).length > 0) structure.seedSnapshot = snap;
+  }
+  return structure;
 }
 
 export function tournamentHasStructure(structure?: TournamentStructure | null): boolean {

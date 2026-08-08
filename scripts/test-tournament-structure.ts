@@ -114,6 +114,85 @@ function testNormalizeDropsJunk(): void {
   assert(normalized!.stages[0].id === 'ok', 'ok kept');
 }
 
+function testNormalizePreservesStageNameEditing(): void {
+  // LE-123 — spaces stick; empty name keeps the stage
+  const withSpace = normalizeTournamentStructure({
+    stages: [
+      {
+        id: 'stage-a',
+        name: '13th-14th ',
+        kind: 'classification',
+        order: 1,
+      },
+    ],
+  });
+  assert(withSpace?.stages[0]?.name === '13th-14th ', 'trailing space kept');
+
+  const emptyName = normalizeTournamentStructure({
+    stages: [
+      {
+        id: 'stage-b',
+        name: '',
+        kind: 'classification',
+        order: 1,
+      },
+      {
+        id: 'stage-c',
+        name: 'Other',
+        kind: 'classification',
+        order: 2,
+      },
+    ],
+  });
+  assert(emptyName?.stages.length === 2, 'empty name does not drop stage');
+  assert(emptyName!.stages.find((s) => s.id === 'stage-b')?.name === '', 'empty string');
+
+  const withGroupSpace = normalizeTournamentStructure({
+    stages: [
+      {
+        id: 'stage-g',
+        name: 'Groups',
+        kind: 'round_robin',
+        order: 1,
+        groups: [{ id: 'g-a', name: 'Group A ', teamIds: ['t1'] }],
+      },
+    ],
+  });
+  assert(
+    withGroupSpace?.stages[0]?.groups?.[0]?.name === 'Group A ',
+    'group trailing space kept'
+  );
+
+  const withSlotLabel = normalizeTournamentStructure({
+    stages: [
+      {
+        id: 'stage-slot',
+        name: 'Class',
+        kind: 'classification',
+        order: 1,
+        bracket: {
+          rounds: [
+            {
+              id: 'r1',
+              name: 'Finals ',
+              slots: [{ id: 'm1', label: '13th Place ' }],
+            },
+          ],
+        },
+      },
+    ],
+  });
+  assert(
+    withSlotLabel?.stages[0]?.bracket?.rounds[0]?.name === 'Finals ',
+    'round trailing space kept'
+  );
+  assert(
+    withSlotLabel?.stages[0]?.bracket?.rounds[0]?.slots[0]?.label ===
+      '13th Place ',
+    'slot label trailing space kept'
+  );
+}
+
 function testLookups(): void {
   const s = normalizeTournamentStructure(sampleStructure())!;
   assert(findStage(s, 'stage-1-4')?.name === '1–4', 'find stage');
@@ -124,10 +203,32 @@ function testLookups(): void {
   assert(byGroup.size === 4, '4 group keys');
 }
 
+function testNormalizeRoundTrip(): void {
+  const raw = {
+    groupStageLocked: true,
+    seedSnapshot: { A1: 'ntu', B2: 'sutd' },
+    stages: [
+      {
+        id: 'stage-group',
+        name: 'Group stage',
+        kind: 'round_robin',
+        order: 1,
+        groups: [{ id: 'g-a', name: 'Group A', teamIds: ['ntu'] }],
+      },
+    ],
+  };
+  const n = normalizeTournamentStructure(raw)!;
+  assert(n.groupStageLocked === true, 'lock round-trip');
+  assert(n.seedSnapshot?.A1 === 'ntu', 'snap round-trip');
+  assert(n.seedSnapshot?.B2 === 'sutd', 'snap B2');
+}
+
 function main(): void {
   testNormalizeKeepsUnequalGroups();
   testNormalizeDropsJunk();
+  testNormalizePreservesStageNameEditing();
   testLookups();
+  testNormalizeRoundTrip();
   console.log('PASS: test-tournament-structure');
 }
 
