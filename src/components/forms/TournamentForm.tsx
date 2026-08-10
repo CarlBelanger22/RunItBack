@@ -117,7 +117,7 @@ export const TournamentForm = React.memo(({
   }, [onSubmit, month, selectedTeams, icon]);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4" onKeyDown={(e) => {
+    <form onSubmit={handleSubmit} className="tournament-form" onKeyDown={(e) => {
       if (e.key === 'Enter' && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
         e.preventDefault();
       }
@@ -275,7 +275,7 @@ export const TournamentForm = React.memo(({
         )}
       </div>
 
-      <div className="flex justify-end space-x-2 pt-4">
+      <div className="tournament-form-actions">
         <Button
           type="button"
           variant="outline"

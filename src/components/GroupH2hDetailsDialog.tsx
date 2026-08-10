@@ -70,8 +70,8 @@ export function GroupH2hDetailsDialog({
                 <span
                   className={
                     row.pointsDiff >= 0
-                      ? 'h2h-rank-col-stat text-green-600'
-                      : 'h2h-rank-col-stat text-red-600'
+                      ? 'h2h-rank-col-stat text-green-400'
+                      : 'h2h-rank-col-stat text-red-400'
                   }
                 >
                   {row.pointsDiff >= 0 ? '+' : ''}

@@ -87,7 +87,7 @@ import {
 } from './utils/clubRosterIntegrity';
 import { ensureGameQuarterStats } from './utils/quarterScoring';
 
-import { Moon, Sun, Settings, BarChart3, Search } from 'lucide-react';
+import { Settings, Search } from 'lucide-react';
 
 type CloudSaveKind = 'full' | 'rosters-only';
 
@@ -1006,7 +1006,7 @@ export default function App() {
   const [tournamentRosters, setTournamentRosters] = useState<
     import('./utils/tournamentRosters').TournamentRosterEntry[]
   >([]);
-  const [darkMode, setDarkMode] = useState(false);
+  const [darkMode, setDarkMode] = useState(true);
 
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [cloudSyncStatus, setCloudSyncStatus] = useState<
@@ -1047,12 +1047,9 @@ export default function App() {
   const isLiveGameRoute = /^\/live\/[^/]+/.test(location.pathname);
 
   useEffect(() => {
-    if (darkMode) {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-  }, [darkMode]);
+    // LE-135 — Courtside Dark only; keep html.dark for dark: utilities
+    document.documentElement.classList.add('dark');
+  }, []);
 
   const applyProcessedToState = useCallback((processed: ProcessedAppData) => {
     const teamsWithIcons = mergeTeamIconMetadata(
@@ -1070,13 +1067,13 @@ export default function App() {
     setLoadedOrphanPlayers(processed.orphanPlayers);
     setTournaments(tournamentsWithIcons);
     setGames(processed.games);
-    setDarkMode(processed.darkMode);
+    setDarkMode(true);
     setTournamentRosters(processed.tournamentRosters);
     setPlayerStorageSchema(processed.playerStorageSchema ?? null);
     prevTeamsRef.current = teamsWithIcons;
     prevTournamentsRef.current = tournamentsWithIcons;
     prevGamesRef.current = processed.games;
-    prevDarkModeRef.current = processed.darkMode;
+    prevDarkModeRef.current = true;
     prevTournamentRostersRef.current = processed.tournamentRosters;
 
     // Keep refs in sync before any queued persist microtasks (BD-3).
@@ -1094,7 +1091,7 @@ export default function App() {
       teams: teamsWithIcons,
       tournaments: tournamentsWithIcons,
       games: processed.games,
-      darkMode: processed.darkMode,
+      darkMode: true,
       orphanPlayers: processed.orphanPlayers,
       tournamentRosters: processed.tournamentRosters,
     });
@@ -1110,7 +1107,7 @@ export default function App() {
           : currentGames;
       let teamsToSave = teamsRef.current;
       const tournamentsToSave = tournamentsRef.current;
-      const darkModeToSave = darkModeRef.current;
+      const darkModeToSave = true;
 
       const removals = findRosterRemovals(prevTeamsRef.current, teamsToSave);
       const pendingKeys = new Set(
@@ -1516,31 +1513,6 @@ export default function App() {
       }
     };
   }, [teams, tournaments, games, darkMode, isDataLoading, tournamentRosters, runCloudPersist]);
-
-  const toggleDarkMode = () => {
-    const newDarkMode = !darkMode;
-    setDarkMode(newDarkMode);
-    document.documentElement.classList.toggle('dark');
-
-    if (skipSaveRef.current) return;
-
-    const activeGame = currentGameRef.current;
-    const gamesToSave =
-      activeGame?.isActive
-        ? [...games.filter((g) => g.id !== activeGame.id), activeGame]
-        : games;
-
-    saveAppDataToSupabase(
-      teams,
-      tournaments,
-      gamesToSave,
-      newDarkMode,
-      undefined,
-      tournamentRosters
-    ).catch((err: Error) =>
-      setSaveError(formatCloudSaveError(err.message))
-    );
-  };
 
   const handleGameStart = useCallback(
     (game: Game): boolean => {
@@ -2353,22 +2325,22 @@ export default function App() {
 
   if (isDataLoading) {
     return (
-      <div className={`min-h-screen bg-background text-foreground flex items-center justify-center ${darkMode ? 'dark' : ''}`}>
+      <div className="min-h-screen bg-background text-foreground dark flex items-center justify-center">
         <p className="text-muted-foreground">Loading league data…</p>
       </div>
     );
   }
 
   return (
-    <div className={`min-h-screen bg-background text-foreground ${darkMode ? 'dark' : ''}`}>
+    <div className="min-h-screen bg-background text-foreground dark">
       {!isSupabaseConfigured && import.meta.env.PROD && (
-        <div className="bg-amber-500/15 text-amber-900 dark:text-amber-200 text-sm text-center py-2 px-4">
+        <div className="bg-amber-500/15 text-amber-200 text-sm text-center py-2 px-4">
           Cloud database not connected (missing env vars in this deploy). Data is from this browser only.
           Redeploy on Vercel after adding VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY.
         </div>
       )}
       {playerStorageSchema === 'legacy' && (
-        <div className="bg-amber-500/15 text-amber-900 dark:text-amber-200 text-sm text-center py-2 px-4">
+        <div className="bg-amber-500/15 text-amber-200 text-sm text-center py-2 px-4">
           Database migration 002 is required for cloud saves with shared players across teams.{' '}
           Open Supabase SQL Editor and run{' '}
           <code className="text-xs">supabase/migrations/002_team_players.sql</code>, then
@@ -2402,7 +2374,13 @@ export default function App() {
           <div className="flex items-center justify-between">
             {/* Left: Logo & Title */}
             <div className="flex items-center gap-2">
-              <BarChart3 className="w-6 h-6 text-primary" />
+              <img
+                src="/brand/run-it-back-logo.png?v=2"
+                alt=""
+                width={32}
+                height={32}
+                className="app-brand-logo"
+              />
               <h1 className="font-medium">RunItBack</h1>
             </div>
             
@@ -2432,21 +2410,12 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => navigate(liveGamePath(currentGame.id))}
-                  className="text-xs bg-green-100 dark:bg-green-900/20 text-green-800 dark:text-green-400 px-3 py-1 rounded-full hover:bg-green-200 dark:hover:bg-green-900/40 transition-colors cursor-pointer"
+                  className="text-xs bg-green-900/20 text-green-400 px-3 py-1 rounded-full hover:bg-green-900/40 transition-colors cursor-pointer"
                 >
                   Live: {currentGame.homeTeam.abbreviation} vs{' '}
                   {currentGame.awayTeam.abbreviation}
                 </button>
               )}
-              
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={toggleDarkMode}
-                className="rounded-full w-9 h-9 p-0"
-              >
-                {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </Button>
               
               <Button variant="ghost" size="sm" className="rounded-full w-9 h-9 p-0">
                 <Settings className="w-4 h-4" />

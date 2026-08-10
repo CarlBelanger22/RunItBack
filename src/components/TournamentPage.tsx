@@ -791,7 +791,7 @@ export function TournamentPage({
             <TableCell className="text-center">
               <span
                 className={
-                  standing.pointsDiff >= 0 ? 'text-green-600' : 'text-red-600'
+                  standing.pointsDiff >= 0 ? 'text-green-400' : 'text-red-400'
                 }
               >
                 {standing.pointsDiff >= 0 ? '+' : ''}
@@ -1195,26 +1195,34 @@ export function TournamentPage({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={onBack} className="p-2">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+          <Button variant="ghost" size="sm" onClick={onBack} className="p-2 shrink-0 mt-1">
             <ArrowLeft className="w-4 h-4" />
           </Button>
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <TournamentBadge
               tournament={tournament}
               tournamentId={tournament.id}
               size="hero"
             />
-            <div>
+            <div className="min-w-0 flex-1">
               <h1 className="text-2xl font-bold">{tournament.name}</h1>
-              <p className="text-muted-foreground">{tournament.month} {tournament.year}</p>
+              {tournament.description?.trim() ? (
+                <p className="text-muted-foreground mt-0.5">
+                  {tournament.description.trim().replace(/\s+/g, ' ')}
+                </p>
+              ) : null}
+              <p className="text-sm text-muted-foreground">
+                {tournament.month} {tournament.year}
+              </p>
             </div>
           </div>
         </div>
         <Button
           variant="outline"
           size="sm"
+          className="shrink-0"
           onClick={() => {
             setEditTournamentError(null);
             setEditTournamentPane('details');

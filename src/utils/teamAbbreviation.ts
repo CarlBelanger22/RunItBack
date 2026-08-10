@@ -37,10 +37,20 @@ export function generateTeamAbbreviation(
 
   let base: string;
   if (words.length >= 2) {
-    base = words
-      .map((w) => w[0] ?? '')
-      .join('')
-      .toUpperCase();
+    // Prefer an existing short code as the first token (e.g. "3S Solid Surface" → 3S,
+    // "NUS Men" → NUS) but not title-case words ("Kai Xuan" → KX, not KAI).
+    const first = words[0] ?? '';
+    const firstLooksLikeCode =
+      /^[A-Za-z0-9]{2,5}$/.test(first) &&
+      (/\d/.test(first) || first === first.toUpperCase());
+    if (firstLooksLikeCode) {
+      base = first.toUpperCase();
+    } else {
+      base = words
+        .map((w) => w[0] ?? '')
+        .join('')
+        .toUpperCase();
+    }
   } else {
     base = cleaned.replace(/\s+/g, '').toUpperCase();
   }

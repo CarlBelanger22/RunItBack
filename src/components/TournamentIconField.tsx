@@ -103,13 +103,13 @@ export function TournamentIconField({
     <>
       <div className="space-y-3">
         <Label>Tournament logo</Label>
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-4 min-w-0">
           <TournamentBadge
             tournament={previewTournament}
             tournamentId={tournamentId}
             size="preview"
           />
-          <div className="flex flex-col gap-2 flex-1">
+          <div className="flex flex-col gap-2 flex-1 min-w-0">
             <div className="flex flex-wrap gap-2">
               <Button type="button" variant="outline" size="sm" asChild>
                 <label htmlFor={inputId} className="cursor-pointer">
@@ -150,12 +150,12 @@ export function TournamentIconField({
               className="sr-only"
               onChange={handleFileChange}
             />
-            <div className="flex gap-2">
+            <div className="flex gap-2 min-w-0">
               <Input
                 value={urlDraft}
                 onChange={(e) => setUrlDraft(e.target.value)}
                 placeholder="Or paste image URL"
-                className="text-sm"
+                className="text-sm min-w-0"
               />
               <Button
                 type="button"

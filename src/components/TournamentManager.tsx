@@ -116,7 +116,7 @@ export function TournamentManager({
           New Tournament
         </Button>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="tournament-create-dialog">
             <DialogHeader>
               <DialogTitle>Create New Tournament</DialogTitle>
               <DialogDescription>
@@ -141,7 +141,7 @@ export function TournamentManager({
             if (!open) setEditingTournament(null);
           }}
         >
-          <DialogContent className="max-w-2xl">
+          <DialogContent className="tournament-create-dialog">
             <DialogHeader>
               <DialogTitle>Edit Tournament</DialogTitle>
               <DialogDescription>

@@ -631,7 +631,7 @@ function StandardStatCells({
             ) : field === '+/-' ? (
               <span
                 className={
-                  value.startsWith('+') ? 'text-green-600' : 'text-red-600'
+                  value.startsWith('+') ? 'text-green-400' : 'text-red-400'
                 }
               >
                 {value}
