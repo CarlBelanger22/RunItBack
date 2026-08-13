@@ -1322,7 +1322,7 @@ export function LiveGameWorkspace({
             <DialogHeader>
               <DialogTitle>
                 {isForcedSub && forcedFoulOutPlayer ? (
-                  <span style={{ color: '#ff3838' }}>
+                  <span style={{ color: 'var(--live-danger-text, var(--destructive-text))' }}>
                     Foul out — #{forcedFoulOutPlayer.number}{' '}
                     {forcedFoulOutPlayer.name} must be replaced
                   </span>
@@ -1400,7 +1400,7 @@ export function LiveGameWorkspace({
                           </span>
                           <span
                             style={{
-                              color: '#ff3838',
+                              color: 'var(--live-danger-text, var(--destructive-text))',
                               fontSize: '0.7rem',
                               fontWeight: 600,
                             }}

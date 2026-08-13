@@ -106,7 +106,7 @@ export function PlayByPlay({
       case 'shot_attempt': return <Target className="w-3 h-3" />;
       case 'free_throw': return <Target className="w-3 h-3 text-blue-500" />;
       case 'rebound': return <RotateCcw className="w-3 h-3 text-orange-500" />;
-      case 'foul': return <AlertCircle className="w-3 h-3 text-red-500" />;
+      case 'foul': return <AlertCircle className="w-3 h-3 text-destructive" />;
       case 'turnover': return <Activity className="w-3 h-3 text-amber-600" />;
       case 'substitution': return <RefreshCw className="w-3 h-3 text-green-600" />;
       default: return <Clock className="w-3 h-3 text-gray-400" />;

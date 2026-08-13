@@ -642,7 +642,7 @@ function LiveBoxScoreTableWithView({
                   className="live-box-td-stat"
                   style={
                     foulOutEnabled && isPlayerFouledOut(p)
-                      ? { color: 'var(--live-danger)', fontWeight: 700 }
+                      ? { color: 'var(--live-danger-text, var(--live-danger))', fontWeight: 700 }
                       : undefined
                   }
                 >
@@ -652,7 +652,7 @@ function LiveBoxScoreTableWithView({
                   className="live-box-td-stat"
                   style={
                     foulOutEnabled && isPlayerFouledOut(p)
-                      ? { color: 'var(--live-danger)', fontWeight: 700 }
+                      ? { color: 'var(--live-danger-text, var(--live-danger))', fontWeight: 700 }
                       : undefined
                   }
                 >
@@ -768,7 +768,7 @@ function LiveBoxScoreTableWithView({
                 className="live-box-td-stat"
                 style={
                   foulOutEnabled && isPlayerFouledOut(p)
-                    ? { color: 'var(--live-danger)', fontWeight: 700 }
+                    ? { color: 'var(--live-danger-text, var(--live-danger))', fontWeight: 700 }
                     : undefined
                 }
               >

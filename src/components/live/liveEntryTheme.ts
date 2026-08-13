@@ -9,7 +9,8 @@ export const LIVE_PALETTE = {
   home: '#00D2FF',
   away: '#FF9F00',
   success: '#00E676',
-  danger: '#FF3838',
+  danger: '#B91C1C',
+  dangerText: '#F87171',
   text: '#F8F9FA',
 } as const;
 
@@ -30,7 +31,7 @@ export function liveTeamTint(side: LiveTeamSide, alphaHex: string): string {
 export const LIVE_SEMANTIC = {
   muted: 'var(--live-text-muted)',
   foreground: 'var(--live-text)',
-  destructive: 'var(--live-danger)',
+  destructive: 'var(--live-danger-text, var(--live-danger))',
   success: 'var(--live-success)',
   inactive: 'var(--live-border-strong)',
 } as const;

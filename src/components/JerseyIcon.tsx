@@ -13,14 +13,9 @@ const NUMBER_ANCHOR_X = 50;
 const NUMBER_TOP_Y = 37;
 const NUMBER_SCALE_X = 1.2;
 const NUMBER_SCALE_Y = 1.6;
-const NUMBER_MASK_X = 31;
-const NUMBER_MASK_Y = 37;
-const NUMBER_MASK_WIDTH = 38;
-const NUMBER_MASK_HEIGHT = 27;
 
 /**
- * Uses public/icons/jersey-icon-reference.png for the outline and overlays
- * a dynamic number (the PNG ships with "00" baked in).
+ * Outline PNG (transparent plate, light stroke, empty chest) + overlay number.
  * Numbers scale +20% width / +60% height from a top anchor so they fill downward.
  */
 export function JerseyIcon({
@@ -43,14 +38,6 @@ export function JerseyIcon({
       aria-hidden
     >
       <image href="/icons/jersey-icon-reference.png" width="100" height="100" />
-      {/* Mask over baked-in "00" � widened/tallened for scaled overlay digits */}
-      <rect
-        x={NUMBER_MASK_X}
-        y={NUMBER_MASK_Y}
-        width={NUMBER_MASK_WIDTH}
-        height={NUMBER_MASK_HEIGHT}
-        fill="#ffffff"
-      />
       <g
         transform={`translate(${NUMBER_ANCHOR_X}, ${NUMBER_TOP_Y}) scale(${NUMBER_SCALE_X}, ${NUMBER_SCALE_Y}) translate(${-NUMBER_ANCHOR_X}, ${-NUMBER_TOP_Y})`}
       >
@@ -61,7 +48,7 @@ export function JerseyIcon({
           dominantBaseline="hanging"
           fontSize={fontSize}
           fontWeight={fontWeight}
-          className="fill-foreground"
+          fill="var(--foreground)"
           style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' }}
         >
           {number}

@@ -60,7 +60,7 @@ function LineupPicker({
                 style={{ opacity: 0.55, display: 'flex', justifyContent: 'space-between' }}
               >
                 <span>#{p.number} {p.name}</span>
-                <span style={{ color: '#ff3838', fontSize: '0.7rem', fontWeight: 600 }}>
+                <span style={{ color: 'var(--live-danger-text, var(--destructive-text))', fontSize: '0.7rem', fontWeight: 600 }}>
                   Fouled out
                 </span>
               </Button>

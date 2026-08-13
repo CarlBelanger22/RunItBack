@@ -1828,7 +1828,7 @@
   }
 
   .text-destructive {
-    color: var(--destructive);
+    color: var(--destructive-text, var(--destructive));
   }
 
   .text-destructive-foreground {
@@ -1840,7 +1840,7 @@
   }
 
   .text-green-600 {
-    color: var(--color-green-600);
+    color: var(--success, var(--color-green-600));
   }
 
   .text-green-800 {
@@ -1878,7 +1878,7 @@
   }
 
   .text-red-600 {
-    color: var(--color-red-600);
+    color: var(--destructive-text, var(--color-red-600));
   }
 
   .text-secondary-foreground {
@@ -2896,7 +2896,7 @@
 }
 
 :root {
-  /* LE-135 — Courtside Dark as the sole app palette (aligned with Live) */
+  /* LE-135 / LE-136 — Courtside Dark + AA contrast (split destructive, louder muted) */
   --font-size: 14px;
   --background: #12141c;
   --foreground: #f8f9fa;
@@ -2909,11 +2909,12 @@
   --secondary: #2a2f3f;
   --secondary-foreground: #f8f9fa;
   --muted: #2a2f3f;
-  --muted-foreground: color-mix(in srgb, #f8f9fa 55%, transparent);
+  --muted-foreground: color-mix(in srgb, #f8f9fa 70%, transparent);
   --accent: #3a3f55;
   --accent-foreground: #f8f9fa;
-  --destructive: #ff3838;
+  --destructive: #b91c1c;
   --destructive-foreground: #f8f9fa;
+  --destructive-text: #f87171;
   --border: #3a3f55;
   --input: #3a3f55;
   --input-background: #1e2230;
@@ -2924,7 +2925,7 @@
   --chart-1: #00d2ff;
   --chart-2: #ff9f00;
   --chart-3: #00e676;
-  --chart-4: #ff3838;
+  --chart-4: #f87171;
   --chart-5: #f8f9fa;
   --radius: .625rem;
   --sidebar: #1e2230;
@@ -2954,11 +2955,12 @@
   --secondary: #2a2f3f;
   --secondary-foreground: #f8f9fa;
   --muted: #2a2f3f;
-  --muted-foreground: color-mix(in srgb, #f8f9fa 55%, transparent);
+  --muted-foreground: color-mix(in srgb, #f8f9fa 70%, transparent);
   --accent: #3a3f55;
   --accent-foreground: #f8f9fa;
-  --destructive: #ff3838;
+  --destructive: #b91c1c;
   --destructive-foreground: #f8f9fa;
+  --destructive-text: #f87171;
   --border: #3a3f55;
   --input: #3a3f55;
   --ring: #3a3f55;
@@ -2967,7 +2969,7 @@
   --chart-1: #00d2ff;
   --chart-2: #ff9f00;
   --chart-3: #00e676;
-  --chart-4: #ff3838;
+  --chart-4: #f87171;
   --chart-5: #f8f9fa;
   --sidebar: #1e2230;
   --sidebar-foreground: #f8f9fa;
@@ -3027,9 +3029,10 @@ html {
   --live-home: #00d2ff;
   --live-away: #ff9f00;
   --live-success: #00e676;
-  --live-danger: #ff3838;
+  --live-danger: #b91c1c;
+  --live-danger-text: #f87171;
   --live-text: #f8f9fa;
-  --live-text-muted: color-mix(in srgb, var(--live-text) 55%, transparent);
+  --live-text-muted: color-mix(in srgb, var(--live-text) 70%, transparent);
   --live-home-header: color-mix(in srgb, var(--live-home) 47%, transparent);
   --live-home-border: color-mix(in srgb, var(--live-home) 30%, transparent);
   --live-home-border-hover: color-mix(in srgb, var(--live-home) 55%, transparent);
@@ -3044,6 +3047,8 @@ html {
   --muted-foreground: var(--live-text-muted);
   --border: var(--live-border-strong);
   --destructive: var(--live-danger);
+  --destructive-foreground: var(--live-text);
+  --destructive-text: var(--live-danger-text);
   --accent: color-mix(in srgb, var(--live-border-strong) 45%, var(--live-surface));
   --accent-foreground: var(--live-text);
   --primary: var(--live-text);
@@ -3825,7 +3830,7 @@ html {
 }
 
 .live-ops-btn-danger {
-  color: var(--live-danger) !important;
+  color: var(--live-danger-text, var(--live-danger)) !important;
 }
 
 /* LE-19 — Courtside semantic action buttons */
@@ -3859,8 +3864,8 @@ html {
 }
 
 .live-action-foul {
-  border-color: color-mix(in srgb, var(--live-danger) 40%, transparent) !important;
-  color: var(--live-danger) !important;
+  border-color: color-mix(in srgb, var(--live-danger-text, var(--live-danger)) 40%, transparent) !important;
+  color: var(--live-danger-text, var(--live-danger)) !important;
   background-color: var(--live-surface) !important;
 }
 
