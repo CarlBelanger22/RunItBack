@@ -11,7 +11,7 @@ import { readFileSync } from 'fs';
 import { resolve } from 'path';
 import { requireSupabaseCliClient } from './lib/supabaseCli';
 
-const DEFAULT_BACKUP = 'backups/milestone-2026-08-07-failsafe/raw-tables.json';
+const DEFAULT_BACKUP = 'backups/milestone-2026-08-18-failsafe/raw-tables.json';
 
 interface RawBackupPayload {
   tables: {

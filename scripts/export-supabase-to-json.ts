@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npm run export:supabase
- *   npm run export:supabase -- --out backups/milestone-2026-06-02-pre-next-phase/runitback-league.json
+ *   npm run export:supabase -- --out backups/milestone-2026-08-18-failsafe/runitback-league.json
  */
 
 import { writeFileSync } from 'fs';

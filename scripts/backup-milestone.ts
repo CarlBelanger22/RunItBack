@@ -3,7 +3,7 @@
  *
  * Usage:
  *   npm run backup:milestone
- *   npm run backup:milestone -- --slug milestone-2026-06-02-pre-next-phase
+ *   npm run backup:milestone -- --slug milestone-2026-08-18-failsafe
  */
 
 import { execSync } from 'child_process';

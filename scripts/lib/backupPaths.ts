@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'fs';
 import { resolve } from 'path';
 
-export const DEFAULT_MILESTONE_SLUG = 'milestone-2026-06-02-pre-next-phase';
+export const DEFAULT_MILESTONE_SLUG = 'milestone-2026-08-18-failsafe';
 
 export function milestoneDir(cwd: string, slug = DEFAULT_MILESTONE_SLUG): string {
   return resolve(cwd, 'backups', slug);
