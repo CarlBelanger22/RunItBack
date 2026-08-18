@@ -11,6 +11,14 @@ import {
   tournamentHasStructure,
 } from '../utils/tournamentStructure';
 import {
+  availableSeedCodesForStage,
+  groupSeedLabels,
+  roundRobinStages,
+  seedSourceStage,
+} from '../utils/groupMembers';
+import { defaultPlacingPoolSeedMatchups } from '../utils/groupMatchRows';
+import { normalizeSeedCode } from '../utils/seedCodes';
+import {
   buildIubit2026Structure,
   canBuildIubit2026Structure,
   applyIubitClassificationDisplayNames,
@@ -292,6 +300,74 @@ export function TournamentStructureEditor({
     );
   };
 
+  const setSeedInGroup = (
+    stageId: string,
+    groupId: string,
+    seedCode: string,
+    checked: boolean
+  ) => {
+    const code = normalizeSeedCode(seedCode);
+    if (!code) return;
+    updateStages((prev) =>
+      prev.map((s) => {
+        if (s.id !== stageId) return s;
+        const groups = (s.groups ?? []).map((g) => {
+          if (g.id !== groupId) return g;
+          const current = groupSeedLabels(g);
+          const next = checked
+            ? [...new Set([...current, code])]
+            : current.filter((c) => c !== code);
+          return {
+            ...g,
+            seedLabels: next.length > 0 ? next : undefined,
+            teamIds: next.length > 0 ? [] : g.teamIds,
+          };
+        });
+        return { ...s, groups };
+      })
+    );
+  };
+
+  const addPlacingPoolGroup = (stageId: string) => {
+    updateStages((prev) =>
+      prev.map((s) => {
+        if (s.id !== stageId) return s;
+        const rr = roundRobinStages({ stages: prev });
+        const source = rr[0];
+        if (!source) return s;
+        const letters = (source.groups ?? [])
+          .map((g) => g.name.match(/\b([A-Z])\b/i)?.[1]?.toUpperCase())
+          .filter((x): x is string => Boolean(x));
+        const seeds: string[] = [];
+        for (const letter of letters) {
+          seeds.push(`${letter}3`);
+          if (letter === letters[letters.length - 1]) {
+            seeds.push(`${letter}4`);
+          }
+        }
+        const uniqueSeeds = [...new Set(seeds)].sort();
+        const seedLabels =
+          uniqueSeeds.length >= 2 ? uniqueSeeds : ['A3', 'B3', 'B4'];
+        return {
+          ...s,
+          groups: [
+            ...(s.groups ?? []),
+            {
+              id: newStructureId('group'),
+              name: 'Placing pool',
+              teamIds: [],
+              seedLabels,
+              seedFromStageId: source.id,
+              seedMatchups: defaultPlacingPoolSeedMatchups(seedLabels),
+            },
+          ],
+        };
+      })
+    );
+  };
+
+  const rrStages = roundRobinStages(structure);
+
   return (
     <div className="space-y-6">
       <Card>
@@ -431,6 +507,17 @@ export function TournamentStructureEditor({
           {stages.map((stage, index) => {
             const assigned = assignedTeamIdsInStage(stage);
             const unassigned = teams.filter((t) => !assigned.has(t.id));
+            const isSecondaryRr =
+              stage.kind === 'round_robin' &&
+              rrStages.length > 0 &&
+              rrStages[0].id !== stage.id;
+            const seedSource = isSecondaryRr
+              ? seedSourceStage(structure, { id: '', name: '', teamIds: [] }, stage) ??
+                rrStages[0]
+              : undefined;
+            const availableSeeds = seedSource
+              ? availableSeedCodesForStage(seedSource)
+              : [];
             return (
               <Card key={stage.id}>
                 <CardHeader className="pb-3 space-y-3">
@@ -519,39 +606,76 @@ export function TournamentStructureEditor({
                               </Button>
                             </div>
                             <div className="space-y-2 max-h-64 overflow-y-auto">
-                              {teams.map((team) => {
-                                const checked = group.teamIds.includes(team.id);
-                                const elsewhere =
-                                  !checked && assigned.has(team.id);
-                                return (
-                                  <label
-                                    key={team.id}
-                                    className="flex items-center gap-2 text-sm"
-                                  >
-                                    <Checkbox
-                                      checked={checked}
-                                      disabled={elsewhere}
-                                      onCheckedChange={(v) =>
-                                        setTeamInGroup(
-                                          stage.id,
-                                          group.id,
-                                          team.id,
-                                          v === true
-                                        )
-                                      }
-                                    />
-                                    <span className="font-mono text-xs text-muted-foreground w-12">
-                                      {team.abbreviation}
-                                    </span>
-                                    <span className="truncate">{team.name}</span>
-                                    {elsewhere && (
-                                      <span className="text-xs text-muted-foreground">
-                                        (other group)
+                              {(group.seedLabels?.length ?? 0) > 0 ||
+                              (isSecondaryRr && group.teamIds.length === 0) ? (
+                                availableSeeds.map((seed) => {
+                                  const checked = groupSeedLabels(group).includes(seed);
+                                  const takenElsewhere = (stage.groups ?? []).some(
+                                    (g) =>
+                                      g.id !== group.id &&
+                                      groupSeedLabels(g).includes(seed)
+                                  );
+                                  return (
+                                    <label
+                                      key={seed}
+                                      className="flex items-center gap-2 text-sm font-mono"
+                                    >
+                                      <Checkbox
+                                        checked={checked}
+                                        disabled={!checked && takenElsewhere}
+                                        onCheckedChange={(v) =>
+                                          setSeedInGroup(
+                                            stage.id,
+                                            group.id,
+                                            seed,
+                                            v === true
+                                          )
+                                        }
+                                      />
+                                      <span>{seed}</span>
+                                      {takenElsewhere && !checked ? (
+                                        <span className="text-xs text-muted-foreground">
+                                          (other group)
+                                        </span>
+                                      ) : null}
+                                    </label>
+                                  );
+                                })
+                              ) : (
+                                teams.map((team) => {
+                                  const checked = group.teamIds.includes(team.id);
+                                  const elsewhere =
+                                    !checked && assigned.has(team.id);
+                                  return (
+                                    <label
+                                      key={team.id}
+                                      className="flex items-center gap-2 text-sm"
+                                    >
+                                      <Checkbox
+                                        checked={checked}
+                                        disabled={elsewhere}
+                                        onCheckedChange={(v) =>
+                                          setTeamInGroup(
+                                            stage.id,
+                                            group.id,
+                                            team.id,
+                                            v === true
+                                          )
+                                        }
+                                      />
+                                      <span className="font-mono text-xs text-muted-foreground w-12">
+                                        {team.abbreviation}
                                       </span>
-                                    )}
-                                  </label>
-                                );
-                              })}
+                                      <span className="truncate">{team.name}</span>
+                                      {elsewhere && (
+                                        <span className="text-xs text-muted-foreground">
+                                          (other group)
+                                        </span>
+                                      )}
+                                    </label>
+                                  );
+                                })
+                              )}
                             </div>
                           </div>
                         ))}
@@ -574,6 +698,15 @@ export function TournamentStructureEditor({
                           <Plus className="h-4 w-4 mr-1" />
                           Add group
                         </Button>
+                        {isSecondaryRr && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => addPlacingPoolGroup(stage.id)}
+                          >
+                            Add placing pool (3rd+4th)
+                          </Button>
+                        )}
                       </div>
                       {unassigned.length > 0 && (
                         <p className="text-xs text-muted-foreground">

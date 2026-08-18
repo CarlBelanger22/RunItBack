@@ -5063,7 +5063,8 @@ html {
 }
 
 /* LE-132 — Create/Edit from Tournament Manager (narrower than structure editor) */
-.tournament-create-dialog {
+.tournament-create-dialog,
+.team-form-dialog {
   display: flex !important;
   flex-direction: column !important;
   width: min(96vw, 42rem) !important;
@@ -5075,7 +5076,8 @@ html {
   box-sizing: border-box !important;
 }
 
-.tournament-create-dialog > * {
+.tournament-create-dialog > *,
+.team-form-dialog > * {
   min-width: 0;
   max-width: 100%;
 }

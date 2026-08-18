@@ -7,6 +7,7 @@ import type { Game } from '../src/App';
 import {
   buildClubRosterLinksFromGames,
   mergeClubRosterLinks,
+  mergeTeamRostersUnion,
   verifyClubRosters,
 } from '../src/utils/clubRosterIntegrity';
 
@@ -128,11 +129,57 @@ function testVerifyPasses(): void {
   assert(verifyClubRosters(games, teams).length === 0, 'verify passes');
 }
 
+function testMergeDoesNotClobberIdentityWithUndefined(): void {
+  const cloud = [
+    {
+      id: 'team-sgp',
+      name: 'Singapore',
+      abbreviation: 'SGP',
+      description: 'Men’s national team',
+      icon: 'https://example.com/sgp.png',
+      players: [],
+    },
+  ];
+  const snapshot = [
+    {
+      id: 'team-sgp',
+      name: 'Singapore',
+      abbreviation: 'SGP',
+      players: [],
+    },
+  ];
+  const merged = mergeTeamRostersUnion(cloud, snapshot);
+  assert(
+    merged[0].description === 'Men’s national team',
+    'LE-139: undefined snapshot description must not wipe cloud description'
+  );
+  assert(
+    merged[0].icon === 'https://example.com/sgp.png',
+    'LE-139: undefined snapshot icon must not wipe cloud icon'
+  );
+
+  const renamed = mergeTeamRostersUnion(cloud, [
+    {
+      id: 'team-sgp',
+      name: 'Singapore NT',
+      abbreviation: 'SGP',
+      description: 'Updated blurb',
+      players: [],
+    },
+  ]);
+  assert(renamed[0].name === 'Singapore NT', 'incoming name wins when present');
+  assert(
+    renamed[0].description === 'Updated blurb',
+    'incoming description wins when present'
+  );
+}
+
 function main(): void {
   testSafsaGameLinksCarl();
   testCarlMultiTeam();
   testMergeNeverDropsDerived();
   testVerifyPasses();
+  testMergeDoesNotClobberIdentityWithUndefined();
   console.log('All club roster integrity tests passed.');
 }
 

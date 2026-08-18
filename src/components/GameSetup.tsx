@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useRef, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import {
   Card,
   CardContent,
@@ -60,6 +61,10 @@ import {
   oppTournamentTeamsExcludingHome,
   toIdentityOnlyAwayTeam,
 } from "../utils/singleTeamAwayIdentity";
+import {
+  STATS_ENTRY_PREFILL_STATE_KEY,
+  type StatsEntryPrefill,
+} from "../routing/statsEntryPrefill";
 
 const CREATE_NEW_TEAM_VALUE = "__create_new__";
 const POSITIONS = ["PG", "SG", "SF", "PF", "C"] as const;
@@ -71,7 +76,9 @@ type TeamSelectionMode = "none" | "existing" | "create_new";
 interface GameSetupProps {
   tournaments: Tournament[];
   teams: Team[];
+  games?: Game[];
   tournamentRosters: TournamentRosterEntry[];
+  prefill?: StatsEntryPrefill | null;
   onGameStart: (game: Game) => boolean;
   onCreateTeam: (team: Omit<Team, "id">) => Team;
   onUpdateTeam: (team: Team) => void;
@@ -621,11 +628,23 @@ const OppIdentityPanel = React.memo(function OppIdentityPanel({
 export function GameSetup({
   tournaments,
   teams,
+  games = [],
   tournamentRosters,
+  prefill: prefillProp,
   onGameStart,
   onCreateTeam,
   onUpdateTeam,
 }: GameSetupProps) {
+  const location = useLocation();
+  const prefill =
+    prefillProp ??
+    ((location.state as Record<string, unknown> | null)?.[
+      STATS_ENTRY_PREFILL_STATE_KEY
+    ] as StatsEntryPrefill | undefined);
+
+  const [fixtureGameId, setFixtureGameId] = useState<string | null>(
+    prefill?.gameId ?? null
+  );
   const sortedTournaments = useMemo(
     () => sortTournamentsByDateDesc(tournaments),
     [tournaments]
@@ -660,11 +679,38 @@ export function GameSetup({
   const rosterBaselineRef = useRef<Record<string, string[]>>({});
 
   useEffect(() => {
+    if (!prefill) return;
+    setFixtureGameId(prefill.gameId);
+    if (prefill.tournamentId) setTournamentId(prefill.tournamentId);
+    if (prefill.date) setGameDate(prefill.date);
+    if (prefill.startTime) setStartTime(prefill.startTime);
+    if (prefill.stageId) setStageId(prefill.stageId);
+    if (prefill.groupId) setGroupId(prefill.groupId);
+    setIsFriendly(false);
+    setTrackBothTeams(true);
+
+    const homeDb = teams.find((t) => t.id === prefill.homeTeamId);
+    const awayDb = teams.find((t) => t.id === prefill.awayTeamId);
+    if (homeDb) {
+      setHomeMode("existing");
+      setHomeTeam({ ...homeDb, players: [...homeDb.players] });
+      rosterBaselineRef.current[homeDb.id] = homeDb.players.map((p) => p.id);
+    }
+    if (awayDb) {
+      setAwayMode("existing");
+      setAwayTeam({ ...awayDb, players: [...awayDb.players] });
+      rosterBaselineRef.current[awayDb.id] = awayDb.players.map((p) => p.id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot fixture prefill
+  }, [prefill?.gameId]);
+
+  useEffect(() => {
+    if (prefill) return;
     if (isFriendly) return;
     if (!tournamentId && sortedTournaments.length > 0) {
       setTournamentId(sortedTournaments[0].id);
     }
-  }, [sortedTournaments, tournamentId, isFriendly]);
+  }, [sortedTournaments, tournamentId, isFriendly, prefill]);
 
   const tournament = useMemo(
     () => tournaments.find((t) => t.id === tournamentId),
@@ -937,7 +983,10 @@ export function GameSetup({
       }
     }
 
-    const gameId = `game-${Date.now()}`;
+    const gameId = fixtureGameId ?? `game-${Date.now()}`;
+    const existingFixture = fixtureGameId
+      ? games.find((g) => g.id === fixtureGameId)
+      : undefined;
     const game: Game = {
       id: gameId,
       homeTeam: homeSnapshot,
@@ -950,14 +999,14 @@ export function GameSetup({
       date: gameDate,
       startTime: startTime.trim() || undefined,
       clockSettings,
-      gameStats: [],
-      teamStats: {
+      gameStats: existingFixture?.gameStats ?? [],
+      teamStats: existingFixture?.teamStats ?? {
         home: emptyTeamStats(homeSnapshot.id),
         away: emptyTeamStats(resolvedAway.id),
       },
-      shots: [],
-      events: [],
-      lineupStints: [],
+      shots: existingFixture?.shots ?? [],
+      events: existingFixture?.events ?? [],
+      lineupStints: existingFixture?.lineupStints ?? [],
       currentPeriod: 1,
       currentGameTime: formatPeriodClock(clockSettings.regulationPeriodMinutes),
       homeStarters: starterIds(homeTeam.players),

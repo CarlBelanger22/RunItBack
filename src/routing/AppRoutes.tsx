@@ -14,6 +14,7 @@ import { ActiveGameBanner } from '../components/ActiveGameBanner';
 import { GameSetup } from '../components/GameSetup';
 import { LiveGameEntry } from '../components/LiveGameEntry';
 import { getActiveGame } from '../utils/activeGame';
+import { STATS_ENTRY_PREFILL_STATE_KEY } from './statsEntryPrefill';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
 import type { Game, Team, Tournament, Player, CreateTeamOptions } from '../App';
@@ -98,6 +99,7 @@ function TournamentDetailRoute({
   teams,
   games,
   tournamentRosters,
+  currentGame,
   onCreateTeam,
   onAddTeamToTournament,
   onUpdateTeam,
@@ -109,6 +111,10 @@ function TournamentDetailRoute({
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const activeGame = useMemo(
+    () => getActiveGame(games, currentGame),
+    [games, currentGame]
+  );
 
   const parsed = slugId ? parseSlugId(slugId) : null;
   const tournament = parsed ? tournaments.find((t) => t.id === parsed.id) : undefined;
@@ -159,6 +165,13 @@ function TournamentDetailRoute({
       onNavigateToGame={(gameId) =>
         navigateWithReturnTo(navigate, gamePath(gameId), returnTo)
       }
+      onNavigateToStatsEntry={(prefill) =>
+        navigate(paths.statsEntry, {
+          state: { [STATS_ENTRY_PREFILL_STATE_KEY]: prefill },
+        })
+      }
+      onResumeLiveGame={(gameId) => navigate(liveGamePath(gameId))}
+      activeGame={activeGame}
       onCreateTeam={onCreateTeam}
       onAddTeamToTournament={onAddTeamToTournament}
       onUpdateTeam={onUpdateTeam}
@@ -502,8 +515,16 @@ export function AppRoutes(props: AppRoutesProps) {
     if (target !== current) navigateWithReturnTo(navigate, target, returnTo);
   };
 
-  const navigateToTeam = (teamId: string, tab: TeamTab = 'overview') => {
-    const team = teams.find((t) => t.id === teamId);
+  const navigateToTeam = (
+    teamId: string,
+    hint?: TeamTab | { name?: string; tab?: TeamTab }
+  ) => {
+    const tab: TeamTab =
+      typeof hint === 'string' ? hint : hint?.tab ?? 'overview';
+    const nameHint = typeof hint === 'object' ? hint?.name : undefined;
+    const team =
+      teams.find((t) => t.id === teamId) ??
+      (nameHint ? { id: teamId, name: nameHint } : undefined);
     if (!team) return;
     const target = teamPath(team, tab);
     const current = returnTo;
@@ -546,6 +567,7 @@ export function AppRoutes(props: AppRoutesProps) {
           <TournamentManager
             tournaments={tournaments}
             teams={teams}
+            games={games}
             onCreateTournament={onCreateTournament}
             onUpdateTournament={onUpdateTournament}
             onDeleteTournament={onDeleteTournament}
@@ -629,6 +651,7 @@ export function AppRoutes(props: AppRoutesProps) {
               <GameSetup
                 tournaments={tournaments}
                 teams={teams}
+                games={games}
                 tournamentRosters={tournamentRosters}
                 onGameStart={handleGameStart}
                 onCreateTeam={onCreateTeam}

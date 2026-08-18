@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PlayerForm } from './forms/PlayerForm';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -28,6 +28,8 @@ import {
 import { getPlayerAgeAsOfToday } from '../utils/playerAge';
 import { ChevronsUpDown, Check } from 'lucide-react';
 import { cn } from './ui/utils';
+
+const DEFAULT_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 
 export interface AddPlayerDialogProps {
   open: boolean;
@@ -74,7 +76,7 @@ export function AddPlayerDialog({
   teams,
   tournaments,
   orphanPlayers = [],
-  positions = ['PG', 'SG', 'SF', 'PF', 'C'],
+  positions = DEFAULT_POSITIONS,
   onSubmit,
 }: AddPlayerDialogProps) {
   const [tab, setTab] = useState<'new' | 'existing'>('new');
@@ -82,6 +84,7 @@ export function AddPlayerDialog({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [existingNumber, setExistingNumber] = useState('');
+  const wasOpenRef = useRef(false);
 
   const availablePool = useMemo(
     () =>
@@ -97,14 +100,29 @@ export function AddPlayerDialog({
   );
 
   useEffect(() => {
-    if (open) {
-      setFormKey((k) => k + 1);
+    const justOpened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!justOpened) return;
+    setFormKey((k) => k + 1);
+    setTab('new');
+    setSelectedPlayerId(null);
+    setExistingNumber('');
+    setPickerOpen(false);
+  }, [open]);
+
+  const prepareNextExistingAdd = useCallback(() => {
+    setFormKey((k) => k + 1);
+    setSelectedPlayerId(null);
+    setExistingNumber('');
+    setPickerOpen(false);
+    setTab('existing');
+  }, []);
+
+  useEffect(() => {
+    if (open && tab === 'existing' && availablePool.length === 0) {
       setTab('new');
-      setSelectedPlayerId(null);
-      setExistingNumber('');
-      setPickerOpen(false);
     }
-  }, [open, positions]);
+  }, [open, tab, availablePool.length]);
 
   const handleNewSubmit = useCallback(
     (data: {
@@ -117,9 +135,9 @@ export function AddPlayerDialog({
       dateOfBirth?: string;
     }) => {
       onSubmit(buildNewPlayer(data));
-      onOpenChange(false);
+      prepareNextExistingAdd();
     },
-    [onSubmit, onOpenChange]
+    [onSubmit, prepareNextExistingAdd]
   );
 
   const handleExistingSubmit = useCallback(
@@ -132,14 +150,9 @@ export function AddPlayerDialog({
         ...selectedEntry.player,
         number: parseInt(existingNumber, 10),
       });
-      onOpenChange(false);
+      prepareNextExistingAdd();
     },
-    [
-      selectedEntry,
-      existingNumber,
-      onSubmit,
-      onOpenChange,
-    ]
+    [selectedEntry, existingNumber, onSubmit, prepareNextExistingAdd]
   );
 
   return (

@@ -8,6 +8,10 @@ import { linkGameToBracketSlot } from './bracketGameLink';
 import { autoLinkBracketByResolvedTeams } from './resolveBracketFeeders';
 import { pickGameForMatchup } from './matchupGamePick';
 import { computeGroupFinishPlaces, retagTournamentGames } from './retagTournamentGames';
+import {
+  roundRobinStages,
+  syncSeedGroupsFromSnapshot,
+} from './groupMembers';
 import type {
   BracketSlot,
   TournamentGroup,
@@ -57,12 +61,16 @@ function seedCodesForSlot(slot: BracketSlot): {
   };
 }
 
-/** Build A1/B2… → teamId map from current group standings. */
+/** Build A1/B2… → teamId map from an RR stage's current group standings. */
 export function buildSeedSnapshot(
   structure: TournamentStructure,
-  tournamentGames: Game[]
+  tournamentGames: Game[],
+  stageId?: string
 ): Record<string, string> {
-  const rr = structure.stages.find((s) => s.kind === 'round_robin');
+  const rrStages = roundRobinStages(structure);
+  const rr = stageId
+    ? rrStages.find((s) => s.id === stageId)
+    : rrStages[0];
   if (!rr) return {};
   const snap: Record<string, string> = {};
   for (const group of rr.groups ?? []) {
@@ -156,12 +164,14 @@ function fillSeedTeamsOnStructure(
 /**
  * Lock group places into seedSnapshot, fill seed-based bracket slots with
  * team ids, and auto-link existing games that match those teams.
+ * LE-147 — optional stageId finalizes one RR stage (default: first RR stage).
  */
 export function finalizeGroupSeedings(
   structureInput: TournamentStructure | undefined,
   allGames: Game[],
   tournamentId: string,
-  _teams: Team[] = []
+  _teams: Team[] = [],
+  stageId?: string
 ): FinalizeSeedingsResult {
   const structure = normalizeTournamentStructure(structureInput);
   const report: FinalizeSeedingsReport = {
@@ -179,14 +189,21 @@ export function finalizeGroupSeedings(
   }
 
   const tournamentGames = allGames.filter((g) => g.tournamentId === tournamentId);
-  const rr = structure.stages.find((s) => s.kind === 'round_robin');
+  const rrStages = roundRobinStages(structure);
+  const rr = stageId
+    ? rrStages.find((s) => s.id === stageId)
+    : rrStages[0];
   if (!rr || (rr.groups?.length ?? 0) === 0) {
     report.details.push('No round-robin groups to seed from');
     return { structure, games: allGames, report };
   }
 
-  const snapshot = buildSeedSnapshot(structure, tournamentGames);
-  report.seeds = Object.keys(snapshot).length;
+  const stageSnapshot = buildSeedSnapshot(structure, tournamentGames, rr.id);
+  const snapshot = {
+    ...(structure.seedSnapshot ?? {}),
+    ...stageSnapshot,
+  };
+  report.seeds = Object.keys(stageSnapshot).length;
   if (report.seeds === 0) {
     report.details.push('No seed places computed (need group games)');
     return { structure, games: allGames, report };
@@ -197,20 +214,26 @@ export function finalizeGroupSeedings(
     const place = Number(code.slice(1));
     if (Number.isFinite(place)) placesByTeam.set(teamId, place);
   }
-  const groups = rr.groups ?? [];
+  const primaryGroups = rrStages[0]?.groups ?? [];
+
+  let nextStructure = syncSeedGroupsFromSnapshot({
+    ...structure,
+    groupStageLocked: true,
+    seedSnapshot: snapshot,
+  }) ?? {
+    ...structure,
+    groupStageLocked: true,
+    seedSnapshot: snapshot,
+  };
 
   const filled = fillSeedTeamsOnStructure(
-    {
-      ...structure,
-      groupStageLocked: true,
-      seedSnapshot: snapshot,
-    },
+    nextStructure,
     snapshot,
-    groups,
+    primaryGroups,
     placesByTeam
   );
   report.slotsFilled = filled.slotsFilled;
-  let nextStructure = filled.structure;
+  nextStructure = filled.structure;
   let nextGames = allGames;
 
   const usedGameIds = new Set<string>();

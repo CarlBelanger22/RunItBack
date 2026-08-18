@@ -385,7 +385,7 @@ export function TeamPage({
   const teamId = normalizedTeam?.id ?? '';
   const previousTeamIdRef = useRef<string | null>(null);
   
-  const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+  const positions = POSITION_ORDER;
 
   const takenAbbreviations = useMemo(
     () =>
@@ -424,7 +424,6 @@ export function TeamPage({
       players: [...normalizedTeam.players, player],
     };
     onUpdateTeam(updatedTeam);
-    setIsAddPlayerDialogOpen(false);
   }, [normalizedTeam, teams, onUpdateTeam]);
   
   // Get team games (newest first for display)

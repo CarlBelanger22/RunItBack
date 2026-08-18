@@ -1034,6 +1034,27 @@ export async function saveTournamentRostersToSupabase(
   );
 }
 
+/** Upsert team rows only (name/description/icon). Does not touch games. */
+export async function saveTeamsToSupabase(
+  teams: Team[],
+  leagueId = DEFAULT_LEAGUE_ID
+): Promise<Team[] | void> {
+  if (!supabase) return;
+
+  const normalizedTeams = dedupeTeamsById(teams);
+  const iconPrepared = await prepareIconsForCloudSave(
+    supabase,
+    normalizedTeams,
+    []
+  );
+  const teamRows = iconPrepared.teams.map((t) =>
+    teamToDbRowForCloudSave(t, leagueId)
+  );
+  await upsertChunks('leagues', [{ id: leagueId, name: 'My League' }], 'id');
+  await upsertChunks('teams', teamRows, 'id');
+  return iconPrepared.teams;
+}
+
 export async function saveAppDataToSupabase(
   teams: Team[],
   tournaments: Tournament[],

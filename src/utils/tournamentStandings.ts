@@ -7,9 +7,11 @@ import { sumPlayerStatsForRoster } from './gameDisplay';
 import { resolvePlayerTeamSideInGame } from './tournamentRosters';
 import type {
   TournamentGroup,
+  TournamentStage,
   TournamentStructure,
 } from './tournamentStructure';
 import { normalizeTournamentStructure } from './tournamentStructure';
+import { findGroupStage, resolveGroupStandingsTeams, resolveGroupTeamIds } from './groupMembers';
 import { sortStandingRowsWithH2h } from './standingsTiebreak';
 import { matchupGamesSorted } from './matchupGamePick';
 
@@ -38,6 +40,7 @@ export interface ExtendedStandingRow extends StandingRow {
 }
 
 export interface GroupStandingsTable {
+  stage: TournamentStage;
   group: TournamentGroup;
   standings: ExtendedStandingRow[];
 }
@@ -353,14 +356,19 @@ export function withExtendedShootingStats(
 export function filterGamesForGroup(
   games: Game[],
   group: TournamentGroup,
-  structure?: TournamentStructure
+  structure?: TournamentStructure,
+  stageId?: string
 ): Game[] {
-  const members = new Set(group.teamIds);
+  const members = new Set(resolveGroupTeamIds(group, structure));
   const linkedIds = collectBracketLinkedGameIds(structure);
+  const groupStageId = stageId ?? findGroupStage(structure, group.id)?.id;
   const eligible = games.filter((game) => {
     if (isExcludedFromGroupRoundRobin(game, structure, linkedIds)) return false;
     if (game.groupId === group.id) return true;
     if (game.groupId) return false;
+    if (groupStageId && game.stageId && game.stageId !== groupStageId) {
+      return false;
+    }
     return members.has(game.homeTeamId) && members.has(game.awayTeamId);
   });
 
@@ -395,15 +403,18 @@ export function buildGroupStandingsTables(
   for (const stage of structure.stages) {
     if (stage.kind !== 'round_robin') continue;
     for (const group of stage.groups ?? []) {
-      const teams = group.teamIds
-        .map((id) => teamById.get(id))
-        .filter((t): t is Team => t != null);
-      const groupGames = filterGamesForGroup(tournamentGames, group, structure);
+      const teams = resolveGroupStandingsTeams(group, structure, teamById);
+      const groupGames = filterGamesForGroup(
+        tournamentGames,
+        group,
+        structure,
+        stage.id
+      );
       const standings = withExtendedShootingStats(
         calculateTeamStandings(teams, groupGames, { h2hTiebreak: true }),
         groupGames
       );
-      tables.push({ group, standings });
+      tables.push({ stage, group, standings });
     }
   }
 

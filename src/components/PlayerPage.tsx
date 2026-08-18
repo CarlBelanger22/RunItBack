@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
@@ -143,6 +143,8 @@ interface PlayerPageProps {
   onDeletePlayer: (playerId: string) => void;
 }
 
+const PLAYER_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
+
 export const formatPlayerPositionLabel = (primaryPosition: string, secondaryPosition?: string): string => {
   const primary = primaryPosition?.trim() || '';
   const secondary = secondaryPosition?.trim();
@@ -187,6 +189,7 @@ export function PlayerPage({
   const [tournamentJerseyDraft, setTournamentJerseyDraft] = useState<
     Record<string, string>
   >({});
+  const wasEditDialogOpenRef = useRef(false);
 
   const updateStatsSearchParams = useCallback(
     (patch: { format?: GameFormatScope; tournamentIds?: TournamentIdSet }) => {
@@ -264,7 +267,9 @@ export function PlayerPage({
   );
 
   useEffect(() => {
-    if (!isEditDialogOpen) return;
+    const justOpened = isEditDialogOpen && !wasEditDialogOpenRef.current;
+    wasEditDialogOpenRef.current = isEditDialogOpen;
+    if (!justOpened) return;
     const clubDraft: Record<string, string> = {};
     const tournamentDraft: Record<string, string> = {};
     for (const group of jerseyEditorGroups) {
@@ -279,7 +284,7 @@ export function PlayerPage({
     setTournamentJerseyDraft(tournamentDraft);
   }, [isEditDialogOpen, jerseyEditorGroups]);
 
-  const positions = ['PG', 'SG', 'SF', 'PF', 'C'];
+  const positions = PLAYER_POSITIONS;
 
   const handleUpdatePlayer = useCallback((data: { 
     name: string; 

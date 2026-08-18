@@ -14,15 +14,23 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { Badge } from './ui/badge';
-import { Tournament, Team } from '../App';
+import { Tournament, Team, Game } from '../App';
 import type { TournamentUpdate } from '../App';
 import { Plus, Trophy, Users, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
 import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
 import { TournamentBadge } from './TournamentBadge';
+import {
+  filterGamesForTournament,
+} from '../utils/tournamentEnrollment';
+import {
+  isGameCompleted,
+  isScheduledTournamentGame,
+} from '../utils/scheduledGames';
 
 interface TournamentManagerProps {
   tournaments: Tournament[];
   teams: Team[];
+  games: Game[];
   onCreateTournament: (tournament: Omit<Tournament, 'id'>) => void;
   onUpdateTournament: (update: TournamentUpdate) => void;
   onDeleteTournament: (tournamentId: string) => void;
@@ -32,7 +40,8 @@ interface TournamentManagerProps {
 
 export function TournamentManager({ 
   tournaments, 
-  teams, 
+  teams,
+  games,
   onCreateTournament, 
   onUpdateTournament,
   onDeleteTournament,
@@ -187,7 +196,13 @@ export function TournamentManager({
         </Card>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sortedTournaments.map((tournament) => (
+          {sortedTournaments.map((tournament) => {
+            const tournamentGames = filterGamesForTournament(tournament, games);
+            const completedCount = tournamentGames.filter(isGameCompleted).length;
+            const scheduledCount = tournamentGames.filter(isScheduledTournamentGame).length;
+            const description = tournament.description?.trim();
+
+            return (
             <Card key={tournament.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => onNavigateToTournament(tournament.id)}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-3">
@@ -226,11 +241,11 @@ export function TournamentManager({
               </CardHeader>
               
               <CardContent className="space-y-4">
-                {tournament.description && (
+                {description ? (
                   <p className="text-sm text-muted-foreground line-clamp-2">
-                    {tournament.description}
+                    {description}
                   </p>
-                )}
+                ) : null}
                 
                 <div className="flex items-center gap-2">
                   <Users className="h-4 w-4 text-muted-foreground" />
@@ -239,17 +254,25 @@ export function TournamentManager({
                   </span>
                 </div>
                 
-                <div className="flex justify-between items-center">
-                  <Badge variant="outline" className="text-xs">
-                    {tournament.games.length} Games
-                  </Badge>
+                <div className="flex justify-between items-center gap-2 flex-wrap">
+                  <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="text-xs">
+                      {completedCount} {completedCount === 1 ? 'Game' : 'Games'}
+                    </Badge>
+                    {scheduledCount > 0 ? (
+                      <Badge variant="secondary" className="text-xs">
+                        {scheduledCount} Scheduled
+                      </Badge>
+                    ) : null}
+                  </div>
                   <span className="text-xs text-muted-foreground">
                     Click to view details
                   </span>
                 </div>
               </CardContent>
             </Card>
-          ))}
+            );
+          })}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import type { Game, SetupRosterChange, Team } from '../App';
+import { isScheduledTournamentGame } from './scheduledGames';
 
 /** IDs assigned in GameSetup when adding a player during live game setup. */
 const SETUP_ADDED_PLAYER_ID = /^(home|away)-player-\d+-\d+$/;
@@ -11,9 +12,11 @@ export function isGameInProgress(game: Game): boolean {
   return Boolean(game.isActive && !game.isCompleted);
 }
 
-/** Stale row: not active, not completed, no final score (shows as "Live" incorrectly). */
+/** Stale row: not active, not completed, no final score — except scheduled fixtures. */
 export function isOrphanedIncompleteGame(game: Game): boolean {
-  return !game.isCompleted && !game.finalScore && !isGameInProgress(game);
+  if (game.isCompleted || game.finalScore || isGameInProgress(game)) return false;
+  if (isScheduledTournamentGame(game)) return false;
+  return true;
 }
 
 export function canDeleteIncompleteGame(game: Game): boolean {

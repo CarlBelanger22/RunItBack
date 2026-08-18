@@ -31,7 +31,7 @@ interface TeamManagerProps {
   onUpdateTeam: (team: Team) => void;
   onDeleteTeam: (teamId: string) => void;
   onBack: () => void;
-  onNavigateToTeam: (teamId: string) => void;
+  onNavigateToTeam: (teamId: string, hint?: { name: string }) => void;
 }
 
 function sortTeamsByName(teams: Team[]): Team[] {
@@ -104,13 +104,15 @@ export function TeamManager({
           {
             name,
             abbreviation: resolvedAbbrev,
+            description,
             icon,
             players: [],
           },
           { tournamentIds }
         );
         setIsCreateDialogOpen(false);
-        onNavigateToTeam(team.id);
+        setShowGhostTeams(true);
+        onNavigateToTeam(team.id, { name: team.name });
       }
     },
     [editingTeam, onUpdateTeam, onCreateTeam, onNavigateToTeam, takenAbbreviations]
@@ -149,6 +151,11 @@ export function TeamManager({
                   </Badge>
                 ) : null}
               </div>
+              {team.description?.trim() ? (
+                <p className="text-xs text-muted-foreground truncate">
+                  {team.description.trim()}
+                </p>
+              ) : null}
               <CardDescription className="flex items-center gap-1">
                 <Users className="h-3 w-3 shrink-0" />
                 {team.players.length}{' '}
@@ -214,7 +221,7 @@ export function TeamManager({
           New Team
         </Button>
         <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-          <DialogContent>
+          <DialogContent className="team-form-dialog">
             <DialogHeader>
               <DialogTitle>Create New Team</DialogTitle>
               <DialogDescription>
@@ -236,7 +243,7 @@ export function TeamManager({
 
       {editingTeam && (
         <Dialog open={!!editingTeam} onOpenChange={() => setEditingTeam(null)}>
-          <DialogContent>
+          <DialogContent className="team-form-dialog">
             <DialogHeader>
               <DialogTitle>Edit Team</DialogTitle>
               <DialogDescription>

@@ -6,7 +6,11 @@
 import {
   APP_DATA_SNAPSHOT_VERSION,
   mergeTeamIconMetadata,
+  mergeTournamentCloudMetadata,
+  mergeTournamentDescriptionMetadata,
   mergeTournamentIconMetadata,
+  toSnapshotTeams,
+  toSnapshotTournaments,
 } from '../src/lib/appDataSnapshot';
 import type { Team, Tournament } from '../src/App';
 import { withIconCacheBust } from '../src/utils/teamAssetStorage';
@@ -143,6 +147,127 @@ function testWithIconCacheBust(): void {
   assert(relative === '/team-logos/x.png?v=3', `relative bust: ${relative}`);
 }
 
+function testSnapshotKeepsTeamDescription(): void {
+  const teams: Team[] = [
+    {
+      id: 'team-sgp',
+      name: 'Singapore',
+      abbreviation: 'SGP',
+      description: 'Men’s national team',
+      players: [],
+    },
+    {
+      id: 'team-empty',
+      name: 'Empty',
+      abbreviation: 'EMP',
+      description: '   ',
+      players: [],
+    },
+  ];
+  const snapped = toSnapshotTeams(teams);
+  assert(
+    snapped[0].description === 'Men’s national team',
+    'LE-139: snapshot keeps team description'
+  );
+  assert(
+    snapped[1].description === undefined,
+    'LE-139: blank description omitted from snapshot'
+  );
+}
+
+function testSnapshotKeepsTournamentDescription(): void {
+  const tournaments: Tournament[] = [
+    {
+      id: 't1',
+      name: 'IVP 2026',
+      year: 2026,
+      month: 'Jan',
+      description: 'Institute-Varsity-Polytechnic Games 25/26',
+      teams: [],
+      games: [],
+    },
+    {
+      id: 't2',
+      name: 'Empty',
+      year: 2026,
+      month: 'Jan',
+      description: '   ',
+      teams: [],
+      games: [],
+    },
+  ];
+  const snapped = toSnapshotTournaments(tournaments);
+  assert(
+    snapped[0].description === 'Institute-Varsity-Polytechnic Games 25/26',
+    'snapshot keeps tournament description'
+  );
+  assert(
+    snapped[1].description === undefined,
+    'blank tournament description omitted from snapshot'
+  );
+}
+
+function testMergeTournamentDescriptionMetadata(): void {
+  const incoming: Tournament[] = [
+    {
+      id: 't1',
+      name: 'IVP 2026',
+      year: 2026,
+      month: 'Jan',
+      teams: [],
+      games: [],
+    },
+  ];
+  const fallback: Tournament[] = [
+    {
+      id: 't1',
+      name: 'IVP 2026',
+      year: 2026,
+      month: 'Jan',
+      description: 'Institute-Varsity-Polytechnic Games 25/26',
+      teams: [],
+      games: [],
+    },
+  ];
+  const merged = mergeTournamentDescriptionMetadata(incoming, fallback);
+  assert(
+    merged[0].description === 'Institute-Varsity-Polytechnic Games 25/26',
+    'preserves description from fallback'
+  );
+}
+
+function testMergeTournamentCloudMetadata(): void {
+  const local: Tournament[] = [
+    {
+      id: 't1',
+      name: 'T',
+      year: 2026,
+      month: 'Jan',
+      teams: [],
+      games: [],
+      icon: 'data:image/png;base64,xyz',
+    },
+  ];
+  const fallback: Tournament[] = [
+    {
+      id: 't1',
+      name: 'T',
+      year: 2026,
+      month: 'Jan',
+      teams: [],
+      games: [],
+      icon: 'https://example.com/t.png',
+      description: 'Singapore University Games 25/26',
+    },
+  ];
+  const merged = mergeTournamentCloudMetadata(local, fallback);
+  assert(merged[0].icon === 'data:image/png;base64,xyz', 'cloud merge keeps local icon');
+  assert(
+    merged[0].description === 'Singapore University Games 25/26',
+    'cloud merge fills description from fallback'
+  );
+}
+
 function main(): void {
   testSnapshotVersion();
   testMergeTeamIconMetadata();
@@ -150,6 +275,10 @@ function main(): void {
   testMergeKeepsVersionedUrl();
   testMergeTournamentKeepsLocal();
   testWithIconCacheBust();
+  testSnapshotKeepsTeamDescription();
+  testSnapshotKeepsTournamentDescription();
+  testMergeTournamentDescriptionMetadata();
+  testMergeTournamentCloudMetadata();
   console.log('All snapshot icon tests passed.');
 }
 

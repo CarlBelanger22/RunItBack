@@ -258,6 +258,11 @@ export function mergeTeamRostersUnion(base: Team[], incoming: Team[]): Team[] {
 
     return {
       ...b,
+      name: b.name?.trim() || a.name,
+      abbreviation: b.abbreviation?.trim() || a.abbreviation,
+      description:
+        b.description !== undefined ? b.description : a.description,
+      icon: b.icon !== undefined ? b.icon : a.icon,
       players: [...byPlayerId.values()].sort(
         (x, y) => x.number - y.number || x.name.localeCompare(y.name)
       ),

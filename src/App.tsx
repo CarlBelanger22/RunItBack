@@ -27,6 +27,7 @@ import {
   deleteTournamentsFromSupabase,
   loadAppDataFromSupabase,
   saveAppDataToSupabase,
+  saveTeamsToSupabase,
   saveTournamentRostersToSupabase,
   MIGRATION_002_HINT,
   MIGRATION_003_HINT,
@@ -41,7 +42,7 @@ import {
   readAppDataSnapshot,
   saveAppDataSnapshot,
   mergeTeamIconMetadata,
-  mergeTournamentIconMetadata,
+  mergeTournamentCloudMetadata,
   snapshotToLoadedAppData,
   type ProcessedAppData,
 } from './lib/appDataSnapshot';
@@ -1057,7 +1058,7 @@ export default function App() {
       teamsRef.current,
       prevTeamsRef.current
     );
-    const tournamentsWithIcons = mergeTournamentIconMetadata(
+    const tournamentsWithIcons = mergeTournamentCloudMetadata(
       processed.tournaments,
       tournamentsRef.current,
       prevTournamentsRef.current
@@ -1200,7 +1201,7 @@ export default function App() {
           savedTeams,
           prevTeamsRef.current
         );
-        const tournamentsWithIcons = mergeTournamentIconMetadata(
+        const tournamentsWithIcons = mergeTournamentCloudMetadata(
           tournamentsRef.current,
           savedTournaments,
           prevTournamentsRef.current
@@ -1363,7 +1364,7 @@ export default function App() {
             prevTeamsRef.current = mergedTeams;
             teamsRef.current = mergedTeams;
             // Local tournament rosters + structure win while the user is editing.
-            const mergedTournaments = mergeTournamentIconMetadata(
+            const mergedTournaments = mergeTournamentCloudMetadata(
               tournamentsRef.current,
               processed.tournaments,
               prevTournamentsRef.current
@@ -1869,7 +1870,26 @@ export default function App() {
         currentTournamentId: tournamentIds[0] ?? teamData.currentTournamentId,
         createdAt: new Date().toISOString(),
       };
-      setTeams((prev) => [...prev, team]);
+      localMutatedSinceMountRef.current = true;
+      setTeams((prev) => {
+        const next = [...prev, team];
+        teamsRef.current = next;
+        saveAppDataSnapshot({
+          teams: next,
+          tournaments: tournamentsRef.current,
+          games: gamesRef.current,
+          darkMode: true,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: tournamentRostersRef.current,
+        });
+        return next;
+      });
+      queueMicrotask(() => {
+        void saveTeamsToSupabase(teamsRef.current).catch((err: Error) => {
+          console.error('Create team save failed:', err);
+          setSaveError(formatCloudSaveError(err.message));
+        });
+      });
 
       if (tournamentIds.length > 0) {
         const idSet = new Set(tournamentIds);
@@ -1919,6 +1939,7 @@ export default function App() {
   }, [teams, tournaments]);
 
   const handleUpdateTeam = useCallback((updatedTeam: Team) => {
+    localMutatedSinceMountRef.current = true;
     setTeams(prev => {
       const normalized = dedupeTeamsById(prev);
       const sanitizedTeam: Team = {
@@ -1992,7 +2013,40 @@ export default function App() {
         })
       );
 
+      teamsRef.current = newTeams;
+      saveAppDataSnapshot({
+        teams: newTeams,
+        tournaments: tournamentsRef.current,
+        games: gamesRef.current,
+        darkMode: true,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: tournamentRostersRef.current,
+      });
+
       return newTeams;
+    });
+    queueMicrotask(() => {
+      void saveTeamsToSupabase(teamsRef.current)
+        .then((saved) => {
+          if (!saved) return;
+          const current = teamsRef.current;
+          const iconChanged = saved.some((row) => {
+            const local = current.find((t) => t.id === row.id);
+            return (local?.icon ?? '') !== (row.icon ?? '');
+          });
+          if (!iconChanged) return;
+          const teamsWithIcons = mergeTeamIconMetadata(
+            current,
+            saved,
+            prevTeamsRef.current
+          );
+          setTeams(teamsWithIcons);
+          teamsRef.current = teamsWithIcons;
+        })
+        .catch((err: Error) => {
+          console.error('Team metadata save failed:', err);
+          setSaveError(formatCloudSaveError(err.message));
+        });
     });
   }, [tournaments]);
 
@@ -2037,6 +2091,7 @@ export default function App() {
       jerseyByTeamId: Record<string, number>,
       tournamentJerseyUpdates: TournamentJerseyUpdate[] = []
     ) => {
+      localMutatedSinceMountRef.current = true;
       setTeams((prev) => {
         const normalized = dedupeTeamsById(prev);
         let blocked: string | null = null;
@@ -2073,37 +2128,82 @@ export default function App() {
           return prev;
         }
         setSaveError(null);
-        return dedupeTeamsById(nextTeams);
+        const newTeams = dedupeTeamsById(nextTeams);
+        teamsRef.current = newTeams;
+        saveAppDataSnapshot({
+          teams: newTeams,
+          tournaments: tournamentsRef.current,
+          games: gamesRef.current,
+          darkMode: true,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: tournamentRostersRef.current,
+        });
+        return newTeams;
       });
 
-      if (tournamentJerseyUpdates.length === 0) return;
-
-      setTournamentRosters((prev) => {
-        let next = prev;
-        for (const update of tournamentJerseyUpdates) {
-          const existing = next.find(
-            (row) =>
-              row.tournamentId === update.tournamentId &&
-              row.teamId === update.teamId &&
-              row.playerId === playerId
-          );
-          const team = teams.find((t) => t.id === update.teamId);
-          const clubPlayer = team?.players?.find((p) => p.id === playerId);
-          next = upsertTournamentRosterEntry(next, {
-            tournamentId: update.tournamentId,
-            teamId: update.teamId,
-            playerId,
-            number: update.number,
-            position: existing?.position ?? clubPlayer?.position ?? '',
-            secondaryPosition:
-              existing?.secondaryPosition ?? clubPlayer?.secondaryPosition,
+      if (tournamentJerseyUpdates.length > 0) {
+        setTournamentRosters((prev) => {
+          let next = prev;
+          for (const update of tournamentJerseyUpdates) {
+            const existing = next.find(
+              (row) =>
+                row.tournamentId === update.tournamentId &&
+                row.teamId === update.teamId &&
+                row.playerId === playerId
+            );
+            const team = teamsRef.current.find((t) => t.id === update.teamId);
+            const clubPlayer = team?.players?.find((p) => p.id === playerId);
+            next = upsertTournamentRosterEntry(next, {
+              tournamentId: update.tournamentId,
+              teamId: update.teamId,
+              playerId,
+              number: update.number,
+              position: existing?.position ?? clubPlayer?.position ?? '',
+              secondaryPosition:
+                existing?.secondaryPosition ?? clubPlayer?.secondaryPosition,
+            });
+          }
+          tournamentRostersRef.current = next;
+          saveAppDataSnapshot({
+            teams: teamsRef.current,
+            tournaments: tournamentsRef.current,
+            games: gamesRef.current,
+            darkMode: true,
+            orphanPlayers: loadedOrphanPlayersRef.current,
+            tournamentRosters: next,
           });
+          return next;
+        });
+      }
+
+      queueMicrotask(() => {
+        void saveTeamsToSupabase(teamsRef.current)
+          .then((saved) => {
+            if (!saved) return;
+            const current = teamsRef.current;
+            const iconChanged = saved.some((row) => {
+              const local = current.find((t) => t.id === row.id);
+              return (local?.icon ?? '') !== (row.icon ?? '');
+            });
+            if (!iconChanged) return;
+            const teamsWithIcons = mergeTeamIconMetadata(
+              current,
+              saved,
+              prevTeamsRef.current
+            );
+            setTeams(teamsWithIcons);
+            teamsRef.current = teamsWithIcons;
+          })
+          .catch((err: Error) => {
+            console.error('Player profile save failed:', err);
+            setSaveError(formatCloudSaveError(err.message));
+          });
+        if (tournamentJerseyUpdates.length > 0 && !skipSaveRef.current) {
+          void persistCurrentAppData('rosters-only');
         }
-        tournamentRostersRef.current = next;
-        return next;
       });
     },
-    [teams, tournaments]
+    [tournaments, persistCurrentAppData]
   );
 
   const handleDeleteTeam = useCallback(
@@ -2295,7 +2395,8 @@ export default function App() {
       .filter(
         (team) =>
           team.name.toLowerCase().includes(query) ||
-          (team.abbreviation ?? '').toLowerCase().includes(query)
+          (team.abbreviation ?? '').toLowerCase().includes(query) ||
+          (team.description ?? '').toLowerCase().includes(query)
       )
       .slice(0, 5);
 
@@ -2500,9 +2601,14 @@ export default function App() {
                         className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
                       >
                         <TeamBadge team={team} teamId={team.id} size="lg" />
-                        <div>
-                          <div className="font-medium">{team.name}</div>
-                          <div className="text-xs text-muted-foreground">{team.abbreviation}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate">{team.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {team.abbreviation}
+                            {team.description?.trim()
+                              ? ` · ${team.description.trim()}`
+                              : ''}
+                          </div>
                         </div>
                       </button>
                     ))}

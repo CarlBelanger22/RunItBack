@@ -58,6 +58,10 @@ import {
   autoLinkBracketByResolvedTeams,
   resolveBracketSideTeamId,
 } from '../utils/resolveBracketFeeders';
+import {
+  bracketPlaceholderSides,
+  isLoserPlacementLabel,
+} from '../utils/bracketPlaceholderSides';
 import { TeamBadge } from './TeamBadge';
 import { MoreHorizontal } from 'lucide-react';
 
@@ -103,73 +107,9 @@ function gameOptionLabel(game: Game): string {
   return `${home} vs ${away} · ${game.date} · ${scoreText}`;
 }
 
-function parseSeedSides(label: string | undefined): [string, string] | null {
-  if (!label) return null;
-  const m = label.match(/^(.+?)\s+vs\s+(.+)$/i);
-  if (!m) return null;
-  return [m[1].trim(), m[2].trim()];
-}
-
-function findSlotLabel(rounds: BracketRound[], slotId: string): string | null {
-  for (const round of rounds) {
-    const hit = round.slots.find((s) => s.id === slotId);
-    if (hit) return hit.label ?? hit.id;
-  }
-  return null;
-}
-
-function isLoserPlacementLabel(label: string | undefined): boolean {
-  const t = (label ?? '').toLowerCase();
-  return t.includes('3rd') || t.includes('7th') || t.includes('11th');
-}
-
 /** Terminal place matches (Final, 3rd Place, 5th/7th, …) — not QF/SF feeders. */
 function isEndingPlaceSlot(slot: BracketSlot): boolean {
   return slot.winnerPlace != null || slot.loserPlace != null;
-}
-
-function feederLabel(
-  rounds: BracketRound[],
-  fromSlotId: string | null | undefined,
-  outcome: 'winner' | 'loser' | null | undefined
-): string | null {
-  if (!fromSlotId) return null;
-  const label = findSlotLabel(rounds, fromSlotId);
-  if (!label) return null;
-  const prefix = outcome === 'loser' ? 'Loser' : 'Winner';
-  return `${prefix} · ${label}`;
-}
-
-function placeholderSides(
-  slot: BracketSlot,
-  rounds: BracketRound[]
-): [string, string] {
-  const homeSeed = slot.homeSeedLabel?.trim();
-  const awaySeed = slot.awaySeedLabel?.trim();
-  const homeFeeder = feederLabel(rounds, slot.homeFromSlotId, slot.homeFromOutcome);
-  const awayFeeder = feederLabel(rounds, slot.awayFromSlotId, slot.awayFromOutcome);
-
-  if (homeSeed || awaySeed || homeFeeder || awayFeeder) {
-    return [
-      homeSeed || homeFeeder || 'TBD',
-      awaySeed || awayFeeder || 'TBD',
-    ];
-  }
-
-  const seeds = parseSeedSides(slot.label);
-  if (seeds) return seeds;
-  const losers = isLoserPlacementLabel(slot.label);
-  const prefix = losers ? 'Loser' : 'Winner';
-  const a = slot.homeFromSlotId
-    ? findSlotLabel(rounds, slot.homeFromSlotId)
-    : null;
-  const b = slot.awayFromSlotId
-    ? findSlotLabel(rounds, slot.awayFromSlotId)
-    : null;
-  return [
-    a ? `${prefix} · ${a}` : 'TBD',
-    b ? `${prefix} · ${b}` : 'TBD',
-  ];
 }
 
 function splitFinalsSlots(slots: BracketSlot[]): {
@@ -246,7 +186,7 @@ function buildSideRows(
     ];
   }
 
-  const [homeLabel, awayLabel] = placeholderSides(slot, rounds);
+  const [homeLabel, awayLabel] = bracketPlaceholderSides(slot, rounds);
   const gamesMap = gameById ?? new Map<string, Game>();
 
   // LE-115 — resolve Winner/Loser feeders; LE-114 — seed team ids

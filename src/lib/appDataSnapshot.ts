@@ -169,22 +169,24 @@ function snapshotIcon(icon?: string): string | undefined {
   return isPersistedIconReference(icon) ? icon!.trim() : undefined;
 }
 
-function toSnapshotTeams(teams: Team[]): Team[] {
+/** Exported for snapshot tests — keep description so Edit Team survives refresh. */
+export function toSnapshotTeams(teams: Team[]): Team[] {
   return teams.map((team) => ({
     ...team,
     icon: snapshotIcon(team.icon),
-    description: undefined,
+    description: team.description?.trim() || undefined,
     players: (team.players ?? []).map(toSnapshotPlayer),
   }));
 }
 
-function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
+export function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
   return tournaments.map((tournament) => ({
     id: tournament.id,
     name: tournament.name,
     year: tournament.year,
     month: tournament.month,
     icon: snapshotIcon(tournament.icon),
+    description: tournament.description?.trim() || undefined,
     teams: tournament.teams ?? [],
     games: tournament.games ?? [],
     standings: [],
@@ -238,6 +240,40 @@ export function mergeTournamentIconMetadata(
       ? { ...tournament, icon: fromFallback }
       : { ...tournament, icon: undefined };
   });
+}
+
+/** Fill missing tournament descriptions from cloud / prior local state. */
+export function mergeTournamentDescriptionMetadata(
+  tournaments: Tournament[],
+  ...fallbacks: Tournament[]
+): Tournament[] {
+  const descriptionById = new Map<string, string>();
+  for (const fallback of fallbacks) {
+    for (const tournament of fallback) {
+      const description = tournament.description?.trim();
+      if (description) {
+        descriptionById.set(tournament.id, description);
+      }
+    }
+  }
+  return tournaments.map((tournament) => {
+    const current = tournament.description?.trim();
+    if (current) {
+      return { ...tournament, description: current };
+    }
+    const fromFallback = descriptionById.get(tournament.id);
+    return fromFallback ? { ...tournament, description: fromFallback } : tournament;
+  });
+}
+
+export function mergeTournamentCloudMetadata(
+  tournaments: Tournament[],
+  ...fallbacks: Tournament[]
+): Tournament[] {
+  return mergeTournamentDescriptionMetadata(
+    mergeTournamentIconMetadata(tournaments, ...fallbacks),
+    ...fallbacks
+  );
 }
 
 function toSnapshotGameStats(stats: GameStats[]): GameStats[] {

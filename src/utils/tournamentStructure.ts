@@ -3,12 +3,29 @@
  * Unstructured tournaments omit `structure` and keep today's single standings table.
  */
 
+import { normalizeSeedCode } from './seedCodes';
+
 export type TournamentStageKind = 'round_robin' | 'classification' | 'custom';
 
 export interface TournamentGroup {
   id: string;
   name: string;
   teamIds: string[];
+  /** LE-147 — When set, membership comes from these seed codes until resolved via seedSnapshot. */
+  seedLabels?: string[];
+  /** LE-147 — RR stage the seed codes refer to (default: previous RR stage by order). */
+  seedFromStageId?: string;
+  /** LE-147 — Scheduled seed-vs-seed fixtures for Matches tab before games exist. */
+  seedMatchups?: GroupSeedMatchup[];
+}
+
+/** One scheduled RR leg in a seed-based group (e.g. A3 vs B4 on 28 Sep). */
+export interface GroupSeedMatchup {
+  homeSeed: string;
+  awaySeed: string;
+  date?: string;
+  startTime?: string;
+  gameId?: string;
 }
 
 export type BracketFromOutcome = 'winner' | 'loser';
@@ -44,6 +61,9 @@ export interface BracketSlot {
   /** When inactive: next-round slot this leg used to feed (restore). */
   inactiveFeedSlotId?: string | null;
   inactiveFeedSide?: 'home' | 'away' | null;
+  /** LE-146 — Scheduled date/time for Games tab fixture card. */
+  date?: string | null;
+  startTime?: string | null;
 }
 
 export interface BracketRound {
@@ -103,13 +123,44 @@ function asStringList(value: unknown): string[] {
     .filter((id): id is string => id != null);
 }
 
+function normalizeSeedMatchup(raw: unknown): GroupSeedMatchup | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const homeSeed = normalizeSeedCode(asString(row.homeSeed) ?? undefined);
+  const awaySeed = normalizeSeedCode(asString(row.awaySeed) ?? undefined);
+  if (!homeSeed || !awaySeed) return null;
+  const matchup: GroupSeedMatchup = { homeSeed, awaySeed };
+  const date = asString(row.date);
+  const startTime = asString(row.startTime);
+  const gameId = asString(row.gameId);
+  if (date) matchup.date = date;
+  if (startTime) matchup.startTime = startTime;
+  if (gameId) matchup.gameId = gameId;
+  return matchup;
+}
+
 function normalizeGroup(raw: unknown): TournamentGroup | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
   const id = asString(row.id);
   const name = asDisplayName(row.name);
   if (!id || name === undefined) return null;
-  return { id, name, teamIds: asStringList(row.teamIds) };
+  const group: TournamentGroup = { id, name, teamIds: asStringList(row.teamIds) };
+  const seedLabels = Array.isArray(row.seedLabels)
+    ? row.seedLabels
+        .map((item) => normalizeSeedCode(asString(item) ?? undefined))
+        .filter((code): code is string => code != null)
+    : [];
+  if (seedLabels.length > 0) group.seedLabels = seedLabels;
+  const seedFromStageId = asString(row.seedFromStageId);
+  if (seedFromStageId) group.seedFromStageId = seedFromStageId;
+  const seedMatchups = Array.isArray(row.seedMatchups)
+    ? row.seedMatchups
+        .map(normalizeSeedMatchup)
+        .filter((m): m is GroupSeedMatchup => m != null)
+    : [];
+  if (seedMatchups.length > 0) group.seedMatchups = seedMatchups;
+  return group;
 }
 
 function asOutcome(value: unknown): BracketFromOutcome | null {
@@ -154,6 +205,8 @@ function normalizeSlot(raw: unknown): BracketSlot | null {
       row.inactiveFeedSide === 'home' || row.inactiveFeedSide === 'away'
         ? row.inactiveFeedSide
         : null,
+    date: asString(row.date),
+    startTime: asString(row.startTime),
   };
 }
 

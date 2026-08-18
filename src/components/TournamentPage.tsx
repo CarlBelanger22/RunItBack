@@ -30,7 +30,7 @@ import { TournamentForm } from './forms/TournamentForm';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
-import { sortGamesByDateAsc, sortGamesByDateDesc } from '../utils/gameDisplay';
+import { sortGamesByDateAsc } from '../utils/gameDisplay';
 import {
   filterGamesForTournament,
   filterTeamsForTournament,
@@ -75,6 +75,20 @@ import {
   Info,
 } from 'lucide-react';
 import { wouldTournamentEnrollmentViolateOverlap } from '../utils/rosterPlayers';
+import {
+  isGameCompleted,
+  isGameLive,
+  isScheduledTournamentGame,
+} from '../utils/scheduledGames';
+import type { StatsEntryPrefill } from '../routing/statsEntryPrefill';
+import {
+  groupSeedLabels,
+  isSeedPlaceholderTeamId,
+  seedPlaceholderTeam,
+} from '../utils/groupMembers';
+import { buildGroupMatchRows, buildSeedFixtureRows, sortGamesTabEntries } from '../utils/groupMatchRows';
+import { buildBracketFixtureRows } from '../utils/bracketFixtureRows';
+import { normalizeSeedCode } from '../utils/seedCodes';
 
 interface TournamentPageProps {
   tournament: Tournament;
@@ -87,6 +101,9 @@ interface TournamentPageProps {
   onNavigateToTeam: (teamId: string) => void;
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   onNavigateToGame: (gameId: string) => void;
+  onNavigateToStatsEntry?: (prefill: import('../routing/statsEntryPrefill').StatsEntryPrefill) => void;
+  onResumeLiveGame?: (gameId: string) => void;
+  activeGame?: Game | null;
   onCreateTeam: (teamData: Omit<Team, 'id'>, options?: CreateTeamOptions) => Team;
   onAddTeamToTournament: (teamId: string, tournamentId: string) => void;
   onUpdateTeam: (team: Team) => void;
@@ -106,6 +123,9 @@ export function TournamentPage({
   onNavigateToTeam,
   onNavigateToPlayer,
   onNavigateToGame,
+  onNavigateToStatsEntry,
+  onResumeLiveGame,
+  activeGame,
   onCreateTeam,
   onAddTeamToTournament,
   onUpdateTeam,
@@ -240,7 +260,7 @@ export function TournamentPage({
   const [createFormKey, setCreateFormKey] = useState(0);
   // LE-124 — hoist Games filters so `{GamesTab()}` is safe (no hooks inside tab fn)
   const [gamesFilterStatus, setGamesFilterStatus] = useState<
-    'all' | 'completed' | 'ongoing'
+    'all' | 'completed' | 'live' | 'upcoming'
   >('all');
   const [gamesFilterStageId, setGamesFilterStageId] = useState<string>('all');
 
@@ -350,14 +370,21 @@ export function TournamentPage({
             {tournament.name}
           </CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {tournament.description?.trim() ? (
+            <p className="text-sm text-muted-foreground">
+              {tournament.description.trim().replace(/\s+/g, ' ')}
+            </p>
+          ) : null}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
             <div>
               <div className="text-2xl font-bold">{tournamentTeams.length}</div>
               <div className="text-sm text-muted-foreground">Teams</div>
             </div>
             <div>
-              <div className="text-2xl font-bold">{tournamentGames.length}</div>
+              <div className="text-2xl font-bold">
+                {tournamentGames.filter(isGameCompleted).length}
+              </div>
               <div className="text-sm text-muted-foreground">Games</div>
             </div>
             <div>
@@ -366,9 +393,9 @@ export function TournamentPage({
             </div>
             <div>
               <div className="text-2xl font-bold">
-                {tournamentGames.filter(g => g.isCompleted).length}
+                {tournamentGames.filter(isScheduledTournamentGame).length}
               </div>
-              <div className="text-sm text-muted-foreground">Completed</div>
+              <div className="text-sm text-muted-foreground">Scheduled</div>
             </div>
           </div>
         </CardContent>
@@ -744,11 +771,17 @@ export function TournamentPage({
         </TableRow>
       </TableHeader>
       <TableBody>
-        {rows.map((standing, index) => (
+        {rows.map((standing, index) => {
+          const seedPlaceholder = isSeedPlaceholderTeamId(standing.team.id);
+          return (
           <TableRow
             key={standing.team.id}
-            className="cursor-pointer hover:bg-muted/50"
-            onClick={() => onNavigateToTeam(standing.team.id)}
+            className={
+              seedPlaceholder ? undefined : 'cursor-pointer hover:bg-muted/50'
+            }
+            onClick={() => {
+              if (!seedPlaceholder) onNavigateToTeam(standing.team.id);
+            }}
           >
             <TableCell>
               <Badge
@@ -760,8 +793,22 @@ export function TournamentPage({
             </TableCell>
             <TableCell>
               <div className="flex min-w-0 items-center gap-2">
-                <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
-                <span className="truncate font-medium">{standing.team.name}</span>
+                {seedPlaceholder ? (
+                  <Badge variant="outline" className="font-mono text-xs shrink-0">
+                    {standing.team.abbreviation}
+                  </Badge>
+                ) : (
+                  <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
+                )}
+                <span
+                  className={
+                    seedPlaceholder
+                      ? 'truncate font-medium font-mono text-muted-foreground'
+                      : 'truncate font-medium'
+                  }
+                >
+                  {standing.team.name}
+                </span>
                 {tieStartIndexes.has(index) && opts?.groupGames && (
                   <Button
                     type="button"
@@ -812,26 +859,61 @@ export function TournamentPage({
               {standing.ftPct == null ? '—' : `${standing.ftPct.toFixed(1)}%`}
             </TableCell>
           </TableRow>
-        ))}
+          );
+        })}
       </TableBody>
     </Table>
     );
   };
 
-  const StandingsTab = () => (
-    <div className="space-y-6">
-      {groupStandingsTables.length > 0 ? (
-        <>
-          {groupStandingsTables.map(({ group, standings: groupRows }) => {
+  const StandingsTab = () => {
+    const teamById = new Map(tournamentTeams.map((t) => [t.id, t]));
+    const stageSections: { stageId: string; stageName: string; tables: typeof groupStandingsTables }[] = [];
+    for (const row of groupStandingsTables) {
+      const hit = stageSections.find((s) => s.stageId === row.stage.id);
+      if (hit) hit.tables.push(row);
+      else stageSections.push({ stageId: row.stage.id, stageName: row.stage.name, tables: [row] });
+    }
+
+    // Seed-based RR stages (e.g. 5th–7th placing pool) render after the knockout bracket.
+    const isSeedBasedStageSection = (section: (typeof stageSections)[number]) =>
+      section.tables.some(({ group }) => groupSeedLabels(group).length > 0);
+    const preBracketSections = stageSections.filter((s) => !isSeedBasedStageSection(s));
+    const postBracketSections = stageSections.filter(isSeedBasedStageSection);
+
+    const renderStageSections = (
+      sections: typeof stageSections,
+      showStageName: boolean
+    ) =>
+      sections.map(({ stageId, stageName, tables }) => (
+            <div key={stageId} className="space-y-4">
+              {showStageName ? (
+                <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
+                  {stageName}
+                </h3>
+              ) : null}
+              {tables.map(({ group, standings: groupRows, stage }) => {
             const groupGames = sortGamesByDateAsc(
-              filterGamesForGroup(tournamentGames, group, tournament.structure)
+              filterGamesForGroup(tournamentGames, group, tournament.structure, stage.id)
+            );
+            const matchRows = buildGroupMatchRows(
+              group,
+              tournament.structure,
+              tournamentGames,
+              teamById,
+              stage.id
+            );
+            const memberCount = Math.max(
+              groupRows.length,
+              group.teamIds.length,
+              groupSeedLabels(group).length
             );
             return (
               <Card key={group.id}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
                     {group.name}
-                    <Badge variant="secondary">{group.teamIds.length} teams</Badge>
+                    <Badge variant="secondary">{memberCount} teams</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -847,32 +929,42 @@ export function TournamentPage({
                       })}
                     </TabsContent>
                     <TabsContent value="matches" className="mt-4">
-                      {groupGames.length === 0 ? (
+                      {matchRows.length === 0 ? (
                         <p className="text-sm text-muted-foreground">
                           No matches yet
                         </p>
                       ) : (
                         <ul className="group-matches-list">
-                          {groupGames.map((game) => {
-                            const homeTeam = resolveGameTeam(teams, game, 'home');
-                            const awayTeam = resolveGameTeam(teams, game, 'away');
-                            const dateLabel = new Date(game.date).toLocaleDateString(
-                              'en-US',
-                              { month: 'short', day: 'numeric' }
-                            );
+                          {matchRows.map((row) => {
+                            const game = row.game;
+                            const homeTeam = game
+                              ? resolveGameTeam(teams, game, 'home')
+                              : row.homeTeam ?? seedPlaceholderTeam(row.homeLabel);
+                            const awayTeam = game
+                              ? resolveGameTeam(teams, game, 'away')
+                              : row.awayTeam ?? seedPlaceholderTeam(row.awayLabel);
+                            const rowDate = row.date ?? game?.date;
+                            const dateLabel = rowDate
+                              ? new Date(rowDate).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: 'numeric',
+                                })
+                              : '';
+                            const timeSuffix = row.startTime ?? game?.startTime;
                             const hasScore =
-                              Boolean(game.finalScore) ||
-                              (typeof game.teamStats?.home?.total_points ===
-                                'number' &&
-                                typeof game.teamStats?.away?.total_points ===
+                              game &&
+                              (Boolean(game.finalScore) ||
+                                (typeof game.teamStats?.home?.total_points ===
                                   'number' &&
-                                (game.isCompleted || game.isActive));
-                            const homeScore = game.finalScore
+                                  typeof game.teamStats?.away?.total_points ===
+                                    'number' &&
+                                  (game.isCompleted || game.isActive)));
+                            const homeScore = game?.finalScore
                               ? game.finalScore.home
-                              : game.teamStats?.home?.total_points;
-                            const awayScore = game.finalScore
+                              : game?.teamStats?.home?.total_points;
+                            const awayScore = game?.finalScore
                               ? game.finalScore.away
-                              : game.teamStats?.away?.total_points;
+                              : game?.teamStats?.away?.total_points;
                             const homeWins =
                               hasScore &&
                               typeof homeScore === 'number' &&
@@ -884,66 +976,93 @@ export function TournamentPage({
                               typeof awayScore === 'number' &&
                               awayScore > homeScore;
                             const metaLabel =
-                              game.isActive && !hasScore
+                              game?.isActive && !hasScore
                                 ? `Live · ${dateLabel}`
-                                : dateLabel;
+                                : timeSuffix
+                                  ? `${dateLabel} · ${timeSuffix}`
+                                  : dateLabel;
+                            const openSummary =
+                              game &&
+                              (hasScore || game.isCompleted || game.isActive);
+                            const homeSeed = isSeedPlaceholderTeamId(homeTeam.id);
+                            const awaySeed = isSeedPlaceholderTeamId(awayTeam.id);
+
+                            const renderSide = (
+                              team: Team,
+                              score: string | number | undefined,
+                              muted: boolean,
+                              seedStyle: boolean
+                            ) => (
+                              <div
+                                className={
+                                  muted
+                                    ? 'group-match-side group-match-side--muted'
+                                    : 'group-match-side'
+                                }
+                              >
+                                {seedStyle ? (
+                                  <Badge
+                                    variant="outline"
+                                    className="font-mono text-xs shrink-0"
+                                  >
+                                    {team.abbreviation}
+                                  </Badge>
+                                ) : (
+                                  <TeamBadge team={team} teamId={team.id} size="sm" />
+                                )}
+                                <span
+                                  className={
+                                    seedStyle
+                                      ? 'group-match-name font-mono text-muted-foreground'
+                                      : 'group-match-name'
+                                  }
+                                  title={team.name}
+                                >
+                                  {team.name}
+                                </span>
+                                <span className="group-match-score">
+                                  {score ?? '—'}
+                                </span>
+                              </div>
+                            );
+
                             return (
-                              <li key={game.id}>
+                              <li key={row.key}>
+                                {openSummary ? (
                                 <button
                                   type="button"
                                   className="group-match-row"
-                                  onClick={() => onNavigateToGame(game.id)}
+                                  onClick={() => onNavigateToGame(game!.id)}
                                 >
                                   <div className="group-match-row-teams">
-                                    <div
-                                      className={
-                                        awayWins
-                                          ? 'group-match-side group-match-side--muted'
-                                          : 'group-match-side'
-                                      }
-                                    >
-                                      <TeamBadge
-                                        team={homeTeam}
-                                        teamId={homeTeam.id}
-                                        size="sm"
-                                      />
-                                      <span
-                                        className="group-match-name"
-                                        title={homeTeam.name}
-                                      >
-                                        {homeTeam.name}
-                                      </span>
-                                      <span className="group-match-score">
-                                        {hasScore ? homeScore : '—'}
-                                      </span>
-                                    </div>
-                                    <div
-                                      className={
-                                        homeWins
-                                          ? 'group-match-side group-match-side--muted'
-                                          : 'group-match-side'
-                                      }
-                                    >
-                                      <TeamBadge
-                                        team={awayTeam}
-                                        teamId={awayTeam.id}
-                                        size="sm"
-                                      />
-                                      <span
-                                        className="group-match-name"
-                                        title={awayTeam.name}
-                                      >
-                                        {awayTeam.name}
-                                      </span>
-                                      <span className="group-match-score">
-                                        {hasScore ? awayScore : '—'}
-                                      </span>
-                                    </div>
+                                    {renderSide(
+                                      homeTeam,
+                                      hasScore ? homeScore : undefined,
+                                      awayWins,
+                                      homeSeed
+                                    )}
+                                    {renderSide(
+                                      awayTeam,
+                                      hasScore ? awayScore : undefined,
+                                      homeWins,
+                                      awaySeed
+                                    )}
                                   </div>
                                   <span className="group-match-row-date">
                                     {metaLabel}
                                   </span>
                                 </button>
+                                ) : (
+                                  <div className="group-match-row group-match-row--static">
+                                    <div className="group-match-row-teams">
+                                      {renderSide(homeTeam, undefined, false, homeSeed)}
+                                      {renderSide(awayTeam, undefined, false, awaySeed)}
+                                    </div>
+                                    <span className="group-match-row-date">
+                                      {metaLabel}
+                                    </span>
+                                  </div>
+                                )}
                               </li>
                             );
                           })}
@@ -955,6 +1074,14 @@ export function TournamentPage({
               </Card>
             );
           })}
+            </div>
+          ));
+
+    return (
+    <div className="space-y-6">
+      {groupStandingsTables.length > 0 ? (
+        <>
+          {renderStageSections(preBracketSections, preBracketSections.length > 1)}
           <TournamentClassificationBracket
             tournament={tournament}
             games={tournamentGames}
@@ -964,6 +1091,7 @@ export function TournamentPage({
             onGamesUpdate={onGamesUpdate}
             onNavigateToGame={onNavigateToGame}
           />
+          {renderStageSections(postBracketSections, postBracketSections.length > 0)}
         </>
       ) : (
         <Card>
@@ -974,7 +1102,8 @@ export function TournamentPage({
         </Card>
       )}
     </div>
-  );
+    );
+  };
 
   const PlayersTab = () => {
     const playersData = aggregatePlayerSeasonStats(tournamentGames, tournamentTeams, {
@@ -1011,11 +1140,26 @@ export function TournamentPage({
   const GamesTab = () => {
     const structure = normalizeTournamentStructure(tournament.structure);
     const hasStructure = tournamentHasStructure(structure);
+    const teamById = new Map(tournamentTeams.map((t) => [t.id, t]));
+    const seedFixtures = buildSeedFixtureRows(
+      tournament.structure,
+      tournamentGames,
+      teamById
+    );
+    const bracketFixtures = buildBracketFixtureRows(
+      tournament.structure,
+      tournamentGames,
+      teamById
+    );
+    const allFixtures = [...seedFixtures, ...bracketFixtures];
 
     // Filter games based on status
     const filteredGames = tournamentGames.filter((game) => {
-      if (gamesFilterStatus === 'completed' && !game.isCompleted) return false;
-      if (gamesFilterStatus === 'ongoing' && game.isCompleted) return false;
+      if (gamesFilterStatus === 'completed' && !isGameCompleted(game)) return false;
+      if (gamesFilterStatus === 'live' && !isGameLive(game)) return false;
+      if (gamesFilterStatus === 'upcoming' && !isScheduledTournamentGame(game)) {
+        return false;
+      }
       if (gamesFilterStageId !== 'all') {
         if (gamesFilterStageId === 'untagged') return !game.stageId;
         if (game.stageId !== gamesFilterStageId) return false;
@@ -1023,8 +1167,67 @@ export function TournamentPage({
       return true;
     });
 
-    // Sort by date, then start time (most recent first)
-    const sortedGames = sortGamesByDateDesc(filteredGames);
+    const filteredFixtures = allFixtures.filter((fixture) => {
+      if (gamesFilterStatus === 'completed' || gamesFilterStatus === 'live') {
+        return false;
+      }
+      if (gamesFilterStatus === 'upcoming' || gamesFilterStatus === 'all') {
+        if (gamesFilterStageId === 'all') return true;
+        if (gamesFilterStageId === 'untagged') return false;
+        return fixture.stageId === gamesFilterStageId;
+      }
+      return false;
+    });
+
+    type GamesTabEntry =
+      | { kind: 'game'; game: Game; date?: string; startTime?: string }
+      | {
+          kind: 'fixture';
+          fixture: (typeof allFixtures)[number];
+          date?: string;
+          startTime?: string;
+        };
+
+    const tabEntries: GamesTabEntry[] = [
+      ...filteredGames.map((game) => ({
+        kind: 'game' as const,
+        game,
+        date: game.date,
+        startTime: game.startTime,
+      })),
+      ...filteredFixtures.map((fixture) => ({
+        kind: 'fixture' as const,
+        fixture,
+        date: fixture.date,
+        startTime: fixture.startTime,
+      })),
+    ];
+    const sortedEntries = sortGamesTabEntries(tabEntries);
+
+    const upcomingCount =
+      tournamentGames.filter(isScheduledTournamentGame).length + allFixtures.length;
+    const allTabCount = tournamentGames.length + allFixtures.length;
+
+    const fixtureStageTag = (fixture: (typeof allFixtures)[number]) => {
+      const stage = structure?.stages.find((s) => s.id === fixture.stageId);
+      if (!stage) return null;
+      if (fixture.bracketSlotId) {
+        return fixture.slotLabel
+          ? `${stage.name} · ${fixture.slotLabel}`
+          : stage.name;
+      }
+      if (fixture.groupId) {
+        const group = stage.groups?.find((g) => g.id === fixture.groupId);
+        return group ? `${stage.name} · ${group.name}` : stage.name;
+      }
+      return stage.name;
+    };
+
+    const isFixtureSidePlaceholder = (team: Team, label: string) =>
+      isSeedPlaceholderTeamId(team.id) ||
+      Boolean(normalizeSeedCode(label)) ||
+      /^(Winner|Loser)\s·/.test(label) ||
+      label === 'TBD';
 
     return (
       <div className="space-y-6">
@@ -1039,7 +1242,7 @@ export function TournamentPage({
                   size="sm"
                   onClick={() => setGamesFilterStatus('all')}
                 >
-                  All Games ({tournamentGames.length})
+                  All Games ({allTabCount})
                 </Button>
                 <Button
                   variant={
@@ -1052,12 +1255,21 @@ export function TournamentPage({
                 </Button>
                 <Button
                   variant={
-                    gamesFilterStatus === 'ongoing' ? 'default' : 'outline'
+                    gamesFilterStatus === 'live' ? 'default' : 'outline'
                   }
                   size="sm"
-                  onClick={() => setGamesFilterStatus('ongoing')}
+                  onClick={() => setGamesFilterStatus('live')}
                 >
-                  Ongoing ({tournamentGames.filter(g => !g.isCompleted).length})
+                  Live ({tournamentGames.filter(isGameLive).length})
+                </Button>
+                <Button
+                  variant={
+                    gamesFilterStatus === 'upcoming' ? 'default' : 'outline'
+                  }
+                  size="sm"
+                  onClick={() => setGamesFilterStatus('upcoming')}
+                >
+                  Upcoming ({upcomingCount})
                 </Button>
               </div>
             </div>
@@ -1099,7 +1311,7 @@ export function TournamentPage({
 
         {/* Games List */}
         <div className="space-y-4">
-          {sortedGames.length === 0 ? (
+          {sortedEntries.length === 0 ? (
             <Card>
               <CardContent className="p-12 text-center">
                 <Calendar className="h-12 w-12 mx-auto mb-4 text-muted-foreground/50" />
@@ -1109,66 +1321,228 @@ export function TournamentPage({
               </CardContent>
             </Card>
           ) : (
-            sortedGames.map((game) => {
+            sortedEntries.map((entry) => {
+              if (entry.kind === 'fixture') {
+                const { fixture } = entry;
+                const homeTeam =
+                  fixture.homeTeam ?? seedPlaceholderTeam(fixture.homeLabel);
+                const awayTeam =
+                  fixture.awayTeam ?? seedPlaceholderTeam(fixture.awayLabel);
+                const homeSeed = isFixtureSidePlaceholder(homeTeam, fixture.homeLabel);
+                const awaySeed = isFixtureSidePlaceholder(awayTeam, fixture.awayLabel);
+                const stageTag = fixtureStageTag(fixture);
+
+                return (
+                  <Card key={fixture.key} className="transition-shadow">
+                    <CardContent className="p-6">
+                      <div className="flex items-center justify-between gap-4 flex-wrap">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-4">
+                            <div className="flex-1 flex items-center justify-end gap-2">
+                              {homeSeed ? (
+                                <>
+                                  <div className="text-right">
+                                    <div className="font-medium font-mono text-muted-foreground">
+                                      {homeTeam.name}
+                                    </div>
+                                  </div>
+                                  <Badge variant="outline" className="font-mono text-sm shrink-0">
+                                    {homeTeam.abbreviation}
+                                  </Badge>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-right">
+                                    <div className="font-medium">{homeTeam.name}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {homeTeam.abbreviation}
+                                    </div>
+                                  </div>
+                                  <TeamBadge team={homeTeam} teamId={homeTeam.id} size="lg" />
+                                </>
+                              )}
+                            </div>
+
+                            <div className="flex items-center gap-3 px-6 shrink-0">
+                              <span className="text-sm font-medium text-muted-foreground">
+                                vs
+                              </span>
+                            </div>
+
+                            <div className="flex-1 flex items-center gap-2">
+                              {awaySeed ? (
+                                <>
+                                  <Badge variant="outline" className="font-mono text-sm shrink-0">
+                                    {awayTeam.abbreviation}
+                                  </Badge>
+                                  <div className="text-left">
+                                    <div className="font-medium font-mono text-muted-foreground">
+                                      {awayTeam.name}
+                                    </div>
+                                  </div>
+                                </>
+                              ) : (
+                                <>
+                                  <TeamBadge team={awayTeam} teamId={awayTeam.id} size="lg" />
+                                  <div className="text-left">
+                                    <div className="font-medium">{awayTeam.name}</div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {awayTeam.abbreviation}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center justify-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
+                            {fixture.date ? (
+                              <span>
+                                {new Date(fixture.date).toLocaleDateString('en-US', {
+                                  year: 'numeric',
+                                  month: 'short',
+                                  day: 'numeric',
+                                })}
+                              </span>
+                            ) : null}
+                            {fixture.startTime ? (
+                              <>
+                                <span>•</span>
+                                <span>{fixture.startTime}</span>
+                              </>
+                            ) : null}
+                            <span>•</span>
+                            <Badge variant="secondary" className="text-xs">
+                              Upcoming
+                            </Badge>
+                            {stageTag ? (
+                              <>
+                                <span>•</span>
+                                <Badge variant="secondary" className="text-xs">
+                                  {stageTag}
+                                </Badge>
+                              </>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              }
+
+              const { game } = entry;
               const homeTeam = resolveGameTeam(teams, game, 'home');
               const awayTeam = resolveGameTeam(teams, game, 'away');
               const stageTag = hasStructure
                 ? describeGameStageTag(game, structure)
                 : null;
+              const scheduled = isScheduledTournamentGame(game);
+              const live = isGameLive(game);
+              const completed = isGameCompleted(game);
+              const canTrackStats =
+                scheduled && onNavigateToStatsEntry != null;
+              const canOpenSummary = completed || live;
+              const handleCardClick = () => {
+                if (live && onResumeLiveGame) {
+                  onResumeLiveGame(game.id);
+                  return;
+                }
+                if (canOpenSummary) onNavigateToGame(game.id);
+              };
+              const prefill: StatsEntryPrefill = {
+                gameId: game.id,
+                tournamentId: tournament.id,
+                homeTeamId: game.homeTeamId,
+                awayTeamId: game.awayTeamId,
+                date: game.date,
+                startTime: game.startTime,
+                stageId: game.stageId,
+                groupId: game.groupId,
+              };
               return (
-                <Card 
-                  key={game.id} 
-                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                  onClick={() => onNavigateToGame(game.id)}
+                <Card
+                  key={game.id}
+                  className={
+                    canOpenSummary || live
+                      ? 'cursor-pointer hover:shadow-lg transition-shadow'
+                      : 'transition-shadow'
+                  }
+                  onClick={handleCardClick}
                 >
                   <CardContent className="p-6">
-                    <div className="flex items-center justify-between">
-                      {/* Game Info */}
-                      <div className="flex-1">
+                    <div className="flex items-center justify-between gap-4 flex-wrap">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-4">
-                          {/* Home Team */}
                           <div className="flex-1 flex items-center justify-end gap-2">
                             <div className="text-right">
                               <div className="font-medium">{homeTeam.name}</div>
-                              <div className="text-xs text-muted-foreground">{homeTeam.abbreviation}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {homeTeam.abbreviation}
+                              </div>
                             </div>
                             <TeamBadge team={homeTeam} teamId={homeTeam.id} size="lg" />
                           </div>
-                          
-                          {/* Score */}
-                          <div className="flex items-center gap-3 px-6">
-                            {game.finalScore ? (
+
+                          <div className="flex items-center gap-3 px-6 shrink-0">
+                            {completed && game.finalScore ? (
                               <>
-                                <div className="text-2xl font-bold">{game.finalScore.home}</div>
+                                <div className="text-2xl font-bold">
+                                  {game.finalScore.home}
+                                </div>
                                 <div className="text-muted-foreground">-</div>
-                                <div className="text-2xl font-bold">{game.finalScore.away}</div>
+                                <div className="text-2xl font-bold">
+                                  {game.finalScore.away}
+                                </div>
                               </>
+                            ) : live ? (
+                              <Badge variant="default">Live</Badge>
                             ) : (
-                              <Badge variant="outline">Live</Badge>
+                              <span className="text-sm font-medium text-muted-foreground">
+                                vs
+                              </span>
                             )}
                           </div>
-                          
-                          {/* Away Team */}
+
                           <div className="flex-1 flex items-center gap-2">
                             <TeamBadge team={awayTeam} teamId={awayTeam.id} size="lg" />
                             <div className="text-left">
                               <div className="font-medium">{awayTeam.name}</div>
-                              <div className="text-xs text-muted-foreground">{awayTeam.abbreviation}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {awayTeam.abbreviation}
+                              </div>
                             </div>
                           </div>
                         </div>
-                        
-                        {/* Date & Status */}
+
                         <div className="flex items-center justify-center gap-4 mt-3 text-sm text-muted-foreground flex-wrap">
-                          <span>{new Date(game.date).toLocaleDateString('en-US', { 
-                            year: 'numeric', 
-                            month: 'short', 
-                            day: 'numeric' 
-                          })}</span>
-                          {game.isCompleted && (
+                          <span>
+                            {new Date(game.date).toLocaleDateString('en-US', {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })}
+                          </span>
+                          {game.startTime ? (
                             <>
                               <span>•</span>
-                              <Badge variant="outline" className="text-xs">Final</Badge>
+                              <span>{game.startTime}</span>
+                            </>
+                          ) : null}
+                          {completed && (
+                            <>
+                              <span>•</span>
+                              <Badge variant="outline" className="text-xs">
+                                Final
+                              </Badge>
+                            </>
+                          )}
+                          {scheduled && (
+                            <>
+                              <span>•</span>
+                              <Badge variant="secondary" className="text-xs">
+                                Scheduled
+                              </Badge>
                             </>
                           )}
                           {stageTag && (
@@ -1181,6 +1555,33 @@ export function TournamentPage({
                           )}
                         </div>
                       </div>
+                      {canTrackStats && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={
+                            Boolean(activeGame) && activeGame?.id !== game.id
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onNavigateToStatsEntry?.(prefill);
+                          }}
+                        >
+                          Track stats
+                        </Button>
+                      )}
+                      {live && onResumeLiveGame && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onResumeLiveGame(game.id);
+                          }}
+                        >
+                          Resume
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
