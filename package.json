@@ -168,6 +168,7 @@
             "test:team-stats-report": "tsx scripts/test-team-stats-report.ts",
             "test:foul-stat-coverage": "tsx scripts/test-foul-stat-coverage.ts",
             "test:shot-chart-display": "tsx scripts/test-shot-chart-display.ts",
+            "test:player-shot-chart": "tsx scripts/test-player-shot-chart.ts",
             "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts",
             "test:game-team-rosters": "tsx scripts/test-game-team-rosters.ts",
             "test:metrics-display": "tsx scripts/test-metrics-display.ts",

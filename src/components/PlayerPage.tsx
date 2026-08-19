@@ -1045,70 +1045,6 @@ export function PlayerPage({
     
     return (
       <div className="space-y-6">
-        {/* Shooting Splits */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Shooting Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <div className="space-y-3">
-                <h4 className="font-medium">Field Goals</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Made/Attempted</span>
-                    <span className="text-sm font-mono">{filteredData.totals.fg_made.toFixed(0)}/{filteredData.totals.fg_attempted.toFixed(0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Percentage</span>
-                    <span className="text-sm font-mono">{filteredData.advanced.fieldGoalPercentage.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Per Game</span>
-                    <span className="text-sm font-mono">{filteredData.averages.fg_made.toFixed(1)}/{filteredData.averages.fg_attempted.toFixed(1)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="font-medium">Three-Pointers</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Made/Attempted</span>
-                    <span className="text-sm font-mono">{filteredData.totals.three_made.toFixed(0)}/{filteredData.totals.three_attempted.toFixed(0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Percentage</span>
-                    <span className="text-sm font-mono">{filteredData.advanced.threePointPercentage.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Per Game</span>
-                    <span className="text-sm font-mono">{filteredData.averages.three_made.toFixed(1)}/{filteredData.averages.three_attempted.toFixed(1)}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                <h4 className="font-medium">Free Throws</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Made/Attempted</span>
-                    <span className="text-sm font-mono">{filteredData.totals.ft_made.toFixed(0)}/{filteredData.totals.ft_attempted.toFixed(0)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Percentage</span>
-                    <span className="text-sm font-mono">{filteredData.advanced.freeThrowPercentage.toFixed(1)}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Per Game</span>
-                    <span className="text-sm font-mono">{filteredData.averages.ft_made.toFixed(1)}/{filteredData.averages.ft_attempted.toFixed(1)}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Advanced Metrics */}
         <Card>
           <CardHeader>
@@ -1222,10 +1158,72 @@ export function PlayerPage({
           </CardContent>
         </Card>
 
-        {/* Shot Chart */}
-        <PlayerShotChart 
+        {/* Shooting Splits */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Shooting Breakdown</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              <div className="space-y-3">
+                <h4 className="font-medium">Field Goals</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm">Made/Attempted</span>
+                    <span className="text-sm font-mono">{filteredData.totals.fg_made.toFixed(0)}/{filteredData.totals.fg_attempted.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Percentage</span>
+                    <span className="text-sm font-mono">{filteredData.advanced.fieldGoalPercentage.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Per Game</span>
+                    <span className="text-sm font-mono">{filteredData.averages.fg_made.toFixed(1)}/{filteredData.averages.fg_attempted.toFixed(1)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-medium">Three-Pointers</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm">Made/Attempted</span>
+                    <span className="text-sm font-mono">{filteredData.totals.three_made.toFixed(0)}/{filteredData.totals.three_attempted.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Percentage</span>
+                    <span className="text-sm font-mono">{filteredData.advanced.threePointPercentage.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Per Game</span>
+                    <span className="text-sm font-mono">{filteredData.averages.three_made.toFixed(1)}/{filteredData.averages.three_attempted.toFixed(1)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="font-medium">Free Throws</h4>
+                <div className="space-y-2">
+                  <div className="flex justify-between">
+                    <span className="text-sm">Made/Attempted</span>
+                    <span className="text-sm font-mono">{filteredData.totals.ft_made.toFixed(0)}/{filteredData.totals.ft_attempted.toFixed(0)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Percentage</span>
+                    <span className="text-sm font-mono">{filteredData.advanced.freeThrowPercentage.toFixed(1)}%</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm">Per Game</span>
+                    <span className="text-sm font-mono">{filteredData.averages.ft_made.toFixed(1)}/{filteredData.averages.ft_attempted.toFixed(1)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <PlayerShotChart
           player={player}
-          team={team}
           games={formatScopedGames}
           selectedTournamentIds={selectedTournamentIds}
         />
