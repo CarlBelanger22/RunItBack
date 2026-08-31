@@ -1,6 +1,13 @@
 /**
- * Upsert FIBA jersey numbers onto tournament_rosters for SGP + MAS.
+ * Upsert FIBA jersey numbers onto tournament_rosters for SGP + MAS
+ * for FIBA Asia Cup Pre-Qualifiers ONLY (`tournament-1787937458049`).
+ *
  * Does not change club team_players.numbers.
+ * Do NOT use this to overwrite Indonesia Training Trip (`tournament-1786724699692`)
+ * jersey numbers — those stay at historical/club-era values.
+ *
+ * For SGP club + Pre-Q + DOB sync, prefer:
+ *   npx tsx scripts/patch-sgp-nt-fiba-jerseys-dobs.ts
  *
  *   npx tsx scripts/seed-fiba-sgp-mas-tournament-rosters.ts --dry-run
  *   npx tsx scripts/seed-fiba-sgp-mas-tournament-rosters.ts

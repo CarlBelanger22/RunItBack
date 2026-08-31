@@ -339,7 +339,8 @@ export function PlayerPage({
 
     const jerseyByTeamId = resolveClubJerseyByTeamId(
       jerseyEditorGroups,
-      clubJerseyDraft
+      clubJerseyDraft,
+      tournamentJerseyDraft
     );
     const tournamentJerseyUpdates = collectTournamentJerseyUpdates(
       player.id,

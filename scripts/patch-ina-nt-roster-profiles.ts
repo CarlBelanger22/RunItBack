@@ -195,6 +195,16 @@ async function main(): Promise<void> {
     if (linkError) {
       throw new Error(`team_players ${row.id}: ${linkError.message}`);
     }
+
+    // Keep FIBA jersey numbers on every Indonesia tournament roster row.
+    const { error: rosterError } = await supabase
+      .from('tournament_rosters')
+      .update({ number: row.number })
+      .eq('team_id', INA_TEAM_ID)
+      .eq('player_id', row.id);
+    if (rosterError) {
+      throw new Error(`tournament_rosters ${row.id}: ${rosterError.message}`);
+    }
   }
 
   if (!dryRun) {

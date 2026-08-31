@@ -24,6 +24,19 @@ export interface TournamentJerseyUpdate {
   number: number;
 }
 
+function playerAppearedForTeamInGame(
+  game: Game,
+  playerId: string,
+  teamId: string,
+  teams: Team[]
+): boolean {
+  if (!(game.gameStats ?? []).some((stat) => stat.playerId === playerId)) {
+    return false;
+  }
+  const clubRosterByTeam = buildClubRosterByTeam(teams);
+  return resolvePlayerTeamSideInGame(playerId, game, clubRosterByTeam) === teamId;
+}
+
 function countCompletedGamesForPlayerTeamInTournament(
   games: Game[],
   tournamentId: string,
@@ -31,19 +44,31 @@ function countCompletedGamesForPlayerTeamInTournament(
   teamId: string,
   teams: Team[]
 ): number {
-  const clubRosterByTeam = buildClubRosterByTeam(teams);
   let count = 0;
-
   for (const game of games) {
     if (!game.isCompleted || game.tournamentId !== tournamentId) continue;
-    if (!(game.gameStats ?? []).some((stat) => stat.playerId === playerId)) continue;
-    if (resolvePlayerTeamSideInGame(playerId, game, clubRosterByTeam) !== teamId) {
-      continue;
-    }
+    if (!playerAppearedForTeamInGame(game, playerId, teamId, teams)) continue;
     count++;
   }
-
   return count;
+}
+
+/** Max completed game.date for this player+team in the tournament (ms). */
+function maxCompletedGameDateMsForPlayerTeamInTournament(
+  games: Game[],
+  tournamentId: string,
+  playerId: string,
+  teamId: string,
+  teams: Team[]
+): number {
+  let maxMs = 0;
+  for (const game of games) {
+    if (!game.isCompleted || game.tournamentId !== tournamentId) continue;
+    if (!playerAppearedForTeamInGame(game, playerId, teamId, teams)) continue;
+    const ms = Date.parse(game.date ?? '');
+    if (!Number.isNaN(ms) && ms > maxMs) maxMs = ms;
+  }
+  return maxMs;
 }
 
 function compareTournamentRowsForPlayer(
@@ -61,6 +86,22 @@ function compareTournamentRowsForPlayer(
     getTournamentDateMs(tournamentB ?? { month: '', year: 0 }) -
     getTournamentDateMs(tournamentA ?? { month: '', year: 0 });
   if (dateDiff !== 0) return dateDiff;
+
+  const latestGameA = maxCompletedGameDateMsForPlayerTeamInTournament(
+    games,
+    a.tournamentId,
+    playerId,
+    teamId,
+    teams
+  );
+  const latestGameB = maxCompletedGameDateMsForPlayerTeamInTournament(
+    games,
+    b.tournamentId,
+    playerId,
+    teamId,
+    teams
+  );
+  if (latestGameB !== latestGameA) return latestGameB - latestGameA;
 
   const countA = countCompletedGamesForPlayerTeamInTournament(
     games,
@@ -155,17 +196,16 @@ export function buildPlayerJerseyEditorGroups(
         number: row.number,
         row,
       }))
-      .sort(
-        (a, b) =>
-          compareTournamentRowsForPlayer(
-            b.row,
-            a.row,
-            playerId,
-            team.id,
-            tournaments,
-            games,
-            teams
-          )
+      .sort((a, b) =>
+        compareTournamentRowsForPlayer(
+          a.row,
+          b.row,
+          playerId,
+          team.id,
+          tournaments,
+          games,
+          teams
+        )
       )
       .map(({ tournamentId, tournamentName, number }) => ({
         tournamentId,
@@ -175,7 +215,15 @@ export function buildPlayerJerseyEditorGroups(
 
     return {
       team,
-      clubNumber: player.number,
+      clubNumber: resolveLatestJerseyNumber(
+        team.id,
+        playerId,
+        tournamentRosters,
+        tournaments,
+        games,
+        teams,
+        player.number
+      ),
       tournaments: tournamentRows,
     };
   });
@@ -205,12 +253,29 @@ export function collectTournamentJerseyUpdates(
   return updates;
 }
 
+/**
+ * Option B: when tournament rows exist, club = latest tournament jersey (draft),
+ * ignoring clubNumbers draft. Otherwise fall back to club draft / group.clubNumber.
+ * `groups.tournaments` must already be sorted newest-first.
+ */
 export function resolveClubJerseyByTeamId(
   groups: PlayerJerseyEditorTeamGroup[],
-  clubNumbers: Record<string, string>
+  clubNumbers: Record<string, string>,
+  tournamentNumbers: Record<string, string> = {}
 ): Record<string, number> {
   const result: Record<string, number> = {};
   for (const group of groups) {
+    if (group.tournaments.length > 0) {
+      const latest = group.tournaments[0];
+      const key = `${group.team.id}:${latest.tournamentId}`;
+      const raw = tournamentNumbers[key] ?? String(latest.number);
+      const parsed = parseInt(raw, 10);
+      if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 99) {
+        result[group.team.id] = parsed;
+      }
+      continue;
+    }
+
     const raw = clubNumbers[group.team.id] ?? String(group.clubNumber);
     const parsed = parseInt(raw, 10);
     if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 99) {
