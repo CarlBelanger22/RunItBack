@@ -19,6 +19,7 @@ import {
   isSingleTeamOppUnitEvent,
 } from '../src/liveEntry/eventEditGuards';
 import { deriveReboundTeamsForMissedShot } from '../src/liveEntry/reboundTeams';
+import { shouldSkipFoulRecipient, shouldSkipTechShooterPick } from '../src/liveEntry/foulFlow';
 import {
   initialLiveEntryContext,
   liveEntryReducer,
@@ -408,6 +409,153 @@ function testSkipRecipientOnHomeFoul(): void {
   console.log('OK testSkipRecipientOnHomeFoul');
 }
 
+function testShouldSkipFoulRecipientHelper(): void {
+  assert(
+    shouldSkipFoulRecipient({
+      trackBoth: false,
+      foulingTeamId: 'home',
+      homeTeamId: 'home',
+      foulCategory: 'unsportsmanlike',
+    }),
+    'single-team home UNS skips recipient'
+  );
+  assert(
+    shouldSkipFoulRecipient({
+      trackBoth: false,
+      foulingTeamId: 'home',
+      homeTeamId: 'home',
+      foulCategory: 'personal',
+    }),
+    'single-team home personal skips recipient'
+  );
+  assert(
+    !shouldSkipFoulRecipient({
+      trackBoth: true,
+      foulingTeamId: 'home',
+      homeTeamId: 'home',
+      foulCategory: 'unsportsmanlike',
+    }),
+    'track-both does not skip'
+  );
+  assert(
+    !shouldSkipFoulRecipient({
+      trackBoth: false,
+      foulingTeamId: 'away',
+      homeTeamId: 'home',
+      foulCategory: 'unsportsmanlike',
+    }),
+    'Opp committer does not skip via this helper'
+  );
+  assert(
+    shouldSkipTechShooterPick({
+      trackBoth: false,
+      foulingTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'single-team home tech skips shooter pick'
+  );
+  assert(
+    !shouldSkipTechShooterPick({
+      trackBoth: true,
+      foulingTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'track-both tech still picks shooter'
+  );
+  console.log('OK testShouldSkipFoulRecipientHelper');
+}
+
+function testSkipRecipientOnHomeUnsportsmanlike(): void {
+  let state = liveEntryReducer(
+    {
+      phase: { kind: 'idle' },
+      ctx: initialLiveEntryContext('home', ['h1'], []),
+    },
+    { type: 'START_FOUL' }
+  );
+  state = liveEntryReducer(state, { type: 'FOUL_ENTITY', entity: 'player' });
+  state = liveEntryReducer(state, {
+    type: 'FOUL_CATEGORY',
+    category: 'unsportsmanlike',
+  });
+  assert(
+    state.phase.kind === 'foul' && state.phase.step === 'committer',
+    'unsportsmanlike → committer'
+  );
+
+  // Without skipRecipient (bug path) — stuck needing Opp recipient.
+  const stuck = liveEntryReducer(state, {
+    type: 'PICK_FOUL_COMMITTER',
+    playerId: 'h1',
+    teamId: 'home',
+  });
+  assert(
+    stuck.phase.kind === 'foul' && stuck.phase.step === 'recipient',
+    'without skipRecipient → recipient (soft-lock risk in single-team)'
+  );
+
+  state = liveEntryReducer(state, {
+    type: 'PICK_FOUL_COMMITTER',
+    playerId: 'h1',
+    teamId: 'home',
+    skipRecipient: true,
+  });
+  assert(
+    state.phase.kind === 'foul' && state.phase.step === 'ft_count',
+    'home unsportsmanlike skipRecipient → ft_count'
+  );
+  assert(
+    state.phase.kind === 'foul' && state.phase.recipientId === undefined,
+    'no Opp recipient id'
+  );
+  assert(
+    state.phase.kind === 'foul' && state.phase.retainPossession === true,
+    'unsportsmanlike keeps retainPossession'
+  );
+  console.log('OK testSkipRecipientOnHomeUnsportsmanlike');
+}
+
+function testHomeTechnicalSkipsOppShooterPick(): void {
+  // Document intended UX: helper says skip; UI commits Opp team FT.
+  assert(
+    shouldSkipTechShooterPick({
+      trackBoth: false,
+      foulingTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'home tech in single-team skips Opp shooter'
+  );
+
+  let game = singleTeamGame();
+  const foul = buildFoulEvent(game, {
+    foulingTeamId: game.homeTeamId,
+    committerId: 'h1',
+    foulCategory: 'technical',
+    isTeamFoul: false,
+    isCoachFoul: false,
+    retainPossession: true,
+    offendedTeamId: game.awayTeamId,
+  });
+  game = GameLogic.recordEvent(game, foul);
+  assert(
+    game.gameStats.find((s) => s.playerId === 'h1')?.tech_fouls === 1,
+    'home player tech credited'
+  );
+
+  const ft = buildFreeThrowEvent(game, game.awayTeamId, undefined, true, 1, 1, {
+    retainPossession: true,
+    offendedTeamId: game.awayTeamId,
+    possessionTeamAfterFt: game.homeTeamId,
+  });
+  game = GameLogic.recordEvent(game, ft);
+  assert(game.teamStats.away.total_points === 1, 'Opp team FT make');
+  assert(
+    game.events.filter((e) => e.type === 'free_throw').every((e) => !e.playerId),
+    'Opp FT has no playerId'
+  );
+  console.log('OK testHomeTechnicalSkipsOppShooterPick');
+}
+
 function testHomeMissOppTeamDrb(): void {
   let game = singleTeamGame();
   const miss = buildShotEvent(game, game.homeTeamId, {
@@ -426,6 +574,11 @@ function testHomeMissOppTeamDrb(): void {
   const reb = buildReboundEvent(game, game.awayTeamId, undefined, 'team_defensive');
   game = GameLogic.recordEvent(game, reb);
   assert(game.teamStats.away.drb === 1 || game.teamStats.away.team_rebounds >= 1, 'Opp team DRB');
+  assert(
+    game.teamStats.away.total_rebounds ===
+      game.teamStats.away.orb + game.teamStats.away.drb,
+    'Opp TRB equals ORB + DRB (team_rebounds not added again)'
+  );
   assert(game.gameStats.every((s) => s.playerId !== 'opponent-1'), 'no Opp player row');
   console.log('OK testHomeMissOppTeamDrb');
 }
@@ -614,6 +767,9 @@ testReplayIncludesOppTeamShots();
 testShotOutcomeTeamOnlyBranches();
 testStartFtWithoutPlayer();
 testSkipRecipientOnHomeFoul();
+testShouldSkipFoulRecipientHelper();
+testSkipRecipientOnHomeUnsportsmanlike();
+testHomeTechnicalSkipsOppShooterPick();
 testHomeMissOppTeamDrb();
 testJumpBallOppTeamTurnover();
 testJumpBallPickToWithoutPlayer();

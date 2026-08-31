@@ -15,7 +15,9 @@ import {
   onlyFriendlyGames,
   resolveGameListLabel,
   resolveGameMetaLabel,
+  resolveCompletedGameTournamentId,
 } from '../src/utils/friendlyGame';
+import { reconcileTournamentRostersFromGames } from '../src/utils/tournamentRosters';
 import {
   buildPlayerTournamentSeasonRows,
   filterPlayerSeasonRowsForTournamentSelection,
@@ -173,6 +175,22 @@ function testPlayerStatsFriendliesRow(): void {
     !filtered.some((r) => r.scopeId === 'all-time'),
     'tournament filter hides All Time'
   );
+
+  const merged = buildPlayerTournamentSeasonRows(
+    player,
+    [team],
+    [official, friendly],
+    tournaments,
+    { gameFormatScope: '5v5', includeFriendliesInAllTime: true }
+  );
+  const mergedAllTime = merged.find((r) => r.scopeId === 'all-time');
+  assert(!!mergedAllTime, 'merged all-time row');
+  assert(mergedAllTime!.gamesPlayed === 2, 'all-time includes friendly when opted in');
+  assert(mergedAllTime!.totalStats.points === 32, 'all-time sums official + friendly');
+  assert(
+    !merged.some((r) => r.scopeId === FRIENDLIES_SCOPE_ID),
+    'no separate Friendlies row when merged'
+  );
 }
 
 function testFriendlyMetadataPatchAllowsCourtFlip(): void {
@@ -192,11 +210,37 @@ function testFriendlyMetadataPatchAllowsCourtFlip(): void {
   assert(patched.tournamentId === undefined, 'no tournament assigned');
 }
 
+function testFriendlyCompleteKeepsNoTournament(): void {
+  const friendly = baseGame({
+    id: 'g-f-done',
+    isFriendly: true,
+    tournamentId: undefined,
+    isCompleted: true,
+    gameStats: [{ playerId: 'p1', points: 5 } as Game['gameStats'][0]],
+  });
+  assert(
+    resolveCompletedGameTournamentId(friendly) === undefined,
+    'friendly completion keeps no tournament'
+  );
+  assert(
+    resolveCompletedGameTournamentId(baseGame({ id: 'g-o', isFriendly: false, tournamentId: undefined })) ===
+      'tournament-summer-2024',
+    'official game still defaults tournament'
+  );
+  const rosters = reconcileTournamentRostersFromGames(
+    [friendly],
+    [{ id: 'h', name: 'Home', abbreviation: 'HOM', players: [{ id: 'p1', name: 'P', number: 1, position: 'PG', height: '', weight: '', age: 0 }] }],
+    []
+  );
+  assert(rosters.length === 0, 'completed friendly without tournament adds no roster rows');
+}
+
 function main(): void {
   testHelpers();
   testFilterTeamScopeExcludesFriendly();
   testPlayerStatsFriendliesRow();
   testFriendlyMetadataPatchAllowsCourtFlip();
+  testFriendlyCompleteKeepsNoTournament();
   console.log('PASS: test-friendly-game');
 }
 

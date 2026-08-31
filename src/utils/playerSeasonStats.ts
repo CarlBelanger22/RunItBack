@@ -520,9 +520,14 @@ export function buildPlayerTournamentSeasonRows(
   teams: Team[],
   games: Game[],
   tournaments: Tournament[],
-  options?: { includeAllTime?: boolean; gameFormatScope?: GameFormatScope }
+  options?: {
+    includeAllTime?: boolean;
+    gameFormatScope?: GameFormatScope;
+    includeFriendliesInAllTime?: boolean;
+  }
 ): PlayerSeasonRow[] {
   const gameFormatScope = options?.gameFormatScope ?? DEFAULT_GAME_FORMAT_SCOPE;
+  const includeFriendliesInAllTime = options?.includeFriendliesInAllTime === true;
 
   const leagueTeams = teams.filter((t) =>
     (t.players ?? []).some((p) => p.id === player.id)
@@ -538,6 +543,21 @@ export function buildPlayerTournamentSeasonRows(
     gameFormatScope,
     tournaments
   );
+
+  const friendlyGames = filterGamesByFormatScope(
+    (games ?? []).filter(
+      (game) =>
+        isFriendlyGame(game) &&
+        game.isCompleted &&
+        (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+    ),
+    gameFormatScope,
+    tournaments
+  );
+
+  const allTimeGames = includeFriendliesInAllTime
+    ? [...playerGames, ...friendlyGames]
+    : playerGames;
 
   const byTournament = new Map<string, Game[]>();
   for (const game of playerGames) {
@@ -616,13 +636,13 @@ export function buildPlayerTournamentSeasonRows(
       };
     });
 
-  if (options?.includeAllTime !== false && playerGames.length > 0) {
-    const team = allTimeTeam(playerGames);
+  if (options?.includeAllTime !== false && allTimeGames.length > 0) {
+    const team = allTimeTeam(allTimeGames);
     const rosterPlayer = rosterPlayerForTeam(
       team.abbreviation === 'Multi' ? null : team.id
     );
     rows.push({
-      ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, playerGames),
+      ...aggregateSinglePlayerSeasonStats(rosterPlayer, team, allTimeGames),
       scopeLabel: allTimeScopeLabel(gameFormatScope),
       scopeId: 'all-time',
       isSummaryRow: true,
@@ -630,18 +650,7 @@ export function buildPlayerTournamentSeasonRows(
     });
   }
 
-  const friendlyGames = filterGamesByFormatScope(
-    (games ?? []).filter(
-      (game) =>
-        isFriendlyGame(game) &&
-        game.isCompleted &&
-        (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
-    ),
-    gameFormatScope,
-    tournaments
-  );
-
-  if (friendlyGames.length > 0) {
+  if (!includeFriendliesInAllTime && friendlyGames.length > 0) {
     const team = allTimeTeam(friendlyGames);
     const rosterPlayer = rosterPlayerForTeam(
       team?.abbreviation === 'Multi' ? null : team?.id ?? null

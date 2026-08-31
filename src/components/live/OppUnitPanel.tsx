@@ -8,6 +8,7 @@ interface OppUnitPanelProps {
   points: number;
   isOffense: boolean;
   disabled?: boolean;
+  foulDisabled?: boolean;
   onTurnover?: () => void;
   onFoul?: () => void;
   className?: string;
@@ -20,6 +21,7 @@ export function OppUnitPanel({
   points,
   isOffense,
   disabled = false,
+  foulDisabled = false,
   onTurnover,
   onFoul,
   className,
@@ -67,8 +69,9 @@ export function OppUnitPanel({
           <button
             type="button"
             className="live-opp-unit-btn"
-            disabled={disabled || !onFoul}
+            disabled={disabled || foulDisabled || !onFoul}
             onClick={onFoul}
+            title={foulDisabled ? 'Use + Foul on the shot dialog for and-1' : undefined}
           >
             Opp Foul
           </button>

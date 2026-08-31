@@ -199,7 +199,7 @@ export function TournamentPage({
       assists: playersArray.sort((a, b) => (b.totalStats.assists / b.gamesPlayed) - (a.totalStats.assists / a.gamesPlayed)).slice(0, 5),
       steals: playersArray.sort((a, b) => (b.totalStats.steals / b.gamesPlayed) - (a.totalStats.steals / a.gamesPlayed)).slice(0, 5),
       blocks: playersArray.sort((a, b) => (b.totalStats.blocks / b.gamesPlayed) - (a.totalStats.blocks / a.gamesPlayed)).slice(0, 5),
-      threes: playersArray.sort((a, b) => (b.totalStats.three_made / b.gamesPlayed) - (a.totalStats.three_made / a.gamesPlayed)).slice(0, 5),
+      threes: playersArray.sort((a, b) => b.totalStats.three_made - a.totalStats.three_made).slice(0, 5),
       efficiency: playersArray.map(p => ({
         ...p,
         eff: MetricsCalculator.calculateEfficiency(p.totalStats) / p.gamesPlayed
@@ -570,10 +570,11 @@ export function TournamentPage({
                       </div>
                     </div>
                     <span className="font-bold ml-2 flex-shrink-0">
-                      {(key === 'steals' ? player.totalStats.steals / player.gamesPlayed :
-                       key === 'blocks' ? player.totalStats.blocks / player.gamesPlayed :
-                       key === 'threes' ? player.totalStats.three_made / player.gamesPlayed :
-                       (player as any).eff).toFixed(1)}
+                      {key === 'threes'
+                        ? player.totalStats.three_made
+                        : (key === 'steals' ? player.totalStats.steals / player.gamesPlayed :
+                           key === 'blocks' ? player.totalStats.blocks / player.gamesPlayed :
+                           (player as any).eff).toFixed(1)}
                     </span>
                   </div>
                 ))}

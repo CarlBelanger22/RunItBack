@@ -351,11 +351,84 @@ function testFriendlyUsesEmbeddedActiveRosterForSubs(): void {
   );
 }
 
+function testTournamentGameDayRosterIdsRestrictSubs(): void {
+  const homeClub = makeTeam('ntu', [
+    player('h1', 'Starter 1', 1),
+    player('h2', 'Starter 2', 4),
+    player('h3', 'Starter 3', 14),
+    player('h4', 'Starter 4', 15),
+    player('h5', 'Starter 5', 22),
+    player('h6', 'Bench 6', 30),
+    player('h7', 'Inactive 7', 0),
+    player('h8', 'Inactive 8', 1),
+    player('h9', 'Inactive 9', 6),
+  ]);
+  const awayClub = makeTeam('moe', [player('a1', 'Away 1', 1)]);
+  const tournamentId = 't-ivp';
+  const tournamentRosters: TournamentRosterEntry[] = [
+    ...['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'h7', 'h8', 'h9'].map((id, i) => ({
+      tournamentId,
+      teamId: 'ntu',
+      playerId: id,
+      number: [1, 4, 14, 15, 22, 30, 0, 1, 6][i]!,
+      position: 'G',
+    })),
+  ];
+
+  const game: Game = {
+    id: 'g-tournament-day',
+    homeTeamId: 'ntu',
+    awayTeamId: 'moe',
+    homeTeam: makeTeam('ntu', [
+      player('h1', 'Starter 1', 1),
+      player('h2', 'Starter 2', 4),
+      player('h3', 'Starter 3', 14),
+      player('h4', 'Starter 4', 15),
+      player('h5', 'Starter 5', 22),
+      player('h6', 'Bench 6', 30),
+    ]),
+    awayTeam: awayClub,
+    tournamentId,
+    date: '2026-08-23',
+    homeStarters: ['h1', 'h2', 'h3', 'h4', 'h5'],
+    awayStarters: ['a1'],
+    gameDayRosterIds: {
+      home: ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'],
+      away: ['a1'],
+    },
+    gameStats: [],
+    teamStats: {
+      home: { teamId: 'ntu', total_points: 0 } as Game['teamStats']['home'],
+      away: { teamId: 'moe', total_points: 0 } as Game['teamStats']['away'],
+    },
+    shots: [],
+    events: [],
+    lineupStints: [],
+    currentPeriod: 1,
+    currentGameTime: '15:00',
+    trackBothTeams: true,
+    isActive: true,
+    isCompleted: false,
+  };
+
+  const normalized = normalizeGameTeamRosters(
+    game,
+    [homeClub, awayClub],
+    tournamentRosters
+  );
+  assert(normalized.homeTeam.players.length === 6, 'game-day roster only');
+  assert(
+    !normalized.homeTeam.players.some((p) => p.id === 'h7'),
+    'inactive tournament player excluded from subs'
+  );
+}
+
 function main(): void {
   testNormalizeTournamentGameAfterClubHydration();
   testParticipantUnionKeepsActiveSub();
   testSetupSnapshotPreservedWithoutTournament();
   testFriendlyUsesEmbeddedActiveRosterForSubs();
+  testTournamentGameDayRosterIdsRestrictSubs();
   console.log('All game-team-rosters tests passed.');
 }
 

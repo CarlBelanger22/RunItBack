@@ -241,6 +241,29 @@ export function applyClubLinksToTeams(
 }
 
 /** Union rosters per team (by player id); incoming wins on jersey conflicts. */
+function pickNonEmptyString(...values: (string | undefined)[]): string {
+  for (const value of values) {
+    if (value?.trim()) return value.trim();
+  }
+  return '';
+}
+
+/** Merge two roster rows for the same player without clobbering filled profile fields. */
+export function mergePlayerRosterUnion(base: Player, incoming: Player): Player {
+  return {
+    id: incoming.id || base.id,
+    name: pickNonEmptyString(incoming.name, base.name),
+    number: incoming.number || base.number,
+    position: pickNonEmptyString(incoming.position, base.position),
+    secondaryPosition: incoming.secondaryPosition ?? base.secondaryPosition,
+    picture: incoming.picture ?? base.picture,
+    height: pickNonEmptyString(incoming.height, base.height),
+    weight: pickNonEmptyString(incoming.weight, base.weight),
+    age: incoming.age ?? base.age,
+    dateOfBirth: incoming.dateOfBirth ?? base.dateOfBirth,
+  };
+}
+
 export function mergeTeamRostersUnion(base: Team[], incoming: Team[]): Team[] {
   const incomingById = new Map(incoming.map((t) => [t.id, t]));
   const allIds = new Set([...base.map((t) => t.id), ...incoming.map((t) => t.id)]);
@@ -254,7 +277,10 @@ export function mergeTeamRostersUnion(base: Team[], incoming: Team[]): Team[] {
 
     const byPlayerId = new Map<string, Player>();
     for (const p of a.players ?? []) byPlayerId.set(p.id, p);
-    for (const p of b.players ?? []) byPlayerId.set(p.id, p);
+    for (const p of b.players ?? []) {
+      const existing = byPlayerId.get(p.id);
+      byPlayerId.set(p.id, existing ? mergePlayerRosterUnion(existing, p) : p);
+    }
 
     return {
       ...b,

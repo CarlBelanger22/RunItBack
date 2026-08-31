@@ -87,6 +87,7 @@ import {
   mergeTeamRostersUnion,
 } from './utils/clubRosterIntegrity';
 import { ensureGameQuarterStats } from './utils/quarterScoring';
+import { resolveCompletedGameTournamentId } from './utils/friendlyGame';
 
 import { Settings, Search } from 'lucide-react';
 
@@ -270,7 +271,7 @@ export interface TeamStats {
   orb: number;
   drb: number;
   team_rebounds: number; // When no individual is credited
-  total_rebounds: number; // Derived: orb + drb + team_rebounds
+  total_rebounds: number; // Derived: orb + drb (team_rebounds is a subset counter, not additive)
   // Other stats
   assists: number;
   steals: number;
@@ -376,6 +377,11 @@ export interface Game {
   setupCreatedTeamIds?: string[];
   /** Players added to existing teams during setup (removed if game is deleted). */
   setupRosterChanges?: SetupRosterChange[];
+  /**
+   * Game-day active roster (Starters + Bench from setup). Inactive triage excluded.
+   * Persisted so live entry subs/box score do not expand to full club after reload.
+   */
+  gameDayRosterIds?: { home: string[]; away: string[] };
   /** Alternating-possession arrow — team that gets the next jump ball. */
   possessionArrowTeamId?: string;
   /**
@@ -1046,6 +1052,10 @@ export default function App() {
   const isStatsEntry =
     location.pathname.startsWith(paths.statsEntry) || location.pathname.startsWith('/live');
   const isLiveGameRoute = /^\/live\/[^/]+/.test(location.pathname);
+  const headerLiveGame = useMemo(
+    () => getActiveGame(games, currentGame),
+    [games, currentGame]
+  );
 
   useEffect(() => {
     // LE-135 — Courtside Dark only; keep html.dark for dark: utilities
@@ -1084,9 +1094,7 @@ export default function App() {
     tournamentRostersRef.current = processed.tournamentRosters;
     loadedOrphanPlayersRef.current = processed.orphanPlayers;
 
-    if (processed.activeGame) {
-      setCurrentGame(processed.activeGame);
-    }
+    setCurrentGame(processed.activeGame);
 
     saveAppDataSnapshot({
       teams: teamsWithIcons,
@@ -1373,11 +1381,7 @@ export default function App() {
             tournamentsRef.current = mergedTournaments;
             prevTournamentsRef.current = mergedTournaments;
           } else {
-            const mergedTeams = mergeTeamRostersUnion(
-              processed.teams,
-              teamsRef.current
-            );
-            applyProcessedToState({ ...processed, teams: mergedTeams });
+            applyProcessedToState(processed);
             cloudApplied = true;
           }
           runCloudLoadSideEffects(data, processed);
@@ -1701,8 +1705,7 @@ export default function App() {
       .filter(s => game.awayTeam.players.some(p => p.id === s.playerId))
       .reduce((sum, s) => sum + s.points, 0);
 
-    // Ensure tournament ID is set (default to Summer League 2024)
-    const tournamentId = game.tournamentId || 'tournament-summer-2024';
+    const tournamentId = resolveCompletedGameTournamentId(game);
 
     const completedGame = ensureGameQuarterStats({
       ...game,
@@ -1729,12 +1732,21 @@ export default function App() {
       return nextGames;
     });
 
-    // Add game to tournament's games list
-    setTournaments(prev => prev.map(tournament => 
-      tournament.id === tournamentId
-        ? { ...tournament, games: [...tournament.games.filter(gid => gid !== completedGame.id), completedGame.id] }
-        : tournament
-    ));
+    if (tournamentId) {
+      setTournaments((prev) =>
+        prev.map((tournament) =>
+          tournament.id === tournamentId
+            ? {
+                ...tournament,
+                games: [
+                  ...tournament.games.filter((gid) => gid !== completedGame.id),
+                  completedGame.id,
+                ],
+              }
+            : tournament
+        )
+      );
+    }
     
     setCurrentGame(null);
     navigate(paths.home);
@@ -2507,14 +2519,14 @@ export default function App() {
             
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
-              {currentGame && currentGame.isActive && !currentGame.isCompleted && (
+              {headerLiveGame && (
                 <button
                   type="button"
-                  onClick={() => navigate(liveGamePath(currentGame.id))}
+                  onClick={() => navigate(liveGamePath(headerLiveGame.id))}
                   className="text-xs bg-green-900/20 text-green-400 px-3 py-1 rounded-full hover:bg-green-900/40 transition-colors cursor-pointer"
                 >
-                  Live: {currentGame.homeTeam.abbreviation} vs{' '}
-                  {currentGame.awayTeam.abbreviation}
+                  Live: {headerLiveGame.homeTeam.abbreviation} vs{' '}
+                  {headerLiveGame.awayTeam.abbreviation}
                 </button>
               )}
               

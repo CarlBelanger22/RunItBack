@@ -174,12 +174,59 @@ function testMergeDoesNotClobberIdentityWithUndefined(): void {
   );
 }
 
+function testMergePreservesCloudProfileWhenSnapshotBlank(): void {
+  const cloud = [
+    {
+      id: 'team-ina',
+      name: 'Indonesia',
+      abbreviation: 'INA',
+      players: [
+        {
+          id: 'p1',
+          name: 'Yudha Saputera',
+          number: 8,
+          position: 'PG',
+          height: '175',
+          weight: '',
+          age: 0,
+          dateOfBirth: '1998-11-21',
+        },
+      ],
+    },
+  ];
+  const snapshot = [
+    {
+      id: 'team-ina',
+      name: 'Indonesia',
+      abbreviation: 'INA',
+      players: [
+        {
+          id: 'p1',
+          name: 'Yudha Saputera',
+          number: 8,
+          position: 'PG',
+          height: '',
+          weight: '',
+          age: 0,
+        },
+      ],
+    },
+  ];
+  const merged = mergeTeamRostersUnion(cloud, snapshot);
+  assert(merged[0].players[0].height === '175', 'height kept from cloud');
+  assert(
+    merged[0].players[0].dateOfBirth === '1998-11-21',
+    'DOB kept from cloud when snapshot blank'
+  );
+}
+
 function main(): void {
   testSafsaGameLinksCarl();
   testCarlMultiTeam();
   testMergeNeverDropsDerived();
   testVerifyPasses();
   testMergeDoesNotClobberIdentityWithUndefined();
+  testMergePreservesCloudProfileWhenSnapshotBlank();
   console.log('All club roster integrity tests passed.');
 }
 

@@ -63,6 +63,7 @@ import {
 } from '../../utils/foulOut';
 import { resolveGameMetaLabel } from '../../utils/friendlyGame';
 import { resolveSideScore } from '../../utils/gameDisplay';
+import { shouldSkipFoulRecipient, shouldSkipTechShooterPick } from '../../liveEntry/foulFlow';
 
 interface LiveGameWorkspaceProps {
   game: Game;
@@ -280,12 +281,14 @@ function resolveColumnPick(
       return null;
     }
 
-    const skipRecipient =
-      !trackBoth &&
-      !isOffensive &&
-      foulingTeamId === game.homeTeamId &&
-      !handlers.and1RecipientId &&
-      !handlers.and1OppTeamFt;
+    const skipRecipient = shouldSkipFoulRecipient({
+      trackBoth,
+      foulingTeamId,
+      homeTeamId: game.homeTeamId,
+      foulCategory: phase.foulCategory,
+      and1RecipientId: handlers.and1RecipientId,
+      and1OppTeamFt: handlers.and1OppTeamFt,
+    });
 
     return {
       side: teamSide(game, foulingTeamId),
@@ -609,6 +612,57 @@ export function LiveGameWorkspace({
   const isBothRosterFoulCommitter =
     isTechFoulCommitter || isUnsportsmanlikeFoulCommitter;
 
+  const pickBothRosterFoulCommitter = useCallback(
+    (playerId: string, teamId: string) => {
+      const category =
+        phase.kind === 'foul' ? phase.foulCategory : undefined;
+
+      if (
+        category === 'technical' &&
+        shouldSkipTechShooterPick({
+          trackBoth,
+          foulingTeamId: teamId,
+          homeTeamId: currentGame.homeTeamId,
+        })
+      ) {
+        commitFoul({
+          foulingTeamId: teamId,
+          foulCategory: 'technical',
+          foulEntity: 'player',
+          committerId: playerId,
+          ftCount: 1,
+          ftShootingTeamId: currentGame.awayTeamId,
+          retainPossession: true,
+          offendedTeamId: currentGame.awayTeamId,
+          possessionTeamAfterFt: offenseTeamId,
+        });
+        return;
+      }
+
+      dispatch({
+        type: 'PICK_FOUL_COMMITTER',
+        playerId,
+        teamId,
+        skipRecipient:
+          shouldSkipFoulRecipient({
+            trackBoth,
+            foulingTeamId: teamId,
+            homeTeamId: currentGame.homeTeamId,
+            foulCategory: category,
+          }) || undefined,
+      });
+    },
+    [
+      phase,
+      trackBoth,
+      currentGame.homeTeamId,
+      currentGame.awayTeamId,
+      offenseTeamId,
+      dispatch,
+      commitFoul,
+    ]
+  );
+
   const columnPick = useMemo(
     () =>
       resolveColumnPick(
@@ -896,6 +950,41 @@ export function LiveGameWorkspace({
       ? eligibleBench(forcedFoulOut.teamId).length === 0
       : false;
 
+  // Single-team: home technical landed on tech_shooter (Opp FT) — no Opp roster.
+  // Auto-commit Opp team FT (also unsticks sessions that hit this before the fix).
+  useEffect(() => {
+    if (phase.kind !== 'foul' || phase.step !== 'tech_shooter') return;
+    if (!phase.committerTeamId) return;
+    if (
+      !shouldSkipTechShooterPick({
+        trackBoth,
+        foulingTeamId: phase.committerTeamId,
+        homeTeamId: currentGame.homeTeamId,
+      })
+    ) {
+      return;
+    }
+    commitFoul({
+      foulingTeamId: phase.committerTeamId,
+      foulCategory: 'technical',
+      foulEntity: phase.isCoachFoul ? 'team' : 'player',
+      committerId: phase.committerId,
+      isCoachFoul: phase.isCoachFoul,
+      ftCount: 1,
+      ftShootingTeamId: currentGame.awayTeamId,
+      retainPossession: true,
+      offendedTeamId: currentGame.awayTeamId,
+      possessionTeamAfterFt: offenseTeamId,
+    });
+  }, [
+    phase,
+    trackBoth,
+    currentGame.homeTeamId,
+    currentGame.awayTeamId,
+    offenseTeamId,
+    commitFoul,
+  ]);
+
   // Open/configure the substitution dialog in forced mode for the queued player.
   useEffect(() => {
     if (!forcedFoulOut) return;
@@ -994,6 +1083,9 @@ export function LiveGameWorkspace({
     relocatingShot ||
     (phase.kind !== 'idle' && phase.kind !== 'shot');
 
+  const foulDisabledDuringPendingMake =
+    phase.kind === 'shot' && pending?.outcome === 'make';
+
   const subDisabled =
     isOpeningJumpBall ||
     lineupOverlayOpen ||
@@ -1083,11 +1175,10 @@ export function LiveGameWorkspace({
                   onSelect={
                     isBothRosterFoulCommitter
                       ? (p) =>
-                          dispatch({
-                            type: 'PICK_FOUL_COMMITTER',
-                            playerId: p.id,
-                            teamId: currentGame.homeTeamId,
-                          })
+                          pickBothRosterFoulCommitter(
+                            p.id,
+                            currentGame.homeTeamId
+                          )
                       : columnPick?.side === 'home'
                         ? columnPick.onSelect
                         : undefined
@@ -1207,6 +1298,7 @@ export function LiveGameWorkspace({
                     clearAnd1Session();
                   }}
                   canUndo={currentGame.events.length > 0}
+                  foulDisabled={foulDisabledDuringPendingMake}
                   onFoul={() => dispatch({ type: 'START_FOUL' })}
                   onTurnover={() => dispatch({ type: 'START_TURNOVER' })}
                   onJumpBall={startJumpBall}
@@ -1230,11 +1322,10 @@ export function LiveGameWorkspace({
                     onSelect={
                       isBothRosterFoulCommitter
                         ? (p) =>
-                            dispatch({
-                              type: 'PICK_FOUL_COMMITTER',
-                              playerId: p.id,
-                              teamId: currentGame.awayTeamId,
-                            })
+                            pickBothRosterFoulCommitter(
+                              p.id,
+                              currentGame.awayTeamId
+                            )
                         : columnPick?.side === 'away'
                           ? columnPick.onSelect
                           : undefined
@@ -1251,6 +1342,7 @@ export function LiveGameWorkspace({
                     points={awayScore}
                     isOffense={!homeIsOffense}
                     disabled={actionBarDisabled}
+                    foulDisabled={foulDisabledDuringPendingMake}
                     onTurnover={
                       !homeIsOffense
                         ? () => dispatch({ type: 'START_TURNOVER' })

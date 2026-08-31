@@ -79,6 +79,10 @@ export interface SnapshotGame {
   liveTeamStats?: { home: TeamStats; away: TeamStats };
   liveShots?: Shot[];
   possessionArrowTeamId?: string | null;
+  /** Game-day active roster ids (setup Starters+Bench; inactive excluded). */
+  gameDayRosterIds?: { home: string[]; away: string[] };
+  /** Live entry camera view — home on left vs right (v9+). */
+  courtSidesFlipped?: boolean;
   /** Completed game quarter splits — survives localStorage reload (v8+). */
   completedQuarterStats?: {
     home: SnapshotQuarterStats;
@@ -308,6 +312,10 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
       base.liveTeamStats = game.teamStats;
       base.liveShots = game.shots ?? [];
       base.possessionArrowTeamId = game.possessionArrowTeamId ?? null;
+      base.courtSidesFlipped = !!game.courtSidesFlipped;
+      if (game.gameDayRosterIds) {
+        base.gameDayRosterIds = game.gameDayRosterIds;
+      }
     }
 
     if (game.isCompleted) {
@@ -400,6 +408,8 @@ export function hydrateSnapshotGames(
       isCompleted: row.isCompleted,
       finalScore: row.finalScore,
       possessionArrowTeamId: row.possessionArrowTeamId ?? undefined,
+      courtSidesFlipped: row.courtSidesFlipped === true ? true : undefined,
+      gameDayRosterIds: row.gameDayRosterIds,
     };
   });
 }

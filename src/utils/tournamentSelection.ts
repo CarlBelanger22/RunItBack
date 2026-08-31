@@ -222,10 +222,10 @@ export function tournamentSelectionTriggerLabel(
     return 'No tournaments';
   }
   if (gameFormatScope === '5v5' && selection === null) {
-    return 'All 5v5 tournaments';
+    return 'All 5v5';
   }
   if (gameFormatScope === '3x3' && selection === null) {
-    return 'All 3×3 tournaments';
+    return 'All 3×3';
   }
   if (isAllTournamentsSelected(selection, options.map((o) => o.id))) {
     return 'All tournaments';

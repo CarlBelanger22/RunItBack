@@ -10,6 +10,8 @@ interface LiveActionBarProps {
   onUndo: () => void;
   canUndo?: boolean;
   disabled?: boolean;
+  /** When set, only the Foul button is disabled (e.g. pending make — use + Foul on overlay). */
+  foulDisabled?: boolean;
   jumpBallDisabled?: boolean;
   variant?: 'light' | 'dark';
 }
@@ -21,6 +23,7 @@ export function LiveActionBar({
   onUndo,
   canUndo = false,
   disabled = false,
+  foulDisabled = false,
   jumpBallDisabled = false,
   variant = 'light',
 }: LiveActionBarProps) {
@@ -48,7 +51,8 @@ export function LiveActionBar({
         size="default"
         className={cn('live-action-foul min-w-[88px] font-semibold', dark && 'bg-card')}
         onClick={onFoul}
-        disabled={disabled}
+        disabled={disabled || foulDisabled}
+        title={foulDisabled ? 'Use + Foul on the shot dialog for and-1' : undefined}
       >
         FOUL
       </Button>

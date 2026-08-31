@@ -85,11 +85,11 @@ function testPruneAndToggle(): void {
 
 function testLabel(): void {
   assert(
-    tournamentSelectionTriggerLabel(null, OPTIONS, '5v5') === 'All 5v5 tournaments',
+    tournamentSelectionTriggerLabel(null, OPTIONS, '5v5') === 'All 5v5',
     'all 5v5 label'
   );
   assert(
-    tournamentSelectionTriggerLabel(null, OPTIONS, '3x3') === 'All 3×3 tournaments',
+    tournamentSelectionTriggerLabel(null, OPTIONS, '3x3') === 'All 3×3',
     'all 3x3 label'
   );
   assert(

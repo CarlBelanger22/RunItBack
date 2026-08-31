@@ -38,6 +38,10 @@ import {
 } from "../App";
 import { Plus, Trash2, Users, Calendar, Clock } from "lucide-react";
 import { SortableRosterList } from "./gameSetup/SortableRosterList";
+import {
+  SearchableTeamSelect,
+  type TeamSelectOption,
+} from "./gameSetup/SearchableTeamSelect";
 import { GameStageTagFields } from "./GameStageTagFields";
 import { addedPlayersFromBaseline } from "../utils/activeGame";
 import { sortTournamentsByDateDesc } from "../utils/tournamentSort";
@@ -247,34 +251,36 @@ const TeamSidePanel = React.memo(function TeamSidePanel({
         : `${team.name} — Tournament roster (${team.players.length})`
       : `${team.name} — Players (${team.players.length})`;
 
+  const teamSelectOptions = useMemo((): TeamSelectOption[] => {
+    return tournamentTeams.map((t) => {
+      const rosterSize = clubRosterMode
+        ? t.players.length
+        : countTournamentRoster(t.id, tournamentId, tournamentRosters);
+      const label = clubRosterMode
+        ? `${t.name} (${rosterSize}${rosterSize === 1 ? " player" : " players"})`
+        : `${t.name} (${rosterSize} tournament${
+            rosterSize === 1 ? " player" : " players"
+          })`;
+      return {
+        id: t.id,
+        label,
+        searchTerms: `${t.name} ${t.abbreviation}`,
+      };
+    });
+  }, [clubRosterMode, tournamentId, tournamentRosters, tournamentTeams]);
+
   return (
     <div className="space-y-4">
       <div className="space-y-2">
         <Label>Team</Label>
-        <Select value={selectValue} onValueChange={handleDropdownChange}>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a team" />
-          </SelectTrigger>
-          <SelectContent>
-            {tournamentTeams.map((t) => {
-              const rosterSize = clubRosterMode
-                ? t.players.length
-                : countTournamentRoster(t.id, tournamentId, tournamentRosters);
-              return (
-                <SelectItem key={t.id} value={t.id}>
-                  {clubRosterMode
-                    ? `${t.name} (${rosterSize}${rosterSize === 1 ? " player" : " players"})`
-                    : `${t.name} (${rosterSize} tournament${
-                        rosterSize === 1 ? " player" : " players"
-                      })`}
-                </SelectItem>
-              );
-            })}
-            <SelectItem value={CREATE_NEW_TEAM_VALUE}>
-              Create new team
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <SearchableTeamSelect
+          value={selectValue}
+          onValueChange={handleDropdownChange}
+          options={teamSelectOptions}
+          placeholder="Select a team"
+          searchPlaceholder="Search teams…"
+          createNewValue={CREATE_NEW_TEAM_VALUE}
+        />
       </div>
 
       {mode === "create_new" && (
@@ -529,6 +535,14 @@ const OppIdentityPanel = React.memo(function OppIdentityPanel({
     onSelectExisting(value);
   };
 
+  const opponentSelectOptions = useMemo((): TeamSelectOption[] => {
+    return tournamentTeams.map((t) => ({
+      id: t.id,
+      label: `${t.name} (${t.abbreviation})`,
+      searchTerms: `${t.name} ${t.abbreviation}`,
+    }));
+  }, [tournamentTeams]);
+
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
@@ -539,21 +553,14 @@ const OppIdentityPanel = React.memo(function OppIdentityPanel({
 
       <div className="space-y-2">
         <Label>Opponent team</Label>
-        <Select value={selectValue} onValueChange={handleDropdownChange}>
-          <SelectTrigger>
-            <SelectValue placeholder="Select a tournament team" />
-          </SelectTrigger>
-          <SelectContent>
-            {tournamentTeams.map((t) => (
-              <SelectItem key={t.id} value={t.id}>
-                {t.name} ({t.abbreviation})
-              </SelectItem>
-            ))}
-            <SelectItem value={CREATE_NEW_TEAM_VALUE}>
-              Create new team
-            </SelectItem>
-          </SelectContent>
-        </Select>
+        <SearchableTeamSelect
+          value={selectValue}
+          onValueChange={handleDropdownChange}
+          options={opponentSelectOptions}
+          placeholder="Select a tournament team"
+          searchPlaceholder="Search opponent teams…"
+          createNewValue={CREATE_NEW_TEAM_VALUE}
+        />
       </div>
 
       {mode === "create_new" && (
@@ -1011,6 +1018,10 @@ export function GameSetup({
       currentGameTime: formatPeriodClock(clockSettings.regulationPeriodMinutes),
       homeStarters: starterIds(homeTeam.players),
       awayStarters: trackBothTeams ? starterIds(awayTeam.players) : [],
+      gameDayRosterIds: {
+        home: homeTeam.players.map((p) => p.id),
+        away: trackBothTeams ? awayTeam.players.map((p) => p.id) : [],
+      },
       trackBothTeams,
       isFriendly: isFriendly ? true : undefined,
       isActive: true,

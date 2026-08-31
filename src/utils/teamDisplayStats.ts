@@ -1,9 +1,7 @@
 import type { Game } from '../App';
 import {
-  getPersistedTeamStats,
   resolveSideScore,
   resolveTeamTotals,
-  teamHasPlayerBoxScore,
   type TeamSide,
 } from './gameDisplay';
 
@@ -33,15 +31,8 @@ export function buildTeamDisplayStats(
   side: TeamSide
 ): TeamDisplayStats {
   const totals = resolveTeamTotals(game, side);
-  const team = side === 'home' ? game.homeTeam : game.awayTeam;
-  const fromPlayers = teamHasPlayerBoxScore(game, team);
 
-  const rebounds = totals.scoreOnly
-    ? 0
-    : fromPlayers
-      ? totals.orb + totals.drb
-      : getPersistedTeamStats(game, side)?.total_rebounds ??
-        totals.orb + totals.drb;
+  const rebounds = totals.scoreOnly ? 0 : totals.orb + totals.drb;
   const drb = totals.drb;
 
   const assistToTurnoverRatio =

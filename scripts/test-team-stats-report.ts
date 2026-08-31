@@ -200,7 +200,7 @@ assert(
   'advanced header count matches body'
 );
 assert(model.filename === 'BOS_All-Tournaments_stats.pdf', 'model filename');
-assert(model.tournamentScopeLabel === 'All 5v5 tournaments', 'tournament scope label');
+assert(model.tournamentScopeLabel === 'All 5v5', 'tournament scope label');
 assert(model.formatScopeLabel === '5v5', 'format scope label');
 assert(model.exportedAt === 'July 11, 2026', 'export date formatting');
 

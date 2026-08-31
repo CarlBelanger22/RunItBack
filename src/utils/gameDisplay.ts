@@ -107,6 +107,25 @@ function sideHasImportedPlayerBoxScore(game: Game, team: Team): boolean {
   );
 }
 
+/** True when persisted team stats include tracked box-score data (not just final score). */
+export function teamHasPersistedBoxScoreStats(
+  stats: TeamStats | undefined
+): boolean {
+  if (!stats) return false;
+  return (
+    (stats.fg_attempted ?? 0) > 0 ||
+    (stats.ft_attempted ?? 0) > 0 ||
+    (stats.orb ?? 0) + (stats.drb ?? 0) > 0 ||
+    (stats.team_rebounds ?? 0) > 0 ||
+    (stats.total_rebounds ?? 0) > 0 ||
+    (stats.steals ?? 0) > 0 ||
+    (stats.blocks ?? 0) > 0 ||
+    (stats.assists ?? 0) > 0 ||
+    (stats.turnovers ?? 0) > 0 ||
+    (stats.fouls ?? 0) > 0
+  );
+}
+
 /** True when a side has no player box score rows but a team/final score exists (e.g. SUTD). */
 export function isScoreOnlyTeam(game: Game, side: TeamSide): boolean {
   const team = getTeamForSide(game, side);
@@ -126,7 +145,10 @@ export function isScoreOnlyTeam(game: Game, side: TeamSide): boolean {
   const fromFinal = isHomeTeamId(game, team.id)
     ? (game.finalScore?.home ?? 0)
     : (game.finalScore?.away ?? 0);
-  return (persisted?.total_points ?? 0) > 0 || fromFinal > 0;
+  const hasScore = (persisted?.total_points ?? 0) > 0 || fromFinal > 0;
+  if (!hasScore) return false;
+
+  return !teamHasPersistedBoxScoreStats(persisted);
 }
 
 export function hasAwayTeamContent(game: Game): boolean {
@@ -635,17 +657,7 @@ export function teamGameCountsForSeasonAverages(
   if (rosterHasPlayerBoxScore(game, rosterIds)) return true;
 
   const persisted = getPersistedTeamStatsForTeam(game, teamId);
-  if (!persisted) return false;
-
-  return (
-    (persisted.fg_attempted ?? 0) > 0 ||
-    (persisted.orb ?? 0) + (persisted.drb ?? 0) > 0 ||
-    (persisted.steals ?? 0) > 0 ||
-    (persisted.blocks ?? 0) > 0 ||
-    (persisted.assists ?? 0) > 0 ||
-    (persisted.turnovers ?? 0) > 0 ||
-    (persisted.fouls ?? 0) > 0
-  );
+  return teamHasPersistedBoxScoreStats(persisted);
 }
 
 function teamGameSeasonContribution(

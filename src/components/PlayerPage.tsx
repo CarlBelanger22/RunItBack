@@ -24,7 +24,7 @@ import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
 import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
-import { isCompetitiveGame, resolveGameListLabel } from '../utils/friendlyGame';
+import { isCompetitiveGame, isFriendlyGame, resolveGameListLabel, parseIncludeFriendliesInStats, serializeIncludeFriendliesInStats } from '../utils/friendlyGame';
 import {
   perGameAverageOrNull,
   gameRecordsStat,
@@ -179,6 +179,9 @@ export function PlayerPage({
     () => parseTournamentSelection(searchParams.get('tournaments')),
     [searchParams]
   );
+  const includeFriendliesInAllTime = parseIncludeFriendliesInStats(
+    searchParams.get('friendlies')
+  );
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeletePlayerDialogOpen, setIsDeletePlayerDialogOpen] = useState(false);
   const [deleteBlockedInfo, setDeleteBlockedInfo] = useState<{
@@ -192,7 +195,11 @@ export function PlayerPage({
   const wasEditDialogOpenRef = useRef(false);
 
   const updateStatsSearchParams = useCallback(
-    (patch: { format?: GameFormatScope; tournamentIds?: TournamentIdSet }) => {
+    (patch: {
+      format?: GameFormatScope;
+      tournamentIds?: TournamentIdSet;
+      includeFriendlies?: boolean;
+    }) => {
       const next = new URLSearchParams(searchParams);
       const format = patch.format ?? gameFormatScope;
       if (format === DEFAULT_GAME_FORMAT_SCOPE) {
@@ -209,6 +216,16 @@ export function PlayerPage({
       } else {
         next.delete('tournaments');
       }
+      const includeFriendlies =
+        'includeFriendlies' in patch
+          ? patch.includeFriendlies!
+          : includeFriendliesInAllTime;
+      const friendliesSerialized = serializeIncludeFriendliesInStats(includeFriendlies);
+      if (friendliesSerialized) {
+        next.set('friendlies', friendliesSerialized);
+      } else {
+        next.delete('friendlies');
+      }
       setSearchParams(
         next,
         searchParamsOptionsPreservingState(location, { replace: true })
@@ -219,6 +236,7 @@ export function PlayerPage({
       setSearchParams,
       gameFormatScope,
       selectedTournamentIds,
+      includeFriendliesInAllTime,
       location,
     ]
   );
@@ -236,6 +254,13 @@ export function PlayerPage({
         format: change.format,
         tournamentIds: change.selection,
       });
+    },
+    [updateStatsSearchParams]
+  );
+
+  const setIncludeFriendliesInAllTime = useCallback(
+    (value: boolean) => {
+      updateStatsSearchParams({ includeFriendlies: value });
     },
     [updateStatsSearchParams]
   );
@@ -547,6 +572,19 @@ export function PlayerPage({
 
   const showTournamentFilter =
     activeTab === 'stats' || activeTab === 'advanced';
+
+  const hasFriendlyGamesInScope = useMemo(
+    () =>
+      (games ?? []).some(
+        (game) =>
+          isFriendlyGame(game) &&
+          game.isCompleted &&
+          (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+      ),
+    [games, player.id]
+  );
+
+  const showIncludeFriendliesToggle = activeTab === 'stats';
 
   const getGameTeamContext = useCallback(
     (game: Game) => {
@@ -872,8 +910,9 @@ export function PlayerPage({
       () =>
         buildPlayerTournamentSeasonRows(player, teams, games, tournaments, {
           gameFormatScope,
+          includeFriendliesInAllTime,
         }),
-      [player, teams, games, tournaments, gameFormatScope]
+      [player, teams, games, tournaments, gameFormatScope, includeFriendliesInAllTime]
     );
 
     const summaryRow = useMemo(
@@ -1413,6 +1452,14 @@ export function PlayerPage({
                   onTournamentSelectionScopeChange: handleTournamentSelectionScopeChange,
                   tournamentOptions: tournamentFilterOptions,
                   tournamentSelectId: 'player-tournament-scope',
+                }
+              : {})}
+            {...(showIncludeFriendliesToggle
+              ? {
+                  includeFriendlies: includeFriendliesInAllTime,
+                  onIncludeFriendliesChange: setIncludeFriendliesInAllTime,
+                  includeFriendliesId: 'player-include-friendlies',
+                  includeFriendliesDisabled: !hasFriendlyGamesInScope,
                 }
               : {})}
             formatToggleId="player-game-format-scope"

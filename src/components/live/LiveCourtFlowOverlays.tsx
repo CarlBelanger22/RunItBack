@@ -495,7 +495,23 @@ export function LiveCourtFlowOverlays({
           <CardContent className="grid grid-cols-2 gap-2 pb-4">
             <Button
               variant="outline"
-              onClick={overlayClick(() => dispatch({ type: 'PICK_FOUL_COACH', teamId: homeTeamId }))}
+              onClick={overlayClick(() => {
+                if (!trackBoth) {
+                  commitFoul({
+                    foulingTeamId: homeTeamId,
+                    foulCategory: 'technical',
+                    foulEntity: 'team',
+                    isCoachFoul: true,
+                    ftCount: 1,
+                    ftShootingTeamId: awayTeamId,
+                    retainPossession: true,
+                    offendedTeamId: awayTeamId,
+                    possessionTeamAfterFt: offenseTeamId,
+                  });
+                  return;
+                }
+                dispatch({ type: 'PICK_FOUL_COACH', teamId: homeTeamId });
+              })}
             >
               Home coach
             </Button>

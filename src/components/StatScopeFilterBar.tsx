@@ -1,5 +1,6 @@
 import React from 'react';
 import { Label } from './ui/label';
+import { Checkbox } from './ui/checkbox';
 import { GameFormatToggle } from './GameFormatToggle';
 import {
   TournamentMultiSelect,
@@ -21,6 +22,10 @@ interface StatScopeFilterBarProps {
   tournamentOptions?: StatScopeTournamentOption[];
   formatToggleId?: string;
   tournamentSelectId?: string;
+  includeFriendlies?: boolean;
+  onIncludeFriendliesChange?: (value: boolean) => void;
+  includeFriendliesId?: string;
+  includeFriendliesDisabled?: boolean;
 }
 
 function FilterField({
@@ -55,48 +60,76 @@ export function StatScopeFilterBar({
   tournamentOptions,
   formatToggleId = 'game-format-scope',
   tournamentSelectId = 'tournament-scope',
+  includeFriendlies = false,
+  onIncludeFriendliesChange,
+  includeFriendliesId = 'include-friendlies',
+  includeFriendliesDisabled = false,
 }: StatScopeFilterBarProps) {
   const showTournament =
     tournamentOptions !== undefined && onTournamentSelectionScopeChange !== undefined;
+  const showIncludeFriendlies = onIncludeFriendliesChange !== undefined;
 
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <FilterField label="Format">
-          <GameFormatToggle
-            value={gameFormatScope}
-            onChange={onGameFormatScopeChange}
-            id={formatToggleId}
-            showCombinedWarning={false}
-            inline
-          />
-        </FilterField>
+      <div className="flex flex-nowrap items-end justify-between gap-4">
+        <div className="flex shrink-0 items-end gap-x-4">
+          <FilterField label="Format">
+            <GameFormatToggle
+              value={gameFormatScope}
+              onChange={onGameFormatScopeChange}
+              id={formatToggleId}
+              showCombinedWarning={false}
+              inline
+            />
+          </FilterField>
+
+          {showIncludeFriendlies && (
+            <div
+              className="flex items-center gap-2 pb-1"
+              title={
+                includeFriendliesDisabled
+                  ? 'No completed friendly games with stats for this player in the current format'
+                  : 'Merge friendly games into the All Time summary row'
+              }
+            >
+              <Checkbox
+                id={includeFriendliesId}
+                checked={includeFriendlies}
+                disabled={includeFriendliesDisabled}
+                onCheckedChange={(checked) =>
+                  onIncludeFriendliesChange(checked === true)
+                }
+              />
+              <Label
+                htmlFor={includeFriendliesId}
+                className="cursor-pointer whitespace-nowrap text-sm font-normal leading-none"
+              >
+                Include Friendlies
+              </Label>
+            </div>
+          )}
+        </div>
 
         {showTournament && (
-          <>
-            <div
-              className="hidden sm:block w-px self-stretch bg-border/60 mx-1 mb-0.5"
-              aria-hidden
+          <FilterField
+            label="Tournament"
+            htmlFor={tournamentSelectId}
+            className="w-1/3 min-w-[14rem] shrink-0"
+          >
+            <TournamentMultiSelect
+              id={tournamentSelectId}
+              className="h-9 w-full min-w-0"
+              options={tournamentOptions}
+              value={selectedTournamentIds}
+              gameFormatScope={gameFormatScope}
+              onSelectionScopeChange={onTournamentSelectionScopeChange}
             />
-            <FilterField
-              label="Tournament"
-              htmlFor={tournamentSelectId}
-              className="w-full sm:w-auto sm:min-w-[14rem]"
-            >
-              <TournamentMultiSelect
-                id={tournamentSelectId}
-                options={tournamentOptions}
-                value={selectedTournamentIds}
-                gameFormatScope={gameFormatScope}
-                onSelectionScopeChange={onTournamentSelectionScopeChange}
-              />
-            </FilterField>
-          </>
+          </FilterField>
         )}
       </div>
 
       {gameFormatScopeUsesCombinedWarning(gameFormatScope) && (
-        <p className="mt-3 text-xs leading-relaxed text-muted-foreground border-t border-border/40 pt-3">
+        <p className="mt-3 border-t border-border/40 pt-3 text-xs leading-relaxed text-muted-foreground">
           Combined mixes 5v5 and 3×3 games — per-game averages are not directly
           comparable.
         </p>

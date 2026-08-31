@@ -26,7 +26,7 @@ export function LiveGameEntry({
     <LiveGameWorkspace
       game={game}
       teams={teams}
-      tournaments={tournaments}
+              tournaments={tournaments}
       tournamentRosters={tournamentRosters}
       onGameUpdate={onGameUpdate}
       onGameComplete={onGameComplete}

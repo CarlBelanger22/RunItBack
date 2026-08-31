@@ -52,3 +52,33 @@ export function ftCountOptionsForCategory(category: FoulCategory): number[] {
   if (category === 'offensive') return [0];
   return [0, 1, 2, 3];
 }
+
+/**
+ * Single-team: Opp has no roster — skip fouled-player pick when home commits
+ * a personal or unsportsmanlike foul (Opp team FTs instead).
+ */
+export function shouldSkipFoulRecipient(params: {
+  trackBoth: boolean;
+  foulingTeamId: string;
+  homeTeamId: string;
+  foulCategory: string | undefined;
+  and1RecipientId?: string | null;
+  and1OppTeamFt?: boolean;
+}): boolean {
+  if (params.trackBoth) return false;
+  if (params.foulingTeamId !== params.homeTeamId) return false;
+  if (params.and1RecipientId || params.and1OppTeamFt) return false;
+  const cat = params.foulCategory ?? 'personal';
+  return cat === 'personal' || cat === 'unsportsmanlike';
+}
+
+/**
+ * Single-team: home technical → Opp shoots team FT (no individual shooter pick).
+ */
+export function shouldSkipTechShooterPick(params: {
+  trackBoth: boolean;
+  foulingTeamId: string;
+  homeTeamId: string;
+}): boolean {
+  return !params.trackBoth && params.foulingTeamId === params.homeTeamId;
+}

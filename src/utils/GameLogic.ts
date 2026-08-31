@@ -408,7 +408,7 @@ export class GameLogic {
       // TRB derived as orb + drb in display layers
     }
 
-    team.total_rebounds = team.orb + team.drb + (team.team_rebounds || 0);
+    team.total_rebounds = team.orb + team.drb;
   }
 
   private static handleJumpBall(

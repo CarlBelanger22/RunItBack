@@ -10,6 +10,21 @@ export const FRIENDLY_GAME_META = 'Friendly game';
 export const FRIENDLIES_SCOPE_LABEL = 'Friendlies';
 export const FRIENDLIES_SCOPE_ID = 'friendlies';
 
+const INCLUDE_FRIENDLIES_PARAM = 'friendlies';
+
+/** URL `?friendlies=1` — merge friendlies into All Time on player stats. */
+export function parseIncludeFriendliesInStats(
+  raw: string | null | undefined
+): boolean {
+  return raw === '1' || raw === 'true';
+}
+
+export function serializeIncludeFriendliesInStats(value: boolean): string | undefined {
+  return value ? '1' : undefined;
+}
+
+export const INCLUDE_FRIENDLIES_SEARCH_PARAM = INCLUDE_FRIENDLIES_PARAM;
+
 export function isFriendlyGame(game: Pick<Game, 'isFriendly'> | null | undefined): boolean {
   return game?.isFriendly === true;
 }
@@ -48,4 +63,12 @@ export function resolveGameMetaLabel(
   if (isFriendlyGame(game)) return FRIENDLY_GAME_META;
   const name = tournamentName?.trim();
   return name || undefined;
+}
+
+/** Tournament id to persist when marking a game final. Friendlies stay untournamented. */
+export function resolveCompletedGameTournamentId(
+  game: Pick<Game, 'isFriendly' | 'tournamentId'>
+): string | undefined {
+  if (isFriendlyGame(game)) return game.tournamentId;
+  return game.tournamentId || 'tournament-summer-2024';
 }

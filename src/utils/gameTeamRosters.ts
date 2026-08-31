@@ -77,33 +77,55 @@ function resolveSidePlayers(
   const embedded = side === 'home' ? game.homeTeam : game.awayTeam;
   const club = teams.find((t) => t.id === teamId);
   const clubCount = club?.players?.length ?? 0;
+  const embeddedPlayers = embedded?.players ?? [];
   const participants = collectParticipantPlayerIdsForTeam(game, teamId, teams);
 
-  if (game.tournamentId && tournamentRosters.length > 0) {
-    const tournamentPlayers = getPlayersForTeamInTournament(
-      teamId,
-      game.tournamentId,
-      teams,
-      tournamentRosters
-    );
-    if (tournamentPlayers.length > 0) {
-      const byId = new Map(tournamentPlayers.map((p) => [p.id, p]));
-      for (const id of participants) {
-        if (!byId.has(id)) {
-          const extra = lookupPlayerTemplate(id, teamId, teams, embedded);
-          if (extra) byId.set(id, extra);
-        }
+  const tournamentPlayers =
+    game.tournamentId && tournamentRosters.length > 0
+      ? getPlayersForTeamInTournament(
+          teamId,
+          game.tournamentId,
+          teams,
+          tournamentRosters
+        )
+      : [];
+
+  function playersFromIds(ids: string[]): Player[] {
+    const byId = new Map<string, Player>();
+    for (const id of ids) {
+      const p = lookupPlayerTemplate(id, teamId, teams, embedded);
+      if (p) byId.set(id, p);
+    }
+    for (const id of participants) {
+      if (!byId.has(id)) {
+        const extra = lookupPlayerTemplate(id, teamId, teams, embedded);
+        if (extra) byId.set(id, extra);
       }
-      return sortPlayersByNumber([...byId.values()]);
+    }
+    return sortPlayersByNumber([...byId.values()]);
+  }
+
+  const gameDayIds =
+    side === 'home'
+      ? game.gameDayRosterIds?.home
+      : game.gameDayRosterIds?.away;
+  if (gameDayIds && gameDayIds.length > 0) {
+    return playersFromIds(gameDayIds);
+  }
+
+  // Game-day snapshot embedded on the game (Starters + Bench; inactive excluded).
+  if (embeddedPlayers.length > 0) {
+    const smallerThanTournament =
+      tournamentPlayers.length > 0 && embeddedPlayers.length < tournamentPlayers.length;
+    const smallerThanClub = clubCount > 0 && embeddedPlayers.length < clubCount;
+
+    if (isFriendlyGame(game) || smallerThanTournament || smallerThanClub) {
+      return playersFromIds(embeddedPlayers.map((p) => p.id));
     }
   }
 
-  const embeddedPlayers = embedded?.players ?? [];
-
-  // Friendly: trust game-day snapshot (Starters + Bench from setup).
-  // Inactive players are never embedded — do not expand to full club.
-  if (isFriendlyGame(game) && embeddedPlayers.length > 0) {
-    const byId = new Map(embeddedPlayers.map((p) => [p.id, { ...p }]));
+  if (tournamentPlayers.length > 0) {
+    const byId = new Map(tournamentPlayers.map((p) => [p.id, p]));
     for (const id of participants) {
       if (!byId.has(id)) {
         const extra = lookupPlayerTemplate(id, teamId, teams, embedded);

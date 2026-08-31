@@ -146,19 +146,14 @@ export function getTeamAvatarLabelClass(
   return 'text-lg leading-none tracking-tight';
 }
 
-/** Label for stats tables when many teams share the same stored abbreviation. */
+/** Label for stats tables — always uses stored abbreviation when valid. */
 export function getTeamStatsAbbreviation(
   team: TeamAvatarLabelSource & { id?: string },
-  leagueTeams: Array<TeamAvatarLabelSource & { id?: string }>
+  leagueTeams: Array<TeamAvatarLabelSource & { id?: string }> = []
 ): string {
   const abbrev = team.abbreviation ? normalizeTeamAbbreviation(team.abbreviation) : '';
   if (abbrev && isValidTeamAbbreviation(abbrev)) {
-    const collisions = leagueTeams.filter(
-      (t) =>
-        t.id !== team.id &&
-        normalizeTeamAbbreviation(t.abbreviation ?? '') === abbrev
-    );
-    if (collisions.length === 0) return abbrev;
+    return abbrev;
   }
 
   const taken = leagueTeams

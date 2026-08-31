@@ -28,10 +28,7 @@ export function buildOppTeamTotalsStrip(stats: TeamStats): OppTeamTotalsStripMod
   const threeAttempted = stats.three_attempted ?? 0;
   const ftMade = stats.ft_made ?? 0;
   const ftAttempted = stats.ft_attempted ?? 0;
-  const reb =
-    typeof stats.total_rebounds === 'number'
-      ? stats.total_rebounds
-      : (stats.orb ?? 0) + (stats.drb ?? 0) + (stats.team_rebounds ?? 0);
+  const reb = (stats.orb ?? 0) + (stats.drb ?? 0);
 
   return {
     fgMade,

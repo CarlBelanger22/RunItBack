@@ -523,6 +523,8 @@ type GameSetupMeta = {
   stageId?: string;
   groupId?: string;
   bracketSlotId?: string;
+  courtSidesFlipped?: boolean;
+  gameDayRosterIds?: { home: string[]; away: string[] };
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -542,7 +544,8 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     game.isFriendly === true ||
     Boolean(game.stageId) ||
     Boolean(game.groupId) ||
-    Boolean(game.bracketSlotId);
+    Boolean(game.bracketSlotId) ||
+    (game.isActive && !game.isCompleted);
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
       setupCreatedTeamIds: game.setupCreatedTeamIds,
@@ -553,6 +556,10 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
       stageId: game.stageId,
       groupId: game.groupId,
       bracketSlotId: game.bracketSlotId,
+      courtSidesFlipped:
+        game.isActive && !game.isCompleted ? !!game.courtSidesFlipped : undefined,
+      gameDayRosterIds:
+        game.isActive && !game.isCompleted ? game.gameDayRosterIds : undefined,
     };
   }
   return payload;
@@ -568,6 +575,8 @@ function parseTeamStats(row: DbGame['team_stats']): {
   stageId?: string;
   groupId?: string;
   bracketSlotId?: string;
+  courtSidesFlipped?: boolean;
+  gameDayRosterIds?: { home: string[]; away: string[] };
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -581,6 +590,8 @@ function parseTeamStats(row: DbGame['team_stats']): {
     stageId: meta?.stageId,
     groupId: meta?.groupId,
     bracketSlotId: meta?.bracketSlotId,
+    courtSidesFlipped: meta?.courtSidesFlipped === true ? true : undefined,
+    gameDayRosterIds: meta?.gameDayRosterIds,
   };
 }
 
@@ -632,6 +643,8 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     stageId,
     groupId,
     bracketSlotId,
+    courtSidesFlipped,
+    gameDayRosterIds,
   } = parseTeamStats(row.team_stats);
 
   return {
@@ -660,6 +673,8 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     stageId,
     groupId,
     bracketSlotId,
+    courtSidesFlipped,
+    gameDayRosterIds,
     isActive: row.is_active,
     isCompleted: row.is_completed,
     finalScore:
@@ -1127,7 +1142,9 @@ export async function saveAppDataToSupabase(
   await upsertChunks('tournament_teams', junctionRows, 'tournament_id,team_id');
 
   const rosterRows = dedupeTournamentRostersForDb(
-    tournamentRosters,
+    tournamentRosters.filter((entry) =>
+      reconciledTournaments.some((t) => t.id === entry.tournamentId)
+    ),
     games,
     teamsForSave
   ).map(tournamentRosterEntryToDbRow);
