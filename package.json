@@ -109,6 +109,7 @@
             "test:player-participation-sort": "tsx scripts/test-player-participation-sort.ts",
             "test:player-jersey-groups": "tsx scripts/test-player-jersey-groups.ts",
             "test:player-jersey-resolution": "tsx scripts/test-player-jersey-resolution.ts",
+            "test:player-tournament-season-sort": "tsx scripts/test-player-tournament-season-sort.ts",
             "test:team-stats-abbreviation": "tsx scripts/test-team-stats-abbreviation.ts",
             "migrate:icons-to-storage": "tsx scripts/migrate-icons-to-storage.ts",
             "restore:team-icons-from-storage": "tsx scripts/restore-team-icons-from-storage.ts",

@@ -575,8 +575,19 @@ export function buildPlayerTournamentSeasonRows(
     return tournaments.find((t) => t.id === tournamentId)?.name ?? tournamentId;
   };
 
-  const tournamentSortDateMs = (tournamentId: string): number => {
+  const tournamentSortDateMs = (
+    tournamentId: string,
+    scopedGames: Game[] = []
+  ): number => {
     if (tournamentId === 'no-tournament') return 0;
+    // Prefer the player's most recent game in this tournament so same-month
+    // seasons (e.g. Training Trip vs FIBA Pre-Q) order chronologically.
+    let maxGameMs = 0;
+    for (const game of scopedGames) {
+      const ms = Date.parse(game.date ?? '');
+      if (!Number.isNaN(ms) && ms > maxGameMs) maxGameMs = ms;
+    }
+    if (maxGameMs > 0) return maxGameMs;
     const tournament = tournaments.find((t) => t.id === tournamentId);
     return tournament ? getTournamentDateMs(tournament) : 0;
   };
@@ -622,7 +633,8 @@ export function buildPlayerTournamentSeasonRows(
 
   const rows: PlayerSeasonRow[] = [...byTournament.entries()]
     .sort(
-      ([aId], [bId]) => tournamentSortDateMs(bId) - tournamentSortDateMs(aId)
+      ([aId, aGames], [bId, bGames]) =>
+        tournamentSortDateMs(bId, bGames) - tournamentSortDateMs(aId, aGames)
     )
     .map(([tournamentId, scopedGames]) => {
       const team = teamForScope(scopedGames);
@@ -632,7 +644,7 @@ export function buildPlayerTournamentSeasonRows(
         scopeLabel: tournamentLabel(tournamentId),
         scopeId: tournamentId,
         ageAtScope: ageAtTournament(tournamentId),
-        scopeSortDateMs: tournamentSortDateMs(tournamentId),
+        scopeSortDateMs: tournamentSortDateMs(tournamentId, scopedGames),
       };
     });
 
