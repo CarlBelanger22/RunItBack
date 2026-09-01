@@ -19,7 +19,7 @@ import {
   isSingleTeamOppUnitEvent,
 } from '../src/liveEntry/eventEditGuards';
 import { deriveReboundTeamsForMissedShot } from '../src/liveEntry/reboundTeams';
-import { shouldSkipFoulRecipient, shouldSkipTechShooterPick } from '../src/liveEntry/foulFlow';
+import { shouldSkipFoulRecipient, shouldSkipTechShooterPick, shouldSkipChargeDrawer } from '../src/liveEntry/foulFlow';
 import {
   initialLiveEntryContext,
   liveEntryReducer,
@@ -461,6 +461,30 @@ function testShouldSkipFoulRecipientHelper(): void {
       homeTeamId: 'home',
     }),
     'track-both tech still picks shooter'
+  );
+  assert(
+    shouldSkipChargeDrawer({
+      trackBoth: false,
+      committerTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'single-team home OF skips charge drawer'
+  );
+  assert(
+    !shouldSkipChargeDrawer({
+      trackBoth: false,
+      committerTeamId: 'away',
+      homeTeamId: 'home',
+    }),
+    'single-team Opp OF still picks home charge drawer'
+  );
+  assert(
+    !shouldSkipChargeDrawer({
+      trackBoth: true,
+      committerTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'track-both never skips charge drawer'
   );
   console.log('OK testShouldSkipFoulRecipientHelper');
 }

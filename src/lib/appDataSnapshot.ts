@@ -21,6 +21,7 @@ import {
   snapshotQuarterStatsFromTeamStats,
   type SnapshotQuarterStats,
 } from '../utils/quarterScoring';
+import { applyResolvedPossessionArrow } from '../liveEntry/possessionArrow';
 
 export const APP_DATA_SNAPSHOT_VERSION = 8;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
@@ -382,7 +383,7 @@ export function hydrateSnapshotGames(
       };
     }
 
-    return {
+    return applyResolvedPossessionArrow({
       id: row.id,
       homeTeamId: row.homeTeamId,
       awayTeamId: row.awayTeamId,
@@ -410,7 +411,7 @@ export function hydrateSnapshotGames(
       possessionArrowTeamId: row.possessionArrowTeamId ?? undefined,
       courtSidesFlipped: row.courtSidesFlipped === true ? true : undefined,
       gameDayRosterIds: row.gameDayRosterIds,
-    };
+    });
   });
 }
 

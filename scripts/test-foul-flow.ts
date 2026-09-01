@@ -5,7 +5,7 @@
 
 import type { Game, GameEvent } from '../src/App';
 import { derivePossessionSnapshot } from '../src/liveEntry/possessionEngine';
-import { ftCountOptionsForCategory } from '../src/liveEntry/foulFlow';
+import { ftCountOptionsForCategory, shouldSkipChargeDrawer } from '../src/liveEntry/foulFlow';
 import { buildFoulEvent } from '../src/liveEntry/liveEntryActions';
 import { GameLogic } from '../src/utils/GameLogic';
 import {
@@ -424,6 +424,33 @@ function testOffensiveFoulChargeDrawnStats(): void {
   assert((drawer?.fouls ?? 0) === 0, 'charge: defender does not get a PF');
 }
 
+function testShouldSkipChargeDrawer(): void {
+  assert(
+    shouldSkipChargeDrawer({
+      trackBoth: false,
+      committerTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'single-team home OF skips charge drawer'
+  );
+  assert(
+    !shouldSkipChargeDrawer({
+      trackBoth: false,
+      committerTeamId: 'away',
+      homeTeamId: 'home',
+    }),
+    'Opp OF still needs home charge drawer'
+  );
+  assert(
+    !shouldSkipChargeDrawer({
+      trackBoth: true,
+      committerTeamId: 'home',
+      homeTeamId: 'home',
+    }),
+    'both-teams never skips'
+  );
+}
+
 function main(): void {
   testFoulEntityStep();
   testUnsportsmanlikeRetainFlag();
@@ -436,6 +463,7 @@ function main(): void {
   testOffensiveFoulPossessionFlip();
   testOffensiveFoulStats();
   testOffensiveFoulChargeDrawnStats();
+  testShouldSkipChargeDrawer();
   console.log('All foul-flow tests passed.');
 }
 

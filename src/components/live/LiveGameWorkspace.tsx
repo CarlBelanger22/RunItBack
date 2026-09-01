@@ -63,7 +63,7 @@ import {
 } from '../../utils/foulOut';
 import { resolveGameMetaLabel } from '../../utils/friendlyGame';
 import { resolveSideScore } from '../../utils/gameDisplay';
-import { shouldSkipFoulRecipient, shouldSkipTechShooterPick } from '../../liveEntry/foulFlow';
+import { shouldSkipFoulRecipient, shouldSkipTechShooterPick, shouldSkipChargeDrawer } from '../../liveEntry/foulFlow';
 
 interface LiveGameWorkspaceProps {
   game: Game;
@@ -325,6 +325,24 @@ function resolveColumnPick(
           });
           handlers.clearAnd1Session();
         } else {
+          if (
+            isOffensive &&
+            shouldSkipChargeDrawer({
+              trackBoth,
+              committerTeamId: foulingTeamId,
+              homeTeamId: game.homeTeamId,
+            })
+          ) {
+            commitFoul({
+              foulingTeamId,
+              foulCategory: 'offensive',
+              foulEntity: 'player',
+              committerId: p.id,
+              ftCount: 0,
+              retainPossession: false,
+            });
+            return;
+          }
           dispatch({
             type: 'PICK_FOUL_COMMITTER',
             playerId: p.id,
@@ -341,8 +359,16 @@ function resolveColumnPick(
     const committerTeamId = phase.committerTeamId ?? offenseTeamId;
     const drawerTeamId =
       committerTeamId === game.homeTeamId ? game.awayTeamId : game.homeTeamId;
-    // Single-team: only home can be charge drawer (Opp commits offensive foul).
-    if (!trackBoth && drawerTeamId !== game.homeTeamId) return null;
+    // Single-team: Opp has no roster — skip (home OF should commit at committer pick).
+    if (
+      shouldSkipChargeDrawer({
+        trackBoth,
+        committerTeamId,
+        homeTeamId: game.homeTeamId,
+      })
+    ) {
+      return null;
+    }
     return {
       side: teamSide(game, drawerTeamId),
       hint: 'Foul drawn by (defender)',
@@ -793,6 +819,9 @@ export function LiveGameWorkspace({
         : 'Unsportsmanlike — select home committer, or Opp in overlay';
     }
     if (phase.kind === 'foul' && phase.step === 'committer') return 'Select foul committer on roster';
+    if (phase.kind === 'foul' && phase.step === 'charge_drawer') {
+      return 'Offensive foul — select defender who drew the charge';
+    }
     if (phase.kind === 'foul' && phase.step === 'recipient') return 'Select fouled player on roster';
     if (phase.kind === 'foul' && phase.step === 'double_committer_a') {
       return 'Double foul — select offense player';

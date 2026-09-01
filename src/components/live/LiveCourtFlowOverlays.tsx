@@ -5,7 +5,7 @@ import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 import type { FoulCommitParams } from '../../liveEntry/foulFlow';
-import { ftCountOptionsForCategory } from '../../liveEntry/foulFlow';
+import { ftCountOptionsForCategory, shouldSkipChargeDrawer } from '../../liveEntry/foulFlow';
 import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
 import { LiveCourtTipPanel } from './LiveCourtTipPanel';
 
@@ -588,6 +588,56 @@ export function LiveCourtFlowOverlays({
         </LiveCourtOverlayShell>
       );
     }
+  }
+
+  // Safety net: single-team home OF should commit at committer pick; if we land on
+  // charge_drawer anyway, let the user confirm without picking Opp.
+  if (
+    phase.kind === 'foul' &&
+    phase.step === 'charge_drawer' &&
+    shouldSkipChargeDrawer({
+      trackBoth,
+      committerTeamId: phase.committerTeamId ?? offenseTeamId,
+      homeTeamId,
+    })
+  ) {
+    const committerTeamId = phase.committerTeamId ?? offenseTeamId;
+    return (
+      <LiveCourtOverlayShell>
+        <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
+          <CardHeader className="pb-2 pt-4">
+            <CardTitle className="text-center text-base">Offensive foul</CardTitle>
+            <p className="text-center text-xs text-muted-foreground">
+              No free throws — possession to Opp
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2 pb-4">
+            <Button
+              className="w-full"
+              onClick={overlayClick(() =>
+                commitFoul({
+                  foulingTeamId: committerTeamId,
+                  foulCategory: 'offensive',
+                  foulEntity: 'player',
+                  committerId: phase.committerId,
+                  ftCount: 0,
+                  retainPossession: false,
+                })
+              )}
+            >
+              Confirm offensive foul
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={overlayClick(() => dispatch({ type: 'RESET' }))}
+            >
+              Cancel
+            </Button>
+          </CardContent>
+        </Card>
+      </LiveCourtOverlayShell>
+    );
   }
 
   if (phase.kind === 'foul' && phase.step === 'ft_count' && phase.foulCategory === 'double') {

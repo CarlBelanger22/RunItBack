@@ -10,6 +10,7 @@ import type { Team, Tournament, Game, GameStats, Player } from '../App';
 import { shouldPreserveExistingGameStats } from '../utils/gameStatsIntegrity';
 import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { normalizeTournamentStructure } from '../utils/tournamentStructure';
+import { applyResolvedPossessionArrow } from '../liveEntry/possessionArrow';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -525,6 +526,7 @@ type GameSetupMeta = {
   bracketSlotId?: string;
   courtSidesFlipped?: boolean;
   gameDayRosterIds?: { home: string[]; away: string[] };
+  possessionArrowTeamId?: string | null;
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -560,6 +562,10 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
         game.isActive && !game.isCompleted ? !!game.courtSidesFlipped : undefined,
       gameDayRosterIds:
         game.isActive && !game.isCompleted ? game.gameDayRosterIds : undefined,
+      possessionArrowTeamId:
+        game.isActive && !game.isCompleted
+          ? game.possessionArrowTeamId ?? null
+          : undefined,
     };
   }
   return payload;
@@ -577,6 +583,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   bracketSlotId?: string;
   courtSidesFlipped?: boolean;
   gameDayRosterIds?: { home: string[]; away: string[] };
+  possessionArrowTeamId?: string | null;
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -592,6 +599,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
     bracketSlotId: meta?.bracketSlotId,
     courtSidesFlipped: meta?.courtSidesFlipped === true ? true : undefined,
     gameDayRosterIds: meta?.gameDayRosterIds,
+    possessionArrowTeamId: meta?.possessionArrowTeamId ?? undefined,
   };
 }
 
@@ -645,9 +653,10 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     bracketSlotId,
     courtSidesFlipped,
     gameDayRosterIds,
+    possessionArrowTeamId,
   } = parseTeamStats(row.team_stats);
 
-  return {
+  return applyResolvedPossessionArrow({
     id: row.id,
     homeTeam,
     awayTeam,
@@ -675,13 +684,14 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     bracketSlotId,
     courtSidesFlipped,
     gameDayRosterIds,
+    possessionArrowTeamId: possessionArrowTeamId ?? undefined,
     isActive: row.is_active,
     isCompleted: row.is_completed,
     finalScore:
       row.final_score_home != null && row.final_score_away != null
         ? { home: row.final_score_home, away: row.final_score_away }
         : undefined,
-  };
+  });
 }
 
 async function loadExistingGameStatsById(

@@ -78,7 +78,6 @@ import type { TournamentJerseyUpdate } from './utils/playerJerseyResolution';
 import {
   dedupeTeamPlayers,
   dedupeTeamsById,
-  searchLeaguePlayers,
   validateTeamRosterUpdate,
   wouldTournamentEnrollmentViolateOverlap,
 } from './utils/rosterPlayers';
@@ -88,6 +87,10 @@ import {
 } from './utils/clubRosterIntegrity';
 import { ensureGameQuarterStats } from './utils/quarterScoring';
 import { resolveCompletedGameTournamentId } from './utils/friendlyGame';
+import {
+  buildGlobalSearchResults,
+  GLOBAL_SEARCH_TYPE_LABELS,
+} from './utils/globalSearch';
 
 import { Settings, Search } from 'lucide-react';
 
@@ -2387,53 +2390,12 @@ export default function App() {
 
   // Search functionality
   const searchResults = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return { tournaments: [], teams: [], players: [], games: [] };
-    }
-
-    const query = searchQuery.toLowerCase();
-
-    const matchedTournaments = tournaments
-      .filter(
-        (tournament) =>
-          tournament.name.toLowerCase().includes(query) ||
-          (tournament.description ?? '').toLowerCase().includes(query) ||
-          String(tournament.year).includes(query) ||
-          tournament.month.toLowerCase().includes(query)
-      )
-      .slice(0, 5);
-
-    const matchedTeams = teams
-      .filter(
-        (team) =>
-          team.name.toLowerCase().includes(query) ||
-          (team.abbreviation ?? '').toLowerCase().includes(query) ||
-          (team.description ?? '').toLowerCase().includes(query)
-      )
-      .slice(0, 5);
-
-    const matchedPlayers = searchLeaguePlayers(teams, query, {
-      limit: 5,
+    return buildGlobalSearchResults(searchQuery, {
+      tournaments,
+      teams,
+      games,
       orphanPlayers,
     });
-
-    const matchedGames = games
-      .filter(
-        (game) =>
-          (game.homeTeam?.name ?? '').toLowerCase().includes(query) ||
-          (game.awayTeam?.name ?? '').toLowerCase().includes(query) ||
-          (game.homeTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
-          (game.awayTeam?.abbreviation ?? '').toLowerCase().includes(query) ||
-          (game.date ?? '').includes(query)
-      )
-      .slice(0, 5);
-
-    return {
-      tournaments: matchedTournaments,
-      teams: matchedTeams,
-      players: matchedPlayers,
-      games: matchedGames,
-    };
   }, [searchQuery, tournaments, teams, games, orphanPlayers]);
 
   if (isDataLoading) {
@@ -2553,144 +2515,103 @@ export default function App() {
             />
             
             {/* Search Results Dropdown */}
-            {searchQuery.trim() &&
-              (searchResults.tournaments.length > 0 ||
-                searchResults.teams.length > 0 ||
-                searchResults.players.length > 0 ||
-                searchResults.games.length > 0) && (
-              <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50">
-                {/* Tournaments */}
-                {searchResults.tournaments.length > 0 && (
-                  <div className="p-2">
-                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">
-                      Tournaments
-                    </div>
-                    {searchResults.tournaments.map((tournament) => (
-                      <button
-                        key={tournament.id}
-                        onClick={() => {
-                          navigateWithReturnTo(
-                            navigate,
-                            tournamentPath(tournament),
-                            currentLocationPath(location)
-                          );
-                          setSearchQuery('');
-                        }}
-                        className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
-                      >
-                        <TournamentBadge
-                          tournament={tournament}
-                          tournamentId={tournament.id}
-                          size="sm"
-                        />
-                        <div>
-                          <div className="font-medium">{tournament.name}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {tournament.month} {tournament.year} · {tournament.teams.length}{' '}
-                            {tournament.teams.length === 1 ? 'team' : 'teams'}
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+            {searchQuery.trim() && searchResults.length > 0 && (
+              <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50 p-2">
+                {searchResults.map((result) => {
+                  const key =
+                    result.type === 'tournament'
+                      ? `tournament-${result.tournament?.id}`
+                      : result.type === 'team'
+                        ? `team-${result.team?.id}`
+                        : result.type === 'player'
+                          ? `player-${result.player?.id}`
+                          : `game-${result.game?.id}`;
 
-                {/* Teams */}
-                {searchResults.teams.length > 0 && (
-                  <div className={`p-2${searchResults.tournaments.length > 0 ? ' border-t' : ''}`}>
-                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Teams</div>
-                    {searchResults.teams.map(team => (
-                      <button
-                        key={team.id}
-                        onClick={() => {
-                          navigateWithReturnTo(
-                            navigate,
-                            teamPath(team),
-                            currentLocationPath(location)
-                          );
-                          setSearchQuery('');
-                        }}
-                        className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
-                      >
-                        <TeamBadge team={team} teamId={team.id} size="lg" />
+                  const handleSelect = () => {
+                    const returnTo = currentLocationPath(location);
+                    if (result.type === 'tournament' && result.tournament) {
+                      navigateWithReturnTo(navigate, tournamentPath(result.tournament), returnTo);
+                    } else if (result.type === 'team' && result.team) {
+                      navigateWithReturnTo(navigate, teamPath(result.team), returnTo);
+                    } else if (result.type === 'player' && result.player) {
+                      navigateWithReturnTo(navigate, playerPath(result.player), returnTo);
+                    } else if (result.type === 'game' && result.game) {
+                      navigateWithReturnTo(navigate, gamePath(result.game.id), returnTo);
+                    }
+                    setSearchQuery('');
+                  };
+
+                  return (
+                    <button
+                      key={key}
+                      onClick={handleSelect}
+                      className="w-full text-left px-3 py-2 rounded hover:bg-muted flex items-center gap-2"
+                    >
+                      {result.type === 'tournament' && result.tournament && (
+                        <>
+                          <TournamentBadge
+                            tournament={result.tournament}
+                            tournamentId={result.tournament.id}
+                            size="sm"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">{result.tournament.name}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {result.tournament.month} {result.tournament.year} ·{' '}
+                              {result.tournament.teams.length}{' '}
+                              {result.tournament.teams.length === 1 ? 'team' : 'teams'}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {result.type === 'team' && result.team && (
+                        <>
+                          <TeamBadge team={result.team} teamId={result.team.id} size="lg" />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-medium truncate">{result.team.name}</div>
+                            <div className="text-xs text-muted-foreground truncate">
+                              {result.team.abbreviation}
+                              {result.team.description?.trim()
+                                ? ` · ${result.team.description.trim()}`
+                                : ''}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {result.type === 'player' && result.player && (
                         <div className="min-w-0 flex-1">
-                          <div className="font-medium truncate">{team.name}</div>
+                          <div className="font-medium truncate">
+                            #{result.player.number} {result.player.name}
+                          </div>
                           <div className="text-xs text-muted-foreground truncate">
-                            {team.abbreviation}
-                            {team.description?.trim()
-                              ? ` · ${team.description.trim()}`
-                              : ''}
+                            {result.player.position} · {(result.teamNames ?? []).join(', ')}
                           </div>
                         </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                
-                {/* Players */}
-                {searchResults.players.length > 0 && (
-                  <div className="p-2 border-t">
-                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Players</div>
-                    {searchResults.players.map(({ player, teamNames }) => (
-                      <button
-                        key={player.id}
-                        onClick={() => {
-                          navigateWithReturnTo(
-                            navigate,
-                            playerPath(player),
-                            currentLocationPath(location)
-                          );
-                          setSearchQuery('');
-                        }}
-                        className="w-full text-left px-3 py-2 rounded hover:bg-muted"
-                      >
-                        <div className="font-medium">
-                          #{player.number} {player.name}
+                      )}
+                      {result.type === 'game' && result.game && (
+                        <div className="min-w-0 flex-1">
+                          <div className="font-medium truncate">
+                            {result.game.homeTeam.abbreviation} vs {result.game.awayTeam.abbreviation}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {result.game.date} ·{' '}
+                            {result.game.isCompleted
+                              ? `Final: ${result.game.finalScore?.home}-${result.game.finalScore?.away}`
+                              : 'In Progress'}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {player.position} · {teamNames.join(', ')}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                
-                {/* Games */}
-                {searchResults.games.length > 0 && (
-                  <div className="p-2 border-t">
-                    <div className="px-2 py-1 text-xs font-medium text-muted-foreground">Games</div>
-                    {searchResults.games.map(game => (
-                      <button
-                        key={game.id}
-                        onClick={() => {
-                          navigateWithReturnTo(
-                            navigate,
-                            gamePath(game.id),
-                            currentLocationPath(location)
-                          );
-                          setSearchQuery('');
-                        }}
-                        className="w-full text-left px-3 py-2 rounded hover:bg-muted"
-                      >
-                        <div className="font-medium">
-                          {game.homeTeam.abbreviation} vs {game.awayTeam.abbreviation}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {game.date} · {game.isCompleted ? `Final: ${game.finalScore?.home}-${game.finalScore?.away}` : 'In Progress'}
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
+                      )}
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {GLOBAL_SEARCH_TYPE_LABELS[result.type]}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
             
             {/* No Results */}
-            {searchQuery.trim() &&
-              searchResults.tournaments.length === 0 &&
-              searchResults.teams.length === 0 &&
-              searchResults.players.length === 0 &&
-              searchResults.games.length === 0 && (
+            {searchQuery.trim() && searchResults.length === 0 && (
               <div className="absolute top-full mt-2 w-full bg-card border rounded-lg shadow-lg p-4 text-center text-sm text-muted-foreground z-50">
                 No results found for &quot;{searchQuery}&quot;
               </div>

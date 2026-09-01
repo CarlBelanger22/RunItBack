@@ -29,7 +29,7 @@ import {
   defenseTeamIdFor,
 } from './liveEntryStateMachine';
 import { derivePossessionSnapshot } from './possessionEngine';
-import { gameNeedsOpeningJumpBall, hasOpeningTipBeenRecorded, opponentTeamId } from './possessionArrow';
+import { gameNeedsOpeningJumpBall, hasOpeningTipBeenRecorded, opponentTeamId, applyResolvedPossessionArrow } from './possessionArrow';
 import type { FoulCommitParams } from './foulFlow';
 import {
   deriveReboundTeamsForMissedShot,
@@ -113,10 +113,10 @@ export function useLiveGameSession(
       (base.id === currentGameRef.current.id
         ? currentGameRef.current.courtSidesFlipped
         : undefined);
-    const merged: Game = {
+    const merged: Game = applyResolvedPossessionArrow({
       ...synced,
       courtSidesFlipped: courtSidesFlipped === true ? true : undefined,
-    };
+    });
     currentGameRef.current = merged;
     setCurrentGame(merged);
     setMinutesState(replayed.state);

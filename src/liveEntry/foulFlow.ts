@@ -73,6 +73,19 @@ export function shouldSkipFoulRecipient(params: {
 }
 
 /**
+ * Single-team: home commits offensive foul → charge drawer would be Opp (no
+ * roster). Skip the charge_drawer step and commit without chargeDrawnBy.
+ */
+export function shouldSkipChargeDrawer(params: {
+  trackBoth: boolean;
+  committerTeamId: string;
+  homeTeamId: string;
+}): boolean {
+  if (params.trackBoth) return false;
+  return params.committerTeamId === params.homeTeamId;
+}
+
+/**
  * Single-team: home technical → Opp shoots team FT (no individual shooter pick).
  */
 export function shouldSkipTechShooterPick(params: {
