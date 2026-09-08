@@ -9,7 +9,7 @@ interface LiveGameEntryProps {
   tournaments: Tournament[];
   tournamentRosters: TournamentRosterEntry[];
   onGameUpdate: (game: Game) => void;
-  onGameComplete: (game: Game) => void;
+  onGameComplete: (game: Game) => void | Promise<boolean>;
   onDeleteGame: () => void;
 }
 

@@ -11,6 +11,8 @@ interface LiveGameHeaderProps {
   possessionArrowTeamId: string | null;
   endPeriodLabel: 'End Q' | 'End Game';
   onEndPeriod: () => void;
+  endPeriodDisabled?: boolean;
+  endPeriodBusy?: boolean;
   onEdit: () => void;
   onDelete: () => void;
   onBack?: () => void;
@@ -55,6 +57,8 @@ export function LiveGameHeader({
   possessionArrowTeamId,
   endPeriodLabel,
   onEndPeriod,
+  endPeriodDisabled = false,
+  endPeriodBusy = false,
   onEdit,
   onDelete,
   onBack,
@@ -188,9 +192,17 @@ export function LiveGameHeader({
           </div>
           <div className="live-scoreboard-right-ops">
             <div className="live-ops-row">
-              <Button variant="ghost" size="sm" onClick={onEndPeriod} className="live-ops-btn live-ops-btn-sm">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onEndPeriod}
+                disabled={endPeriodDisabled || endPeriodBusy}
+                className="live-ops-btn live-ops-btn-sm"
+              >
                 <SkipForward className="live-ops-btn-icon" />
-                {endPeriodLabel}
+                {endPeriodBusy && endPeriodLabel === 'End Game'
+                  ? 'Saving…'
+                  : endPeriodLabel}
               </Button>
               <Button variant="ghost" size="sm" onClick={onEdit} className="live-ops-btn live-ops-btn-sm">
                 <Edit2 className="live-ops-btn-icon" />

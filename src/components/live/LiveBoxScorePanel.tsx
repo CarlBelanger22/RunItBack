@@ -15,6 +15,7 @@ interface LiveBoxScorePanelProps {
   onCourtHomeIds?: string[];
   onCourtAwayIds?: string[];
   onCompleteGame?: () => void;
+  completeGameBusy?: boolean;
 }
 
 type BoxScoreView = 'traditional' | 'advanced';
@@ -914,6 +915,7 @@ export function LiveBoxScorePanel({
   onCourtHomeIds = [],
   onCourtAwayIds = [],
   onCompleteGame,
+  completeGameBusy = false,
 }: LiveBoxScorePanelProps) {
   const homeColor = LIVE_TEAM_HEX.home;
   const awayColor = LIVE_TEAM_HEX.away;
@@ -965,8 +967,13 @@ export function LiveBoxScorePanel({
           {singleTeam ? 'Home box · Opp team line' : 'Click column to sort'}
         </span>
         {onCompleteGame && (
-          <Button size="sm" className="live-box-complete-btn h-7 text-xs" onClick={onCompleteGame}>
-            Complete game
+          <Button
+            size="sm"
+            className="live-box-complete-btn h-7 text-xs"
+            onClick={onCompleteGame}
+            disabled={completeGameBusy}
+          >
+            {completeGameBusy ? 'Saving…' : 'Complete game'}
           </Button>
         )}
       </div>

@@ -116,6 +116,7 @@ import {
   ChevronUp,
   ChevronDown,
   ChevronsUpDown,
+  Loader2,
 } from 'lucide-react';
 
 const POSITION_ORDER = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
@@ -299,6 +300,7 @@ interface TeamPageProps {
       | TournamentRosterEntry[]
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
+  onFlushTournamentRosterSave: () => Promise<boolean>;
   onDeleteTeam: (teamId: string) => void;
 }
 
@@ -317,6 +319,7 @@ export function TeamPage({
   onNavigateToTournament,
   onUpdateTeam,
   onUpdateTournamentRosters,
+  onFlushTournamentRosterSave,
   onDeleteTeam,
 }: TeamPageProps) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -339,6 +342,8 @@ export function TeamPage({
     description: string;
   } | null>(null);
   const [isEditPlayersMode, setIsEditPlayersMode] = useState(false);
+  const [isFlushingTournamentRosters, setIsFlushingTournamentRosters] =
+    useState(false);
   const [tournamentAddError, setTournamentAddError] = useState<string | null>(null);
   const [tournamentRemoveTarget, setTournamentRemoveTarget] = useState<{
     player: Player;
@@ -810,6 +815,7 @@ export function TeamPage({
       normalizedTeam,
       teams,
       tournaments,
+      tournamentRosters,
       onUpdateTournamentRosters,
     ]
   );
@@ -1183,22 +1189,44 @@ export function TeamPage({
                 size="sm"
                 variant={isEditPlayersMode ? 'secondary' : 'outline'}
                 className="h-6 px-2 text-xs leading-none gap-1 rounded-md has-[>svg]:px-2 [&_svg]:size-3"
+                disabled={isFlushingTournamentRosters}
                 aria-label={
-                  isEditPlayersMode ? 'Done editing players' : 'Edit players'
+                  isEditPlayersMode
+                    ? isFlushingTournamentRosters
+                      ? 'Saving tournament roster'
+                      : 'Done editing players'
+                    : 'Edit players'
                 }
                 onClick={() => {
-                  setIsEditPlayersMode((prev) => {
-                    if (prev) {
-                      setRemovePlayerTarget(null);
-                      setTournamentAddError(null);
-                    }
-                    return !prev;
-                  });
+                  if (!isEditPlayersMode) {
+                    setIsEditPlayersMode(true);
+                    return;
+                  }
+                  setIsFlushingTournamentRosters(true);
+                  void onFlushTournamentRosterSave()
+                    .then((ok) => {
+                      if (ok) {
+                        setRemovePlayerTarget(null);
+                        setTournamentAddError(null);
+                        setIsEditPlayersMode(false);
+                      }
+                    })
+                    .finally(() => {
+                      setIsFlushingTournamentRosters(false);
+                    });
                 }}
               >
-                <Settings className="shrink-0" />
+                {isFlushingTournamentRosters ? (
+                  <Loader2 className="shrink-0 animate-spin" />
+                ) : (
+                  <Settings className="shrink-0" />
+                )}
                 <span className="truncate">
-                  {isEditPlayersMode ? 'Done' : 'Edit Players'}
+                  {isFlushingTournamentRosters
+                    ? 'Saving…'
+                    : isEditPlayersMode
+                      ? 'Done'
+                      : 'Edit Players'}
                 </span>
               </Button>
             </div>

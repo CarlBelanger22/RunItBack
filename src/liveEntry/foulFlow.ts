@@ -95,3 +95,53 @@ export function shouldSkipTechShooterPick(params: {
 }): boolean {
   return !params.trackBoth && params.foulingTeamId === params.homeTeamId;
 }
+
+/**
+ * Resolve who shoots FTs after the foul ft_count step.
+ * Personal / unsportsmanlike: fouled player shoots (home or away).
+ * Single-team Opp offended: team FTs (no named shooter).
+ */
+export function resolveFoulFtAward(params: {
+  ftCount: number;
+  trackBoth: boolean;
+  offendedTeamId: string;
+  homeTeamId: string;
+  awayTeamId: string;
+  recipientId?: string;
+}): {
+  ftShooterId?: string;
+  ftShootingTeamId?: string;
+  requiresNamedShooter: boolean;
+  canAward: boolean;
+} {
+  if (params.ftCount <= 0) {
+    return { requiresNamedShooter: false, canAward: true };
+  }
+
+  const oppTeamFts =
+    !params.trackBoth && params.offendedTeamId === params.awayTeamId;
+  if (oppTeamFts) {
+    return {
+      ftShootingTeamId: params.awayTeamId,
+      requiresNamedShooter: false,
+      canAward: true,
+    };
+  }
+
+  return {
+    ftShooterId: params.recipientId,
+    requiresNamedShooter: true,
+    canAward: Boolean(params.recipientId),
+  };
+}
+
+/** True when FTs were requested but neither a named shooter nor team FT side is set. */
+export function foulFtAwardIncomplete(params: {
+  ftCount: number;
+  ftShooterId?: string;
+  ftShootingTeamId?: string;
+}): boolean {
+  return (
+    params.ftCount > 0 && !params.ftShooterId && !params.ftShootingTeamId
+  );
+}

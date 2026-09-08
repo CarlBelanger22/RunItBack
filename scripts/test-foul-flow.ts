@@ -5,7 +5,7 @@
 
 import type { Game, GameEvent } from '../src/App';
 import { derivePossessionSnapshot } from '../src/liveEntry/possessionEngine';
-import { ftCountOptionsForCategory, shouldSkipChargeDrawer } from '../src/liveEntry/foulFlow';
+import { ftCountOptionsForCategory, shouldSkipChargeDrawer, resolveFoulFtAward, foulFtAwardIncomplete } from '../src/liveEntry/foulFlow';
 import { buildFoulEvent } from '../src/liveEntry/liveEntryActions';
 import { GameLogic } from '../src/utils/GameLogic';
 import {
@@ -451,6 +451,64 @@ function testShouldSkipChargeDrawer(): void {
   );
 }
 
+function testAwayOffendedPersonalFtAward(): void {
+  const away = resolveFoulFtAward({
+    ftCount: 2,
+    trackBoth: true,
+    offendedTeamId: 'away',
+    homeTeamId: 'home',
+    awayTeamId: 'away',
+    recipientId: 'nigel',
+  });
+  assert(away.canAward, 'away-offended personal can award FTs');
+  assert(away.ftShooterId === 'nigel', 'away fouled player is FT shooter');
+  assert(away.ftShootingTeamId == null, 'named shooter, not team FT');
+
+  const home = resolveFoulFtAward({
+    ftCount: 2,
+    trackBoth: true,
+    offendedTeamId: 'home',
+    homeTeamId: 'home',
+    awayTeamId: 'away',
+    recipientId: 'ringo-victim',
+  });
+  assert(home.ftShooterId === 'ringo-victim', 'home fouled player is FT shooter');
+
+  const missing = resolveFoulFtAward({
+    ftCount: 2,
+    trackBoth: true,
+    offendedTeamId: 'away',
+    homeTeamId: 'home',
+    awayTeamId: 'away',
+  });
+  assert(!missing.canAward, 'missing recipient cannot award named FTs');
+  assert(missing.requiresNamedShooter, 'requires named shooter');
+
+  const oppTeam = resolveFoulFtAward({
+    ftCount: 2,
+    trackBoth: false,
+    offendedTeamId: 'away',
+    homeTeamId: 'home',
+    awayTeamId: 'away',
+  });
+  assert(oppTeam.canAward, 'single-team Opp FTs can award');
+  assert(oppTeam.ftShootingTeamId === 'away', 'Opp team FT side');
+  assert(oppTeam.ftShooterId == null, 'no named Opp shooter');
+
+  assert(
+    foulFtAwardIncomplete({ ftCount: 2 }),
+    'incomplete when count>0 and no shooter/team'
+  );
+  assert(
+    !foulFtAwardIncomplete({ ftCount: 2, ftShooterId: 'nigel' }),
+    'complete with named shooter'
+  );
+  assert(
+    !foulFtAwardIncomplete({ ftCount: 0 }),
+    '0 FT is complete without shooter'
+  );
+}
+
 function main(): void {
   testFoulEntityStep();
   testUnsportsmanlikeRetainFlag();
@@ -464,6 +522,7 @@ function main(): void {
   testOffensiveFoulStats();
   testOffensiveFoulChargeDrawnStats();
   testShouldSkipChargeDrawer();
+  testAwayOffendedPersonalFtAward();
   console.log('All foul-flow tests passed.');
 }
 

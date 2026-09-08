@@ -31,6 +31,7 @@ import {
 import { derivePossessionSnapshot } from './possessionEngine';
 import { gameNeedsOpeningJumpBall, hasOpeningTipBeenRecorded, opponentTeamId, applyResolvedPossessionArrow } from './possessionArrow';
 import type { FoulCommitParams } from './foulFlow';
+import { foulFtAwardIncomplete } from './foulFlow';
 import {
   deriveReboundTeamsForMissedShot,
   resolveReboundTeams,
@@ -383,7 +384,20 @@ export function useLiveGameSession(
   );
 
   const commitFoul = useCallback(
-    (params: FoulCommitParams) => {
+    (params: FoulCommitParams): { ok: true } | { ok: false; error: string } => {
+      if (foulFtAwardIncomplete(params)) {
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[RunItBack] Foul FT award incomplete; not recording foul',
+            params
+          );
+        }
+        return {
+          ok: false,
+          error: 'Free throws need a shooter. Pick the fouled player first.',
+        };
+      }
+
       const game = currentGameRef.current;
       const offendedTeamId = params.offendedTeamId ?? offenseTeamId;
       const event = buildFoulEvent(game, {
@@ -428,6 +442,7 @@ export function useLiveGameSession(
       } else {
         dispatch({ type: 'RESET' });
       }
+      return { ok: true };
     },
     [offenseTeamId, syncGame]
   );

@@ -71,7 +71,7 @@ interface LiveGameWorkspaceProps {
   tournaments: Tournament[];
   tournamentRosters: TournamentRosterEntry[];
   onGameUpdate: (game: Game) => void;
-  onGameComplete: (game: Game) => void;
+  onGameComplete: (game: Game) => void | Promise<boolean>;
   onDeleteGame: () => void;
 }
 
@@ -500,6 +500,7 @@ export function LiveGameWorkspace({
   const [and1RecipientId, setAnd1RecipientId] = useState<string | null>(null);
   const [and1FoulingTeamId, setAnd1FoulingTeamId] = useState<string | null>(null);
   const [and1OppTeamFt, setAnd1OppTeamFt] = useState(false);
+  const [completingGame, setCompletingGame] = useState(false);
 
   const clearAnd1Session = useCallback(() => {
     setAnd1RecipientId(null);
@@ -891,7 +892,21 @@ export function LiveGameWorkspace({
     setSubOpen(true);
   };
 
+  const finishGame = useCallback(
+    async (gameToComplete: Game) => {
+      if (completingGame) return;
+      setCompletingGame(true);
+      try {
+        await onGameComplete(gameToComplete);
+      } finally {
+        setCompletingGame(false);
+      }
+    },
+    [completingGame, onGameComplete]
+  );
+
   const handleEndPeriod = () => {
+    if (completingGame) return;
     const endingPeriod = currentGame.currentPeriod;
     const complete = shouldCompleteGameOnPeriodEnd(currentGame, homeScore, awayScore);
     const promptLineup = shouldPromptLineupAfterPeriodEnd(currentGame, homeScore, awayScore);
@@ -905,7 +920,7 @@ export function LiveGameWorkspace({
       onGameUpdate(updatedGame);
     }
     if (complete) {
-      onGameComplete(updatedGame);
+      void finishGame(updatedGame);
       return;
     }
     if (promptLineup) {
@@ -1107,6 +1122,7 @@ export function LiveGameWorkspace({
   );
 
   const actionBarDisabled =
+    completingGame ||
     isOpeningJumpBall ||
     lineupOverlayOpen ||
     relocatingShot ||
@@ -1132,6 +1148,8 @@ export function LiveGameWorkspace({
           possessionArrowTeamId={possessionArrowTeamId}
           endPeriodLabel={periodEndLabel}
           onEndPeriod={handleEndPeriod}
+          endPeriodBusy={completingGame}
+          endPeriodDisabled={completingGame}
           onEdit={() => setIsEditDialogOpen(true)}
           onDelete={() => setDeleteDialogOpen(true)}
           onBack={() => navigateBack(navigate, location, paths.home)}
@@ -1414,7 +1432,10 @@ export function LiveGameWorkspace({
             game={currentGame}
             onCourtHomeIds={getOnCourtIds(currentGame.homeTeamId)}
             onCourtAwayIds={getOnCourtIds(currentGame.awayTeamId)}
-            onCompleteGame={() => onGameComplete(currentGame)}
+            onCompleteGame={() => {
+              void finishGame(currentGame);
+            }}
+            completeGameBusy={completingGame}
           />
         </div>
 

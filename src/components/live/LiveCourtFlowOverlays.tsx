@@ -5,7 +5,7 @@ import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 import type { FoulCommitParams } from '../../liveEntry/foulFlow';
-import { ftCountOptionsForCategory, shouldSkipChargeDrawer } from '../../liveEntry/foulFlow';
+import { ftCountOptionsForCategory, shouldSkipChargeDrawer, resolveFoulFtAward } from '../../liveEntry/foulFlow';
 import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
 import { LiveCourtTipPanel } from './LiveCourtTipPanel';
 
@@ -684,7 +684,6 @@ export function LiveCourtFlowOverlays({
         : homeTeamId
       : phase.offendedTeamId ?? offenseTeamId;
     const oppShootsFts = !trackBoth && offendedTeamId === awayTeamId;
-    const homeShootsFts = offendedTeamId === homeTeamId;
 
     return (
       <LiveCourtOverlayShell>
@@ -696,32 +695,48 @@ export function LiveCourtFlowOverlays({
             ) : null}
           </CardHeader>
           <CardContent className="flex gap-2 flex-wrap justify-center pb-4">
-            {ftOptions.map((n) => (
-              <Button
-                key={n}
-                variant="outline"
-                onClick={overlayClick(() => {
-                  const shooterId =
-                    n > 0 && homeShootsFts ? phase.recipientId : undefined;
-                  commitFoul({
-                    foulingTeamId,
-                    foulCategory: category,
-                    foulEntity: phase.foulEntity ?? 'player',
-                    committerId: phase.committerId,
-                    recipientId: phase.recipientId,
-                    isCoachFoul: phase.isCoachFoul,
-                    ftCount: n,
-                    ftShooterId: shooterId,
-                    ftShootingTeamId: n > 0 && oppShootsFts ? awayTeamId : undefined,
-                    retainPossession: phase.retainPossession ?? false,
-                    offendedTeamId,
-                  });
-                })}
-                disabled={n > 0 && homeShootsFts && !phase.recipientId}
-              >
-                {n} FT{n !== 1 ? 's' : ''}
-              </Button>
-            ))}
+            {ftOptions.map((n) => {
+              const award = resolveFoulFtAward({
+                ftCount: n,
+                trackBoth,
+                offendedTeamId,
+                homeTeamId,
+                awayTeamId,
+                recipientId: phase.recipientId,
+              });
+              return (
+                <Button
+                  key={n}
+                  variant="outline"
+                  onClick={overlayClick(() => {
+                    if (!award.canAward) return;
+                    commitFoul({
+                      foulingTeamId,
+                      foulCategory: category,
+                      foulEntity: phase.foulEntity ?? 'player',
+                      committerId: phase.committerId,
+                      recipientId: phase.recipientId,
+                      isCoachFoul: phase.isCoachFoul,
+                      ftCount: n,
+                      ftShooterId: award.ftShooterId,
+                      ftShootingTeamId: award.ftShootingTeamId,
+                      retainPossession: phase.retainPossession ?? false,
+                      offendedTeamId,
+                    });
+                  })}
+                  disabled={n > 0 && !award.canAward}
+                >
+                  {n} FT{n !== 1 ? 's' : ''}
+                </Button>
+              );
+            })}
+            {!oppShootsFts &&
+              !phase.recipientId &&
+              ftOptions.some((n) => n > 0) && (
+                <p className="w-full text-center text-xs text-destructive">
+                  Select the fouled player before awarding free throws.
+                </p>
+              )}
           </CardContent>
         </Card>
       </LiveCourtOverlayShell>

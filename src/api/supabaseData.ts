@@ -3,6 +3,10 @@ import { prepareIconsForCloudSave } from '../lib/teamAssetStorage';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import {
+  planTournamentRosterCloudWrite,
+  type TournamentRosterDelete,
+} from '../lib/tournamentRosterCloudWrite';
+import {
   dedupeTournamentRostersForDb,
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
@@ -24,6 +28,8 @@ export interface RosterPlayerDelete {
 export interface SaveAppDataOptions {
   /** Explicit player removals from a team (user-initiated). */
   rosterDeletes?: RosterPlayerDelete[];
+  /** Explicit tournament roster removals (user-initiated). Never a full wipe. */
+  tournamentRosterDeletes?: TournamentRosterDelete[];
   /**
    * Replace all team_players rows for these teams (scoped delete + upsert).
    * Used by rebuild:club-rosters — not normal app saves.
@@ -451,6 +457,44 @@ async function deleteTeamPlayerLinks(
       );
     }
   }
+}
+
+async function deleteTournamentRosterRows(
+  deletes: TournamentRosterDelete[]
+): Promise<void> {
+  if (!supabase || deletes.length === 0) return;
+  for (const row of deletes) {
+    const { error } = await supabase
+      .from('tournament_rosters')
+      .delete()
+      .eq('tournament_id', row.tournamentId)
+      .eq('team_id', row.teamId)
+      .eq('player_id', row.playerId);
+    if (error) {
+      throw new Error(
+        `tournament_rosters delete ${row.tournamentId}/${row.teamId}/${row.playerId}: ${error.message}`
+      );
+    }
+  }
+}
+
+async function persistTournamentRosterEntries(
+  tournamentRosters: TournamentRosterEntry[],
+  games: Game[],
+  teams: Team[],
+  pendingDeletes: TournamentRosterDelete[] = []
+): Promise<void> {
+  if (!supabase) return;
+  const plan = planTournamentRosterCloudWrite({
+    clientRows: dedupeTournamentRostersForDb(tournamentRosters, games, teams),
+    pendingDeletes,
+  });
+  await upsertChunks(
+    'tournament_rosters',
+    plan.upsert.map(tournamentRosterEntryToDbRow),
+    'tournament_id,team_id,player_id'
+  );
+  await deleteTournamentRosterRows(plan.deletes);
 }
 
 async function replaceTeamPlayerRosters(teamIds: string[]): Promise<void> {
@@ -1025,37 +1069,22 @@ export async function deletePlayersFromSupabase(playerIds: string[]): Promise<vo
   if (error) throw new Error(`players delete: ${error.message}`);
 }
 
-/** Upsert tournament roster rows only (no teams/games writes). */
+/** Upsert tournament roster rows only (no teams/games writes). Never delete-all. */
 export async function saveTournamentRostersToSupabase(
   tournaments: Tournament[],
   tournamentRosters: TournamentRosterEntry[],
   games: Game[] = [],
-  teams: Team[] = []
+  teams: Team[] = [],
+  options?: { tournamentRosterDeletes?: TournamentRosterDelete[] }
 ): Promise<void> {
   if (!supabase) return;
 
   const leagueTournamentIds = new Set(tournaments.map((t) => t.id));
-  const rosterRows = dedupeTournamentRostersForDb(
+  await persistTournamentRosterEntries(
     tournamentRosters.filter((entry) => leagueTournamentIds.has(entry.tournamentId)),
     games,
-    teams
-  ).map(tournamentRosterEntryToDbRow);
-
-  const tournamentIds = tournaments.map((t) => t.id);
-  if (tournamentIds.length > 0) {
-    const { error: rosterDeleteError } = await supabase
-      .from('tournament_rosters')
-      .delete()
-      .in('tournament_id', tournamentIds);
-    if (rosterDeleteError) {
-      throw new Error(`tournament_rosters delete: ${rosterDeleteError.message}`);
-    }
-  }
-
-  await upsertChunks(
-    'tournament_rosters',
-    rosterRows,
-    'tournament_id,team_id,player_id'
+    teams,
+    options?.tournamentRosterDeletes ?? []
   );
 }
 
@@ -1151,26 +1180,13 @@ export async function saveAppDataToSupabase(
   }
   await upsertChunks('tournament_teams', junctionRows, 'tournament_id,team_id');
 
-  const rosterRows = dedupeTournamentRostersForDb(
+  await persistTournamentRosterEntries(
     tournamentRosters.filter((entry) =>
       reconciledTournaments.some((t) => t.id === entry.tournamentId)
     ),
     games,
-    teamsForSave
-  ).map(tournamentRosterEntryToDbRow);
-  if (tournamentIds.length > 0) {
-    const { error: rosterDeleteError } = await supabase
-      .from('tournament_rosters')
-      .delete()
-      .in('tournament_id', tournamentIds);
-    if (rosterDeleteError) {
-      throw new Error(`tournament_rosters delete: ${rosterDeleteError.message}`);
-    }
-  }
-  await upsertChunks(
-    'tournament_rosters',
-    rosterRows,
-    'tournament_id,team_id,player_id'
+    teamsForSave,
+    options?.tournamentRosterDeletes ?? []
   );
 
   const existingGameStats = await loadExistingGameStatsById(games.map((g) => g.id));
