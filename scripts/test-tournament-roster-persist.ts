@@ -8,6 +8,7 @@ import {
   mergeLocalAndCloudTournamentRosters,
   planTournamentRosterCloudWrite,
   resolvePostRevalidateSaveGate,
+  sanitizeTournamentRostersForCloud,
   tournamentRosterSetsEqual,
 } from '../src/lib/tournamentRosterCloudWrite';
 import {
@@ -269,6 +270,41 @@ function testSetsEqual(): void {
   );
 }
 
+function testSanitizeRemapsMergedAliasesAndDropsOrphans(): void {
+  const teams = [
+    {
+      players: [
+        makePlayer('player-nbl-d1-2026-xh-12-paolo', 'Paolo', 14),
+        makePlayer('alive', 'Alive', 1),
+      ],
+    },
+  ];
+  const entries: TournamentRosterEntry[] = [
+    entry('sunig', 'nus', 'player-sunig-nus-14-paolo', 14),
+    entry('sunig', 'nus', 'ghost-missing', 99),
+    entry('sunig', 'nus', 'alive', 1),
+  ];
+  const result = sanitizeTournamentRostersForCloud({ entries, teams });
+  assert(result.remappedCount === 1, 'remapped Paolo alias once');
+  assert(
+    result.entries.some((r) => r.playerId === 'player-nbl-d1-2026-xh-12-paolo'),
+    'Paolo uses canonical id'
+  );
+  assert(
+    !result.entries.some((r) => r.playerId === 'player-sunig-nus-14-paolo'),
+    'stale Paolo id removed'
+  );
+  assert(
+    !result.entries.some((r) => r.playerId === 'ghost-missing'),
+    'orphan ghost dropped'
+  );
+  assert(
+    result.entries.some((r) => r.playerId === 'alive'),
+    'known player kept'
+  );
+  assert(result.changed, 'sanitize reports changed');
+}
+
 function main(): void {
   testPlanNeverWipesUnknownRows();
   testPlanDeletesOnlyExplicitRemovals();
@@ -278,6 +314,7 @@ function main(): void {
   testSkipSaveAlwaysReenabled();
   testReconcileDoesNotAutoAddUnusedClubPlayers();
   testSetsEqual();
+  testSanitizeRemapsMergedAliasesAndDropsOrphans();
   console.log('PASS: test-tournament-roster-persist');
 }
 

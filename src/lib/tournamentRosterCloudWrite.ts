@@ -15,10 +15,88 @@ export interface TournamentRosterCloudWritePlan {
   deletes: TournamentRosterDelete[];
 }
 
+/** Post-merge: stale local ids → kept profiles that own the games. */
+export const MERGED_PLAYER_ID_ALIASES: Readonly<Record<string, string>> = {
+  'player-sunig-nus-14-paolo': 'player-nbl-d1-2026-xh-12-paolo',
+  'player-sunig-nus-00-zachary-gan': 'player-nbl-d1-2026-sba-00-zachary',
+  'player-sunig-nus-22-yifan': 'player-nbl-d1-2026-cg-22-yifan',
+};
+
 export function tournamentRosterDeleteKey(
   row: TournamentRosterDelete
 ): string {
   return `${row.tournamentId}:${row.teamId}:${row.playerId}`;
+}
+
+export function collectKnownPlayerIdsFromTeams(
+  teams: Array<{ players?: Array<{ id: string }> }>
+): Set<string> {
+  const ids = new Set<string>();
+  for (const team of teams) {
+    for (const player of team.players ?? []) {
+      if (player?.id) ids.add(player.id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Remap known merged aliases, drop roster rows whose player is not on any
+ * club roster (avoids tournament_rosters_player_id_fkey), then dedupe keys.
+ */
+export function sanitizeTournamentRostersForCloud(args: {
+  entries: TournamentRosterEntry[];
+  teams: Array<{ players?: Array<{ id: string }> }>;
+  aliases?: Readonly<Record<string, string>>;
+}): {
+  entries: TournamentRosterEntry[];
+  remappedCount: number;
+  droppedPlayerIds: string[];
+  changed: boolean;
+} {
+  const aliases = args.aliases ?? MERGED_PLAYER_ID_ALIASES;
+  const known = collectKnownPlayerIdsFromTeams(args.teams);
+  let remappedCount = 0;
+  const droppedPlayerIds: string[] = [];
+
+  const rewritten = args.entries.map((row) => {
+    const nextId = aliases[row.playerId];
+    if (nextId && nextId !== row.playerId) {
+      remappedCount += 1;
+      return { ...row, playerId: nextId };
+    }
+    return row;
+  });
+
+  const byKey = new Map<string, TournamentRosterEntry>();
+  for (const row of rewritten) {
+    if (!known.has(row.playerId)) {
+      droppedPlayerIds.push(row.playerId);
+      continue;
+    }
+    byKey.set(tournamentRosterEntryKey(row), row);
+  }
+  const kept = [...byKey.values()];
+
+  const changed =
+    remappedCount > 0 ||
+    droppedPlayerIds.length > 0 ||
+    kept.length !== args.entries.length ||
+    !tournamentRosterSetsEqual(kept, args.entries);
+
+  return { entries: kept, remappedCount, droppedPlayerIds, changed };
+}
+
+export function remapTournamentRosterDeletes(
+  deletes: TournamentRosterDelete[],
+  aliases: Readonly<Record<string, string>> = MERGED_PLAYER_ID_ALIASES
+): TournamentRosterDelete[] {
+  return deletes.map((row) => {
+    const nextId = aliases[row.playerId];
+    return nextId && nextId !== row.playerId
+      ? { ...row, playerId: nextId }
+      : row;
+  });
 }
 
 export function collectTournamentRosterRemovals(

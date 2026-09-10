@@ -4,6 +4,8 @@ import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import {
   planTournamentRosterCloudWrite,
+  remapTournamentRosterDeletes,
+  sanitizeTournamentRostersForCloud,
   type TournamentRosterDelete,
 } from '../lib/tournamentRosterCloudWrite';
 import {
@@ -485,9 +487,22 @@ async function persistTournamentRosterEntries(
   pendingDeletes: TournamentRosterDelete[] = []
 ): Promise<void> {
   if (!supabase) return;
+  const sanitized = sanitizeTournamentRostersForCloud({
+    entries: tournamentRosters,
+    teams,
+  });
+  if (
+    (sanitized.remappedCount > 0 || sanitized.droppedPlayerIds.length > 0) &&
+    import.meta.env.DEV
+  ) {
+    console.warn('[RunItBack] Sanitized tournament_rosters before cloud upsert', {
+      remappedCount: sanitized.remappedCount,
+      droppedPlayerIds: [...new Set(sanitized.droppedPlayerIds)],
+    });
+  }
   const plan = planTournamentRosterCloudWrite({
-    clientRows: dedupeTournamentRostersForDb(tournamentRosters, games, teams),
-    pendingDeletes,
+    clientRows: dedupeTournamentRostersForDb(sanitized.entries, games, teams),
+    pendingDeletes: remapTournamentRosterDeletes(pendingDeletes),
   });
   await upsertChunks(
     'tournament_rosters',

@@ -56,7 +56,9 @@ import {
 import {
   collectTournamentRosterRemovals,
   mergeLocalAndCloudTournamentRosters,
+  remapTournamentRosterDeletes,
   resolvePostRevalidateSaveGate,
+  sanitizeTournamentRostersForCloud,
   tournamentRosterSetsEqual,
   type TournamentRosterDelete,
 } from './lib/tournamentRosterCloudWrite';
@@ -1157,15 +1159,38 @@ export default function App() {
 
       const rosterDeletes = [...pendingRosterDeletesRef.current];
       pendingRosterDeletesRef.current = [];
-      const tournamentRosterDeletes = [
+      const tournamentRosterDeletes = remapTournamentRosterDeletes([
         ...pendingTournamentRosterDeletesRef.current,
-      ];
+      ]);
       pendingTournamentRosterDeletesRef.current = [];
+
+      const sanitizedRosters = sanitizeTournamentRostersForCloud({
+        entries: tournamentRostersRef.current,
+        teams: teamsToSave,
+      });
+      if (sanitizedRosters.changed) {
+        if (import.meta.env.DEV) {
+          console.warn('[RunItBack] Sanitized local tournamentRosters', {
+            remappedCount: sanitizedRosters.remappedCount,
+            droppedPlayerIds: [...new Set(sanitizedRosters.droppedPlayerIds)],
+          });
+        }
+        tournamentRostersRef.current = sanitizedRosters.entries;
+        setTournamentRosters(sanitizedRosters.entries);
+        saveAppDataSnapshot({
+          teams: teamsRef.current,
+          tournaments: tournamentsRef.current,
+          games: gamesRef.current,
+          darkMode: true,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: sanitizedRosters.entries,
+        });
+      }
 
       const rostersToSave = reconcileTournamentRostersFromGames(
         gamesToSave,
         teamsToSave,
-        tournamentRostersRef.current
+        sanitizedRosters.entries
       );
 
       return enqueueCloudSave(async () => {
