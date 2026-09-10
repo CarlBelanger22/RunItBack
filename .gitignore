@@ -41,9 +41,8 @@ lerna-debug.log*
 # Local data backups (may contain league data)
 backups/
 
-# One-shot local data transfer / scratch scripts (not app source)
-scripts/_tmp-*
-scripts/__pycache__/
+# scripts
+scripts/
 
 # Local box score import staging (photos, HTML, JSON for DB import scripts)
 Importingboxscores/
