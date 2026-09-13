@@ -1071,6 +1071,20 @@ export async function deleteGamesFromSupabase(gameIds: string[]): Promise<void> 
   if (error) throw new Error(`games delete: ${error.message}`);
 }
 
+/**
+ * Upsert a single game row (End Game / Complete). Avoids rewriting the full
+ * games table so completion is not blocked on ~all-league payload size.
+ */
+export async function saveGameToSupabase(
+  game: Game,
+  leagueId = DEFAULT_LEAGUE_ID
+): Promise<void> {
+  if (!supabase) return;
+  const row = gameToDbRow(game, leagueId);
+  const { error } = await supabase.from('games').upsert(row, { onConflict: 'id' });
+  if (error) throw new Error(`games: ${error.message}`);
+}
+
 /** Removes teams (players cascade). Call after deleting games that reference them. */
 export async function deleteTeamsFromSupabase(teamIds: string[]): Promise<void> {
   if (!supabase || teamIds.length === 0) return;

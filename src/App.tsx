@@ -27,6 +27,7 @@ import {
   deleteTournamentsFromSupabase,
   loadAppDataFromSupabase,
   saveAppDataToSupabase,
+  saveGameToSupabase,
   saveTeamsToSupabase,
   saveTournamentRostersToSupabase,
   MIGRATION_002_HINT,
@@ -46,13 +47,21 @@ import {
   snapshotToLoadedAppData,
   type ProcessedAppData,
 } from './lib/appDataSnapshot';
-import { enqueueCloudSave } from './lib/cloudSaveQueue';
+import { enqueueCloudSave, isCloudSaveQueueIdle } from './lib/cloudSaveQueue';
+import {
+  END_GAME_CLOUD_SAVE_TIMEOUT_MS,
+  withTimeout,
+} from './lib/withTimeout';
 import { localPersistSliceDiverged } from './lib/cloudPersistApply';
 import {
   buildCompletedGamePayload,
   finalScoreFromPlayerPoints,
   mergeGamesPreferCompleted,
 } from './lib/completedGamePersist';
+import {
+  incompleteGameProgressScore,
+  mergeCloudGamesWithFresherLocal,
+} from './lib/liveGameFreshness';
 import {
   collectTournamentRosterRemovals,
   mergeLocalAndCloudTournamentRosters,
@@ -1043,6 +1052,7 @@ export default function App() {
     useState<PlayerStorageSchema | null>(null);
   const skipSaveRef = useRef(true);
   const localMutatedSinceMountRef = useRef(false);
+  const liveLocalSnapshotAtRef = useRef(0);
   const pendingRosterDeletesRef = useRef<
     Array<{ teamId: string; playerId: string }>
   >([]);
@@ -1437,6 +1447,7 @@ export default function App() {
             processed.tournamentRosters
           );
           processed.tournamentRosters = mergedRosters;
+          let gamesAheadOfCloud = false;
 
           if (localMutatedSinceMountRef.current) {
             if (import.meta.env.DEV) {
@@ -1464,17 +1475,56 @@ export default function App() {
             setTournamentRosters(mergedRosters);
             tournamentRostersRef.current = mergedRosters;
             prevTournamentRostersRef.current = mergedRosters;
+
+            const mergedGames = mergeCloudGamesWithFresherLocal(
+              processed.games,
+              gamesRef.current
+            );
+            const { games: dedupedGames, active } = dedupeActiveGames(mergedGames);
+            gamesRef.current = dedupedGames;
+            setGames(dedupedGames);
+            prevGamesRef.current = dedupedGames;
+            currentGameRef.current = active;
+            setCurrentGame(active);
+
             saveAppDataSnapshot({
               teams: mergedTeams,
               tournaments: mergedTournaments,
-              games: gamesRef.current,
+              games: dedupedGames,
               darkMode: true,
               orphanPlayers: loadedOrphanPlayersRef.current,
               tournamentRosters: mergedRosters,
             });
           } else {
+            const cloudGames = processed.games;
+            const mergedGames = mergeCloudGamesWithFresherLocal(
+              cloudGames,
+              gamesRef.current
+            );
+            gamesAheadOfCloud = mergedGames.some((g) => {
+              const cloud = cloudGames.find((c) => c.id === g.id);
+              if (!cloud) return true; // local-only game
+              if (g.isCompleted && !cloud.isCompleted) return true;
+              if (!g.isCompleted && cloud.isCompleted) return false;
+              if (cloud.isCompleted && g.isCompleted) return false;
+              return (
+                incompleteGameProgressScore(g) >
+                incompleteGameProgressScore(cloud)
+              );
+            });
+            const { games: dedupedGames, active, changed } =
+              dedupeActiveGames(mergedGames);
+            processed.games = dedupedGames;
+            processed.activeGame = active;
+            processed.activeGameDedupeChanged =
+              processed.activeGameDedupeChanged || changed;
             applyProcessedToState(processed);
             cloudApplied = true;
+            if (gamesAheadOfCloud && import.meta.env.DEV) {
+              console.info(
+                '[RunItBack] kept fresher local incomplete game(s) over cloud'
+              );
+            }
           }
           runCloudLoadSideEffects(data, processed);
           setDataLoadError(null);
@@ -1486,6 +1536,7 @@ export default function App() {
             hadCache,
             hadLocalEdits: localMutatedSinceMountRef.current,
             rostersAheadOfCloud,
+            gamesAheadOfCloud,
           });
           pendingSaveKind = saveGate.persistKind;
 
@@ -1495,6 +1546,7 @@ export default function App() {
               games: processed.games.length,
               cloudApplied,
               rostersAheadOfCloud,
+              gamesAheadOfCloud,
               persistKind: saveGate.persistKind,
             });
           }
@@ -1614,6 +1666,64 @@ export default function App() {
     };
   }, [teams, tournaments, games, darkMode, isDataLoading, tournamentRosters, runCloudPersist]);
 
+  // Flush durable local (+ best-effort cloud) when tab hides / page is frozen for sleep.
+  useEffect(() => {
+    const flushLiveDurability = (reason: string) => {
+      if (skipSaveRef.current || isDataLoading) return;
+      const active = currentGameRef.current;
+      const hasLive =
+        Boolean(active?.isActive && !active?.isCompleted) ||
+        gamesRef.current.some((g) => g.isActive && !g.isCompleted);
+      if (!hasLive) return;
+
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      if (idleCallbackRef.current !== null && 'cancelIdleCallback' in window) {
+        cancelIdleCallback(idleCallbackRef.current);
+        idleCallbackRef.current = null;
+      }
+
+      liveLocalSnapshotAtRef.current = Date.now();
+      saveAppDataSnapshot({
+        teams: teamsRef.current,
+        tournaments: tournamentsRef.current,
+        games: mergeGamesPreferCompleted(
+          gamesRef.current,
+          active?.isActive && !active.isCompleted ? [active] : []
+        ),
+        darkMode: true,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: tournamentRostersRef.current,
+      });
+
+      if (import.meta.env.DEV) {
+        console.info('[RunItBack] live durability flush', { reason });
+      }
+      // Q3=2: never start a competing full save while another write is in flight.
+      if (isCloudSaveQueueIdle()) {
+        void runCloudPersist('full');
+      } else if (import.meta.env.DEV) {
+        console.info('[RunItBack] skip hide cloud flush (queue busy)');
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        flushLiveDurability('visibilityhidden');
+      }
+    };
+    const onPageHide = () => flushLiveDurability('pagehide');
+
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+    };
+  }, [isDataLoading, runCloudPersist]);
+
   const handleGameStart = useCallback(
     (game: Game): boolean => {
       const existing = getActiveGame(games, currentGame);
@@ -1729,53 +1839,79 @@ export default function App() {
     localMutatedSinceMountRef.current = true;
     if (game.isActive) {
       setCurrentGame(game);
+      currentGameRef.current = game;
     } else if (currentGame?.id === game.id) {
       setCurrentGame(null);
+      currentGameRef.current = null;
     }
 
-    setGames((prev) => {
-      const previous = prev.find((g) => g.id === game.id);
-      const nextGames = [...prev.filter((g) => g.id !== game.id), game];
+    const previous = gamesRef.current.find((g) => g.id === game.id);
+    const nextGames = [...gamesRef.current.filter((g) => g.id !== game.id), game];
+    gamesRef.current = nextGames;
 
-      if (
-        previous?.tournamentId &&
-        previous.tournamentId !== game.tournamentId
-      ) {
-        setTournaments((tournamentPrev) =>
-          tournamentPrev.map((tournament) =>
-            tournament.id === previous.tournamentId
-              ? {
-                  ...tournament,
-                  games: tournament.games.filter((gid) => gid !== game.id),
-                }
-              : tournament
-          )
+    setGames(nextGames);
+
+    if (
+      previous?.tournamentId &&
+      previous.tournamentId !== game.tournamentId
+    ) {
+      setTournaments((tournamentPrev) => {
+        const next = tournamentPrev.map((tournament) =>
+          tournament.id === previous.tournamentId
+            ? {
+                ...tournament,
+                games: tournament.games.filter((gid) => gid !== game.id),
+              }
+            : tournament
         );
-      }
+        tournamentsRef.current = next;
+        return next;
+      });
+    }
 
-      if (game.tournamentId) {
-        setTournaments((tournamentPrev) =>
-          tournamentPrev.map((tournament) =>
-            tournament.id === game.tournamentId &&
-            !tournament.games.includes(game.id)
-              ? { ...tournament, games: [...tournament.games, game.id] }
-              : tournament
-          )
+    if (game.tournamentId) {
+      setTournaments((tournamentPrev) => {
+        const next = tournamentPrev.map((tournament) =>
+          tournament.id === game.tournamentId &&
+          !tournament.games.includes(game.id)
+            ? { ...tournament, games: [...tournament.games, game.id] }
+            : tournament
         );
-      }
+        tournamentsRef.current = next;
+        return next;
+      });
+    }
 
-      if (game.isCompleted) {
-        setTournamentRosters((rosters) =>
-          reconcileTournamentRostersFromGames(
-            nextGames,
-            teamsRef.current,
-            rosters
-          )
+    if (game.isCompleted) {
+      setTournamentRosters((rosters) => {
+        const next = reconcileTournamentRostersFromGames(
+          nextGames,
+          teamsRef.current,
+          rosters
         );
-      }
+        tournamentRostersRef.current = next;
+        return next;
+      });
+    }
 
-      return nextGames;
-    });
+    // Eager local durable write so sleep/tab discard cannot wipe recent live stats.
+    // Throttle to limit localStorage churn during rapid tapping; hide flush is separate.
+    const now = Date.now();
+    const shouldSnapshot =
+      game.isActive &&
+      !game.isCompleted &&
+      now - liveLocalSnapshotAtRef.current >= 250;
+    if (shouldSnapshot || game.isCompleted) {
+      liveLocalSnapshotAtRef.current = now;
+      saveAppDataSnapshot({
+        teams: teamsRef.current,
+        tournaments: tournamentsRef.current,
+        games: nextGames,
+        darkMode: true,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: tournamentRostersRef.current,
+      });
+    }
   }, [currentGame?.id]);
 
   const handleGamesUpdate = useCallback((nextGames: Game[]) => {
@@ -1848,17 +1984,36 @@ export default function App() {
       });
 
       setSaveError(null);
-      const ok = await persistCurrentAppData('full');
-      if (!ok) {
-        return false;
+      let cloudOk = false;
+      try {
+        await withTimeout(
+          enqueueCloudSave(
+            async () => {
+              await saveGameToSupabase(completedGame);
+            },
+            { urgent: true }
+          ),
+          END_GAME_CLOUD_SAVE_TIMEOUT_MS,
+          'End Game cloud save'
+        );
+        cloudOk = true;
+        // Catch up the rest of the league in the background (non-blocking).
+        void runCloudPersist('full');
+      } catch (err) {
+        console.error('End Game cloud save failed:', err);
+        setSaveError(
+          formatCloudSaveError(
+            err instanceof Error ? err.message : String(err)
+          )
+        );
       }
 
       currentGameRef.current = null;
       setCurrentGame(null);
       navigate(paths.home);
-      return true;
+      return cloudOk;
     },
-    [navigate, persistCurrentAppData]
+    [navigate, runCloudPersist]
   );
 
   // Tournament management functions - memoized
@@ -2556,12 +2711,28 @@ export default function App() {
         </div>
       )}
       {(dataLoadError || saveError) && (
-        <div className="bg-destructive/10 text-destructive text-sm text-center py-2 px-4">
-          {dataLoadError
-            ? showedCachedSnapshot
-              ? `Could not sync from cloud (${dataLoadError}). Showing cached data — retrying.`
-              : `Could not load from cloud (${dataLoadError}). Retrying…`
-            : `Could not save to cloud: ${saveError}`}
+        <div className="bg-destructive/10 text-destructive text-sm text-center py-2 px-4 flex flex-wrap items-center justify-center gap-3">
+          <span>
+            {dataLoadError
+              ? showedCachedSnapshot
+                ? `Could not sync from cloud (${dataLoadError}). Showing cached data — retrying.`
+                : `Could not load from cloud (${dataLoadError}). Retrying…`
+              : `Could not save to cloud: ${saveError}`}
+          </span>
+          {saveError && !dataLoadError && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-7"
+              onClick={() => {
+                setSaveError(null);
+                void persistCurrentAppData('full');
+              }}
+            >
+              Retry
+            </Button>
+          )}
         </div>
       )}
       {/* Header */}

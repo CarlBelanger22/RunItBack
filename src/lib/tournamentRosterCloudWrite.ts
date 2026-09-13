@@ -161,12 +161,16 @@ export function resolvePostRevalidateSaveGate(args: {
   hadCache: boolean;
   hadLocalEdits: boolean;
   rostersAheadOfCloud?: boolean;
+  gamesAheadOfCloud?: boolean;
 }): { enableSaves: boolean; persistKind: 'full' | 'rosters-only' | null } {
   if (args.hadLocalEdits) {
     return {
       enableSaves: true,
       persistKind: args.cloudApplied ? 'full' : 'rosters-only',
     };
+  }
+  if (args.gamesAheadOfCloud) {
+    return { enableSaves: true, persistKind: 'full' };
   }
   if (args.rostersAheadOfCloud) {
     return { enableSaves: true, persistKind: 'rosters-only' };
