@@ -17,6 +17,7 @@ import { shouldPreserveExistingGameStats } from '../utils/gameStatsIntegrity';
 import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { normalizeTournamentStructure } from '../utils/tournamentStructure';
 import { applyResolvedPossessionArrow } from '../liveEntry/possessionArrow';
+import { applyPreservedStartTime } from '../lib/gameStartTime';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -753,6 +754,28 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
   });
 }
 
+async function loadExistingStartTimesById(
+  gameIds: string[]
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!supabase || gameIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('games')
+    .select('id, team_stats')
+    .in('id', gameIds);
+
+  if (error) throw new Error(`games fetch for startTime preserve: ${error.message}`);
+
+  for (const row of data ?? []) {
+    const startTime = (row.team_stats as PersistedTeamStats | null)?.[TEAM_STATS_META_KEY]
+      ?.startTime;
+    const trimmed = typeof startTime === 'string' ? startTime.trim() : '';
+    if (trimmed) map.set(row.id as string, trimmed);
+  }
+  return map;
+}
+
 async function loadExistingGameStatsById(
   gameIds: string[]
 ): Promise<Map<string, GameStats[]>> {
@@ -1080,7 +1103,9 @@ export async function saveGameToSupabase(
   leagueId = DEFAULT_LEAGUE_ID
 ): Promise<void> {
   if (!supabase) return;
-  const row = gameToDbRow(game, leagueId);
+  const existingTimes = await loadExistingStartTimesById([game.id]);
+  const toSave = applyPreservedStartTime(game, existingTimes.get(game.id));
+  const row = gameToDbRow(toSave, leagueId);
   const { error } = await supabase.from('games').upsert(row, { onConflict: 'id' });
   if (error) throw new Error(`games: ${error.message}`);
 }
@@ -1219,18 +1244,30 @@ export async function saveAppDataToSupabase(
   );
 
   const existingGameStats = await loadExistingGameStatsById(games.map((g) => g.id));
+  const existingStartTimes = await loadExistingStartTimesById(games.map((g) => g.id));
   let preservedGameStats = 0;
+  let preservedStartTimes = 0;
   const gameRows = games.map((g) => {
-    const existingStats = existingGameStats.get(g.id);
-    if (shouldPreserveExistingGameStats(g, existingStats)) {
+    const withStart = applyPreservedStartTime(g, existingStartTimes.get(g.id));
+    if (!g.startTime?.trim() && withStart.startTime) preservedStartTimes++;
+    const existingStats = existingGameStats.get(withStart.id);
+    if (shouldPreserveExistingGameStats(withStart, existingStats)) {
       preservedGameStats++;
-      return gameToDbRow({ ...g, gameStats: existingStats ?? [] }, leagueId);
+      return gameToDbRow(
+        { ...withStart, gameStats: existingStats ?? [] },
+        leagueId
+      );
     }
-    return gameToDbRow(g, leagueId);
+    return gameToDbRow(withStart, leagueId);
   });
   if (preservedGameStats > 0 && import.meta.env.DEV) {
     console.warn(
       `[RunItBack] Preserved DB box scores for ${preservedGameStats} game(s) (incoming stats were placeholders).`
+    );
+  }
+  if (preservedStartTimes > 0 && import.meta.env.DEV) {
+    console.warn(
+      `[RunItBack] Preserved DB tip times for ${preservedStartTimes} game(s) (incoming startTime missing).`
     );
   }
   await upsertChunks('games', gameRows, 'id');

@@ -52,6 +52,7 @@ import {
   END_GAME_CLOUD_SAVE_TIMEOUT_MS,
   withTimeout,
 } from './lib/withTimeout';
+import { copyForwardStartTime } from './lib/gameStartTime';
 import { localPersistSliceDiverged } from './lib/cloudPersistApply';
 import {
   buildCompletedGamePayload,
@@ -1837,30 +1838,35 @@ export default function App() {
 
   const handleGameUpdate = useCallback((game: Game) => {
     localMutatedSinceMountRef.current = true;
-    if (game.isActive) {
-      setCurrentGame(game);
-      currentGameRef.current = game;
-    } else if (currentGame?.id === game.id) {
+    const previous = gamesRef.current.find((g) => g.id === game.id);
+    const nextGame = copyForwardStartTime(previous ?? currentGameRef.current, game);
+
+    if (nextGame.isActive) {
+      setCurrentGame(nextGame);
+      currentGameRef.current = nextGame;
+    } else if (currentGame?.id === nextGame.id) {
       setCurrentGame(null);
       currentGameRef.current = null;
     }
 
-    const previous = gamesRef.current.find((g) => g.id === game.id);
-    const nextGames = [...gamesRef.current.filter((g) => g.id !== game.id), game];
+    const nextGames = [
+      ...gamesRef.current.filter((g) => g.id !== nextGame.id),
+      nextGame,
+    ];
     gamesRef.current = nextGames;
 
     setGames(nextGames);
 
     if (
       previous?.tournamentId &&
-      previous.tournamentId !== game.tournamentId
+      previous.tournamentId !== nextGame.tournamentId
     ) {
       setTournaments((tournamentPrev) => {
         const next = tournamentPrev.map((tournament) =>
           tournament.id === previous.tournamentId
             ? {
                 ...tournament,
-                games: tournament.games.filter((gid) => gid !== game.id),
+                games: tournament.games.filter((gid) => gid !== nextGame.id),
               }
             : tournament
         );
@@ -1869,12 +1875,12 @@ export default function App() {
       });
     }
 
-    if (game.tournamentId) {
+    if (nextGame.tournamentId) {
       setTournaments((tournamentPrev) => {
         const next = tournamentPrev.map((tournament) =>
-          tournament.id === game.tournamentId &&
-          !tournament.games.includes(game.id)
-            ? { ...tournament, games: [...tournament.games, game.id] }
+          tournament.id === nextGame.tournamentId &&
+          !tournament.games.includes(nextGame.id)
+            ? { ...tournament, games: [...tournament.games, nextGame.id] }
             : tournament
         );
         tournamentsRef.current = next;
@@ -1882,7 +1888,7 @@ export default function App() {
       });
     }
 
-    if (game.isCompleted) {
+    if (nextGame.isCompleted) {
       setTournamentRosters((rosters) => {
         const next = reconcileTournamentRostersFromGames(
           nextGames,
@@ -1898,10 +1904,10 @@ export default function App() {
     // Throttle to limit localStorage churn during rapid tapping; hide flush is separate.
     const now = Date.now();
     const shouldSnapshot =
-      game.isActive &&
-      !game.isCompleted &&
+      nextGame.isActive &&
+      !nextGame.isCompleted &&
       now - liveLocalSnapshotAtRef.current >= 250;
-    if (shouldSnapshot || game.isCompleted) {
+    if (shouldSnapshot || nextGame.isCompleted) {
       liveLocalSnapshotAtRef.current = now;
       saveAppDataSnapshot({
         teams: teamsRef.current,
@@ -1929,12 +1935,15 @@ export default function App() {
   const handleGameComplete = useCallback(
     async (game: Game): Promise<boolean> => {
       localMutatedSinceMountRef.current = true;
-      const finalScore = finalScoreFromPlayerPoints(game);
-      const tournamentId = resolveCompletedGameTournamentId(game);
+      const prior =
+        gamesRef.current.find((g) => g.id === game.id) ?? currentGameRef.current;
+      const gameWithTip = copyForwardStartTime(prior, game);
+      const finalScore = finalScoreFromPlayerPoints(gameWithTip);
+      const tournamentId = resolveCompletedGameTournamentId(gameWithTip);
 
       const completedGame = ensureGameQuarterStats(
         buildCompletedGamePayload(
-          { ...game, tournamentId },
+          { ...gameWithTip, tournamentId },
           finalScore
         )
       );
