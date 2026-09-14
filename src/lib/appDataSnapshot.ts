@@ -75,6 +75,8 @@ export interface SnapshotGame {
   stageId?: string;
   groupId?: string;
   bracketSlotId?: string;
+  /** Tip-off time (HH:MM) — must survive completed-game snapshot round-trips. */
+  startTime?: string;
   /** Active live session — preserved for cache-first reload (v8+). */
   liveEvents?: GameEvent[];
   liveTeamStats?: { home: TeamStats; away: TeamStats };
@@ -306,6 +308,7 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
       stageId: game.stageId,
       groupId: game.groupId,
       bracketSlotId: game.bracketSlotId,
+      startTime: game.startTime,
     };
 
     if (game.isActive && !game.isCompleted) {
@@ -405,6 +408,7 @@ export function hydrateSnapshotGames(
       stageId: row.stageId,
       groupId: row.groupId,
       bracketSlotId: row.bracketSlotId,
+      startTime: row.startTime,
       isActive: row.isActive,
       isCompleted: row.isCompleted,
       finalScore: row.finalScore,
