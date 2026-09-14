@@ -151,6 +151,12 @@ export function formatPlayerDisplayName(fullName: string): string {
   return getPlayerFirstName(fullName);
 }
 
+/** Jersey column for PDF box score — keep valid 0 (do not treat as empty). */
+export function formatReportJerseyNumber(number: number): string {
+  if (!Number.isFinite(number) || number < 0) return '';
+  return String(number);
+}
+
 export function buildGameReportFilename(game: Game): string {
   const date = game.date.slice(0, 10);
   const home = game.homeTeam.abbreviation || 'HOME';
@@ -287,7 +293,7 @@ function formatPlayerCells(
   const reb = player.orb + player.drb;
 
   return [
-    player.number > 0 ? String(player.number) : '',
+    formatReportJerseyNumber(player.number),
     formatPlayerDisplayName(player.name),
     formatReportMinutes(player.minutes_played),
     String(player.points),

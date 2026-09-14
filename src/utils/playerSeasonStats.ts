@@ -15,7 +15,7 @@ import {
   resolvePlayerTeamIdForGames,
 } from './rosterPlayers';
 import { getPlayerAgeAtTournamentSeason } from './playerAge';
-import { getTournamentDateMs } from './tournamentSort';
+import { getTournamentDateMs, sortTournamentsByDateDesc } from './tournamentSort';
 import {
   perGameAverageOrNull,
   gameRecordsStat,
@@ -305,12 +305,24 @@ export function getTeamTournamentScopeOptions(
     if ((tournament.teams ?? []).includes(teamId)) ids.add(tournament.id);
   }
 
-  const options: TournamentScopeOption[] = [{ value: 'all', label: 'All tournaments' }];
-  for (const id of [...ids].sort()) {
+  const matched: Tournament[] = [];
+  const orphanIds: string[] = [];
+  for (const id of ids) {
     const tournament = (tournaments ?? []).find((t) => t.id === id);
-    options.push({ value: id, label: tournament?.name ?? id });
+    if (tournament) matched.push(tournament);
+    else orphanIds.push(id);
   }
-  return options;
+
+  orphanIds.sort((a, b) => a.localeCompare(b));
+
+  return [
+    { value: 'all', label: 'All tournaments' },
+    ...sortTournamentsByDateDesc(matched).map((tournament) => ({
+      value: tournament.id,
+      label: tournament.name,
+    })),
+    ...orphanIds.map((id) => ({ value: id, label: id })),
+  ];
 }
 
 export function aggregatePlayerSeasonStats(
