@@ -248,3 +248,57 @@ export function sortGamesTabEntries<
     return timeA.localeCompare(timeB);
   });
 }
+
+/**
+ * Tip times from tournament structure (seed matchups + bracket slots), keyed by
+ * linked game id. Used when `Game.startTime` was stripped but the schedule still
+ * has a tip.
+ */
+export function buildStructureStartTimeByGameId(
+  structureInput: TournamentStructure | undefined,
+  allGames: Game[],
+  teamById: Map<string, Team>
+): Map<string, string> {
+  const map = new Map<string, string>();
+  const structure = normalizeTournamentStructure(structureInput);
+  if (!structure) return map;
+
+  for (const stage of structure.stages) {
+    for (const group of stage.groups ?? []) {
+      for (const row of buildGroupMatchRows(
+        group,
+        structure,
+        allGames,
+        teamById,
+        stage.id
+      )) {
+        const tip = row.startTime?.trim();
+        if (row.game?.id && tip) map.set(row.game.id, tip);
+      }
+    }
+
+    if (stage.kind !== 'classification' || !stage.bracket) continue;
+    for (const round of stage.bracket.rounds) {
+      for (const slot of round.slots) {
+        const tip = slot.startTime?.trim();
+        if (!tip) continue;
+        if (slot.gameId) map.set(slot.gameId, tip);
+        const linked = allGames.find((g) => g.bracketSlotId === slot.id);
+        if (linked) map.set(linked.id, tip);
+      }
+    }
+  }
+
+  return map;
+}
+
+/** Games-list tip: prefer game field, else structure schedule tip. */
+export function resolveGameListStartTime(
+  game: Pick<Game, 'id' | 'startTime'>,
+  structureTips: Map<string, string>
+): string | undefined {
+  const own = game.startTime?.trim();
+  if (own) return own;
+  const fromStructure = structureTips.get(game.id)?.trim();
+  return fromStructure || undefined;
+}

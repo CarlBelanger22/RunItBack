@@ -86,7 +86,13 @@ import {
   isSeedPlaceholderTeamId,
   seedPlaceholderTeam,
 } from '../utils/groupMembers';
-import { buildGroupMatchRows, buildSeedFixtureRows, sortGamesTabEntries } from '../utils/groupMatchRows';
+import {
+  buildGroupMatchRows,
+  buildSeedFixtureRows,
+  buildStructureStartTimeByGameId,
+  resolveGameListStartTime,
+  sortGamesTabEntries,
+} from '../utils/groupMatchRows';
 import { buildBracketFixtureRows } from '../utils/bracketFixtureRows';
 import { normalizeSeedCode } from '../utils/seedCodes';
 
@@ -1152,6 +1158,11 @@ export function TournamentPage({
       teamById
     );
     const allFixtures = [...seedFixtures, ...bracketFixtures];
+    const structureTipsByGameId = buildStructureStartTimeByGameId(
+      tournament.structure,
+      tournamentGames,
+      teamById
+    );
 
     // Filter games based on status
     const filteredGames = tournamentGames.filter((game) => {
@@ -1193,7 +1204,7 @@ export function TournamentPage({
         kind: 'game' as const,
         game,
         date: game.date,
-        startTime: game.startTime,
+        startTime: resolveGameListStartTime(game, structureTipsByGameId),
       })),
       ...filteredFixtures.map((fixture) => ({
         kind: 'fixture' as const,
@@ -1432,6 +1443,9 @@ export function TournamentPage({
               }
 
               const { game } = entry;
+              const displayStartTime =
+                entry.startTime ??
+                resolveGameListStartTime(game, structureTipsByGameId);
               const homeTeam = resolveGameTeam(teams, game, 'home');
               const awayTeam = resolveGameTeam(teams, game, 'away');
               const stageTag = hasStructure
@@ -1456,7 +1470,7 @@ export function TournamentPage({
                 homeTeamId: game.homeTeamId,
                 awayTeamId: game.awayTeamId,
                 date: game.date,
-                startTime: game.startTime,
+                startTime: displayStartTime,
                 stageId: game.stageId,
                 groupId: game.groupId,
               };
@@ -1523,10 +1537,10 @@ export function TournamentPage({
                               day: 'numeric',
                             })}
                           </span>
-                          {game.startTime ? (
+                          {displayStartTime ? (
                             <>
                               <span>•</span>
-                              <span>{game.startTime}</span>
+                              <span>{displayStartTime}</span>
                             </>
                           ) : null}
                           {completed && (
