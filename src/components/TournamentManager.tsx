@@ -26,6 +26,7 @@ import {
   isGameCompleted,
   isScheduledTournamentGame,
 } from '../utils/scheduledGames';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 
 interface TournamentManagerProps {
   tournaments: Tournament[];
@@ -48,6 +49,7 @@ export function TournamentManager({
   onBack,
   onNavigateToTournament
 }: TournamentManagerProps) {
+  const { canEditLeague } = useAuthCapabilities();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingTournament, setEditingTournament] = useState<Tournament | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
@@ -118,6 +120,8 @@ export function TournamentManager({
           </div>
         </div>
         
+        {canEditLeague && (
+          <>
         <Button
           onClick={() => setIsCreateDialogOpen(true)}
         >
@@ -140,6 +144,8 @@ export function TournamentManager({
             />
           </DialogContent>
         </Dialog>
+          </>
+        )}
       </div>
 
       {/* Edit Tournament Dialog */}
@@ -188,10 +194,12 @@ export function TournamentManager({
                 Create your first tournament to start organizing games and tracking statistics.
               </p>
             </div>
+            {canEditLeague && (
             <Button onClick={() => setIsCreateDialogOpen(true)}>
               <Plus className="h-4 w-4 mr-2" />
               Create First Tournament
             </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -219,6 +227,7 @@ export function TournamentManager({
                       {tournament.month} {tournament.year}
                     </CardDescription>
                   </div>
+                  {canEditLeague && (
                   <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
                     <Button
                       variant="ghost"
@@ -237,6 +246,7 @@ export function TournamentManager({
                       <Trash2 className="h-3 w-3" />
                     </Button>
                   </div>
+                  )}
                 </div>
               </CardHeader>
               

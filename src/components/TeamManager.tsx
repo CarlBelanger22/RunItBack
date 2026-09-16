@@ -22,6 +22,7 @@ import { Plus, Users, ArrowLeft, Trash2, Edit } from 'lucide-react';
 import { partitionTeams } from '../utils/ghostTeams';
 import { Label } from './ui/label';
 import { Switch } from './ui/switch';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 
 interface TeamManagerProps {
   teams: Team[];
@@ -48,6 +49,7 @@ export function TeamManager({
   onBack,
   onNavigateToTeam,
 }: TeamManagerProps) {
+  const { canEditLeague } = useAuthCapabilities();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [editingTeam, setEditingTeam] = useState<Team | null>(null);
   const [createFormKey, setCreateFormKey] = useState(0);
@@ -164,6 +166,8 @@ export function TeamManager({
             </div>
           </div>
           <div className="flex space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+            {canEditLeague && (
+              <>
             <Button
               variant="ghost"
               size="sm"
@@ -186,6 +190,8 @@ export function TeamManager({
             >
               <Trash2 className="h-3 w-3" />
             </Button>
+              </>
+            )}
           </div>
         </div>
       </CardHeader>
@@ -211,6 +217,8 @@ export function TeamManager({
           </div>
         </div>
 
+        {canEditLeague && (
+          <>
         <Button
           onClick={() => {
             setCreateFormKey((k) => k + 1);
@@ -239,6 +247,8 @@ export function TeamManager({
             />
           </DialogContent>
         </Dialog>
+          </>
+        )}
       </div>
 
       {editingTeam && (
@@ -291,6 +301,7 @@ export function TeamManager({
                 Create your first team, then open it to manage the roster.
               </p>
             </div>
+            {canEditLeague && (
             <Button
               onClick={() => {
                 setCreateFormKey((k) => k + 1);
@@ -300,6 +311,7 @@ export function TeamManager({
               <Plus className="h-4 w-4 mr-2" />
               Create First Team
             </Button>
+            )}
           </CardContent>
         </Card>
       ) : realTeams.length === 0 && !showGhostTeams ? (
@@ -314,6 +326,7 @@ export function TeamManager({
                 {ghostTeams.length === 1 ? 'team' : 'teams'}.
               </p>
             </div>
+            {canEditLeague && (
             <Button
               onClick={() => {
                 setCreateFormKey((k) => k + 1);
@@ -323,6 +336,7 @@ export function TeamManager({
               <Plus className="h-4 w-4 mr-2" />
               Create Team
             </Button>
+            )}
           </CardContent>
         </Card>
       ) : (

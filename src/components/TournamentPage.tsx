@@ -27,6 +27,8 @@ import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
 import { TournamentForm } from './forms/TournamentForm';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
@@ -139,7 +141,8 @@ export function TournamentPage({
   onDeleteTournament,
   onGamesUpdate,
 }: TournamentPageProps) {
-  
+  const { canViewDetailedStats, canEditLeague } = useAuthCapabilities();
+
   // Teams/games derived from games table (tournamentId) with enrollment fallback
   const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
   const tournamentGames = filterGamesForTournament(tournament, games);
@@ -646,7 +649,7 @@ export function TournamentPage({
         <div className="flex items-center gap-3">
           <Badge variant="secondary">{tournamentTeams.length} Teams</Badge>
           
-          {availableTeams.length > 0 && (
+          {canEditLeague && availableTeams.length > 0 && (
             <Button
               variant="outline"
               onClick={() => setIsAddTeamDialogOpen(true)}
@@ -656,10 +659,12 @@ export function TournamentPage({
             </Button>
           )}
 
+          {canEditLeague && (
           <Button onClick={openCreateTeamDialog}>
             <Plus className="h-4 w-4 mr-2" />
             Create New Team
           </Button>
+          )}
         </div>
       </div>
       
@@ -1455,7 +1460,9 @@ export function TournamentPage({
               const live = isGameLive(game);
               const completed = isGameCompleted(game);
               const canTrackStats =
-                scheduled && onNavigateToStatsEntry != null;
+                scheduled &&
+                canEditLeague &&
+                onNavigateToStatsEntry != null;
               const canOpenSummary = completed || live;
               const handleCardClick = () => {
                 if (live && onResumeLiveGame) {
@@ -1634,19 +1641,21 @@ export function TournamentPage({
             </div>
           </div>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => {
-            setEditTournamentError(null);
-            setEditTournamentPane('details');
-            setIsEditTournamentDialogOpen(true);
-          }}
-        >
-          <Edit className="w-4 h-4 mr-2" />
-          Edit Tournament
-        </Button>
+        {canEditLeague && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => {
+              setEditTournamentError(null);
+              setEditTournamentPane('details');
+              setIsEditTournamentDialogOpen(true);
+            }}
+          >
+            <Edit className="w-4 h-4 mr-2" />
+            Edit Tournament
+          </Button>
+        )}
       </div>
 
       {/* Navigation Tabs */}
@@ -1672,7 +1681,14 @@ export function TournamentPage({
         </TabsContent>
 
         <TabsContent value="players" className="space-y-6">
-          {PlayersTab()}
+          {canViewDetailedStats ? (
+            PlayersTab()
+          ) : (
+            <LoginRequiredPanel
+              title="Sign in to view player stats"
+              description="Tournament player stats unlock after you sign in with Google."
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="games" className="space-y-6">

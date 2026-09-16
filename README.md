@@ -438,8 +438,10 @@ Never commit `.env.local`.
 | **004** | Allow duplicate jersey numbers per team |
 | **005** | `tournament_rosters` table |
 | **006** | `team-assets` storage bucket + policies |
+| **007** | Optional `tournaments.structure` JSON |
+| **008** | RLS: public SELECT; Admin-only writes (+ storage); `admin_email_allowlist` |
 
-Apply via Supabase SQL editor or `npm run db:migrate:002` … `006`.
+Apply via Supabase SQL editor or `npm run db:migrate:002` … `008`.
 
 ### Game document (JSONB in `games`)
 

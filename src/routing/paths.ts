@@ -43,6 +43,7 @@ export const paths = {
   teams: '/teams',
   games: '/games',
   statsEntry: '/stats-entry',
+  account: '/account',
 } as const;
 
 export function tournamentPath(

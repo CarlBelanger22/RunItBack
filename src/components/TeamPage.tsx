@@ -34,6 +34,8 @@ import { TeamBadge } from './TeamBadge';
 import { ParticipatedTournamentBadges } from './ParticipatedTournamentBadges';
 import { TournamentScopeSelect } from './TournamentScopeSelect';
 import { StatScopeFilterBar } from './StatScopeFilterBar';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { LoginRequiredPanel } from './LoginRequiredPanel';
 import {
   DEFAULT_GAME_FORMAT_SCOPE,
   filterGamesByFormatScope,
@@ -322,6 +324,7 @@ export function TeamPage({
   onFlushTournamentRosterSave,
   onDeleteTeam,
 }: TeamPageProps) {
+  const { canViewDetailedStats, canEditLeague, canExport } = useAuthCapabilities();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const statsGameFormatScope = parseGameFormatScope(searchParams.get('format'));
@@ -1174,6 +1177,7 @@ export function TeamPage({
           />
         </div>
         <div className="col-start-2 row-span-2 row-start-1 flex w-fit flex-col items-end gap-1.5 justify-self-end self-start">
+          {canEditLeague && (
           <Button
             size="sm"
             className="w-auto"
@@ -1182,7 +1186,8 @@ export function TeamPage({
             <Plus className="h-4 w-4 mr-2" />
             Add Player
           </Button>
-          {rosterTournamentScope === 'all' && (
+          )}
+          {canEditLeague && rosterTournamentScope === 'all' && (
             <div className="flex w-full justify-end">
               <Button
                 type="button"
@@ -1861,7 +1866,7 @@ export function TeamPage({
             plusMinusCoverage={playerStatsPlusMinusCoverage}
             foulsDrawnCoverage={playerStatsFoulsDrawnCoverage}
             onNavigateToPlayer={onNavigateToPlayer}
-            onExportPdf={handleExportTeamStatsPdf}
+            onExportPdf={canExport ? handleExportTeamStatsPdf : undefined}
             exportDisabled={playerSeasonRows.length === 0}
           />
         </div>
@@ -1966,14 +1971,16 @@ export function TeamPage({
           </div>
         </div>
 
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setIsEditTeamDialogOpen(true)}
-        >
-          <Edit className="w-4 h-4 mr-2" />
-          Edit Team
-        </Button>
+        {canEditLeague && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsEditTeamDialogOpen(true)}
+          >
+            <Edit className="w-4 h-4 mr-2" />
+            Edit Team
+          </Button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -1990,11 +1997,25 @@ export function TeamPage({
         </TabsContent>
 
         <TabsContent value="roster" className="mt-0 w-full pt-0">
-          {RosterTab()}
+          {canViewDetailedStats ? (
+            RosterTab()
+          ) : (
+            <LoginRequiredPanel
+              title="Sign in to view roster"
+              description="Team roster details unlock after you sign in with Google."
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="stats">
-          {StatsTab()}
+          {canViewDetailedStats ? (
+            StatsTab()
+          ) : (
+            <LoginRequiredPanel
+              title="Sign in to view team stats"
+              description="Player and team stats unlock after you sign in with Google."
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="games">

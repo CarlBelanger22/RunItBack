@@ -18,6 +18,7 @@ import { Input } from './components/ui/input';
 import { TeamBadge } from './components/TeamBadge';
 import { TournamentBadge } from './components/TournamentBadge';
 import { isSupabaseConfigured } from './lib/supabase';
+import { useAuthCapabilities } from './lib/auth/useAuthCapabilities';
 import type { GameClockSettings } from './utils/gameClock';
 import type { TournamentStructure } from './utils/tournamentStructure';
 import {
@@ -116,7 +117,8 @@ import {
   GLOBAL_SEARCH_TYPE_LABELS,
 } from './utils/globalSearch';
 
-import { Settings, Search } from 'lucide-react';
+import { Search } from 'lucide-react';
+import { AccountMenu } from './components/AccountMenu';
 
 type CloudSaveKind = 'full' | 'rosters-only';
 
@@ -1033,6 +1035,7 @@ const createSeedData = () => {
 };
 
 export default function App() {
+  const { canEditLeague } = useAuthCapabilities();
   const [games, setGames] = useState<Game[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -2770,19 +2773,21 @@ export default function App() {
               >
                 Main
               </Button>
-              <Button
-                variant={isStatsEntry ? 'default' : 'ghost'}
-                size="sm"
-                onClick={() => navigate(paths.statsEntry)}
-                className="rounded-md"
-              >
-                Stats Entry
-              </Button>
+              {canEditLeague && (
+                <Button
+                  variant={isStatsEntry ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => navigate(paths.statsEntry)}
+                  className="rounded-md"
+                >
+                  Stats Entry
+                </Button>
+              )}
             </div>
             
             {/* Right: Actions */}
             <div className="flex items-center gap-2">
-              {headerLiveGame && (
+              {canEditLeague && headerLiveGame && (
                 <button
                   type="button"
                   onClick={() => navigate(liveGamePath(headerLiveGame.id))}
@@ -2793,9 +2798,7 @@ export default function App() {
                 </button>
               )}
               
-              <Button variant="ghost" size="sm" className="rounded-full w-9 h-9 p-0">
-                <Settings className="w-4 h-4" />
-              </Button>
+              <AccountMenu />
             </div>
           </div>
         </div>

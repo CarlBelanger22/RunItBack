@@ -20,6 +20,7 @@ import {
   Download,
   Archive
 } from 'lucide-react';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 
 interface SeasonHistoryProps {
   games: Game[];
@@ -27,6 +28,7 @@ interface SeasonHistoryProps {
 }
 
 export function SeasonHistory({ games, onGameSelect }: SeasonHistoryProps) {
+  const { canExport, canEditLeague } = useAuthCapabilities();
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
   const [teamFilter, setTeamFilter] = useState('all');
@@ -204,19 +206,25 @@ export function SeasonHistory({ games, onGameSelect }: SeasonHistoryProps) {
               </Select>
             </div>
 
+            {(canExport || canEditLeague) && (
             <div className="space-y-2">
               <label className="text-sm font-medium">Actions</label>
               <div className="flex gap-2">
+                {canExport && (
                 <Button variant="outline" size="sm" className="flex-1">
                   <Download className="w-4 h-4 mr-2" />
                   Export
                 </Button>
+                )}
+                {canEditLeague && (
                 <Button variant="outline" size="sm" className="flex-1">
                   <Archive className="w-4 h-4 mr-2" />
                   Archive
                 </Button>
+                )}
               </div>
             </div>
+            )}
           </div>
         </CardContent>
       </Card>

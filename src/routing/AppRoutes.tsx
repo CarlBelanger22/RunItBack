@@ -2,6 +2,8 @@ import { useEffect, useMemo } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { ErrorBoundary } from '../components/ErrorBoundary';
+import { AccountPage } from '../components/AccountPage';
+import { RequireAdmin } from '../components/RequireAdmin';
 import { NotFound } from '../components/NotFound';
 import { Dashboard } from '../components/Dashboard';
 import { TournamentManager } from '../components/TournamentManager';
@@ -640,6 +642,7 @@ export function AppRoutes(props: AppRoutesProps) {
       <Route
         path={paths.statsEntry}
         element={
+          <RequireAdmin>
           <div className="space-y-4">
             <Button variant="ghost" size="sm" onClick={() => navigate(paths.home)}>
               ← Back to Dashboard
@@ -662,10 +665,20 @@ export function AppRoutes(props: AppRoutesProps) {
               />
             )}
           </div>
+          </RequireAdmin>
         }
       />
 
-      <Route path="/live/:gameId" element={<LiveGameRoute {...props} />} />
+      <Route path={paths.account} element={<AccountPage />} />
+
+      <Route
+        path="/live/:gameId"
+        element={
+          <RequireAdmin>
+            <LiveGameRoute {...props} />
+          </RequireAdmin>
+        }
+      />
 
       <Route path="*" element={<NotFound />} />
     </Routes>

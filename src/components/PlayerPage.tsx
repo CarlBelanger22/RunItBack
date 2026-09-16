@@ -19,6 +19,8 @@ import {
 } from './ui/alert-dialog';
 import { searchParamsOptionsPreservingState } from '../routing/navigation';
 import { Player, Team, Game, GameStats, Tournament } from '../App';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
@@ -172,6 +174,8 @@ export function PlayerPage({
   onUpdatePlayerProfile,
   onDeletePlayer,
 }: PlayerPageProps) {
+  const { canViewDetailedStats, canEditLeague, publicGameLogLimit } =
+    useAuthCapabilities();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const gameFormatScope = parseGameFormatScope(searchParams.get('format'));
@@ -448,6 +452,10 @@ export function PlayerPage({
     Math.max(gamesPlayed, 1)
   );
   const recentGames = useMemo(() => playerGameStats.slice(0, 5), [playerGameStats]);
+  const gameLogRows = useMemo(() => {
+    if (publicGameLogLimit == null) return playerGameStats;
+    return playerGameStats.slice(0, publicGameLogLimit);
+  }, [playerGameStats, publicGameLogLimit]);
   
   const participatedTournaments = useMemo(
     () => getPlayerParticipatedTournaments(player.id, games, tournaments),
@@ -814,6 +822,11 @@ export function PlayerPage({
       <Card>
         <CardHeader>
           <CardTitle>Game Log</CardTitle>
+          {publicGameLogLimit != null && playerGameStats.length > publicGameLogLimit ? (
+            <p className="text-sm text-muted-foreground font-normal">
+              Showing latest {publicGameLogLimit} games. Sign in to see the full log.
+            </p>
+          ) : null}
         </CardHeader>
         <CardContent>
           <Table>
@@ -837,7 +850,7 @@ export function PlayerPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {playerGameStats.map(({ game, stats }) => {
+              {gameLogRows.map(({ game, stats }) => {
                 const { playerTeam, isHome, opponent } = getGameTeamContext(game);
                 if (!opponent || !opponent.name) return null;
                 const gameAdvanced = MetricsCalculator.calculateAdvancedMetrics(stats);
@@ -1292,14 +1305,16 @@ export function PlayerPage({
           </div>
         </div>
         
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={() => setIsEditDialogOpen(true)}
-        >
-          <Edit className="w-4 h-4 mr-2" />
-          Edit Player
-        </Button>
+        {canEditLeague && (
+          <Button 
+            variant="outline" 
+            size="sm"
+            onClick={() => setIsEditDialogOpen(true)}
+          >
+            <Edit className="w-4 h-4 mr-2" />
+            Edit Player
+          </Button>
+        )}
         <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
           <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
@@ -1476,11 +1491,25 @@ export function PlayerPage({
         </TabsContent>
 
         <TabsContent value="stats">
-          <PlayerStatsTab />
+          {canViewDetailedStats ? (
+            <PlayerStatsTab />
+          ) : (
+            <LoginRequiredPanel
+              title="Sign in to view player stats"
+              description="Season and tournament player stats unlock after you sign in with Google."
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="advanced">
-          <AdvancedTab />
+          {canViewDetailedStats ? (
+            <AdvancedTab />
+          ) : (
+            <LoginRequiredPanel
+              title="Sign in to view advanced stats"
+              description="Advanced metrics and shot chart unlock after you sign in with Google."
+            />
+          )}
         </TabsContent>
       </Tabs>
     </div>

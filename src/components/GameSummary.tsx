@@ -23,6 +23,8 @@ import { deleteGameConfirmDescription } from '../utils/activeGame';
 import { downloadGameReportPdf } from '../lib/gameReportPdf';
 import { resolveGameMetaLabel } from '../utils/friendlyGame';
 import { cn } from './ui/utils';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { LoginRequiredPanel } from './LoginRequiredPanel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -83,7 +85,14 @@ export function GameSummary({
     downloadGameReportPdf(game, tournaments);
   }, [game, tournaments]);
 
+  const { canViewDetailedStats, canEditLeague, canExport } = useAuthCapabilities();
   const hasShotChart = game.shots.length > 0;
+  const showShotChartTab = hasShotChart && canViewDetailedStats;
+  const tabCols = canViewDetailedStats
+    ? showShotChartTab
+      ? 'grid-cols-3'
+      : 'grid-cols-2'
+    : 'grid-cols-1';
 
   return (
     <div className="space-y-6">
@@ -100,24 +109,28 @@ export function GameSummary({
               Recent Game
             </Badge>
           )}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleExportPdf}
-            title="Export box score PDF"
-          >
-            <Download className="w-4 h-4 mr-2" />
-            Export PDF
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsEditDialogOpen(true)}
-          >
-            <Edit className="w-4 h-4 mr-2" />
-            Edit Game
-          </Button>
-          {onDeleteGame && (
+          {canExport && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExportPdf}
+              title="Export box score PDF"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export PDF
+            </Button>
+          )}
+          {canEditLeague && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsEditDialogOpen(true)}
+            >
+              <Edit className="w-4 h-4 mr-2" />
+              Edit Game
+            </Button>
+          )}
+          {canEditLeague && onDeleteGame && (
             <Button
               variant="outline"
               size="sm"
@@ -206,15 +219,14 @@ export function GameSummary({
 
       {/* Game Details Tabs */}
       <Tabs defaultValue="summary" className="space-y-6">
-        <TabsList
-          className={cn(
-            'grid w-full',
-            hasShotChart ? 'grid-cols-3' : 'grid-cols-2'
-          )}
-        >
+        <TabsList className={cn('grid w-full', tabCols)}>
           <TabsTrigger value="summary">Summary</TabsTrigger>
-          <TabsTrigger value="box-score">Box Score</TabsTrigger>
-          {hasShotChart && <TabsTrigger value="shot-chart">Shot Chart</TabsTrigger>}
+          {canViewDetailedStats && (
+            <TabsTrigger value="box-score">Box Score</TabsTrigger>
+          )}
+          {showShotChartTab && (
+            <TabsTrigger value="shot-chart">Shot Chart</TabsTrigger>
+          )}
         </TabsList>
 
         <div className="space-y-6">
@@ -223,18 +235,21 @@ export function GameSummary({
               game={game}
               tournaments={tournaments}
               onNavigateToPlayer={onNavigateToPlayer}
+              showDetailedComparisons={canViewDetailedStats}
             />
           </TabsContent>
 
-          <TabsContent value="box-score" className="space-y-6">
-            <BoxScore
-              game={game}
-              onNavigateToPlayer={onNavigateToPlayer}
-              onNavigateToTeam={onNavigateToTeam}
-            />
-          </TabsContent>
+          {canViewDetailedStats && (
+            <TabsContent value="box-score" className="space-y-6">
+              <BoxScore
+                game={game}
+                onNavigateToPlayer={onNavigateToPlayer}
+                onNavigateToTeam={onNavigateToTeam}
+              />
+            </TabsContent>
+          )}
 
-          {hasShotChart && (
+          {showShotChartTab && (
             <TabsContent value="shot-chart" className="space-y-6">
               <ShotChart game={game} />
             </TabsContent>

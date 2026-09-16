@@ -18,11 +18,14 @@ import {
 import { ShootingComparisonSection } from './ShootingComparisonSection';
 import { TeamStatsComparisonSection } from './TeamStatsComparisonSection';
 import { PlayerHeadToHeadSection } from './PlayerHeadToHeadSection';
+import { LoginRequiredPanel } from './LoginRequiredPanel';
 
 interface GameReportOverviewProps {
   game: Game;
   tournaments: Tournament[];
   onNavigateToPlayer?: (playerId: string, teamId: string) => void;
+  /** When false, hide Shooting + Team Comparison (anonymous). */
+  showDetailedComparisons?: boolean;
 }
 
 function TransposedQuarterScoringTable({
@@ -91,6 +94,7 @@ export function GameReportOverview({
   game,
   tournaments,
   onNavigateToPlayer,
+  showDetailedComparisons = true,
 }: GameReportOverviewProps) {
   const reportModel = useMemo(
     () => buildGameReportModel(game, tournaments),
@@ -104,20 +108,28 @@ export function GameReportOverview({
   return (
     <div className="space-y-4">
       <div className="grid w-full grid-cols-1 items-stretch gap-4 md:grid-cols-2">
-        <Card className="h-full shadow-lg rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Shooting</CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <ShootingComparisonSection
-              rows={visualModel.shooting}
-              homeAbbr={visualModel.homeAbbr}
-              awayAbbr={visualModel.awayAbbr}
-            />
-          </CardContent>
-        </Card>
+        {showDetailedComparisons ? (
+          <Card className="h-full shadow-lg rounded-2xl">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Shooting</CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-4 pt-0">
+              <ShootingComparisonSection
+                rows={visualModel.shooting}
+                homeAbbr={visualModel.homeAbbr}
+                awayAbbr={visualModel.awayAbbr}
+              />
+            </CardContent>
+          </Card>
+        ) : (
+          <LoginRequiredPanel
+            className="h-full shadow-lg rounded-2xl"
+            title="Sign in to view shooting"
+            description="FG%, 3P%, and FT% comparison unlock after you sign in with Google."
+          />
+        )}
 
-        <div className="game-report-right-stack flex h-full flex-col gap-4">
+        <div className="game-report-right-stack flex h-full min-h-min flex-col gap-4">
           <TransposedQuarterScoringTable
             homeHeader={reportModel.homeAbbr}
             awayHeader={reportModel.awayAbbr}
@@ -135,20 +147,27 @@ export function GameReportOverview({
         </div>
       </div>
 
-      <Card className="shadow-lg rounded-2xl">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Team Comparison</CardTitle>
-        </CardHeader>
-        <CardContent className="pb-4 pt-0">
-          <TeamStatsComparisonSection
-            homeAbbr={visualModel.homeAbbr}
-            awayAbbr={visualModel.awayAbbr}
-            majorGroups={visualModel.majorGroups}
-            minorRows={visualModel.minorRows}
-            advancedRows={visualModel.advancedRows}
-          />
-        </CardContent>
-      </Card>
+      {showDetailedComparisons ? (
+        <Card className="shadow-lg rounded-2xl">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Team Comparison</CardTitle>
+          </CardHeader>
+          <CardContent className="pb-4 pt-0">
+            <TeamStatsComparisonSection
+              homeAbbr={visualModel.homeAbbr}
+              awayAbbr={visualModel.awayAbbr}
+              majorGroups={visualModel.majorGroups}
+              minorRows={visualModel.minorRows}
+              advancedRows={visualModel.advancedRows}
+            />
+          </CardContent>
+        </Card>
+      ) : (
+        <LoginRequiredPanel
+          title="Sign in to view team comparison"
+          description="Full team stat comparison unlocks after you sign in with Google."
+        />
+      )}
     </div>
   );
 }
