@@ -764,11 +764,13 @@ export function TournamentPage({
         <col className="tournament-standings-col-stat" />
         <col className="tournament-standings-col-stat" />
         <col className="tournament-standings-col-stat" />
+        <col className="tournament-standings-col-stat" />
       </colgroup>
       <TableHeader>
         <TableRow>
           <TableHead>#</TableHead>
           <TableHead>Team</TableHead>
+          <TableHead className="text-center">G</TableHead>
           <TableHead className="text-center">W</TableHead>
           <TableHead className="text-center">L</TableHead>
           <TableHead className="text-center">PPG</TableHead>
@@ -842,6 +844,7 @@ export function TournamentPage({
                 )}
               </div>
             </TableCell>
+            <TableCell className="text-center">{standing.gamesPlayed}</TableCell>
             <TableCell className="text-center">{standing.wins}</TableCell>
             <TableCell className="text-center">{standing.losses}</TableCell>
             <TableCell className="text-center">{standing.ppg.toFixed(1)}</TableCell>
