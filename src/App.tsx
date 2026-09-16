@@ -1036,6 +1036,8 @@ const createSeedData = () => {
 
 export default function App() {
   const { canEditLeague } = useAuthCapabilities();
+  const canEditLeagueRef = useRef(canEditLeague);
+  canEditLeagueRef.current = canEditLeague;
   const [games, setGames] = useState<Game[]>([]);
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -1142,6 +1144,14 @@ export default function App() {
 
   const runCloudPersist = useCallback(
     (kind: CloudSaveKind) => {
+      // RLS already blocks non-Admin writes; skip the round-trip (and error banners).
+      if (!canEditLeagueRef.current) {
+        if (import.meta.env.DEV) {
+          console.info('[RunItBack] skip cloud save (not Admin)', { kind });
+        }
+        return Promise.resolve(true);
+      }
+
       const activeGame = currentGameRef.current;
       const liveOverlay =
         activeGame?.isActive && !activeGame.isCompleted ? [activeGame] : [];
@@ -1344,6 +1354,23 @@ export default function App() {
       data: Awaited<ReturnType<typeof loadAppDataFromSupabase>>,
       processed: ProcessedAppData
     ) => {
+      if (!canEditLeagueRef.current) {
+        if (
+          import.meta.env.DEV &&
+          (processed.activeGameDedupeChanged ||
+            processed.orphanGameIds.length > 0 ||
+            data.playerMeasurementsMigrationPending)
+        ) {
+          console.info(
+            '[RunItBack] skip load-side cloud writes (not Admin)'
+          );
+        }
+        if (!localStorage.getItem(PLAYER_MEASUREMENTS_MIGRATION_KEY)) {
+          localStorage.setItem(PLAYER_MEASUREMENTS_MIGRATION_KEY, '1');
+        }
+        return;
+      }
+
       if (processed.activeGameDedupeChanged || processed.orphanGameIds.length > 0) {
         saveAppDataToSupabase(
           processed.teams,
