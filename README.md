@@ -440,8 +440,9 @@ Never commit `.env.local`.
 | **006** | `team-assets` storage bucket + policies |
 | **007** | Optional `tournaments.structure` JSON |
 | **008** | RLS: public SELECT; Admin-only writes (+ storage); `admin_email_allowlist` |
+| **009** | Disallow SVG on `team-assets` bucket (PNG/JPEG/WebP only) |
 
-Apply via Supabase SQL editor or `npm run db:migrate:002` … `008`.
+Apply via Supabase SQL editor or `npm run db:migrate:002` … `009`.
 
 ### Game document (JSONB in `games`)
 

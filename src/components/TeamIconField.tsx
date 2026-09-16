@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { TeamBadge } from './TeamBadge';
 import { TeamLogoEditorDialog } from './TeamLogoEditorDialog';
-import { readTeamIconFile, TEAM_ICON_ACCEPT } from '../utils/teamIcon';
+import { readTeamIconFile, TEAM_ICON_ACCEPT, assertTeamIconSourceAllowed } from '../utils/teamIcon';
 import { uploadEntityIcon } from '../lib/teamAssetStorage';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
 import { Pencil, Upload, X } from 'lucide-react';
@@ -63,6 +63,12 @@ export function TeamIconField({
   const applyUrl = useCallback(() => {
     const trimmed = urlDraft.trim();
     if (!trimmed) return;
+    try {
+      assertTeamIconSourceAllowed(trimmed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid image URL.');
+      return;
+    }
     setUrlDraft('');
     openEditor(trimmed);
   }, [urlDraft, openEditor]);
@@ -164,7 +170,7 @@ export function TeamIconField({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              PNG, JPG, WebP, or SVG up to 512 KB. Background is removed and the crest is trimmed before saving to cloud storage.
+              PNG, JPG, or WebP up to 512 KB. Background is removed and the crest is trimmed before saving to cloud storage.
             </p>
             {uploading && (
               <p className="text-xs text-muted-foreground">Uploading logo…</p>

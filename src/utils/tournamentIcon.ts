@@ -10,6 +10,7 @@ import {
   readTeamIconFile,
   TEAM_ICON_ACCEPT,
   TEAM_ICON_MAX_BYTES,
+  assertTeamIconSourceAllowed,
 } from './teamIcon';
 
 /** Bundled logo paths for tournaments with assets in public/tournament-logos/ */
@@ -24,6 +25,7 @@ export {
   readTeamIconFile,
   TEAM_ICON_ACCEPT,
   TEAM_ICON_MAX_BYTES,
+  assertTeamIconSourceAllowed,
 };
 
 export function resolveTournamentIconSrc(

@@ -7,6 +7,7 @@ import { TournamentLogoEditorDialog } from './TournamentLogoEditorDialog';
 import {
   readTeamIconFile,
   TEAM_ICON_ACCEPT,
+  assertTeamIconSourceAllowed,
 } from '../utils/tournamentIcon';
 import { uploadEntityIcon } from '../lib/teamAssetStorage';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
@@ -63,6 +64,12 @@ export function TournamentIconField({
   const applyUrl = useCallback(() => {
     const trimmed = urlDraft.trim();
     if (!trimmed) return;
+    try {
+      assertTeamIconSourceAllowed(trimmed);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Invalid image URL.');
+      return;
+    }
     setUrlDraft('');
     openEditor(trimmed);
   }, [urlDraft, openEditor]);
@@ -168,7 +175,7 @@ export function TournamentIconField({
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              PNG, JPG, WebP, or SVG up to 512 KB. Background is removed and the logo is trimmed before saving to cloud storage.
+              PNG, JPG, or WebP up to 512 KB. Background is removed and the logo is trimmed before saving to cloud storage.
             </p>
             {uploading && (
               <p className="text-xs text-muted-foreground">Uploading logo…</p>

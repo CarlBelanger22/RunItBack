@@ -14,6 +14,8 @@ interface State {
   errorInfo: ErrorInfo | null;
 }
 
+const isDev = Boolean(import.meta.env?.DEV);
+
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
@@ -64,12 +66,15 @@ export class ErrorBoundary extends Component<Props, State> {
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              An error occurred while rendering this component. Please try refreshing the page or contact support if the problem persists.
+              An error occurred while rendering this page. Please try again or refresh.
+              {isDev
+                ? null
+                : ' If it keeps happening, contact support.'}
             </p>
-            {this.state.error && (
-              <details className="text-xs">
+            {isDev && this.state.error && (
+              <details className="text-xs" open>
                 <summary className="cursor-pointer text-muted-foreground mb-2">
-                  Error details (click to expand)
+                  Error details (dev only)
                 </summary>
                 <pre className="bg-muted p-2 rounded overflow-auto max-h-40">
                   {this.state.error.toString()}
