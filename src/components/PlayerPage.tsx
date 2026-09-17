@@ -52,13 +52,14 @@ import { formatDecimalMinutes } from '../utils/formatMinutes';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { StatScopeFilterBar } from './StatScopeFilterBar';
 import {
-  DEFAULT_GAME_FORMAT_SCOPE,
   filterGamesByFormatScope,
   getTournamentGameFormat,
+  inferDefaultGameFormatScope,
   parseGameFormatScope,
   type GameFormatScope,
 } from '../utils/gameFormat';
 import {
+  clearStatScopeSearchParams,
   isAllTournamentsSelected,
   parseTournamentSelection,
   pruneTournamentSelection,
@@ -199,6 +200,7 @@ export function PlayerPage({
     Record<string, string>
   >({});
   const wasEditDialogOpenRef = useRef(false);
+  const previousPlayerIdRef = useRef<string | null>(null);
 
   const updateStatsSearchParams = useCallback(
     (patch: {
@@ -208,11 +210,7 @@ export function PlayerPage({
     }) => {
       const next = new URLSearchParams(searchParams);
       const format = patch.format ?? gameFormatScope;
-      if (format === DEFAULT_GAME_FORMAT_SCOPE) {
-        next.delete('format');
-      } else {
-        next.set('format', format);
-      }
+      next.set('format', format);
       const tournamentIds = 'tournamentIds' in patch
         ? patch.tournamentIds!
         : selectedTournamentIds;
@@ -574,6 +572,37 @@ export function PlayerPage({
     () => tournamentFilterOptions.map((option) => option.id),
     [tournamentFilterOptions]
   );
+
+  useEffect(() => {
+    if (
+      previousPlayerIdRef.current !== null &&
+      previousPlayerIdRef.current === player.id
+    ) {
+      return;
+    }
+    const isFirst = previousPlayerIdRef.current === null;
+    previousPlayerIdRef.current = player.id;
+    if (isFirst) return;
+    setSearchParams(
+      (prev) => clearStatScopeSearchParams(prev),
+      searchParamsOptionsPreservingState(location, { replace: true })
+    );
+  }, [player.id, location, setSearchParams]);
+
+  useEffect(() => {
+    if (searchParams.has('format')) return;
+    const playerCompletedGames = (games ?? []).filter(
+      (game) =>
+        game.isCompleted &&
+        !!game.tournamentId &&
+        (game.gameStats ?? []).some((stat) => stat.playerId === player.id)
+    );
+    const inferred = inferDefaultGameFormatScope(
+      playerCompletedGames,
+      tournaments
+    );
+    updateStatsSearchParams({ format: inferred });
+  }, [searchParams, games, tournaments, player.id, updateStatsSearchParams]);
 
   useEffect(() => {
     const pruned = pruneTournamentSelection(

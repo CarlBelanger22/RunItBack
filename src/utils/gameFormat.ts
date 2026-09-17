@@ -9,6 +9,7 @@ export const DEFAULT_GAME_FORMAT_SCOPE: GameFormatScope = '5v5';
 export const THREE_X_THREE_TOURNAMENT_IDS = new Set([
   'tournament-1782412204083', // AUSF 3x3 2026
   'tournament-1789608630118', // FIBA 3x3 U23 Nations League 2024
+  'tournament-1789608692317', // FIBA 3x3 U23 Nations League 2025
 ]);
 
 export function getTournamentGameFormat(
@@ -23,6 +24,31 @@ export function getTournamentGameFormat(
 export function parseGameFormatScope(raw: string | null | undefined): GameFormatScope {
   if (raw === '3x3' || raw === 'combined') return raw;
   return DEFAULT_GAME_FORMAT_SCOPE;
+}
+
+/**
+ * When the URL has no `format` param: default to 3×3 only if there is at least
+ * one completed tournament game and every such game is 3×3. Mixed / empty / only
+ * 5v5 → 5v5. Never returns `combined`.
+ */
+export function inferDefaultGameFormatScope(
+  games: { isCompleted?: boolean; tournamentId?: string }[] | undefined,
+  tournaments?: Tournament[]
+): GameFormatScope {
+  const tournamentById = new Map((tournaments ?? []).map((t) => [t.id, t]));
+  const completed = (games ?? []).filter(
+    (game) => game.isCompleted && !!game.tournamentId
+  );
+  if (completed.length === 0) return DEFAULT_GAME_FORMAT_SCOPE;
+
+  let saw3x3 = false;
+  for (const game of completed) {
+    const tournament = tournamentById.get(game.tournamentId!);
+    const format = getTournamentGameFormat(game.tournamentId, tournament);
+    if (format === '5v5') return DEFAULT_GAME_FORMAT_SCOPE;
+    if (format === '3x3') saw3x3 = true;
+  }
+  return saw3x3 ? '3x3' : DEFAULT_GAME_FORMAT_SCOPE;
 }
 
 export function filterGamesByFormatScope<T extends { tournamentId?: string }>(

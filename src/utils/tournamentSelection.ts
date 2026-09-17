@@ -277,11 +277,9 @@ export function patchStatScopeSearchParams(
 ): URLSearchParams {
   const next = new URLSearchParams(prev);
   const format = patch.format ?? parseGameFormatScope(prev.get('format'));
-  if (format === DEFAULT_GAME_FORMAT_SCOPE) {
-    next.delete('format');
-  } else {
-    next.set('format', format);
-  }
+  // Always persist format (including 5v5) so “unset” (missing param) can mean
+  // “infer default” without fighting an explicit 5v5 choice.
+  next.set('format', format);
   const tournamentIds =
     'tournamentIds' in patch
       ? patch.tournamentIds!

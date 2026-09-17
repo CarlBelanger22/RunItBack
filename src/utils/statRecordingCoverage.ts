@@ -20,11 +20,13 @@ export const TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS = new Set([
 export const TOURNAMENTS_WITHOUT_PLUS_MINUS = new Set([
   ...TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS,
   'tournament-1789608630118', // FIBA 3x3 U23 Nations League 2024
+  'tournament-1789608692317', // FIBA 3x3 U23 Nations League 2025
 ]);
 
 /** Personal fouls (FPG) not on source box scores. */
 export const TOURNAMENTS_WITHOUT_PERSONAL_FOULS = new Set([
   'tournament-1789608630118', // FIBA 3x3 U23 Nations League 2024
+  'tournament-1789608692317', // FIBA 3x3 U23 Nations League 2025
 ]);
 
 export function tournamentRecordsStat(

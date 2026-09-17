@@ -40,6 +40,7 @@ import {
   DEFAULT_GAME_FORMAT_SCOPE,
   filterGamesByFormatScope,
   getTournamentGameFormat,
+  inferDefaultGameFormatScope,
   parseGameFormatScope,
   type GameFormatScope,
 } from '../utils/gameFormat';
@@ -492,6 +493,12 @@ export function TeamPage({
       searchParamsOptionsPreservingState(location, { replace: true })
     );
   }, [teamId, location, setSearchParams]);
+
+  useEffect(() => {
+    if (searchParams.has('format')) return;
+    const inferred = inferDefaultGameFormatScope(teamGames, tournaments);
+    updateStatsSearchParams({ format: inferred });
+  }, [searchParams, teamGames, tournaments, updateStatsSearchParams]);
 
   useEffect(() => {
     const pruned = pruneTournamentSelection(
