@@ -150,7 +150,7 @@ function buildCommonPlayerStatsCells(
   const mpg =
     row.gamesPlayed > 0
       ? formatDecimalMinutes(row.totalStats.minutes_played / row.gamesPlayed)
-      : '0:00';
+      : '-';
 
   return [
     String(rank),

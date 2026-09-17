@@ -8,6 +8,7 @@ export const DEFAULT_GAME_FORMAT_SCOPE: GameFormatScope = '5v5';
 /** Until `tournament.gameFormat` is stored in DB (Phase B). */
 export const THREE_X_THREE_TOURNAMENT_IDS = new Set([
   'tournament-1782412204083', // AUSF 3x3 2026
+  'tournament-1789608630118', // FIBA 3x3 U23 Nations League 2024
 ]);
 
 export function getTournamentGameFormat(

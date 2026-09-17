@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { TeamForm } from './forms/TeamForm';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import {
@@ -135,65 +135,63 @@ export function TeamManager({
   const renderTeamCard = (team: Team, ghost = false) => (
     <Card
       key={team.id}
-      className={`hover:shadow-lg transition-shadow cursor-pointer ${
+      className={`min-w-0 overflow-hidden hover:shadow-lg transition-shadow cursor-pointer ${
         ghost ? 'border-dashed border-muted-foreground/30 bg-muted/20' : ''
       }`}
       onClick={() => onNavigateToTeam(team.id)}
     >
-      <CardHeader>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            <TeamBadge team={team} teamId={team.id} size="lg" />
-            <div className="space-y-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <CardTitle className="text-lg leading-snug">{team.name}</CardTitle>
-                {ghost ? (
-                  <Badge variant="secondary" className="text-xs font-normal">
-                    Ghost
-                  </Badge>
-                ) : null}
-              </div>
-              {team.description?.trim() ? (
-                <p className="text-xs text-muted-foreground truncate">
-                  {team.description.trim()}
-                </p>
+      <CardHeader className="pb-6">
+        <div className="flex items-start gap-3 min-w-0">
+          <TeamBadge team={team} teamId={team.id} size="lg" />
+          <div className="space-y-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <CardTitle className="text-lg leading-snug truncate">{team.name}</CardTitle>
+              {ghost ? (
+                <Badge variant="secondary" className="text-xs font-normal">
+                  Ghost
+                </Badge>
               ) : null}
-              <CardDescription className="flex items-center gap-1">
-                <Users className="h-3 w-3 shrink-0" />
-                {team.players.length}{' '}
-                {team.players.length === 1 ? 'Player' : 'Players'}
-              </CardDescription>
             </div>
-          </div>
-          <div className="flex space-x-1 shrink-0" onClick={(e) => e.stopPropagation()}>
-            {canEditLeague && (
-              <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                handleEditTeam(team);
-              }}
-              className="h-8 w-8 p-0"
-            >
-              <Edit className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteTarget(team);
-              }}
-              className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-3 w-3" />
-            </Button>
-              </>
-            )}
+            {team.description?.trim() ? (
+              <p className="text-xs text-muted-foreground truncate">
+                {team.description.trim()}
+              </p>
+            ) : null}
+            <CardDescription className="flex items-center gap-1">
+              <Users className="h-3 w-3 shrink-0" />
+              {team.players.length}{' '}
+              {team.players.length === 1 ? 'Player' : 'Players'}
+            </CardDescription>
           </div>
         </div>
+        {canEditLeague ? (
+          <CardAction>
+            <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleEditTeam(team);
+                }}
+                className="h-8 w-8 p-0"
+              >
+                <Edit className="h-3 w-3" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteTarget(team);
+                }}
+                className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </div>
+          </CardAction>
+        ) : null}
       </CardHeader>
     </Card>
   );

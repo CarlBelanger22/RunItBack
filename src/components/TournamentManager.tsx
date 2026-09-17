@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import { TournamentForm } from './forms/TournamentForm';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
 import {
@@ -211,43 +211,45 @@ export function TournamentManager({
             const description = tournament.description?.trim();
 
             return (
-            <Card key={tournament.id} className="hover:shadow-lg transition-shadow cursor-pointer" onClick={() => onNavigateToTournament(tournament.id)}>
+            <Card key={tournament.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" onClick={() => onNavigateToTournament(tournament.id)}>
               <CardHeader className="pb-3">
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0">
                   <TournamentBadge
                     tournament={tournament}
                     tournamentId={tournament.id}
                     size="lg"
-                    className="mt-0.5"
+                    className="mt-0.5 shrink-0"
                   />
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <CardTitle className="text-lg">{tournament.name}</CardTitle>
+                  <div className="space-y-1 min-w-0">
+                    <CardTitle className="text-lg truncate">{tournament.name}</CardTitle>
                     <CardDescription className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {tournament.month} {tournament.year}
                     </CardDescription>
                   </div>
-                  {canEditLeague && (
-                  <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleEdit(tournament)}
-                      className="h-8 w-8 p-0"
-                    >
-                      <Edit className="h-3 w-3" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setDeleteTarget(tournament)}
-                      className="h-8 w-8 p-0 text-destructive hover:text-destructive"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                  )}
                 </div>
+                {canEditLeague ? (
+                  <CardAction>
+                    <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleEdit(tournament)}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Edit className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setDeleteTarget(tournament)}
+                        className="h-8 w-8 p-0 text-destructive hover:text-destructive"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </CardAction>
+                ) : null}
               </CardHeader>
               
               <CardContent className="space-y-4">

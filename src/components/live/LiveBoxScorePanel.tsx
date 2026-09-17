@@ -9,6 +9,7 @@ import { formatSignedDecimal } from '../../utils/gameReportModel';
 import { NoStatRecorded } from '../StatDisplay';
 import { isFoulOutEnabled, isPlayerFouledOut } from '../../utils/foulOut';
 import { buildOppTeamTotalsStrip } from '../../liveEntry/oppTeamTotals';
+import { formatDecimalMinutes } from '../../utils/formatMinutes';
 
 interface LiveBoxScorePanelProps {
   game: Game;
@@ -44,10 +45,7 @@ type PlayerRowLiveFull = GameStats & {
 };
 
 function formatTime(minutes: number) {
-  const totalSeconds = Math.round(minutes * 60);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return `${mins}:${secs.toString().padStart(2, '0')}`;
+  return formatDecimalMinutes(minutes);
 }
 
 function formatPercentage(value: number) {

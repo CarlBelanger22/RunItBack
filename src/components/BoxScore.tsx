@@ -28,6 +28,7 @@ import {
   orderBoxScorePlayers,
   type OrderedBoxScoreRow,
 } from '../utils/boxScoreOrder';
+import { formatDecimalMinutes } from '../utils/formatMinutes';
 import { TrendingUp, Target } from 'lucide-react';
 
 interface BoxScoreProps {
@@ -102,12 +103,7 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
     return 'outline';
   };
 
-  const formatTime = (minutes: number) => {
-    const totalSeconds = Math.round(minutes * 60);
-    const mins = Math.floor(totalSeconds / 60);
-    const secs = totalSeconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
+  const formatTime = (minutes: number) => formatDecimalMinutes(minutes);
 
   const TraditionalStatsTable = ({
     rows,
