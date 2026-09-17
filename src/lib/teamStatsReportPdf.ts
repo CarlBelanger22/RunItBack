@@ -134,6 +134,16 @@ function drawReportHeader(doc: jsPDF, model: TeamStatsReportModel): number {
     y += 9;
   }
 
+  if (model.personalFoulsCoverage?.isPartial) {
+    doc.text(
+      `FPG average uses games that recorded personal fouls (${model.personalFoulsCoverage.gamesWithData} of ${model.personalFoulsCoverage.gamesTotal}).`,
+      pageWidth / 2,
+      y,
+      { align: 'center' }
+    );
+    y += 9;
+  }
+
   doc.setTextColor(0, 0, 0);
   return y + 4;
 }

@@ -1,6 +1,7 @@
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
   foulsDrawnPerGameForRow,
+  personalFoulsPerGameForRow,
   plusMinusPerGameForRow,
   type FoulStatCoverage,
   type PlayerSeasonRow,
@@ -69,6 +70,7 @@ export function formatStandardPlayerStatsRow(
   const eff = MetricsCalculator.calculateEfficiency(totalStats);
   const gameSc = MetricsCalculator.calculateGameScore(totalStats);
   const plusMinusPg = plusMinusPerGameForRow(row);
+  const personalFoulsPg = personalFoulsPerGameForRow(row);
 
   const values: Record<StandardPlayerStatsField, string> = {
     PPG: perGame(totalStats.points, gamesPlayed).toFixed(1),
@@ -86,7 +88,7 @@ export function formatStandardPlayerStatsRow(
     FTA: perGame(totalStats.ft_attempted, gamesPlayed).toFixed(1),
     'FT%': `${percentage(totalStats.ft_made, totalStats.ft_attempted).toFixed(1)}%`,
     TOPG: perGame(totalStats.turnovers, gamesPlayed).toFixed(1),
-    FPG: perGame(totalStats.fouls, gamesPlayed).toFixed(1),
+    FPG: formatOptionalPlayerStat(personalFoulsPg),
     '+/-':
       plusMinusPg === null
         ? NO_STAT_RECORDED_VALUE

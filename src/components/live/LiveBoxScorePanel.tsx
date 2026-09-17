@@ -316,6 +316,7 @@ function LiveBoxScoreTableWithView({
 
   const recordsPlusMinus = gameRecordsStat(game, 'plus_minus');
   const recordsFoulsDrawn = gameRecordsStat(game, 'fouls_drawn');
+  const recordsPersonalFouls = gameRecordsStat(game, 'fouls');
   const foulOutEnabled = isFoulOutEnabled(game);
 
   type TraditionalSortKey =
@@ -766,12 +767,12 @@ function LiveBoxScoreTableWithView({
               <td
                 className="live-box-td-stat"
                 style={
-                  foulOutEnabled && isPlayerFouledOut(p)
+                  recordsPersonalFouls && foulOutEnabled && isPlayerFouledOut(p)
                     ? { color: 'var(--live-danger-text, var(--live-danger))', fontWeight: 700 }
                     : undefined
                 }
               >
-                {p.fouls}
+                {recordsPersonalFouls ? p.fouls : <NoStatRecorded />}
               </td>
 
               <td
@@ -846,7 +847,7 @@ function LiveBoxScoreTableWithView({
                 {totalsTraditional.turnovers}
               </td>
               <td className="live-box-td-stat live-box-totals-val">
-                {totalsTraditional.fouls}
+                {recordsPersonalFouls ? totalsTraditional.fouls : <NoStatRecorded />}
               </td>
               <td className="live-box-td-stat live-box-totals-val">
                 <NoStatRecorded />

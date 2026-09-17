@@ -313,6 +313,32 @@ export function findRosterRemovals(
   return removals;
 }
 
+/** Dedupe club unlink rows by teamId:playerId (last wins). */
+export function dedupeRosterDeletes<T extends { teamId: string; playerId: string }>(
+  deletes: T[]
+): T[] {
+  const byKey = new Map<string, T>();
+  for (const row of deletes) {
+    byKey.set(linkKey(row.teamId, row.playerId), row);
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * After a successful cloud save, drop only the deletes that were included in
+ * that attempt so newer pending unlinks survive.
+ */
+export function acknowledgeRosterDeletes<T extends { teamId: string; playerId: string }>(
+  pending: T[],
+  acknowledged: T[]
+): T[] {
+  if (acknowledged.length === 0) return pending;
+  const done = new Set(
+    acknowledged.map((d) => linkKey(d.teamId, d.playerId))
+  );
+  return pending.filter((d) => !done.has(linkKey(d.teamId, d.playerId)));
+}
+
 export interface VerifyClubRosterViolation {
   gameId: string;
   playerId: string;

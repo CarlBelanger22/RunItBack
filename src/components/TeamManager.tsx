@@ -153,7 +153,7 @@ export function TeamManager({
               ) : null}
             </div>
             {team.description?.trim() ? (
-              <p className="text-xs text-muted-foreground truncate">
+              <p className="text-xs text-muted-foreground line-clamp-2">
                 {team.description.trim()}
               </p>
             ) : null}

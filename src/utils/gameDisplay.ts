@@ -543,7 +543,7 @@ export interface TeamSeasonDerivedStats {
   topg: number;
   spg: number;
   bpg: number;
-  fpg: number;
+  fpg: number | null;
   fdpg: number | null;
   paintPpg: number;
   fastbreakPpg: number;
@@ -559,6 +559,8 @@ export interface AggregateTeamSeasonResult {
   perGame: TeamSeasonStatBucket;
   foulsDrawnTotal: number;
   gamesWithFoulsDrawnData: number;
+  personalFoulsTotal: number;
+  gamesWithPersonalFoulsData: number;
 }
 
 function emptyTeamSeasonStatBucket(): TeamSeasonStatBucket {
@@ -723,6 +725,8 @@ export function aggregateTeamSeasonAverages(
   let totals = empty;
   let foulsDrawnTotal = 0;
   let gamesWithFoulsDrawnData = 0;
+  let personalFoulsTotal = 0;
+  let gamesWithPersonalFoulsData = 0;
   let gamesInSample = 0;
 
   for (const game of games ?? []) {
@@ -735,6 +739,10 @@ export function aggregateTeamSeasonAverages(
       foulsDrawnTotal += contribution.fouls_drawn;
       gamesWithFoulsDrawnData++;
     }
+    if (gameRecordsStat(game, 'fouls')) {
+      personalFoulsTotal += contribution.fouls;
+      gamesWithPersonalFoulsData++;
+    }
   }
 
   if (gamesInSample === 0) {
@@ -744,6 +752,8 @@ export function aggregateTeamSeasonAverages(
       perGame: empty,
       foulsDrawnTotal: 0,
       gamesWithFoulsDrawnData: 0,
+      personalFoulsTotal: 0,
+      gamesWithPersonalFoulsData: 0,
     };
   }
 
@@ -753,6 +763,8 @@ export function aggregateTeamSeasonAverages(
     perGame: divideTeamSeasonBucket(totals, gamesInSample),
     foulsDrawnTotal,
     gamesWithFoulsDrawnData,
+    personalFoulsTotal,
+    gamesWithPersonalFoulsData,
   };
 }
 
@@ -841,7 +853,8 @@ export function computeTeamSeasonDerived(
   totals: TeamSeasonStatBucket,
   perGame: TeamSeasonStatBucket,
   scoring: { ppg: number; papg: number; gamesWithScore: number },
-  fdpgSample?: { total: number; games: number }
+  fdpgSample?: { total: number; games: number },
+  fpgSample?: { total: number; games: number }
 ): TeamSeasonDerivedStats {
   const fgMade = safeTotal(totals.fg_made);
   const fgAttempted = safeTotal(totals.fg_attempted);
@@ -893,7 +906,10 @@ export function computeTeamSeasonDerived(
     topg: perGame.turnovers,
     spg: perGame.steals,
     bpg: perGame.blocks,
-    fpg: perGame.fouls,
+    fpg: perGameAverageOrNull(
+      fpgSample?.total ?? 0,
+      fpgSample?.games ?? 0
+    ),
     fdpg: perGameAverageOrNull(
       fdpgSample?.total ?? 0,
       fdpgSample?.games ?? 0

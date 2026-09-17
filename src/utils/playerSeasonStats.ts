@@ -54,6 +54,9 @@ export interface PlayerSeasonRow {
   /** Sum of +/- from games in tournaments that recorded plus/minus. */
   plusMinusTotal: number;
   gamesWithPlusMinusData: number;
+  /** Sum of personal fouls from games that recorded PF / FPG. */
+  personalFoulsTotal: number;
+  gamesWithPersonalFoulsData: number;
   /** Tournament or summary label for player-page breakdown rows. */
   scopeLabel?: string;
   /** Tournament id, `no-tournament`, `all-time`, or `friendlies`. */
@@ -118,6 +121,12 @@ export function getFoulsDrawnCoverage(
   games: Game[] | undefined
 ): ScopedStatCoverage {
   return getScopedStatCoverage(games, 'fouls_drawn');
+}
+
+export function getPersonalFoulsCoverage(
+  games: Game[] | undefined
+): ScopedStatCoverage {
+  return getScopedStatCoverage(games, 'fouls');
 }
 
 /** True when BA / TF / UF are tracked for games in scope (zeros display as 0.0). */
@@ -202,6 +211,13 @@ export function plusMinusPerGameForRow(row: PlayerSeasonRow): number | null {
   return perGameAverageOrNull(row.plusMinusTotal, row.gamesWithPlusMinusData);
 }
 
+export function personalFoulsPerGameForRow(row: PlayerSeasonRow): number | null {
+  return perGameAverageOrNull(
+    row.personalFoulsTotal,
+    row.gamesWithPersonalFoulsData
+  );
+}
+
 function emptyPlayerSeasonRowExtras(): Pick<
   PlayerSeasonRow,
   | 'paintPointsTotal'
@@ -211,6 +227,8 @@ function emptyPlayerSeasonRowExtras(): Pick<
   | 'gamesWithFoulsDrawnData'
   | 'plusMinusTotal'
   | 'gamesWithPlusMinusData'
+  | 'personalFoulsTotal'
+  | 'gamesWithPersonalFoulsData'
 > {
   return {
     paintPointsTotal: 0,
@@ -220,6 +238,8 @@ function emptyPlayerSeasonRowExtras(): Pick<
     gamesWithFoulsDrawnData: 0,
     plusMinusTotal: 0,
     gamesWithPlusMinusData: 0,
+    personalFoulsTotal: 0,
+    gamesWithPersonalFoulsData: 0,
   };
 }
 
@@ -235,6 +255,10 @@ function accumulateRecordedFoulAndPlusMinus(
   if (gameRecordsStat(game, 'plus_minus')) {
     row.plusMinusTotal += stat.plus_minus;
     row.gamesWithPlusMinusData += 1;
+  }
+  if (gameRecordsStat(game, 'fouls')) {
+    row.personalFoulsTotal += stat.fouls;
+    row.gamesWithPersonalFoulsData += 1;
   }
 }
 
@@ -479,6 +503,8 @@ export function aggregateSinglePlayerSeasonStats(
   let gamesWithFoulsDrawnData = 0;
   let plusMinusTotal = 0;
   let gamesWithPlusMinusData = 0;
+  let personalFoulsTotal = 0;
+  let gamesWithPersonalFoulsData = 0;
 
   for (const game of games ?? []) {
     if (!game.isCompleted) continue;
@@ -510,6 +536,10 @@ export function aggregateSinglePlayerSeasonStats(
       plusMinusTotal += stat.plus_minus;
       gamesWithPlusMinusData += 1;
     }
+    if (gameRecordsStat(game, 'fouls')) {
+      personalFoulsTotal += stat.fouls;
+      gamesWithPersonalFoulsData += 1;
+    }
   }
 
   return {
@@ -524,6 +554,8 @@ export function aggregateSinglePlayerSeasonStats(
     gamesWithFoulsDrawnData,
     plusMinusTotal,
     gamesWithPlusMinusData,
+    personalFoulsTotal,
+    gamesWithPersonalFoulsData,
   };
 }
 
@@ -940,8 +972,8 @@ export function sortPlayerSeasonRows(
           b.gamesPlayed > 0 ? b.totalStats.turnovers / b.gamesPlayed : 0;
         break;
       case 'FPG':
-        aValue = a.gamesPlayed > 0 ? a.totalStats.fouls / a.gamesPlayed : 0;
-        bValue = b.gamesPlayed > 0 ? b.totalStats.fouls / b.gamesPlayed : 0;
+        aValue = personalFoulsPerGameForRow(a) ?? Number.NEGATIVE_INFINITY;
+        bValue = personalFoulsPerGameForRow(b) ?? Number.NEGATIVE_INFINITY;
         break;
       case 'FDPG':
         aValue = foulsDrawnPerGameForRow(a) ?? Number.NEGATIVE_INFINITY;

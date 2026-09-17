@@ -29,7 +29,7 @@ import { TeamForm } from './forms/TeamForm';
 import { TournamentForm } from './forms/TournamentForm';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 import { LoginRequiredPanel } from './LoginRequiredPanel';
-import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage } from '../utils/playerSeasonStats';
+import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage, getPersonalFoulsCoverage } from '../utils/playerSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { sortGamesByDateAsc } from '../utils/gameDisplay';
@@ -1128,6 +1128,7 @@ export function TournamentPage({
     const foulStatCoverage = getFoulStatCoverage(tournamentGames);
     const plusMinusCoverage = getPlusMinusCoverage(tournamentGames);
     const foulsDrawnCoverage = getFoulsDrawnCoverage(tournamentGames);
+    const personalFoulsCoverage = getPersonalFoulsCoverage(tournamentGames);
 
     return (
       <div className="space-y-6">
@@ -1143,6 +1144,7 @@ export function TournamentPage({
           foulStatCoverage={foulStatCoverage}
           plusMinusCoverage={plusMinusCoverage}
           foulsDrawnCoverage={foulsDrawnCoverage}
+          personalFoulsCoverage={personalFoulsCoverage}
           onNavigateToPlayer={onNavigateToPlayer}
           onNavigateToTeam={onNavigateToTeam}
         />

@@ -65,6 +65,7 @@ import {
   getFoulStatCoverage,
   getPlusMinusCoverage,
   getFoulsDrawnCoverage,
+  getPersonalFoulsCoverage,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
 import {
@@ -538,6 +539,10 @@ export function TeamPage({
         {
           total: teamSeasonAggregate.foulsDrawnTotal,
           games: teamSeasonAggregate.gamesWithFoulsDrawnData,
+        },
+        {
+          total: teamSeasonAggregate.personalFoulsTotal,
+          games: teamSeasonAggregate.gamesWithPersonalFoulsData,
         }
       ),
     [teamSeasonAggregate, scopedTeamScoring]
@@ -573,6 +578,11 @@ export function TeamPage({
     [filteredStatsGames]
   );
 
+  const playerStatsPersonalFoulsCoverage = useMemo(
+    () => getPersonalFoulsCoverage(filteredStatsGames),
+    [filteredStatsGames]
+  );
+
   const handleExportTeamStatsPdf = useCallback(() => {
     if (!normalizedTeam) return;
     downloadTeamStatsReportPdf({
@@ -587,6 +597,7 @@ export function TeamPage({
       foulStatCoverage: playerStatsFoulCoverage,
       plusMinusCoverage: playerStatsPlusMinusCoverage,
       foulsDrawnCoverage: playerStatsFoulsDrawnCoverage,
+      personalFoulsCoverage: playerStatsPersonalFoulsCoverage,
     });
   }, [
     normalizedTeam,
@@ -600,6 +611,7 @@ export function TeamPage({
     playerStatsFoulCoverage,
     playerStatsPlusMinusCoverage,
     playerStatsFoulsDrawnCoverage,
+    playerStatsPersonalFoulsCoverage,
   ]);
 
   const rosterStatsGames = useMemo(
@@ -1827,7 +1839,7 @@ export function TeamPage({
               </StatColumn>
 
               <StatColumn title="Discipline">
-                <TeamStatRow label="FPG" value={derived.fpg.toFixed(1)} />
+                <TeamStatRow label="FPG" value={formatRatio(derived.fpg)} />
                 <TeamStatRow label="FDPG" value={formatRatio(derived.fdpg)} />
               </StatColumn>
 
@@ -1865,6 +1877,7 @@ export function TeamPage({
             foulStatCoverage={playerStatsFoulCoverage}
             plusMinusCoverage={playerStatsPlusMinusCoverage}
             foulsDrawnCoverage={playerStatsFoulsDrawnCoverage}
+            personalFoulsCoverage={playerStatsPersonalFoulsCoverage}
             onNavigateToPlayer={onNavigateToPlayer}
             onExportPdf={canExport ? handleExportTeamStatsPdf : undefined}
             exportDisabled={playerSeasonRows.length === 0}

@@ -107,6 +107,8 @@ import {
   wouldTournamentEnrollmentViolateOverlap,
 } from './utils/rosterPlayers';
 import {
+  acknowledgeRosterDeletes,
+  dedupeRosterDeletes,
   findRosterRemovals,
   mergeTeamRostersUnion,
 } from './utils/clubRosterIntegrity';
@@ -1165,8 +1167,13 @@ export default function App() {
       const darkModeToSave = true;
 
       const removals = findRosterRemovals(prevTeamsRef.current, teamsToSave);
+      // Keep pending deletes until save succeeds so overlapping persists still
+      // authorize the shrink (and failures do not lose the unlink).
+      const rosterDeletes = dedupeRosterDeletes([
+        ...pendingRosterDeletesRef.current,
+      ]);
       const pendingKeys = new Set(
-        pendingRosterDeletesRef.current.map((d) => `${d.teamId}:${d.playerId}`)
+        rosterDeletes.map((d) => `${d.teamId}:${d.playerId}`)
       );
       const unauthorized = removals.filter(
         (r) => !pendingKeys.has(`${r.teamId}:${r.playerId}`)
@@ -1181,12 +1188,9 @@ export default function App() {
         teamsToSave = mergeTeamRostersUnion(teamsToSave, prevTeamsRef.current);
       }
 
-      const rosterDeletes = [...pendingRosterDeletesRef.current];
-      pendingRosterDeletesRef.current = [];
       const tournamentRosterDeletes = remapTournamentRosterDeletes([
         ...pendingTournamentRosterDeletesRef.current,
       ]);
-      pendingTournamentRosterDeletesRef.current = [];
 
       const sanitizedRosters = sanitizeTournamentRostersForCloud({
         entries: tournamentRostersRef.current,
@@ -1232,6 +1236,11 @@ export default function App() {
                 ? { tournamentRosterDeletes }
                 : undefined
             );
+            pendingTournamentRosterDeletesRef.current =
+              acknowledgeRosterDeletes(
+                pendingTournamentRosterDeletesRef.current,
+                tournamentRosterDeletes
+              );
           } else {
             const saved = await saveAppDataToSupabase(
               teamsToSave,
@@ -1251,6 +1260,15 @@ export default function App() {
               savedTeams = saved.teams;
               savedTournaments = saved.tournaments;
             }
+            pendingRosterDeletesRef.current = acknowledgeRosterDeletes(
+              pendingRosterDeletesRef.current,
+              rosterDeletes
+            );
+            pendingTournamentRosterDeletesRef.current =
+              acknowledgeRosterDeletes(
+                pendingTournamentRosterDeletesRef.current,
+                tournamentRosterDeletes
+              );
           }
 
         setSaveError(null);
@@ -1325,10 +1343,8 @@ export default function App() {
           prevTournamentRostersRef.current = tournamentRostersRef.current;
         }
         } catch (err) {
-          pendingTournamentRosterDeletesRef.current = [
-            ...tournamentRosterDeletes,
-            ...pendingTournamentRosterDeletesRef.current,
-          ];
+          // Pending club/tournament deletes were not cleared until success —
+          // leave them queued for the next persist attempt.
           throw err;
         }
       }).catch((err: Error) => {

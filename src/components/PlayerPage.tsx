@@ -33,13 +33,14 @@ import {
 } from '../utils/statRecordingCoverage';
 import { NoStatRecorded, OptionalStatBadge, OptionalStatText } from './StatDisplay';
 import {
+  getPlusMinusCoverage,
+  getFoulsDrawnCoverage,
+  getPersonalFoulsCoverage,
+  getFoulStatCoverage,
+  getShotDataCoverage,
   buildPlayerTournamentSeasonRows,
   buildSelectedTournamentsSummaryRow,
   filterPlayerSeasonRowsForTournamentSelection,
-  getFoulStatCoverage,
-  getShotDataCoverage,
-  getPlusMinusCoverage,
-  getFoulsDrawnCoverage,
 } from '../utils/playerSeasonStats';
 import { getPlayerParticipatedTournaments } from '../utils/teamTournaments';
 import {
@@ -47,6 +48,7 @@ import {
   resolvePlayerTeamInGame,
 } from '../utils/rosterPlayers';
 import { getPlayerAgeAsOfToday, resolvePlayerAge } from '../utils/playerAge';
+import { formatDecimalMinutes } from '../utils/formatMinutes';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { StatScopeFilterBar } from './StatScopeFilterBar';
 import {
@@ -482,6 +484,8 @@ export function PlayerPage({
       gamesWithFoulsDrawnData: number;
       plusMinusTrackedTotal: number;
       gamesWithPlusMinusData: number;
+      personalFoulsTrackedTotal: number;
+      gamesWithPersonalFoulsData: number;
     }>();
     
     // Group games by tournament (competitive only — friendlies are a separate row later)
@@ -500,6 +504,8 @@ export function PlayerPage({
           gamesWithFoulsDrawnData: 0,
           plusMinusTrackedTotal: 0,
           gamesWithPlusMinusData: 0,
+          personalFoulsTrackedTotal: 0,
+          gamesWithPersonalFoulsData: 0,
         });
       }
       
@@ -519,6 +525,10 @@ export function PlayerPage({
       if (gameRecordsStat(game, 'plus_minus')) {
         tournamentData.plusMinusTrackedTotal += stats.plus_minus;
         tournamentData.gamesWithPlusMinusData += 1;
+      }
+      if (gameRecordsStat(game, 'fouls')) {
+        tournamentData.personalFoulsTrackedTotal += stats.fouls;
+        tournamentData.gamesWithPersonalFoulsData += 1;
       }
       
       tournamentData.games++;
@@ -878,7 +888,7 @@ export function PlayerPage({
                       {isHome ? 'vs' : '@'} {opponent.name}
                     </TableCell>
                     <TableCell className="text-center font-mono">
-                      {Math.floor(stats.minutes_played)}:{((stats.minutes_played % 1) * 60).toFixed(0).padStart(2, '0')}
+                      {formatDecimalMinutes(stats.minutes_played)}
                     </TableCell>
                     <TableCell className="text-center font-mono font-medium">{stats.points}</TableCell>
                     <TableCell className="text-center font-mono">{stats.orb + stats.drb}</TableCell>
@@ -983,6 +993,7 @@ export function PlayerPage({
     const foulStatCoverage = getFoulStatCoverage(coverageGames);
     const plusMinusCoverage = getPlusMinusCoverage(coverageGames);
     const foulsDrawnCoverage = getFoulsDrawnCoverage(coverageGames);
+    const personalFoulsCoverage = getPersonalFoulsCoverage(coverageGames);
 
     return (
       <div className="space-y-6">
@@ -998,6 +1009,7 @@ export function PlayerPage({
           foulStatCoverage={foulStatCoverage}
           plusMinusCoverage={plusMinusCoverage}
           foulsDrawnCoverage={foulsDrawnCoverage}
+          personalFoulsCoverage={personalFoulsCoverage}
           onNavigateToTournament={onNavigateToTournament}
           onNavigateToTeam={onNavigateToTeam}
           teams={teams}
@@ -1038,8 +1050,10 @@ export function PlayerPage({
           advanced: MetricsCalculator.calculateAdvancedMetrics(MetricsCalculator.getEmptyStats(player.id)),
           foulsDrawnPerGame: null,
           plusMinusPerGame: null,
+          personalFoulsPerGame: null,
           gamesWithFoulsDrawnData: 0,
           gamesWithPlusMinusData: 0,
+          gamesWithPersonalFoulsData: 0,
         };
       }
       
@@ -1059,12 +1073,16 @@ export function PlayerPage({
       let gamesWithFoulsDrawnData = 0;
       let plusMinusTotal = 0;
       let gamesWithPlusMinusData = 0;
+      let personalFoulsTotal = 0;
+      let gamesWithPersonalFoulsData = 0;
 
       for (const tournamentData of filteredTournamentStats) {
         foulsDrawnTotal += tournamentData.foulsDrawnTrackedTotal;
         gamesWithFoulsDrawnData += tournamentData.gamesWithFoulsDrawnData;
         plusMinusTotal += tournamentData.plusMinusTrackedTotal;
         gamesWithPlusMinusData += tournamentData.gamesWithPlusMinusData;
+        personalFoulsTotal += tournamentData.personalFoulsTrackedTotal;
+        gamesWithPersonalFoulsData += tournamentData.gamesWithPersonalFoulsData;
       }
       
       // Calculate averages
@@ -1089,8 +1107,13 @@ export function PlayerPage({
           plusMinusTotal,
           gamesWithPlusMinusData
         ),
+        personalFoulsPerGame: perGameAverageOrNull(
+          personalFoulsTotal,
+          gamesWithPersonalFoulsData
+        ),
         gamesWithFoulsDrawnData,
         gamesWithPlusMinusData,
+        gamesWithPersonalFoulsData,
       };
     };
     
@@ -1154,15 +1177,34 @@ export function PlayerPage({
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Minutes</span>
-                    <span className="text-sm font-mono">{filteredData.averages.minutes_played.toFixed(1)}</span>
+                    <span className="text-sm font-mono">
+                      {filteredData.averages.minutes_played > 0
+                        ? filteredData.averages.minutes_played.toFixed(1)
+                        : '-'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Turnovers</span>
                     <span className="text-sm font-mono">{filteredData.averages.turnovers.toFixed(1)}</span>
                   </div>
-                  <div className="flex justify-between">
+                  <div className="flex justify-between items-center">
                     <span className="text-sm">Personal Fouls</span>
-                    <span className="text-sm font-mono">{filteredData.averages.fouls.toFixed(1)}</span>
+                    <span className="flex items-center gap-1">
+                      <PartialAverageWarning
+                        tooltip={
+                          filteredData.personalFoulsPerGame !== null &&
+                          filteredData.gamesWithPersonalFoulsData > 0 &&
+                          filteredData.gamesWithPersonalFoulsData < filteredData.gamesPlayed
+                            ? `Average uses only games that recorded personal fouls (${filteredData.gamesWithPersonalFoulsData} of ${filteredData.gamesPlayed} games in this view).`
+                            : undefined
+                        }
+                      />
+                      <OptionalStatText
+                        value={filteredData.personalFoulsPerGame}
+                        decimals={1}
+                        className="text-sm font-mono"
+                      />
+                    </span>
                   </div>
                 </div>
               </div>

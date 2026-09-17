@@ -73,6 +73,7 @@ export interface TeamStatsReportModel {
   foulStatCoverage?: FoulStatCoverage;
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
+  personalFoulsCoverage?: ScopedStatCoverage;
 }
 
 export interface BuildTeamStatsReportModelInput {
@@ -87,6 +88,7 @@ export interface BuildTeamStatsReportModelInput {
   foulStatCoverage?: FoulStatCoverage;
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
+  personalFoulsCoverage?: ScopedStatCoverage;
   exportedAt?: Date;
 }
 
@@ -197,6 +199,7 @@ export function buildTeamStatsReportModel(
     foulStatCoverage,
     plusMinusCoverage,
     foulsDrawnCoverage,
+    personalFoulsCoverage,
     exportedAt = new Date(),
   } = input;
 
@@ -239,5 +242,6 @@ export function buildTeamStatsReportModel(
     foulStatCoverage,
     plusMinusCoverage,
     foulsDrawnCoverage,
+    personalFoulsCoverage,
   };
 }

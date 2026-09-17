@@ -89,6 +89,7 @@ interface PlayerStatsTableProps {
   foulStatCoverage?: FoulStatCoverage;
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
+  personalFoulsCoverage?: ScopedStatCoverage;
   disableRowNavigation?: boolean;
   defaultSortField?: PlayerStatsSortField;
   defaultSortOrder?: 'asc' | 'desc';
@@ -195,6 +196,7 @@ export function PlayerStatsTable({
   foulStatCoverage,
   plusMinusCoverage,
   foulsDrawnCoverage,
+  personalFoulsCoverage,
   disableRowNavigation = false,
   defaultSortField,
   defaultSortOrder,
@@ -233,6 +235,11 @@ export function PlayerStatsTable({
   const partialFoulsDrawnTooltip =
     foulsDrawnCoverage?.isPartial
       ? `Averages use only games that recorded fouls drawn (${foulsDrawnCoverage.gamesWithData} of ${foulsDrawnCoverage.gamesTotal} games in this view).`
+      : undefined;
+
+  const partialPersonalFoulsTooltip =
+    personalFoulsCoverage?.isPartial
+      ? `Averages use only games that recorded personal fouls (${personalFoulsCoverage.gamesWithData} of ${personalFoulsCoverage.gamesTotal} games in this view).`
       : undefined;
 
   const sortedRows = useMemo(
@@ -416,7 +423,7 @@ export function PlayerStatsTable({
                         />
                       ))}
                       <SortableHead label="TOPG" field="TOPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
-                      <SortableHead label="FPG" field="FPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
+                      <SortableHead label="FPG" field="FPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" warningTooltip={partialPersonalFoulsTooltip} />
                       <SortableHead label="+/-" field="+/-" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" warningTooltip={partialPlusMinusTooltip} />
                       <SortableHead label="GmSc" field="GmSc" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="EFF" field="EFF" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />

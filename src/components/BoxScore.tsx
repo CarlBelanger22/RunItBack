@@ -48,6 +48,7 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
   const [view, setView] = useState<'traditional' | 'advanced'>('traditional');
   const recordsFoulsDrawn = gameRecordsStat(game, 'fouls_drawn');
   const recordsPlusMinus = gameRecordsStat(game, 'plus_minus');
+  const recordsPersonalFouls = gameRecordsStat(game, 'fouls');
   const foulOutEnabled = isFoulOutEnabled(game);
 
   const getPlayerBoxScore = (playerId: string): GameStats => {
@@ -204,12 +205,16 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
                 <TableCell className="text-center font-mono">{player.blocks}</TableCell>
                 <TableCell className="text-center font-mono">{player.turnovers}</TableCell>
                 <TableCell className="text-center font-mono">
-                  {foulOutEnabled && isPlayerFouledOut(player) ? (
-                    <Badge variant="destructive" className="text-xs">
-                      {player.fouls}
-                    </Badge>
+                  {recordsPersonalFouls ? (
+                    foulOutEnabled && isPlayerFouledOut(player) ? (
+                      <Badge variant="destructive" className="text-xs">
+                        {player.fouls}
+                      </Badge>
+                    ) : (
+                      player.fouls
+                    )
                   ) : (
-                    player.fouls
+                    <NoStatRecorded />
                   )}
                 </TableCell>
                 <TableCell className="text-center font-mono">
@@ -244,7 +249,9 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
               <TableCell className="text-center font-mono">—</TableCell>
               <TableCell className="text-center font-mono">—</TableCell>
               <TableCell className="text-center font-mono">{totals.teamCoach.turnovers}</TableCell>
-              <TableCell className="text-center font-mono">{totals.teamCoach.fouls}</TableCell>
+              <TableCell className="text-center font-mono">
+                {recordsPersonalFouls ? totals.teamCoach.fouls : <NoStatRecorded />}
+              </TableCell>
               <TableCell className="text-center font-mono">
                 <NoStatRecorded />
               </TableCell>
@@ -274,7 +281,9 @@ export function BoxScore({ game, onNavigateToPlayer, onNavigateToTeam }: BoxScor
               <TableCell className="text-center font-mono">{totals.steals}</TableCell>
               <TableCell className="text-center font-mono">{totals.blocks}</TableCell>
               <TableCell className="text-center font-mono">{totals.turnovers}</TableCell>
-              <TableCell className="text-center font-mono">{totals.fouls}</TableCell>
+              <TableCell className="text-center font-mono">
+                {recordsPersonalFouls ? totals.fouls : <NoStatRecorded />}
+              </TableCell>
               <TableCell className="text-center font-mono">
                 <NoStatRecorded />
               </TableCell>
