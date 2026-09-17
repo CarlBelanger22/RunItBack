@@ -364,6 +364,19 @@ export function getPlayersForTeamInTournament(
   });
 }
 
+/** Club team shell with players replaced by tournament roster (sorted by jersey). */
+export function buildTeamWithTournamentRoster(
+  team: Team,
+  tournamentId: string,
+  teams: Team[],
+  rosters: TournamentRosterEntry[]
+): Team {
+  const players = [...getPlayersForTeamInTournament(team.id, tournamentId, teams, rosters)].sort(
+    (a, b) => a.number - b.number || a.name.localeCompare(b.name)
+  );
+  return { ...team, players };
+}
+
 export function isPlayerOnTournamentRoster(
   playerId: string,
   tournamentId: string,

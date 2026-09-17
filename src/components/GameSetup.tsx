@@ -52,7 +52,7 @@ import {
   normalizeTeamAbbreviation,
 } from "../utils/teamAbbreviation";
 import {
-  getPlayersForTeamInTournament,
+  buildTeamWithTournamentRoster,
   type TournamentRosterEntry,
 } from "../utils/tournamentRosters";
 import {
@@ -699,14 +699,26 @@ export function GameSetup({
     const homeDb = teams.find((t) => t.id === prefill.homeTeamId);
     const awayDb = teams.find((t) => t.id === prefill.awayTeamId);
     if (homeDb) {
+      const homeSetup = buildTeamWithTournamentRoster(
+        homeDb,
+        prefill.tournamentId,
+        teams,
+        tournamentRosters
+      );
       setHomeMode("existing");
-      setHomeTeam({ ...homeDb, players: [...homeDb.players] });
-      rosterBaselineRef.current[homeDb.id] = homeDb.players.map((p) => p.id);
+      setHomeTeam(homeSetup);
+      rosterBaselineRef.current[homeDb.id] = homeSetup.players.map((p) => p.id);
     }
     if (awayDb) {
+      const awaySetup = buildTeamWithTournamentRoster(
+        awayDb,
+        prefill.tournamentId,
+        teams,
+        tournamentRosters
+      );
       setAwayMode("existing");
-      setAwayTeam({ ...awayDb, players: [...awayDb.players] });
-      rosterBaselineRef.current[awayDb.id] = awayDb.players.map((p) => p.id);
+      setAwayTeam(awaySetup);
+      rosterBaselineRef.current[awayDb.id] = awaySetup.players.map((p) => p.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot fixture prefill
   }, [prefill?.gameId]);
@@ -779,21 +791,18 @@ export function GameSetup({
       if (!selected) return;
       if (!isFriendly && !tournamentId) return;
 
-      const rosterPlayers = sortPlayersByNumber(
-        isFriendly
-          ? [...(selected.players ?? [])]
-          : getPlayersForTeamInTournament(
-              teamId,
-              tournamentId,
-              teams,
-              tournamentRosters
-            )
-      );
-      const copy: Team = {
-        ...selected,
-        players: rosterPlayers,
-      };
-      rosterBaselineRef.current[selected.id] = rosterPlayers.map((p) => p.id);
+      const copy = isFriendly
+        ? {
+            ...selected,
+            players: sortPlayersByNumber([...(selected.players ?? [])]),
+          }
+        : buildTeamWithTournamentRoster(
+            selected,
+            tournamentId,
+            teams,
+            tournamentRosters
+          );
+      rosterBaselineRef.current[selected.id] = copy.players.map((p) => p.id);
       if (side === "home") {
         setHomeMode("existing");
         setHomeTeam(copy);
