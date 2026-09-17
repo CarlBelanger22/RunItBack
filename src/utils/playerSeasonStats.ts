@@ -567,6 +567,7 @@ export function buildPlayerTournamentSeasonRows(
   options?: {
     includeAllTime?: boolean;
     gameFormatScope?: GameFormatScope;
+    /** When true: Friendlies footer row + merge those games into All Time. */
     includeFriendliesInAllTime?: boolean;
   }
 ): PlayerSeasonRow[] {
@@ -706,7 +707,7 @@ export function buildPlayerTournamentSeasonRows(
     });
   }
 
-  if (!includeFriendliesInAllTime && friendlyGames.length > 0) {
+  if (includeFriendliesInAllTime && friendlyGames.length > 0) {
     const team = allTimeTeam(friendlyGames);
     const rosterPlayer = rosterPlayerForTeam(
       team?.abbreviation === 'Multi' ? null : team?.id ?? null

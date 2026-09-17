@@ -12,7 +12,7 @@ export const FRIENDLIES_SCOPE_ID = 'friendlies';
 
 const INCLUDE_FRIENDLIES_PARAM = 'friendlies';
 
-/** URL `?friendlies=1` — merge friendlies into All Time on player stats. */
+/** URL `?friendlies=1` — show Friendlies row and merge those games into All Time. */
 export function parseIncludeFriendliesInStats(
   raw: string | null | undefined
 ): boolean {

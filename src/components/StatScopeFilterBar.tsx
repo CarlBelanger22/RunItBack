@@ -72,7 +72,7 @@ export function StatScopeFilterBar({
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
       <div className="flex flex-nowrap items-end justify-between gap-4">
-        <div className="flex shrink-0 items-end gap-x-4">
+        <div className="flex shrink-0 items-end gap-x-8">
           <FilterField label="Format">
             <GameFormatToggle
               value={gameFormatScope}
@@ -84,29 +84,35 @@ export function StatScopeFilterBar({
           </FilterField>
 
           {showIncludeFriendlies && (
-            <div
-              className="flex items-center gap-2 pb-1"
-              title={
-                includeFriendliesDisabled
-                  ? 'No completed friendly games with stats for this player in the current format'
-                  : 'Merge friendly games into the All Time summary row'
-              }
+            <FilterField
+              label="Friendlies"
+              htmlFor={includeFriendliesId}
+              className="ml-2"
             >
-              <Checkbox
-                id={includeFriendliesId}
-                checked={includeFriendlies}
-                disabled={includeFriendliesDisabled}
-                onCheckedChange={(checked) =>
-                  onIncludeFriendliesChange(checked === true)
+              <div
+                className="flex h-9 items-center gap-2"
+                title={
+                  includeFriendliesDisabled
+                    ? 'No completed friendly games with stats for this player in the current format'
+                    : 'Show Friendlies row and add those games into All Time'
                 }
-              />
-              <Label
-                htmlFor={includeFriendliesId}
-                className="cursor-pointer whitespace-nowrap text-sm font-normal leading-none"
               >
-                Include Friendlies
-              </Label>
-            </div>
+                <Checkbox
+                  id={includeFriendliesId}
+                  checked={includeFriendlies}
+                  disabled={includeFriendliesDisabled}
+                  onCheckedChange={(checked) =>
+                    onIncludeFriendliesChange(checked === true)
+                  }
+                />
+                <Label
+                  htmlFor={includeFriendliesId}
+                  className="cursor-pointer whitespace-nowrap text-sm font-normal leading-none"
+                >
+                  Include
+                </Label>
+              </div>
+            </FilterField>
           )}
         </div>
 
