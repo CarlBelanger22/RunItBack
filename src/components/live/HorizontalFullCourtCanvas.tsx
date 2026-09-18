@@ -40,6 +40,12 @@ function shotAttacksLeft(shot: Shot, game: Game): boolean {
     shotPeriod: shot.period ?? 1,
     currentPeriod: game.currentPeriod ?? 1,
     currentFlipped: !!game.courtSidesFlipped,
+    tipOffFlipped:
+      game.courtSidesFlippedAtTip === true
+        ? true
+        : game.courtSidesFlippedAtTip === false
+          ? false
+          : null,
     gameCompletedOrFlipUnknown: flipUnknown,
   });
 }

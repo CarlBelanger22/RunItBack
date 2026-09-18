@@ -585,6 +585,8 @@ type GameSetupMeta = {
   groupId?: string;
   bracketSlotId?: string;
   courtSidesFlipped?: boolean;
+  /** Tip-off orientation; persisted after complete. */
+  courtSidesFlippedAtTip?: boolean;
   gameDayRosterIds?: { home: string[]; away: string[] };
   possessionArrowTeamId?: string | null;
 };
@@ -607,6 +609,7 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     Boolean(game.stageId) ||
     Boolean(game.groupId) ||
     Boolean(game.bracketSlotId) ||
+    game.courtSidesFlippedAtTip !== undefined ||
     (game.isActive && !game.isCompleted);
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
@@ -620,6 +623,12 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
       bracketSlotId: game.bracketSlotId,
       courtSidesFlipped:
         game.isActive && !game.isCompleted ? !!game.courtSidesFlipped : undefined,
+      courtSidesFlippedAtTip:
+        game.courtSidesFlippedAtTip === true
+          ? true
+          : game.courtSidesFlippedAtTip === false
+            ? false
+            : undefined,
       gameDayRosterIds:
         game.isActive && !game.isCompleted ? game.gameDayRosterIds : undefined,
       possessionArrowTeamId:
@@ -642,6 +651,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   groupId?: string;
   bracketSlotId?: string;
   courtSidesFlipped?: boolean;
+  courtSidesFlippedAtTip?: boolean;
   gameDayRosterIds?: { home: string[]; away: string[] };
   possessionArrowTeamId?: string | null;
 } {
@@ -658,6 +668,12 @@ function parseTeamStats(row: DbGame['team_stats']): {
     groupId: meta?.groupId,
     bracketSlotId: meta?.bracketSlotId,
     courtSidesFlipped: meta?.courtSidesFlipped === true ? true : undefined,
+    courtSidesFlippedAtTip:
+      meta?.courtSidesFlippedAtTip === true
+        ? true
+        : meta?.courtSidesFlippedAtTip === false
+          ? false
+          : undefined,
     gameDayRosterIds: meta?.gameDayRosterIds,
     possessionArrowTeamId: meta?.possessionArrowTeamId ?? undefined,
   };
@@ -712,6 +728,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     groupId,
     bracketSlotId,
     courtSidesFlipped,
+    courtSidesFlippedAtTip,
     gameDayRosterIds,
     possessionArrowTeamId,
   } = parseTeamStats(row.team_stats);
@@ -743,6 +760,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     groupId,
     bracketSlotId,
     courtSidesFlipped,
+    courtSidesFlippedAtTip,
     gameDayRosterIds,
     possessionArrowTeamId: possessionArrowTeamId ?? undefined,
     isActive: row.is_active,

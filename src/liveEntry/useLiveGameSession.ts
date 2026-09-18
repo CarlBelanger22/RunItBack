@@ -114,9 +114,25 @@ export function useLiveGameSession(
       (base.id === currentGameRef.current.id
         ? currentGameRef.current.courtSidesFlipped
         : undefined);
+    const courtSidesFlippedAtTip =
+      base.courtSidesFlippedAtTip ??
+      (base.id === currentGameRef.current.id
+        ? currentGameRef.current.courtSidesFlippedAtTip
+        : undefined) ??
+      ((base.currentPeriod ?? 1) <= 2
+        ? courtSidesFlipped === true
+          ? true
+          : false
+        : undefined);
     const merged: Game = applyResolvedPossessionArrow({
       ...synced,
       courtSidesFlipped: courtSidesFlipped === true ? true : undefined,
+      courtSidesFlippedAtTip:
+        courtSidesFlippedAtTip === true
+          ? true
+          : courtSidesFlippedAtTip === false
+            ? false
+            : undefined,
     });
     currentGameRef.current = merged;
     setCurrentGame(merged);

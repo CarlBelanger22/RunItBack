@@ -40,19 +40,25 @@ export function shooterAttacksLeft(
  * Court-sides flag that was in effect when a shot was taken.
  *
  * Live entry toggles `courtSidesFlipped` once at end of Q2 (and optionally at tip-off).
+ * Prefer `tipOffFlipped` when known (persisted tip-off orientation).
  * Existing markers must use capture-time orientation so they stay on the absolute basket
- * where they were taken — not remapped with the *current* flag (that mirrors L/R corners).
+ * where they were taken — not remapped with the *current* flag alone.
  *
- * When `gameCompletedOrFlipUnknown` is true (completed games clear the flag), assume tip-off
+ * When tip-off is unknown and `gameCompletedOrFlipUnknown` is true, assume tip-off
  * was unflipped and half toggled once: P1–P2 → false, P3+ → true.
  */
 export function courtSidesFlippedWhenShotTaken(options: {
   shotPeriod: number;
   currentPeriod: number;
   currentFlipped: boolean;
+  /** Tip-off orientation when known (survives game complete). */
+  tipOffFlipped?: boolean | null;
   gameCompletedOrFlipUnknown?: boolean;
 }): boolean {
   const shotInFirstHalf = options.shotPeriod <= 2;
+  if (options.tipOffFlipped === true || options.tipOffFlipped === false) {
+    return shotInFirstHalf ? options.tipOffFlipped : !options.tipOffFlipped;
+  }
   if (options.gameCompletedOrFlipUnknown) {
     return !shotInFirstHalf;
   }
@@ -68,6 +74,7 @@ export function shotAttacksLeftOnFullCourt(options: {
   shotPeriod: number;
   currentPeriod: number;
   currentFlipped: boolean;
+  tipOffFlipped?: boolean | null;
   gameCompletedOrFlipUnknown?: boolean;
 }): boolean {
   const flippedAtShot = courtSidesFlippedWhenShotTaken(options);
@@ -77,6 +84,9 @@ export function shotAttacksLeftOnFullCourt(options: {
 /**
  * Map a click on the horizontal full-court canvas to half-court meters.
  * Returns null when the click is outside the active offensive half.
+ *
+ * Lateral axis is stored offense-relative: the same “left corner” yields the same
+ * `xM` whether attacking the left or right basket (right-basket clicks are mirrored).
  */
 export function horizontalClickToHalfCourtPoint(
   clientX: number,
@@ -95,7 +105,7 @@ export function horizontalClickToHalfCourtPoint(
     return null;
   }
 
-  const xM = ((ySvg - HORIZONTAL_INSET) / HORIZONTAL_PLAYABLE_H) * COURT_WIDTH_M;
+  let xM = ((ySvg - HORIZONTAL_INSET) / HORIZONTAL_PLAYABLE_H) * COURT_WIDTH_M;
   const attacksLeft = homeAttacksLeft(homeTeamId, offenseTeamId, courtSidesFlipped);
 
   if (attacksLeft) {
@@ -106,6 +116,12 @@ export function horizontalClickToHalfCourtPoint(
 
   const yM = horizontalSvgDepthToYMeters(xSvg, attacksLeft);
   if (yM === null) return null;
+
+  // Canonicalize: facing the right basket, screen-top is offense-left; flip lateral
+  // so stored xM matches left-basket offense-relative space.
+  if (!attacksLeft) {
+    xM = COURT_WIDTH_M - xM;
+  }
 
   return clampCourtPointM({ xM, yM });
 }
@@ -120,7 +136,9 @@ export function halfCourtPointToHorizontalSvg(
   point: CourtPointM,
   attacksLeft: boolean
 ): { x: number; y: number } {
-  const ySvg = HORIZONTAL_INSET + (point.xM / COURT_WIDTH_M) * HORIZONTAL_PLAYABLE_H;
+  // Inverse of click canonicalize when placing on the right basket.
+  const xMScreen = attacksLeft ? point.xM : COURT_WIDTH_M - point.xM;
+  const ySvg = HORIZONTAL_INSET + (xMScreen / COURT_WIDTH_M) * HORIZONTAL_PLAYABLE_H;
 
   if (attacksLeft) {
     const xSvg = horizontalBasketLeftX() + point.yM * HORIZONTAL_SVG_PER_METER_DEPTH;

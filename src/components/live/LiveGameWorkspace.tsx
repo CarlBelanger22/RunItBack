@@ -913,8 +913,11 @@ export function LiveGameWorkspace({
     let updatedGame = commitPeriodEnd();
     // LE-90: always flip court sides at half (end of Q2).
     if (endingPeriod === 2) {
+      const tip =
+        updatedGame.courtSidesFlippedAtTip ?? !!updatedGame.courtSidesFlipped;
       updatedGame = {
         ...updatedGame,
+        courtSidesFlippedAtTip: tip,
         courtSidesFlipped: !updatedGame.courtSidesFlipped,
       };
       onGameUpdate(updatedGame);

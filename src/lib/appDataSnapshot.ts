@@ -86,6 +86,8 @@ export interface SnapshotGame {
   gameDayRosterIds?: { home: string[]; away: string[] };
   /** Live entry camera view — home on left vs right (v9+). */
   courtSidesFlipped?: boolean;
+  /** Tip-off camera orientation — survives completed-game snapshot (v10+). */
+  courtSidesFlippedAtTip?: boolean;
   /** Completed game quarter splits — survives localStorage reload (v8+). */
   completedQuarterStats?: {
     home: SnapshotQuarterStats;
@@ -322,6 +324,12 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
       }
     }
 
+    if (game.courtSidesFlippedAtTip === true) {
+      base.courtSidesFlippedAtTip = true;
+    } else if (game.courtSidesFlippedAtTip === false) {
+      base.courtSidesFlippedAtTip = false;
+    }
+
     if (game.isCompleted) {
       const stamped = ensureGameQuarterStats(game);
       base.completedQuarterStats = {
@@ -414,6 +422,12 @@ export function hydrateSnapshotGames(
       finalScore: row.finalScore,
       possessionArrowTeamId: row.possessionArrowTeamId ?? undefined,
       courtSidesFlipped: row.courtSidesFlipped === true ? true : undefined,
+      courtSidesFlippedAtTip:
+        row.courtSidesFlippedAtTip === true
+          ? true
+          : row.courtSidesFlippedAtTip === false
+            ? false
+            : undefined,
       gameDayRosterIds: row.gameDayRosterIds,
     });
   });

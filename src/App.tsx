@@ -427,8 +427,14 @@ export interface Game {
    * Visual court orientation for live entry (camera view).
    * When true, home attacks the right basket and the home roster column is on the right.
    * Does not swap home/away identity in scores or box score.
+   * Toggles at half; cleared from cloud meta when the game completes.
    */
   courtSidesFlipped?: boolean;
+  /**
+   * Tip-off court orientation (camera view at start). Set once before half; not toggled at Q2.
+   * Persisted after complete so shot placement can recover tip-off-flipped games.
+   */
+  courtSidesFlippedAtTip?: boolean;
 }
 
 export interface SetupRosterChange {

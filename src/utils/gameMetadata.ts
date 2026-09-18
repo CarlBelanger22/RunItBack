@@ -7,12 +7,22 @@ export function buildGameMetadataPatch(
   game: Game,
   values: GameFormValues
 ): Game {
+  const nextFlipped = values.courtSidesFlipped ?? false;
   const next: Game = {
     ...game,
     date: values.date,
     startTime: values.startTime,
-    courtSidesFlipped: values.courtSidesFlipped ?? false,
+    courtSidesFlipped: nextFlipped,
   };
+
+  // Tip-off orientation: keep in sync with the form while still in the first half.
+  if ((game.currentPeriod ?? 1) <= 2) {
+    next.courtSidesFlippedAtTip = nextFlipped;
+  } else if (game.courtSidesFlippedAtTip === undefined) {
+    // Do not invent tip-off from second-half camera state.
+  } else {
+    next.courtSidesFlippedAtTip = game.courtSidesFlippedAtTip;
+  }
 
   // Friendlies stay tournament-less (no convert official ↔ friendly).
   if (isFriendlyGame(game)) {
