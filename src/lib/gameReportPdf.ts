@@ -19,6 +19,9 @@ export const PDF_REPORT_THEME = {
   rule: [180, 188, 198] as [number, number, number],
   winnerFill: [232, 238, 245] as [number, number, number],
   totalsFill: [32, 58, 92] as [number, number, number],
+  /** Soft +/- cell fills for Lineups PDF tables. */
+  plusFill: [220, 242, 228] as [number, number, number],
+  minusFill: [252, 228, 228] as [number, number, number],
   /** @deprecated kept for team-stats PDF compatibility */
   home: {
     header: [20, 48, 82] as [number, number, number],
@@ -882,7 +885,16 @@ function drawLineupsPage(doc: jsPDF, model: GameReportModel): void {
       columnStyles: {
         0: { cellWidth: 'auto' },
         1: { cellWidth: 36, halign: 'right' },
-        2: { cellWidth: 36,halign: 'right' },
+        2: { cellWidth: 36, halign: 'right' },
+      },
+      didParseCell: (data) => {
+        if (data.section !== 'body' || data.column.index !== 2) return;
+        const raw = String(data.cell.raw ?? '').trim();
+        if (!raw || raw === '—') return;
+        const value = Number(raw.replace(/^\+/, ''));
+        if (!Number.isFinite(value) || value === 0) return;
+        data.cell.styles.fillColor =
+          value > 0 ? PDF_REPORT_THEME.plusFill : PDF_REPORT_THEME.minusFill;
       },
     });
 
