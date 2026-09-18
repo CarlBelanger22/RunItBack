@@ -7,9 +7,9 @@ import {
 } from '../../lib/figmaHorizontalCourtSvg';
 import {
   homeAttacksLeft,
-  shooterAttacksLeft,
   horizontalClickToHalfCourtPoint,
   halfCourtPointToHorizontalSvg,
+  shotAttacksLeftOnFullCourt,
 } from '../../lib/horizontalCourtClick';
 import { percentToCourtPointM, type CourtPointM } from '../../lib/fibaCourtGeometry';
 import type { CourtMarker as SessionMarker } from '../../liveEntry/liveEntryStateMachine';
@@ -34,7 +34,14 @@ function shotAttacksLeft(shot: Shot, game: Game): boolean {
   const isHome =
     !isOpponentUnitShotPlayerId(shot.playerId) &&
     game.homeTeam.players.some((p) => p.id === shot.playerId);
-  return shooterAttacksLeft(isHome, !!game.courtSidesFlipped);
+  const flipUnknown = !!game.isCompleted || !game.isActive;
+  return shotAttacksLeftOnFullCourt({
+    isHomeShooter: isHome,
+    shotPeriod: shot.period ?? 1,
+    currentPeriod: game.currentPeriod ?? 1,
+    currentFlipped: !!game.courtSidesFlipped,
+    gameCompletedOrFlipUnknown: flipUnknown,
+  });
 }
 
 export function HorizontalFullCourtCanvas({

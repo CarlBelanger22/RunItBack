@@ -2863,6 +2863,10 @@ export default function App() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
               type="text"
+              name="global-search"
+              autoComplete="one-time-code"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder="Search tournaments, teams, players, or games..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}

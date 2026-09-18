@@ -37,6 +37,44 @@ export function shooterAttacksLeft(
 }
 
 /**
+ * Court-sides flag that was in effect when a shot was taken.
+ *
+ * Live entry toggles `courtSidesFlipped` once at end of Q2 (and optionally at tip-off).
+ * Existing markers must use capture-time orientation so they stay on the absolute basket
+ * where they were taken — not remapped with the *current* flag (that mirrors L/R corners).
+ *
+ * When `gameCompletedOrFlipUnknown` is true (completed games clear the flag), assume tip-off
+ * was unflipped and half toggled once: P1–P2 → false, P3+ → true.
+ */
+export function courtSidesFlippedWhenShotTaken(options: {
+  shotPeriod: number;
+  currentPeriod: number;
+  currentFlipped: boolean;
+  gameCompletedOrFlipUnknown?: boolean;
+}): boolean {
+  const shotInFirstHalf = options.shotPeriod <= 2;
+  if (options.gameCompletedOrFlipUnknown) {
+    return !shotInFirstHalf;
+  }
+  const nowInFirstHalf = options.currentPeriod <= 2;
+  return shotInFirstHalf === nowInFirstHalf
+    ? options.currentFlipped
+    : !options.currentFlipped;
+}
+
+/** Which basket a stored shot should use on the live horizontal full court. */
+export function shotAttacksLeftOnFullCourt(options: {
+  isHomeShooter: boolean;
+  shotPeriod: number;
+  currentPeriod: number;
+  currentFlipped: boolean;
+  gameCompletedOrFlipUnknown?: boolean;
+}): boolean {
+  const flippedAtShot = courtSidesFlippedWhenShotTaken(options);
+  return shooterAttacksLeft(options.isHomeShooter, flippedAtShot);
+}
+
+/**
  * Map a click on the horizontal full-court canvas to half-court meters.
  * Returns null when the click is outside the active offensive half.
  */
