@@ -24,10 +24,12 @@ import { downloadGameReportPdf } from '../lib/gameReportPdf';
 import { resolveGameMetaLabel } from '../utils/friendlyGame';
 import { cn } from './ui/utils';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
-import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { GameReportExportDialog } from './GameReportExportDialog';
+import { GameLineupsTab } from './GameLineupsTab';
 import { gameHasShotChartData } from '../utils/gameDisplay';
+import { gameHasLineupUnitData } from '../utils/lineupUnits';
 import type { GameReportExportOptions } from '../utils/gameReportModel';
+import { getTournamentGameFormat } from '../utils/gameFormat';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -102,11 +104,26 @@ export function GameSummary({
   const { canViewDetailedStats, canEditLeague, canExport } = useAuthCapabilities();
   const hasShotChart = gameHasShotChartData(game);
   const showShotChartTab = hasShotChart && canViewDetailedStats;
-  const tabCols = canViewDetailedStats
-    ? showShotChartTab
-      ? 'grid-cols-3'
-      : 'grid-cols-2'
-    : 'grid-cols-1';
+  const tournament = tournaments.find((t) => t.id === game.tournamentId);
+  const hasLineupData = gameHasLineupUnitData(
+    game,
+    getTournamentGameFormat(game.tournamentId, tournament)
+  );
+  const showLineupsTab = hasLineupData && canViewDetailedStats;
+
+  const tabCount =
+    1 +
+    (canViewDetailedStats ? 1 : 0) +
+    (showShotChartTab ? 1 : 0) +
+    (showLineupsTab ? 1 : 0);
+  const tabCols =
+    tabCount <= 1
+      ? 'grid-cols-1'
+      : tabCount === 2
+        ? 'grid-cols-2'
+        : tabCount === 3
+          ? 'grid-cols-3'
+          : 'grid-cols-4';
 
   return (
     <div className="space-y-6">
@@ -241,6 +258,9 @@ export function GameSummary({
           {showShotChartTab && (
             <TabsTrigger value="shot-chart">Shot Chart</TabsTrigger>
           )}
+          {showLineupsTab && (
+            <TabsTrigger value="lineups">Lineups</TabsTrigger>
+          )}
         </TabsList>
 
         <div className="space-y-6">
@@ -266,6 +286,12 @@ export function GameSummary({
           {showShotChartTab && (
             <TabsContent value="shot-chart" className="space-y-6">
               <ShotChart game={game} />
+            </TabsContent>
+          )}
+
+          {showLineupsTab && (
+            <TabsContent value="lineups" className="space-y-6">
+              <GameLineupsTab game={game} />
             </TabsContent>
           )}
         </div>
@@ -321,6 +347,7 @@ export function GameSummary({
           open={exportDialogOpen}
           onOpenChange={setExportDialogOpen}
           hasShotChartData={hasShotChart}
+          hasLineupData={hasLineupData}
           onDownload={handleExportPdfDownload}
         />
       )}

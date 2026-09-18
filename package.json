@@ -208,6 +208,7 @@
             "test:completed-game-persist": "tsx scripts/test-completed-game-persist.ts",
             "test:navigation-return-to": "tsx scripts/test-navigation-return-to.ts",
             "test:auth-redirect": "tsx scripts/test-auth-redirect.ts",
+            "test:lineup-units": "tsx scripts/test-lineup-units.ts",
             "test:iubit-2026-bracket": "tsx scripts/test-iubit-2026-bracket.ts",
             "test:four-team-bracket": "tsx scripts/test-four-team-bracket.ts",
             "test:bracket-game-link": "tsx scripts/test-bracket-game-link.ts",

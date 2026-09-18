@@ -20,6 +20,11 @@ import {
 } from './gameDisplay';
 import { formatGameFlowTeamDisplay, resolveGameFlowStats } from './gameFlowStats';
 import { getTournamentGameFormat, type GameFormat } from './gameFormat';
+import {
+  deriveAggregatedLineupUnits,
+  gameHasLineupUnitData,
+  toLineupUnitViews,
+} from './lineupUnits';
 import { gameRecordsStat } from './statRecordingCoverage';
 import { buildTeamDisplayStats } from './teamDisplayStats';
 import {
@@ -222,6 +227,15 @@ export interface GameReportModel {
   hasShotChartData: boolean;
   /** Located shots for PDF chart (percent coords). */
   shotMarkers: GameReportShotMarker[];
+  hasLineupData: boolean;
+  lineupHomeRows: GameReportLineupRow[];
+  lineupAwayRows: GameReportLineupRow[];
+}
+
+export interface GameReportLineupRow {
+  lineup: string;
+  minutes: string;
+  plusMinus: string;
 }
 
 export interface GameReportShotMarker {
@@ -946,9 +960,38 @@ export function buildGameReportModel(
       y: shot.y,
       made: shot.made,
     })),
+    ...(() => {
+      const format = getTournamentGameFormat(
+        gameWithQuarters.tournamentId,
+        tournament
+      );
+      const hasLineupData = gameHasLineupUnitData(gameWithQuarters, format);
+      if (!hasLineupData) {
+        return {
+          hasLineupData: false,
+          lineupHomeRows: [] as GameReportLineupRow[],
+          lineupAwayRows: [] as GameReportLineupRow[],
+        };
+      }
+      const views = toLineupUnitViews(
+        gameWithQuarters,
+        deriveAggregatedLineupUnits(gameWithQuarters)
+      );
+      const toRow = (v: (typeof views)[number]): GameReportLineupRow => ({
+        lineup: v.playerLabels.join(', '),
+        minutes: v.minutesDisplay,
+        plusMinus: v.plusMinusDisplay,
+      });
+      return {
+        hasLineupData: true,
+        lineupHomeRows: views.filter((v) => v.side === 'home').map(toRow),
+        lineupAwayRows: views.filter((v) => v.side === 'away').map(toRow),
+      };
+    })(),
   };
 }
 
+/** @deprecated Placeholder removed — real lineup tables ship when hasLineupData. */
 export const LINEUP_STINTS_COMING_SOON_COPY =
   'On-court lineup stints and lineup +/- — Coming soon.';
 

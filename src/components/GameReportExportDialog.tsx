@@ -22,6 +22,7 @@ export interface GameReportExportDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   hasShotChartData: boolean;
+  hasLineupData?: boolean;
   onDownload: (options: GameReportExportOptions) => void;
 }
 
@@ -29,11 +30,12 @@ export function GameReportExportDialog({
   open,
   onOpenChange,
   hasShotChartData,
+  hasLineupData = false,
   onDownload,
 }: GameReportExportDialogProps) {
   const [mode, setMode] = useState<GameReportExportMode>('full');
   const [includeShotChart, setIncludeShotChart] = useState(false);
-  const [includeComingSoon, setIncludeComingSoon] = useState(true);
+  const [includeComingSoon, setIncludeComingSoon] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -128,22 +130,28 @@ export function GameReportExportDialog({
             </div>
             <div className="flex items-start gap-3">
               <Checkbox
-                id="export-coming-soon"
+                id="export-lineups"
                 checked={includeComingSoon}
-                disabled={!fullOptionsEnabled}
+                disabled={!fullOptionsEnabled || !hasLineupData}
                 onCheckedChange={(checked) =>
                   setIncludeComingSoon(checked === true)
                 }
               />
               <div className="min-w-0 grid gap-1">
                 <Label
-                  htmlFor="export-coming-soon"
-                  className={`font-normal ${fullOptionsEnabled ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                  htmlFor="export-lineups"
+                  className={`font-normal ${
+                    fullOptionsEnabled && hasLineupData
+                      ? 'cursor-pointer'
+                      : 'cursor-not-allowed'
+                  }`}
                 >
-                  Include lineup stints (coming soon)
+                  Include lineups
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Placeholder page for lineup stints and lineup +/-.
+                  {hasLineupData
+                    ? 'Aggregated on-court lineups with minutes and +/-.'
+                    : 'No lineup timeline for this game (live entry required).'}
                 </p>
               </div>
             </div>

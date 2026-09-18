@@ -4,7 +4,6 @@ import type { Game, Tournament } from '../App';
 import {
   buildGameReportModel,
   PDF_BOX_SCORE_HEADERS,
-  LINEUP_STINTS_COMING_SOON_COPY,
   type GameReportBoxScoreRow,
   type GameReportComparisonRow,
   type GameReportExportOptions,
@@ -839,30 +838,59 @@ function drawBoxScores(doc: jsPDF, model: GameReportModel): void {
   }
 }
 
-function drawComingSoonPage(doc: jsPDF, title: string, body: string): void {
+function drawLineupsPage(doc: jsPDF, model: GameReportModel): void {
   doc.addPage('letter', 'portrait');
   const pageWidth = getPageWidth(doc);
-  const pageHeight = getPageHeight(doc);
-  const boxTop = 72;
-  const boxHeight = pageHeight - boxTop - FOOTER_BAND_OFFSET - 24;
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(14);
   doc.setTextColor(...PDF_REPORT_THEME.navy);
-  doc.text(title, pageWidth / 2, 48, { align: 'center' });
-
-  doc.setDrawColor(...PDF_REPORT_THEME.rule);
-  doc.setLineWidth(0.8);
-  doc.rect(PAGE_MARGIN, boxTop, pageWidth - PAGE_MARGIN * 2, boxHeight);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(11);
-  doc.setTextColor(...PDF_REPORT_THEME.navyMuted);
-  const lines = doc.splitTextToSize(body, pageWidth - PAGE_MARGIN * 2 - 48);
-  doc.text(lines, pageWidth / 2, boxTop + boxHeight / 2 - 6, {
-    align: 'center',
-  });
+  doc.text('Lineups', pageWidth / 2, 48, { align: 'center' });
   doc.setTextColor(0, 0, 0);
+
+  let y = 64;
+
+  const drawTeamTable = (
+    title: string,
+    rows: GameReportModel['lineupHomeRows']
+  ) => {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...PDF_REPORT_THEME.navy);
+    doc.text(title, PAGE_MARGIN, y);
+    doc.setTextColor(0, 0, 0);
+    y += 8;
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+      head: [['Lineup', 'Min', '+/-']],
+      body:
+        rows.length > 0
+          ? rows.map((r) => [r.lineup, r.minutes, r.plusMinus])
+          : [['—', '—', '—']],
+      styles: {
+        fontSize: 8,
+        cellPadding: 3,
+        overflow: 'linebreak',
+      },
+      headStyles: {
+        fillColor: PDF_REPORT_THEME.navy,
+        textColor: 255,
+        fontStyle: 'bold',
+      },
+      columnStyles: {
+        0: { cellWidth: 'auto' },
+        1: { cellWidth: 36, halign: 'right' },
+        2: { cellWidth: 36,halign: 'right' },
+      },
+    });
+
+    y = (getLastTableBottom(doc) ?? y) + 16;
+  };
+
+  drawTeamTable(model.homeTeamLabel, model.lineupHomeRows);
+  drawTeamTable(model.awayTeamLabel, model.lineupAwayRows);
 }
 
 /** Basket at top; shot.y=100 is baseline/basket, shot.y=0 is midcourt. */
@@ -962,8 +990,8 @@ export async function generateGameReportPdf(
       drawShotChartPage(doc, model);
     }
 
-    if (options.includeComingSoonPlaceholders) {
-      drawComingSoonPage(doc, 'Lineup stints', LINEUP_STINTS_COMING_SOON_COPY);
+    if (options.includeComingSoonPlaceholders && model.hasLineupData) {
+      drawLineupsPage(doc, model);
     }
   }
 
