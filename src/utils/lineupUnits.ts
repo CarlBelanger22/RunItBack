@@ -238,17 +238,22 @@ export function deriveAggregatedLineupUnits(game: Game): AggregatedLineupUnit[] 
     .sort((a, b) => b.minutes - a.minutes || b.plusMinus - a.plusMinus);
 }
 
+/** Max players selectable for the Lineups “includes” filter (full 5-man unit). */
+export const LINEUP_INCLUDES_PLAYER_MAX = 5;
+
 export function filterAggregatedLineupUnits(
   units: AggregatedLineupUnit[],
   options: {
     team: 'both' | 'home' | 'away';
-    playerId: string | null;
+    /** AND: unit must include every listed player. Empty = no player filter. */
+    playerIds: string[];
   }
 ): AggregatedLineupUnit[] {
+  const required = options.playerIds.filter(Boolean);
   return units.filter((u) => {
     if (options.team === 'home' && u.side !== 'home') return false;
     if (options.team === 'away' && u.side !== 'away') return false;
-    if (options.playerId && !u.playerIds.includes(options.playerId)) {
+    if (required.length > 0 && !required.every((id) => u.playerIds.includes(id))) {
       return false;
     }
     return true;

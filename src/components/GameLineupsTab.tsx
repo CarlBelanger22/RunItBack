@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { Game } from '../App';
+import { ChevronsUpDown } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import {
   Table,
@@ -17,8 +18,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { Button } from './ui/button';
+import { Checkbox } from './ui/checkbox';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import { cn } from './ui/utils';
 import {
+  LINEUP_INCLUDES_PLAYER_MAX,
   deriveAggregatedLineupUnits,
   filterAggregatedLineupUnits,
   toLineupUnitViews,
@@ -34,7 +39,7 @@ type SortDir = 'desc' | 'asc';
 
 export function GameLineupsTab({ game }: GameLineupsTabProps) {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>('both');
-  const [playerId, setPlayerId] = useState<string>('all');
+  const [selectedPlayerIds, setSelectedPlayerIds] = useState<string[]>([]);
   const [sortKey, setSortKey] = useState<SortKey>('minutes');
   const [sortDir, setSortDir] = useState<SortDir>('desc');
 
@@ -43,6 +48,8 @@ export function GameLineupsTab({ game }: GameLineupsTabProps) {
   const playerOptions = useMemo(() => {
     const ids = new Set<string>();
     for (const u of allUnits) {
+      if (teamFilter === 'home' && u.side !== 'home') continue;
+      if (teamFilter === 'away' && u.side !== 'away') continue;
       for (const id of u.playerIds) ids.add(id);
     }
     const players = [...game.homeTeam.players, ...game.awayTeam.players].filter(
@@ -54,25 +61,33 @@ export function GameLineupsTab({ game }: GameLineupsTabProps) {
       if (teamA !== teamB) return teamA - teamB;
       return (a.number ?? 0) - (b.number ?? 0);
     });
-  }, [allUnits, game]);
+  }, [allUnits, game, teamFilter]);
+
+  // Keep selection in sync when team filter removes options.
+  useEffect(() => {
+    const allowed = new Set(playerOptions.map((p) => p.id));
+    setSelectedPlayerIds((prev) => {
+      const next = prev.filter((id) => allowed.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [playerOptions]);
 
   const views = useMemo(() => {
     const filtered = filterAggregatedLineupUnits(allUnits, {
       team: teamFilter,
-      playerId: playerId === 'all' ? null : playerId,
+      playerIds: selectedPlayerIds,
     });
     const sorted = [...filtered].sort((a, b) => {
       const av = sortKey === 'minutes' ? a.minutes : a.plusMinus;
       const bv = sortKey === 'minutes' ? b.minutes : b.plusMinus;
       if (av !== bv) return sortDir === 'desc' ? bv - av : av - bv;
-      // Tie-break: other metric desc, then key
       const a2 = sortKey === 'minutes' ? a.plusMinus : a.minutes;
       const b2 = sortKey === 'minutes' ? b.plusMinus : b.minutes;
       if (a2 !== b2) return b2 - a2;
       return a.key.localeCompare(b.key);
     });
     return toLineupUnitViews(game, sorted);
-  }, [allUnits, game, teamFilter, playerId, sortKey, sortDir]);
+  }, [allUnits, game, teamFilter, selectedPlayerIds, sortKey, sortDir]);
 
   const homeAbbr = game.homeTeam.abbreviation || game.homeTeam.name;
   const awayAbbr = game.awayTeam.abbreviation || game.awayTeam.name;
@@ -106,6 +121,28 @@ export function GameLineupsTab({ game }: GameLineupsTabProps) {
     );
   };
 
+  const togglePlayer = (playerId: string, checked: boolean) => {
+    setSelectedPlayerIds((prev) => {
+      if (!checked) return prev.filter((id) => id !== playerId);
+      if (prev.includes(playerId)) return prev;
+      if (prev.length >= LINEUP_INCLUDES_PLAYER_MAX) return prev;
+      return [...prev, playerId];
+    });
+  };
+
+  const includesTriggerLabel = (() => {
+    if (selectedPlayerIds.length === 0) return 'All players';
+    const labels = selectedPlayerIds.map((id) => {
+      const p = playerOptions.find((opt) => opt.id === id);
+      return p ? `#${p.number} ${p.name}` : id;
+    });
+    if (labels.length === 1) return labels[0];
+    if (labels.length === 2) return `${labels[0]}, ${labels[1]}`;
+    return `${labels[0]} +${labels.length - 1} more`;
+  })();
+
+  const atMax = selectedPlayerIds.length >= LINEUP_INCLUDES_PLAYER_MAX;
+
   return (
     <Card className="shadow-lg rounded-2xl">
       <CardHeader className="pb-3 space-y-4">
@@ -131,21 +168,73 @@ export function GameLineupsTab({ game }: GameLineupsTabProps) {
           </div>
           <div className="space-y-1.5 min-w-[14rem] flex-1">
             <Label htmlFor="lineup-player-filter" className="text-xs">
-              Includes player
+              Includes players (all selected)
             </Label>
-            <Select value={playerId} onValueChange={setPlayerId}>
-              <SelectTrigger id="lineup-player-filter">
-                <SelectValue placeholder="All players" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All players</SelectItem>
-                {playerOptions.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    #{p.number} {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="lineup-player-filter"
+                  type="button"
+                  variant="outline"
+                  role="combobox"
+                  className="h-9 w-full min-w-0 justify-between bg-background font-normal shadow-sm"
+                >
+                  <span className="truncate">{includesTriggerLabel}</span>
+                  <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[min(100vw-2rem,20rem)] p-0" align="start">
+                <div className="flex items-center justify-between border-b px-3 py-2">
+                  <span className="text-xs text-muted-foreground">
+                    {selectedPlayerIds.length}/{LINEUP_INCLUDES_PLAYER_MAX} selected
+                  </span>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-muted-foreground hover:underline"
+                    onClick={() => setSelectedPlayerIds([])}
+                  >
+                    Clear
+                  </button>
+                </div>
+                <div className="max-h-64 overflow-y-auto p-2">
+                  {playerOptions.length === 0 ? (
+                    <p className="px-2 py-3 text-sm text-muted-foreground">
+                      No players
+                    </p>
+                  ) : (
+                    playerOptions.map((p) => {
+                      const itemId = `lineup-player-${p.id}`;
+                      const checked = selectedPlayerIds.includes(p.id);
+                      const disabled = !checked && atMax;
+                      return (
+                        <div
+                          key={p.id}
+                          className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-muted/50"
+                        >
+                          <Checkbox
+                            id={itemId}
+                            checked={checked}
+                            disabled={disabled}
+                            onCheckedChange={(next) =>
+                              togglePlayer(p.id, next === true)
+                            }
+                          />
+                          <Label
+                            htmlFor={itemId}
+                            className={cn(
+                              'cursor-pointer text-sm font-normal',
+                              disabled && 'cursor-not-allowed opacity-50'
+                            )}
+                          >
+                            #{p.number} {p.name}
+                          </Label>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
         </div>
       </CardHeader>
