@@ -1,8 +1,9 @@
-import { Link } from 'react-router-dom';
+import { useState } from 'react';
 import { LogIn } from 'lucide-react';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
-import { paths } from '../routing/paths';
+import { useAuth } from '../lib/auth/AuthProvider';
+import { isSupabaseConfigured } from '../lib/supabase';
 import { cn } from './ui/utils';
 
 interface LoginRequiredPanelProps {
@@ -17,6 +18,22 @@ export function LoginRequiredPanel({
   description = 'Create a free account with Google to unlock detailed stats.',
   className,
 }: LoginRequiredPanelProps) {
+  const { signInWithGoogle, isLoading } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    setError(null);
+    setBusy(true);
+    try {
+      await signInWithGoogle();
+      // OAuth navigates away; if it returns without redirect, clear busy.
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Sign-in failed.');
+      setBusy(false);
+    }
+  };
+
   return (
     <Card className={cn(className)}>
       <CardContent className="flex h-full flex-col items-center justify-center py-12 px-6 text-center space-y-4">
@@ -24,12 +41,27 @@ export function LoginRequiredPanel({
         <p className="text-sm text-muted-foreground max-w-md mx-auto">
           {description}
         </p>
-        <Button asChild>
-          <Link to={paths.account}>
+        {!isSupabaseConfigured ? (
+          <p className="text-xs text-muted-foreground">
+            Cloud auth is not configured.
+          </p>
+        ) : (
+          <Button
+            type="button"
+            disabled={busy || isLoading}
+            onClick={() => {
+              void handleSignIn();
+            }}
+          >
             <LogIn className="w-4 h-4 mr-2" />
-            Sign in with Google
-          </Link>
-        </Button>
+            {busy ? 'Signing in…' : 'Sign in with Google'}
+          </Button>
+        )}
+        {error ? (
+          <p className="text-xs text-destructive max-w-md mx-auto whitespace-normal">
+            {error}
+          </p>
+        ) : null}
       </CardContent>
     </Card>
   );
