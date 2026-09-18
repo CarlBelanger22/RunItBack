@@ -104,7 +104,6 @@ export function GameSummary({
   const { canViewDetailedStats, canEditLeague, canExport } = useAuthCapabilities();
   const hasShotChart = gameHasShotChartData(game);
   const showShotChartTab = hasShotChart && canViewDetailedStats;
-  const tournament = tournaments.find((t) => t.id === game.tournamentId);
   const hasLineupData = gameHasLineupUnitData(
     game,
     getTournamentGameFormat(game.tournamentId, tournament)
