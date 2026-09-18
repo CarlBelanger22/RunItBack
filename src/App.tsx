@@ -2857,7 +2857,7 @@ export default function App() {
       
       {/* Search Bar - Below Header (Only on Dashboard) */}
       {isDashboard && (
-      <div className="bg-background sticky top-[73px] z-40">
+      <div className="bg-background">
         <div className="container mx-auto px-6 py-3 flex justify-center">
           <div className="relative w-full max-w-md">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
