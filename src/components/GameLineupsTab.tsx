@@ -17,6 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
+import { cn } from './ui/utils';
 import {
   deriveAggregatedLineupUnits,
   filterAggregatedLineupUnits,
@@ -28,10 +29,14 @@ interface GameLineupsTabProps {
 }
 
 type TeamFilter = 'both' | 'home' | 'away';
+type SortKey = 'minutes' | 'plusMinus';
+type SortDir = 'desc' | 'asc';
 
 export function GameLineupsTab({ game }: GameLineupsTabProps) {
   const [teamFilter, setTeamFilter] = useState<TeamFilter>('both');
   const [playerId, setPlayerId] = useState<string>('all');
+  const [sortKey, setSortKey] = useState<SortKey>('minutes');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const allUnits = useMemo(() => deriveAggregatedLineupUnits(game), [game]);
 
@@ -56,11 +61,50 @@ export function GameLineupsTab({ game }: GameLineupsTabProps) {
       team: teamFilter,
       playerId: playerId === 'all' ? null : playerId,
     });
-    return toLineupUnitViews(game, filtered);
-  }, [allUnits, game, teamFilter, playerId]);
+    const sorted = [...filtered].sort((a, b) => {
+      const av = sortKey === 'minutes' ? a.minutes : a.plusMinus;
+      const bv = sortKey === 'minutes' ? b.minutes : b.plusMinus;
+      if (av !== bv) return sortDir === 'desc' ? bv - av : av - bv;
+      // Tie-break: other metric desc, then key
+      const a2 = sortKey === 'minutes' ? a.plusMinus : a.minutes;
+      const b2 = sortKey === 'minutes' ? b.plusMinus : b.minutes;
+      if (a2 !== b2) return b2 - a2;
+      return a.key.localeCompare(b.key);
+    });
+    return toLineupUnitViews(game, sorted);
+  }, [allUnits, game, teamFilter, playerId, sortKey, sortDir]);
 
   const homeAbbr = game.homeTeam.abbreviation || game.homeTeam.name;
   const awayAbbr = game.awayTeam.abbreviation || game.awayTeam.name;
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+      return;
+    }
+    setSortKey(key);
+    setSortDir('desc');
+  };
+
+  const renderSortHead = (label: string, column: SortKey, className?: string) => {
+    const active = sortKey === column;
+    return (
+      <TableHead
+        className={cn(
+          'cursor-pointer select-none hover:text-foreground',
+          active ? 'text-foreground' : 'text-muted-foreground',
+          className
+        )}
+        onClick={() => toggleSort(column)}
+        aria-sort={
+          active ? (sortDir === 'desc' ? 'descending' : 'ascending') : 'none'
+        }
+      >
+        {label}
+        {active ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ''}
+      </TableHead>
+    );
+  };
 
   return (
     <Card className="shadow-lg rounded-2xl">
@@ -116,8 +160,8 @@ export function GameLineupsTab({ game }: GameLineupsTabProps) {
               <TableRow>
                 <TableHead>Lineup</TableHead>
                 <TableHead className="text-center w-16">Team</TableHead>
-                <TableHead className="text-right w-20">Min</TableHead>
-                <TableHead className="text-right w-20">+/-</TableHead>
+                {renderSortHead('Min', 'minutes', 'text-right w-24')}
+                {renderSortHead('+/-', 'plusMinus', 'text-right w-24')}
               </TableRow>
             </TableHeader>
             <TableBody>
