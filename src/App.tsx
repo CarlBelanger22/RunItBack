@@ -1078,6 +1078,8 @@ export default function App() {
   const pendingRosterDeletesRef = useRef<
     Array<{ teamId: string; playerId: string }>
   >([]);
+  /** Game ids deleted locally — block snapshot/cloud merge from resurrecting them. */
+  const pendingDeletedGameIdsRef = useRef<Set<string>>(new Set());
   const pendingTournamentRosterDeletesRef = useRef<TournamentRosterDelete[]>(
     []
   );
@@ -1170,10 +1172,16 @@ export default function App() {
 
       const activeGame = currentGameRef.current;
       const liveOverlay =
-        activeGame?.isActive && !activeGame.isCompleted ? [activeGame] : [];
+        activeGame?.isActive &&
+        !activeGame.isCompleted &&
+        !pendingDeletedGameIdsRef.current.has(activeGame.id)
+          ? [activeGame]
+          : [];
       // Prefer live overlay for in-progress edits, but never let it un-complete a Final.
       const gamesToSave = mergeGamesPreferCompleted(
-        gamesRef.current,
+        gamesRef.current.filter(
+          (g) => !pendingDeletedGameIdsRef.current.has(g.id)
+        ),
         liveOverlay
       );
       let teamsToSave = teamsRef.current;
@@ -1539,7 +1547,8 @@ export default function App() {
 
             const mergedGames = mergeCloudGamesWithFresherLocal(
               processed.games,
-              gamesRef.current
+              gamesRef.current,
+              { omitLocalOnlyIds: pendingDeletedGameIdsRef.current }
             );
             const { games: dedupedGames, active } = dedupeActiveGames(mergedGames);
             gamesRef.current = dedupedGames;
@@ -1560,11 +1569,12 @@ export default function App() {
             const cloudGames = processed.games;
             const mergedGames = mergeCloudGamesWithFresherLocal(
               cloudGames,
-              gamesRef.current
+              gamesRef.current,
+              { omitLocalOnlyIds: pendingDeletedGameIdsRef.current }
             );
             gamesAheadOfCloud = mergedGames.some((g) => {
               const cloud = cloudGames.find((c) => c.id === g.id);
-              if (!cloud) return true; // local-only game
+              if (!cloud) return true; // local-only live game kept for durability
               if (g.isCompleted && !cloud.isCompleted) return true;
               if (!g.isCompleted && cloud.isCompleted) return false;
               if (cloud.isCompleted && g.isCompleted) return false;
@@ -1751,8 +1761,14 @@ export default function App() {
         teams: teamsRef.current,
         tournaments: tournamentsRef.current,
         games: mergeGamesPreferCompleted(
-          gamesRef.current,
-          active?.isActive && !active.isCompleted ? [active] : []
+          gamesRef.current.filter(
+            (g) => !pendingDeletedGameIdsRef.current.has(g.id)
+          ),
+          active?.isActive &&
+            !active.isCompleted &&
+            !pendingDeletedGameIdsRef.current.has(active.id)
+            ? [active]
+            : []
         ),
         darkMode: true,
         orphanPlayers: loadedOrphanPlayersRef.current,
@@ -1807,6 +1823,9 @@ export default function App() {
 
   const handleDeleteActiveGame = useCallback(
     (gameId: string) => {
+      localMutatedSinceMountRef.current = true;
+      pendingDeletedGameIdsRef.current.add(gameId);
+
       const game =
         (currentGame?.id === gameId ? currentGame : null) ??
         games.find((g) => g.id === gameId) ??
@@ -1851,6 +1870,28 @@ export default function App() {
       setTeams(nextTeams);
       setTournamentRosters(nextTournamentRosters);
 
+      // Sync refs + snapshot immediately so refresh cannot resurrect from cache,
+      // and so an in-flight persist cannot upsert the deleted row back.
+      gamesRef.current = nextGames;
+      teamsRef.current = nextTeams;
+      tournamentsRef.current = nextTournaments;
+      tournamentRostersRef.current = nextTournamentRosters;
+      if (currentGameRef.current?.id === gameId) {
+        currentGameRef.current = null;
+      }
+      prevGamesRef.current = nextGames;
+      prevTeamsRef.current = nextTeams;
+      prevTournamentsRef.current = nextTournaments;
+      prevTournamentRostersRef.current = nextTournamentRosters;
+      saveAppDataSnapshot({
+        teams: nextTeams,
+        tournaments: nextTournaments,
+        games: nextGames,
+        darkMode,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: nextTournamentRosters,
+      });
+
       const finishDeleteSave = () => {
         prevTeamsRef.current = nextTeams;
         prevTournamentsRef.current = nextTournaments;
@@ -1858,7 +1899,18 @@ export default function App() {
         prevDarkModeRef.current = darkMode;
         prevTournamentRostersRef.current = nextTournamentRosters;
         tournamentRostersRef.current = nextTournamentRosters;
+        gamesRef.current = nextGames;
+        teamsRef.current = nextTeams;
+        tournamentsRef.current = nextTournaments;
         skipSaveRef.current = false;
+        saveAppDataSnapshot({
+          teams: nextTeams,
+          tournaments: nextTournaments,
+          games: nextGames,
+          darkMode,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: nextTournamentRosters,
+        });
       };
 
       if (isSupabaseConfigured) {
@@ -1879,6 +1931,7 @@ export default function App() {
               undefined,
               nextTournamentRosters
             );
+            pendingDeletedGameIdsRef.current.delete(gameId);
             setSaveError(null);
           } catch (err) {
             console.error('Delete game/teams/players from Supabase failed:', err);
@@ -1890,6 +1943,7 @@ export default function App() {
           }
         })();
       } else {
+        pendingDeletedGameIdsRef.current.delete(gameId);
         finishDeleteSave();
       }
     },

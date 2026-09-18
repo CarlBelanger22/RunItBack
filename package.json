@@ -182,6 +182,7 @@
             "test:shot-chart-display": "tsx scripts/test-shot-chart-display.ts",
             "test:shot-flip-orientation": "tsx scripts/test-shot-flip-orientation.ts",
             "test:shot-lateral-canonical": "tsx scripts/test-shot-lateral-canonical.ts",
+            "test:live-game-freshness": "tsx scripts/test-live-game-freshness.ts",
             "test:player-shot-chart": "tsx scripts/test-player-shot-chart.ts",
             "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts",
             "test:game-team-rosters": "tsx scripts/test-game-team-rosters.ts",

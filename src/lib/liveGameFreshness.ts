@@ -44,14 +44,20 @@ export function preferFresherIncompleteGame(
  * local incomplete copy of the same id.
  * - Local completed beats cloud still-active (End Game before sync).
  * - When **both** are completed, keep **cloud** (server remaps / truth).
+ * - Local-only rows: keep only in-progress live games (durability). Do **not**
+ *   keep completed/inactive local-only games — that resurrects cloud deletes
+ *   from a stale snapshot on refresh.
+ * - `omitLocalOnlyIds`: intentionally deleted ids (skip even if still live in memory).
  */
 export function mergeCloudGamesWithFresherLocal(
   cloudGames: Game[],
-  localGames: Game[]
+  localGames: Game[],
+  options?: { omitLocalOnlyIds?: ReadonlySet<string> }
 ): Game[] {
   const localById = new Map(localGames.map((g) => [g.id, g]));
   const merged: Game[] = [];
   const seen = new Set<string>();
+  const omit = options?.omitLocalOnlyIds;
 
   for (const cloud of cloudGames) {
     seen.add(cloud.id);
@@ -73,7 +79,10 @@ export function mergeCloudGamesWithFresherLocal(
 
   for (const local of localGames) {
     if (seen.has(local.id)) continue;
-    merged.push(local);
+    if (omit?.has(local.id)) continue;
+    if (local.isActive && !local.isCompleted) {
+      merged.push(local);
+    }
   }
 
   return merged;
