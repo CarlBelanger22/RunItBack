@@ -26,7 +26,12 @@ export const OPTIONAL_ADVANCED_TEAM_STAT_KEYS = [
 export type OptionalAdvancedTeamStatKey =
   (typeof OPTIONAL_ADVANCED_TEAM_STAT_KEYS)[number];
 
-export type GameLeaderMetric = 'points' | 'assists' | 'rebounds' | 'efficiency';
+export type GameLeaderMetric =
+  | 'points'
+  | 'assists'
+  | 'rebounds'
+  | 'efficiency'
+  | 'gameScore';
 
 export interface GameLeaderEntry {
   name: string;
@@ -964,7 +969,7 @@ export function resolveTeamTotals(
   const persisted = getPersistedTeamStats(game, side);
   const fromPlayers = sumPlayerStatsForTeam(game, team);
 
-  const teamCoach = resolveTeamCoach(persisted);
+  const teamCoach = resolveTeamCoach(persisted, game, team.id);
 
   if (scoreOnly) {
     return {
@@ -1079,6 +1084,8 @@ function leaderMetricValue(
       return stat.orb + stat.drb;
     case 'efficiency':
       return MetricsCalculator.calculateAdvancedMetrics(stat).efficiency;
+    case 'gameScore':
+      return MetricsCalculator.calculateAdvancedMetrics(stat).gameScore;
     default:
       return 0;
   }

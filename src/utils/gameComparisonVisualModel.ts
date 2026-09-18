@@ -5,6 +5,7 @@ import {
   type OptionalAdvancedTeamStatKey,
   type TeamSide,
 } from './gameDisplay';
+import { resolveGameFlowStats, formatGameFlowTeamDisplay } from './gameFlowStats';
 import { buildTeamDisplayStats } from './teamDisplayStats';
 
 export interface ShootingSideStats {
@@ -50,7 +51,32 @@ export interface GameComparisonVisualModel {
   majorGroups: MajorComparisonGroup[];
   minorRows: MinorComparisonRow[];
   advancedRows: MinorComparisonRow[];
+  /** Table rows for Game flow; empty when all unavailable. */
+  gameFlowRows: GameFlowTableRow[];
 }
+
+export interface GameFlowTeamCell {
+  value: number | null;
+  display: string;
+}
+
+export interface GameFlowTeamTableRow {
+  kind: 'team';
+  key: string;
+  label: string;
+  home: GameFlowTeamCell;
+  away: GameFlowTeamCell;
+}
+
+export interface GameFlowSharedTableRow {
+  kind: 'shared';
+  key: string;
+  label: string;
+  value: number | null;
+  display: string;
+}
+
+export type GameFlowTableRow = GameFlowTeamTableRow | GameFlowSharedTableRow;
 
 function shootingPct(made: number, attempted: number): number | null {
   if (attempted <= 0) return null;
@@ -112,6 +138,67 @@ function optionalValue(
     return { value: null, display: '—' };
   }
   return { value, display: String(value) };
+}
+
+function teamFlowCell(
+  value: number | null,
+  score: { home: number; away: number } | null
+): GameFlowTeamCell {
+  return {
+    value,
+    display: formatGameFlowTeamDisplay(value, score),
+  };
+}
+
+/** Drop game-flow rows with no presentable data. */
+export function filterPresentGameFlowRows(
+  rows: GameFlowTableRow[]
+): GameFlowTableRow[] {
+  return rows.filter((row) => {
+    if (row.kind === 'shared') return row.value !== null;
+    return row.home.value !== null || row.away.value !== null;
+  });
+}
+
+export function buildGameFlowComparisonRows(game: Game): GameFlowTableRow[] {
+  const flow = resolveGameFlowStats(game);
+  const rows: GameFlowTableRow[] = [
+    {
+      kind: 'team',
+      key: 'biggest_lead',
+      label: 'Biggest lead',
+      home: teamFlowCell(flow.home.biggestLead, flow.home.biggestLeadScore),
+      away: teamFlowCell(flow.away.biggestLead, flow.away.biggestLeadScore),
+    },
+    {
+      kind: 'team',
+      key: 'biggest_run',
+      label: 'Biggest scoring run',
+      home: teamFlowCell(
+        flow.home.biggestScoringRun,
+        flow.home.biggestScoringRunScore
+      ),
+      away: teamFlowCell(
+        flow.away.biggestScoringRun,
+        flow.away.biggestScoringRunScore
+      ),
+    },
+    {
+      kind: 'shared',
+      key: 'lead_changes',
+      label: 'Lead changes',
+      value: flow.leadChanges,
+      display: flow.leadChanges === null ? '—' : String(flow.leadChanges),
+    },
+    {
+      kind: 'shared',
+      key: 'times_tied',
+      label: 'Times tied',
+      value: flow.timesTied,
+      display: flow.timesTied === null ? '—' : String(flow.timesTied),
+    },
+  ];
+  return filterPresentGameFlowRows(rows);
 }
 
 export function splitBarPercents(
@@ -287,6 +374,8 @@ export function buildGameComparisonVisualModel(game: Game): GameComparisonVisual
     },
   ];
 
+  const gameFlowRows = buildGameFlowComparisonRows(game);
+
   return {
     homeAbbr: game.homeTeam.abbreviation || game.homeTeam.name,
     awayAbbr: game.awayTeam.abbreviation || game.awayTeam.name,
@@ -294,5 +383,6 @@ export function buildGameComparisonVisualModel(game: Game): GameComparisonVisual
     majorGroups,
     minorRows,
     advancedRows,
+    gameFlowRows,
   };
 }

@@ -379,6 +379,7 @@ function GameSummaryRoute({
     <GameSummary
       game={game}
       tournaments={tournaments}
+      leagueGames={games}
       onBack={() =>
         navigateBack(
           navigate,

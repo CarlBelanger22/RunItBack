@@ -379,6 +379,14 @@ export interface Game {
     home: TeamStats;
     away: TeamStats;
   };
+  /**
+   * Shared game-flow counters (lead changes / times tied).
+   * Written during live entry / PBP replay from the event score timeline.
+   */
+  gameFlow?: {
+    leadChanges: number | null;
+    timesTied: number | null;
+  };
   shots: Shot[];
   events: GameEvent[]; // Complete event log
   lineupStints: LineupStint[]; // For tracking minutes and plus/minus

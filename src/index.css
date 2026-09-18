@@ -4691,6 +4691,11 @@ html {
   align-items: center;
 }
 
+/* Wider value columns for score-at-moment text e.g. 18 (44-26) */
+.game-compare-body--game-flow {
+  grid-template-columns: minmax(4.75rem, max-content) 1fr minmax(4.75rem, max-content);
+}
+
 .game-compare-value {
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--text-sm);
@@ -4703,6 +4708,23 @@ html {
 
 .game-compare-value--away {
   text-align: left;
+}
+
+.game-compare-value--side-home {
+  color: var(--game-compare-home);
+}
+
+.game-compare-value--side-away {
+  color: var(--game-compare-away);
+}
+
+.game-compare-value--leading {
+  font-weight: 600;
+}
+
+.game-compare-value--trailing-soft {
+  opacity: 0.72;
+  font-weight: 400;
 }
 
 .game-compare-value--leading-home {
@@ -4778,6 +4800,19 @@ html {
   padding-top: 0.25rem;
   text-align: center;
   font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--foreground);
+}
+
+.game-compare-row--shared {
+  gap: 0.125rem;
+}
+
+.game-compare-shared-value {
+  text-align: center;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
   color: var(--foreground);
 }

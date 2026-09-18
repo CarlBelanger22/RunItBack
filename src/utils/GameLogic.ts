@@ -3,6 +3,7 @@ import { MetricsCalculator } from '../components/MetricsCalculator';
 import { possessionContextForScoringTeam } from '../liveEntry/possessionEngine';
 import { OPPONENT_UNIT_SHOT_PLAYER_ID } from '../liveEntry/opponentUnit';
 import { teamIdForPlayer } from '../liveEntry/reboundTeams';
+import { applyGameFlowToGame } from './gameFlowStats';
 
 /**
  * GameLogic provides utility functions to update game state based on events.
@@ -55,7 +56,7 @@ export class GameLogic {
     event.homeScore = updatedGame.teamStats.home.total_points;
     event.awayScore = updatedGame.teamStats.away.total_points;
 
-    return updatedGame;
+    return applyGameFlowToGame(updatedGame);
   }
 
   /**

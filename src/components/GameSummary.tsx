@@ -25,6 +25,9 @@ import { resolveGameMetaLabel } from '../utils/friendlyGame';
 import { cn } from './ui/utils';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 import { LoginRequiredPanel } from './LoginRequiredPanel';
+import { GameReportExportDialog } from './GameReportExportDialog';
+import { gameHasShotChartData } from '../utils/gameDisplay';
+import type { GameReportExportOptions } from '../utils/gameReportModel';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -39,6 +42,8 @@ import {
 interface GameSummaryProps {
   game: Game;
   tournaments: Tournament[];
+  /** League games — used for tournament game number on PDF. */
+  leagueGames?: Game[];
   onBack: () => void;
   onGameUpdate: (game: Game) => void;
   onDeleteGame?: () => void;
@@ -49,6 +54,7 @@ interface GameSummaryProps {
 export function GameSummary({
   game,
   tournaments,
+  leagueGames,
   onBack,
   onGameUpdate,
   onDeleteGame,
@@ -57,6 +63,7 @@ export function GameSummary({
 }: GameSummaryProps) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
 
   const homeScore = resolveTeamScore(game, game.homeTeam.id);
   const awayScore = resolveTeamScore(game, game.awayTeam.id);
@@ -81,12 +88,19 @@ export function GameSummary({
     [game, onGameUpdate]
   );
 
-  const handleExportPdf = useCallback(() => {
-    downloadGameReportPdf(game, tournaments);
-  }, [game, tournaments]);
+  const handleExportPdfClick = useCallback(() => {
+    setExportDialogOpen(true);
+  }, []);
+
+  const handleExportPdfDownload = useCallback(
+    (options: GameReportExportOptions) => {
+      void downloadGameReportPdf(game, tournaments, options, leagueGames);
+    },
+    [game, tournaments, leagueGames]
+  );
 
   const { canViewDetailedStats, canEditLeague, canExport } = useAuthCapabilities();
-  const hasShotChart = game.shots.length > 0;
+  const hasShotChart = gameHasShotChartData(game);
   const showShotChartTab = hasShotChart && canViewDetailedStats;
   const tabCols = canViewDetailedStats
     ? showShotChartTab
@@ -113,7 +127,7 @@ export function GameSummary({
             <Button
               variant="outline"
               size="sm"
-              onClick={handleExportPdf}
+              onClick={handleExportPdfClick}
               title="Export box score PDF"
             >
               <Download className="w-4 h-4 mr-2" />
@@ -300,6 +314,15 @@ export function GameSummary({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+      )}
+
+      {canExport && (
+        <GameReportExportDialog
+          open={exportDialogOpen}
+          onOpenChange={setExportDialogOpen}
+          hasShotChartData={hasShotChart}
+          onDownload={handleExportPdfDownload}
+        />
       )}
     </div>
   );

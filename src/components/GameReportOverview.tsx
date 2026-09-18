@@ -17,6 +17,7 @@ import {
 } from '../utils/gameHeadToHeadModel';
 import { ShootingComparisonSection } from './ShootingComparisonSection';
 import { TeamStatsComparisonSection } from './TeamStatsComparisonSection';
+import { GameFlowTableSection } from './GameFlowTableSection';
 import { PlayerHeadToHeadSection } from './PlayerHeadToHeadSection';
 import { LoginRequiredPanel } from './LoginRequiredPanel';
 
@@ -160,6 +161,7 @@ export function GameReportOverview({
               minorRows={visualModel.minorRows}
               advancedRows={visualModel.advancedRows}
             />
+            <GameFlowTableSection rows={visualModel.gameFlowRows} />
           </CardContent>
         </Card>
       ) : (
