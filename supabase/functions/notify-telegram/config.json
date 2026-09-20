@@ -1,0 +1,5 @@
+{
+  "name": "notify-telegram",
+  "entrypoint": "./index.ts",
+  "verify_jwt": true
+}

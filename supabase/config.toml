@@ -1,0 +1,11 @@
+# A string used to distinguish different Supabase projects on the same host
+project_id = "runitback"
+
+[api]
+enabled = true
+
+[db]
+major_version = 15
+
+[functions.notify-telegram]
+verify_jwt = true

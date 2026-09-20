@@ -17,6 +17,7 @@ import {
   type AuthState,
 } from './authTypes';
 import { syncLeagueMemberForUser } from './syncLeagueMember';
+import { maybeNotifyTelegramVisit } from './notifyTelegramVisit';
 
 const AuthContext = createContext<AuthState | null>(null);
 
@@ -83,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             role: syncedRole,
           });
         }
+        void maybeNotifyTelegramVisit(user);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -91,6 +93,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           err instanceof Error ? err.message : err
         );
         setRole(resolveAppAuthRole(user.email, true));
+        void maybeNotifyTelegramVisit(user);
       });
 
     return () => {
