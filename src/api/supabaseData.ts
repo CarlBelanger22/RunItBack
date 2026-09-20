@@ -589,6 +589,8 @@ type GameSetupMeta = {
   courtSidesFlippedAtTip?: boolean;
   gameDayRosterIds?: { home: string[]; away: string[] };
   possessionArrowTeamId?: string | null;
+  /** Shared lead changes / times tied (imports or live applyGameFlow). */
+  gameFlow?: Game['gameFlow'];
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -600,6 +602,9 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     home: game.teamStats.home,
     away: game.teamStats.away,
   };
+  const hasGameFlow =
+    game.gameFlow != null &&
+    (game.gameFlow.leadChanges != null || game.gameFlow.timesTied != null);
   const hasMeta =
     (game.setupCreatedTeamIds?.length ?? 0) > 0 ||
     (game.setupRosterChanges?.length ?? 0) > 0 ||
@@ -610,6 +615,7 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     Boolean(game.groupId) ||
     Boolean(game.bracketSlotId) ||
     game.courtSidesFlippedAtTip !== undefined ||
+    hasGameFlow ||
     (game.isActive && !game.isCompleted);
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
@@ -635,9 +641,38 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
         game.isActive && !game.isCompleted
           ? game.possessionArrowTeamId ?? null
           : undefined,
+      gameFlow: hasGameFlow
+        ? {
+            leadChanges: game.gameFlow!.leadChanges ?? null,
+            timesTied: game.gameFlow!.timesTied ?? null,
+          }
+        : undefined,
     };
   }
   return payload;
+}
+
+function parseGameFlowMeta(
+  raw: GameSetupMeta['gameFlow'] | undefined
+): Game['gameFlow'] | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const leadChanges =
+    typeof raw.leadChanges === 'number'
+      ? raw.leadChanges
+      : raw.leadChanges === null
+        ? null
+        : undefined;
+  const timesTied =
+    typeof raw.timesTied === 'number'
+      ? raw.timesTied
+      : raw.timesTied === null
+        ? null
+        : undefined;
+  if (leadChanges === undefined && timesTied === undefined) return undefined;
+  return {
+    leadChanges: leadChanges ?? null,
+    timesTied: timesTied ?? null,
+  };
 }
 
 function parseTeamStats(row: DbGame['team_stats']): {
@@ -654,6 +689,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   courtSidesFlippedAtTip?: boolean;
   gameDayRosterIds?: { home: string[]; away: string[] };
   possessionArrowTeamId?: string | null;
+  gameFlow?: Game['gameFlow'];
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -676,6 +712,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
           : undefined,
     gameDayRosterIds: meta?.gameDayRosterIds,
     possessionArrowTeamId: meta?.possessionArrowTeamId ?? undefined,
+    gameFlow: parseGameFlowMeta(meta?.gameFlow),
   };
 }
 
@@ -731,6 +768,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     courtSidesFlippedAtTip,
     gameDayRosterIds,
     possessionArrowTeamId,
+    gameFlow,
   } = parseTeamStats(row.team_stats);
 
   return applyResolvedPossessionArrow({
@@ -745,6 +783,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     clockSettings,
     gameStats: row.game_stats ?? [],
     teamStats,
+    gameFlow,
     setupCreatedTeamIds,
     setupRosterChanges,
     shots: row.shots ?? [],
