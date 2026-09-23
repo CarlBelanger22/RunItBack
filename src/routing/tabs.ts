@@ -1,5 +1,5 @@
 export type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games';
-export type TeamTab = 'overview' | 'roster' | 'stats' | 'games';
+export type TeamTab = 'overview' | 'roster' | 'stats' | 'players' | 'games';
 export type PlayerTab = 'overview' | 'gamelog' | 'stats' | 'advanced';
 
 const TOURNAMENT_TABS: TournamentTab[] = [
@@ -9,7 +9,7 @@ const TOURNAMENT_TABS: TournamentTab[] = [
   'players',
   'games',
 ];
-const TEAM_TABS: TeamTab[] = ['overview', 'roster', 'stats', 'games'];
+const TEAM_TABS: TeamTab[] = ['overview', 'roster', 'stats', 'players', 'games'];
 const PLAYER_TABS: PlayerTab[] = ['overview', 'gamelog', 'stats', 'advanced'];
 
 export function parseTournamentTab(value: string | null): TournamentTab {

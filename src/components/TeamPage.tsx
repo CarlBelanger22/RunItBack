@@ -25,6 +25,7 @@ import {
 import { ErrorBoundary } from './ErrorBoundary';
 import { generateTeamAbbreviation } from '../utils/teamAbbreviation';
 import { searchParamsOptionsPreservingState } from '../routing/navigation';
+import type { TeamTab } from '../routing/tabs';
 import {
   formatHeightForDisplay,
   formatWeightForDisplay,
@@ -292,8 +293,8 @@ interface TeamPageProps {
   tournaments: Tournament[];
   orphanPlayers?: Player[];
   tournamentRosters?: TournamentRosterEntry[];
-  activeTab: 'overview' | 'roster' | 'stats' | 'games';
-  onTabChange: (tab: 'overview' | 'roster' | 'stats' | 'games') => void;
+  activeTab: TeamTab;
+  onTabChange: (tab: TeamTab) => void;
   onBack: () => void;
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   onNavigateToGame: (gameId: string) => void;
@@ -1715,7 +1716,7 @@ export function TeamPage({
     </div>
   );
 
-  const StatsTab = () => {
+  const TeamStatsTab = () => {
     const { totals, perGame: teamStats } = teamSeasonAggregate;
     const derived = teamSeasonDerived;
 
@@ -1871,28 +1872,42 @@ export function TeamPage({
             </div>
           </CardContent>
         </Card>
-
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h3 className="text-lg font-medium">Player Stats</h3>
-            <Badge variant="secondary">{playerSeasonRows.length} Players</Badge>
-          </div>
-          <PlayerStatsTable
-            rows={playerSeasonRows}
-            showTeamColumn={false}
-            shotDataCoverage={playerStatsShotCoverage}
-            foulStatCoverage={playerStatsFoulCoverage}
-            plusMinusCoverage={playerStatsPlusMinusCoverage}
-            foulsDrawnCoverage={playerStatsFoulsDrawnCoverage}
-            personalFoulsCoverage={playerStatsPersonalFoulsCoverage}
-            onNavigateToPlayer={onNavigateToPlayer}
-            onExportPdf={canExport ? handleExportTeamStatsPdf : undefined}
-            exportDisabled={playerSeasonRows.length === 0}
-          />
-        </div>
       </div>
     );
   };
+
+  const PlayerStatsTab = () => (
+    <div className="space-y-6">
+      <StatScopeFilterBar
+        gameFormatScope={statsGameFormatScope}
+        onGameFormatScopeChange={setStatsGameFormatScope}
+        selectedTournamentIds={selectedTournamentIds}
+        onTournamentSelectionScopeChange={handleTournamentSelectionScopeChange}
+        tournamentOptions={statsTournamentFilterOptions}
+        formatToggleId="team-player-stats-game-format"
+        tournamentSelectId="team-player-stats-tournament-scope"
+      />
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-medium">Player Stats</h3>
+          <Badge variant="secondary">{playerSeasonRows.length} Players</Badge>
+        </div>
+        <PlayerStatsTable
+          rows={playerSeasonRows}
+          showTeamColumn={false}
+          shotDataCoverage={playerStatsShotCoverage}
+          foulStatCoverage={playerStatsFoulCoverage}
+          plusMinusCoverage={playerStatsPlusMinusCoverage}
+          foulsDrawnCoverage={playerStatsFoulsDrawnCoverage}
+          personalFoulsCoverage={playerStatsPersonalFoulsCoverage}
+          onNavigateToPlayer={onNavigateToPlayer}
+          onExportPdf={canExport ? handleExportTeamStatsPdf : undefined}
+          exportDisabled={playerSeasonRows.length === 0}
+        />
+      </div>
+    </div>
+  );
 
   const GamesTab = () => (
     <div className="space-y-6">
@@ -2004,11 +2019,15 @@ export function TeamPage({
       </div>
 
       {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as any)}>
-        <TabsList className="grid w-full grid-cols-4">
+      <Tabs
+        value={activeTab}
+        onValueChange={(value) => onTabChange(value as TeamTab)}
+      >
+        <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="roster">Roster</TabsTrigger>
           <TabsTrigger value="stats">Team Stats</TabsTrigger>
+          <TabsTrigger value="players">Player Stats</TabsTrigger>
           <TabsTrigger value="games">Games</TabsTrigger>
         </TabsList>
 
@@ -2029,11 +2048,22 @@ export function TeamPage({
 
         <TabsContent value="stats">
           {canViewDetailedStats ? (
-            StatsTab()
+            TeamStatsTab()
           ) : (
             <LoginRequiredPanel
               title="Sign in to view team stats"
-              description="Player and team stats unlock after you sign in with Google."
+              description="Team stats unlock after you sign in with Google."
+            />
+          )}
+        </TabsContent>
+
+        <TabsContent value="players">
+          {canViewDetailedStats ? (
+            PlayerStatsTab()
+          ) : (
+            <LoginRequiredPanel
+              title="Sign in to view player stats"
+              description="Player stats unlock after you sign in with Google."
             />
           )}
         </TabsContent>

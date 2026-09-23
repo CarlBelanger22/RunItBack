@@ -4,7 +4,6 @@ import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
 import { useAuth } from '../lib/auth/AuthProvider';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { SIGN_IN_AGE_NOTICE } from '../lib/legal/signInAgeNotice';
 import { cn } from './ui/utils';
 
 interface LoginRequiredPanelProps {
@@ -58,9 +57,6 @@ export function LoginRequiredPanel({
               <LogIn className="w-4 h-4 mr-2" />
               {busy ? 'Signing in…' : 'Sign in with Google'}
             </Button>
-            <p className="text-xs text-muted-foreground max-w-md mx-auto">
-              {SIGN_IN_AGE_NOTICE}
-            </p>
           </>
         )}
         {error ? (

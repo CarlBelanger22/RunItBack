@@ -13,7 +13,6 @@ import {
 import { getUserDisplayName, useAuth } from '../lib/auth/AuthProvider';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { paths } from '../routing/paths';
-import { SIGN_IN_AGE_NOTICE } from '../lib/legal/signInAgeNotice';
 
 /** Header Settings gear — Account, Sign in with Google, Sign out. */
 export function AccountMenu() {
@@ -175,9 +174,6 @@ export function AccountMenu() {
               <LogIn className="w-4 h-4 mr-2" />
               Sign in with Google
             </DropdownMenuItem>
-            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground whitespace-normal">
-              {SIGN_IN_AGE_NOTICE}
-            </DropdownMenuLabel>
           </>
         )}
         {error ? (
