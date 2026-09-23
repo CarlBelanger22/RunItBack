@@ -10,6 +10,9 @@ import {
   horizontalClickToHalfCourtPoint,
   halfCourtPointToHorizontalSvg,
   shotAttacksLeftOnFullCourt,
+  resolveTipOffFlipped,
+  liveCourtNeedsHalfRotate,
+  invertClientPointAroundRectCenter,
 } from '../../lib/horizontalCourtClick';
 import { percentToCourtPointM, type CourtPointM } from '../../lib/fibaCourtGeometry';
 import type { CourtMarker as SessionMarker } from '../../liveEntry/liveEntryStateMachine';
@@ -28,6 +31,13 @@ interface HorizontalFullCourtCanvasProps {
   shotMode?: boolean;
   className?: string;
   children?: React.ReactNode;
+}
+
+function tipOffFlippedFromGame(game: Game): boolean {
+  return resolveTipOffFlipped({
+    courtSidesFlipped: game.courtSidesFlipped,
+    courtSidesFlippedAtTip: game.courtSidesFlippedAtTip,
+  });
 }
 
 function shotAttacksLeft(shot: Shot, game: Game): boolean {
@@ -65,7 +75,16 @@ export function HorizontalFullCourtCanvas({
   const clickRef = useRef<HTMLDivElement>(null);
   const fitRef = useRef<HTMLDivElement>(null);
   const [courtSize, setCourtSize] = useState<{ width: number; height: number } | null>(null);
-  const flipped = !!game.courtSidesFlipped;
+
+  const tipFlipped = tipOffFlippedFromGame(game);
+  const halfRotate = liveCourtNeedsHalfRotate({
+    isActive: game.isActive,
+    isCompleted: game.isCompleted,
+    courtSidesFlipped: game.courtSidesFlipped,
+    courtSidesFlippedAtTip: game.courtSidesFlippedAtTip,
+  });
+  /** Draw / place in tip-off frame; CSS 180° handles post-half camera. */
+  const drawFlipped = tipFlipped;
 
   useEffect(() => {
     const fitEl = fitRef.current;
@@ -95,37 +114,40 @@ export function HorizontalFullCourtCanvas({
     const liveMarkers = sessionMarkers.map((m) => {
       const { x, y } = halfCourtPointToHorizontalSvg(
         m.point,
-        homeAttacksLeft(homeTeamId, offenseTeamId, flipped)
+        homeAttacksLeft(homeTeamId, offenseTeamId, drawFlipped)
       );
       return { x, y, color: m.color };
     });
     return [...shotMarkers, ...liveMarkers];
-  }, [game, homeTeamId, offenseTeamId, sessionMarkers, shots, flipped]);
+  }, [game, homeTeamId, offenseTeamId, sessionMarkers, shots, drawFlipped]);
 
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       if (!interactive || !clickRef.current) return;
       const rect = clickRef.current.getBoundingClientRect();
+      const raw = halfRotate
+        ? invertClientPointAroundRectCenter(e.clientX, e.clientY, rect)
+        : { clientX: e.clientX, clientY: e.clientY };
       const point = horizontalClickToHalfCourtPoint(
-        e.clientX,
-        e.clientY,
+        raw.clientX,
+        raw.clientY,
         rect,
         homeTeamId,
         offenseTeamId,
-        flipped
+        drawFlipped
       );
       if (!point) return;
       onPointClick(point);
     },
-    [homeTeamId, offenseTeamId, interactive, onPointClick, flipped]
+    [homeTeamId, offenseTeamId, interactive, onPointClick, drawFlipped, halfRotate]
   );
 
-  const shotModeColor = homeAttacksLeft(homeTeamId, offenseTeamId, flipped)
+  const shotModeColor = homeAttacksLeft(homeTeamId, offenseTeamId, drawFlipped)
     ? LIVE_HORIZONTAL_COURT_COLORS.home
     : LIVE_HORIZONTAL_COURT_COLORS.away;
 
-  // Keep abbrev text paired with that team's color; only position swaps on flip.
-  const homeOnLeft = !flipped;
+  // Tip-frame label positions; CSS 180° + counter-rotate keeps names upright.
+  const homeOnLeft = !drawFlipped;
 
   return (
     <div ref={fitRef} className={cn('h-full w-full min-h-0', className)}>
@@ -143,13 +165,17 @@ export function HorizontalFullCourtCanvas({
         )}
         onClick={interactive ? handleClick : undefined}
       >
-        <div className={cn('h-full w-full', !interactive && 'pointer-events-none')}>
+        <div
+          className={cn('h-full w-full', !interactive && 'pointer-events-none')}
+          style={halfRotate ? { transform: 'rotate(180deg)' } : undefined}
+        >
           <FigmaHorizontalCourtSvg
             className="h-full w-full"
             markers={markers}
             homeLabel={game.homeTeam.abbreviation}
             awayLabel={game.awayTeam.abbreviation}
             homeOnLeft={homeOnLeft}
+            uprightLabelsUnderHalfRotate={halfRotate}
             shotMode={shotMode}
             shotModeColor={shotModeColor}
           />

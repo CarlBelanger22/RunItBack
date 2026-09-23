@@ -148,3 +148,50 @@ export function halfCourtPointToHorizontalSvg(
   const xSvg = horizontalBasketRightX() - point.yM * HORIZONTAL_SVG_PER_METER_DEPTH;
   return { x: xSvg, y: ySvg };
 }
+
+/**
+ * Tip-off camera orientation for live full-court drawing.
+ * Falls back to current flip when tip-off was never stamped (early first half).
+ */
+export function resolveTipOffFlipped(options: {
+  courtSidesFlipped?: boolean;
+  courtSidesFlippedAtTip?: boolean | null;
+}): boolean {
+  if (options.courtSidesFlippedAtTip === true) return true;
+  if (options.courtSidesFlippedAtTip === false) return false;
+  return !!options.courtSidesFlipped;
+}
+
+/**
+ * Live entry: after half (or manual flip ≠ tip), spin the tip-frame court 180°.
+ * Completed / inactive games never rotate — markers stay in absolute tip frame only.
+ */
+export function liveCourtNeedsHalfRotate(options: {
+  isActive?: boolean;
+  isCompleted?: boolean;
+  courtSidesFlipped?: boolean;
+  courtSidesFlippedAtTip?: boolean | null;
+}): boolean {
+  if (!options.isActive || options.isCompleted) return false;
+  if (
+    options.courtSidesFlippedAtTip !== true &&
+    options.courtSidesFlippedAtTip !== false
+  ) {
+    return false;
+  }
+  return !!options.courtSidesFlipped !== options.courtSidesFlippedAtTip;
+}
+
+/** Map a click on a 180°-CSS-rotated court box back to pre-rotate client coords. */
+export function invertClientPointAroundRectCenter(
+  clientX: number,
+  clientY: number,
+  rect: Pick<DOMRect, 'left' | 'top' | 'width' | 'height'>
+): { clientX: number; clientY: number } {
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  return {
+    clientX: 2 * cx - clientX,
+    clientY: 2 * cy - clientY,
+  };
+}

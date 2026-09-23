@@ -60,6 +60,11 @@ export interface FigmaHorizontalCourtSvgProps {
    * half and away on the left — text and color stay paired with the team.
    */
   homeOnLeft?: boolean;
+  /**
+   * When the parent applies CSS rotate(180°), counter-rotate floor abbrevs
+   * around their anchors so team names stay upright.
+   */
+  uprightLabelsUnderHalfRotate?: boolean;
   shotMode?: boolean;
   shotModeColor?: string;
   /** `left` — single offensive half (baseline left) for game-summary shot charts. */
@@ -158,6 +163,7 @@ export function FigmaHorizontalCourtSvg({
   homeLabel = 'HOME',
   awayLabel = 'AWAY',
   homeOnLeft = true,
+  uprightLabelsUnderHalfRotate = false,
   shotMode = false,
   shotModeColor = LIVE_HORIZONTAL_COURT_COLORS.home,
   half = 'full',
@@ -441,6 +447,13 @@ export function FigmaHorizontalCourtSvg({
 
         {!isHalfLeft && (
           <>
+        <g
+          transform={
+            uprightLabelsUnderHalfRotate
+              ? `rotate(180 ${VW * 0.25} ${bY + 20})`
+              : undefined
+          }
+        >
         <text
           x={VW * 0.25}
           y={bY + 20}
@@ -457,6 +470,14 @@ export function FigmaHorizontalCourtSvg({
         >
           {leftFloorLabel}
         </text>
+        </g>
+        <g
+          transform={
+            uprightLabelsUnderHalfRotate
+              ? `rotate(180 ${VW * 0.75} ${bY + 20})`
+              : undefined
+          }
+        >
         <text
           x={VW * 0.75}
           y={bY + 20}
@@ -473,6 +494,7 @@ export function FigmaHorizontalCourtSvg({
         >
           {rightFloorLabel}
         </text>
+        </g>
           </>
         )}
     </>
