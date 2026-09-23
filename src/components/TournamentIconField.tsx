@@ -1,4 +1,5 @@
 import React, { useCallback, useId, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -11,6 +12,8 @@ import {
 } from '../utils/tournamentIcon';
 import { uploadEntityIcon } from '../lib/teamAssetStorage';
 import { isSupabaseConfigured, requireSupabase } from '../lib/supabase';
+import { paths } from '../routing/paths';
+import { CONTENT_REMOVAL_SLA_HOURS } from '../lib/legal/contentRemoval';
 import { Pencil, Upload, X } from 'lucide-react';
 
 interface TournamentIconFieldProps {
@@ -176,6 +179,15 @@ export function TournamentIconField({
             </div>
             <p className="text-xs text-muted-foreground">
               PNG, JPG, or WebP up to 512 KB. Background is removed and the logo is trimmed before saving to cloud storage.
+              Only upload logos you have rights to use. Removal requests are reviewed within {CONTENT_REMOVAL_SLA_HOURS}{' '}
+              hours — see the{' '}
+              <Link
+                to={paths.contentRemoval}
+                className="underline underline-offset-2 hover:text-foreground"
+              >
+                content notice and removal
+              </Link>{' '}
+              page.
             </p>
             {uploading && (
               <p className="text-xs text-muted-foreground">Uploading logo…</p>

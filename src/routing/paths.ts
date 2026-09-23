@@ -44,6 +44,7 @@ export const paths = {
   games: '/games',
   statsEntry: '/stats-entry',
   account: '/account',
+  contentRemoval: '/legal/content-removal',
 } as const;
 
 export function tournamentPath(

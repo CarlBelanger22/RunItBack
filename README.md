@@ -604,7 +604,6 @@ src/
     playerSeasonStats.ts
 scripts/                  Imports, backups, migrations, tests
 supabase/migrations/      SQL schema
-design-reference/         Figma export reference for live entry UI
 ```
 
 ---

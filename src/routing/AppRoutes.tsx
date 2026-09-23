@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearch
 import { Button } from '../components/ui/button';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { AccountPage } from '../components/AccountPage';
+import { ContentRemovalPage } from '../components/ContentRemovalPage';
 import { RequireAdmin } from '../components/RequireAdmin';
 import { NotFound } from '../components/NotFound';
 import { Dashboard } from '../components/Dashboard';
@@ -671,6 +672,7 @@ export function AppRoutes(props: AppRoutesProps) {
       />
 
       <Route path={paths.account} element={<AccountPage />} />
+      <Route path={paths.contentRemoval} element={<ContentRemovalPage />} />
 
       <Route
         path="/live/:gameId"
