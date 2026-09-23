@@ -4,8 +4,8 @@ export type PlayerTab = 'overview' | 'gamelog' | 'stats' | 'advanced';
 
 const TOURNAMENT_TABS: TournamentTab[] = [
   'home',
-  'teams',
   'standings',
+  'teams',
   'players',
   'games',
 ];

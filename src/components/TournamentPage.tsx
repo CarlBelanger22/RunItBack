@@ -20,6 +20,7 @@ import { Tournament, Team, Game, CreateTeamOptions } from '../App';
 import type { TournamentUpdate } from '../App';
 import type { TournamentTab } from '../routing/tabs';
 import { PlayerStatsTable } from './PlayerStatsTable';
+import { TeamStatsTable } from './TeamStatsTable';
 import { TournamentStructureEditor } from './TournamentStructureEditor';
 import { TournamentClassificationBracket } from './TournamentClassificationBracket';
 import { ClassificationVisualEditor } from './ClassificationVisualEditor';
@@ -30,6 +31,7 @@ import { TournamentForm } from './forms/TournamentForm';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage, getPersonalFoulsCoverage } from '../utils/playerSeasonStats';
+import { aggregateTournamentTeamSeasonStats } from '../utils/tournamentTeamSeasonStats';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { sortGamesByDateAsc } from '../utils/gameDisplay';
@@ -642,10 +644,16 @@ export function TournamentPage({
     </div>
   );
 
-  const TeamsTab = () => (
+  const TeamStatsTab = () => {
+    const teamSeasonRows = aggregateTournamentTeamSeasonStats(
+      tournamentTeams,
+      tournamentGames
+    );
+
+    return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h3 className="text-lg font-medium">Tournament Teams</h3>
+        <h3 className="text-lg font-medium">Team Stats</h3>
         <div className="flex items-center gap-3">
           <Badge variant="secondary">{tournamentTeams.length} Teams</Badge>
           
@@ -667,6 +675,21 @@ export function TournamentPage({
           )}
         </div>
       </div>
+
+      {canViewDetailedStats ? (
+        <TeamStatsTable
+          rows={teamSeasonRows}
+          onNavigateToTeam={onNavigateToTeam}
+        />
+      ) : (
+        <LoginRequiredPanel
+          title="Sign in to view team stats"
+          description="Tournament team stats unlock after you sign in with Google."
+        />
+      )}
+
+      <div className="space-y-4">
+        <h4 className="text-base font-medium">Tournament Teams</h4>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {tournamentTeams.map(team => {
@@ -733,8 +756,10 @@ export function TournamentPage({
           </CardContent>
         </Card>
       )}
+      </div>
     </div>
-  );
+    );
+  };
 
   const [h2hDialog, setH2hDialog] = useState<{
     teamIds: string[];
@@ -1667,8 +1692,8 @@ export function TournamentPage({
       <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as TournamentTab)}>
         <TabsList className="flex w-full flex-wrap h-auto gap-1 justify-start">
           <TabsTrigger value="home">Home</TabsTrigger>
-          <TabsTrigger value="teams">Teams</TabsTrigger>
           <TabsTrigger value="standings">Standings</TabsTrigger>
+          <TabsTrigger value="teams">Team Stats</TabsTrigger>
           <TabsTrigger value="players">Player Stats</TabsTrigger>
           <TabsTrigger value="games">Games</TabsTrigger>
         </TabsList>
@@ -1677,12 +1702,12 @@ export function TournamentPage({
           {HomeTab()}
         </TabsContent>
 
-        <TabsContent value="teams" className="space-y-6">
-          {TeamsTab()}
-        </TabsContent>
-
         <TabsContent value="standings" className="space-y-6">
           {StandingsTab()}
+        </TabsContent>
+
+        <TabsContent value="teams" className="space-y-6">
+          {TeamStatsTab()}
         </TabsContent>
 
         <TabsContent value="players" className="space-y-6">

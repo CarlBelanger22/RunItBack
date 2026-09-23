@@ -171,6 +171,8 @@
             "diagnose:roster-counts": "tsx scripts/diagnose-roster-counts.ts",
             "test:tournament-selection": "tsx scripts/test-tournament-selection.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts",
+            "test:tournament-team-season-stats": "tsx scripts/test-tournament-team-season-stats.ts",
+            "test:nbl-d1-team-stats-table": "tsx scripts/test-nbl-d1-team-stats-table.ts",
             "test:game-report-model": "tsx scripts/test-game-report-model.ts",
             "test:game-report-pdf": "tsx scripts/test-game-report-pdf.ts",
             "test:team-coach-stats": "tsx scripts/test-team-coach-stats.ts",
