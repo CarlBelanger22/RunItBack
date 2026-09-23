@@ -15,7 +15,7 @@ export function ContentRemovalPage() {
   const mailto = buildContentRemovalMailto();
 
   return (
-    <div className="container mx-auto px-6 py-8 max-w-2xl space-y-6">
+    <div className="container mx-auto px-6 py-8 space-y-6">
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="sm" asChild>
           <Link to={paths.home}>
@@ -73,12 +73,18 @@ export function ContentRemovalPage() {
         </p>
       </section>
 
-      <div>
+      <div className="flex flex-wrap gap-3">
         <Button asChild>
           <a href={mailto}>
             <Mail className="w-4 h-4 mr-2" />
             Email removal request
           </a>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to={paths.privacy}>Privacy Policy</Link>
+        </Button>
+        <Button variant="outline" asChild>
+          <Link to={paths.terms}>Terms of Use</Link>
         </Button>
       </div>
     </div>

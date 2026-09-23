@@ -4,6 +4,8 @@ import { Button } from '../components/ui/button';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { AccountPage } from '../components/AccountPage';
 import { ContentRemovalPage } from '../components/ContentRemovalPage';
+import { PrivacyPolicyPage } from '../components/PrivacyPolicyPage';
+import { TermsOfUsePage } from '../components/TermsOfUsePage';
 import { RequireAdmin } from '../components/RequireAdmin';
 import { NotFound } from '../components/NotFound';
 import { Dashboard } from '../components/Dashboard';
@@ -673,6 +675,8 @@ export function AppRoutes(props: AppRoutesProps) {
 
       <Route path={paths.account} element={<AccountPage />} />
       <Route path={paths.contentRemoval} element={<ContentRemovalPage />} />
+      <Route path={paths.privacy} element={<PrivacyPolicyPage />} />
+      <Route path={paths.terms} element={<TermsOfUsePage />} />
 
       <Route
         path="/live/:gameId"

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogIn, LogOut, Flag, Settings, UserRound } from 'lucide-react';
+import { LogIn, LogOut, Flag, FileText, Settings, Shield, UserRound } from 'lucide-react';
 import { Button } from './ui/button';
 import {
   DropdownMenu,
@@ -100,6 +100,22 @@ export function AccountMenu() {
               Report content
             </DropdownMenuItem>
             <DropdownMenuItem
+              onSelect={() => {
+                navigate(paths.privacy);
+              }}
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              Privacy Policy
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                navigate(paths.terms);
+              }}
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Terms of Use
+            </DropdownMenuItem>
+            <DropdownMenuItem
               disabled={busy}
               onSelect={(e) => {
                 e.preventDefault();
@@ -131,6 +147,22 @@ export function AccountMenu() {
             >
               <Flag className="w-4 h-4 mr-2" />
               Report content
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                navigate(paths.privacy);
+              }}
+            >
+              <Shield className="w-4 h-4 mr-2" />
+              Privacy Policy
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => {
+                navigate(paths.terms);
+              }}
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Terms of Use
             </DropdownMenuItem>
             <DropdownMenuItem
               disabled={busy}
