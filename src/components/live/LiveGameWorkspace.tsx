@@ -61,6 +61,7 @@ import {
   isPlayerFouledOut,
   type FouledOutPlayer,
 } from '../../utils/foulOut';
+import { isPeriodBonusFtEnabledForGame } from '../../liveEntry/periodTeamFouls';
 import { resolveGameMetaLabel } from '../../utils/friendlyGame';
 import { resolveSideScore } from '../../utils/gameDisplay';
 import { shouldSkipFoulRecipient, shouldSkipTechShooterPick, shouldSkipChargeDrawer } from '../../liveEntry/foulFlow';
@@ -934,6 +935,7 @@ export function LiveGameWorkspace({
   const tournament = tournaments.find((t) => t.id === currentGame.tournamentId);
   const headerMetaLabel = resolveGameMetaLabel(currentGame, tournament?.name);
   const foulOutEnabled = isFoulOutEnabled(currentGame, tournament);
+  const bonusFtEnabled = isPeriodBonusFtEnabledForGame(currentGame, tournament);
   const fouledOutIds = foulOutEnabled
     ? currentGame.gameStats
         .filter((s) => isPlayerFouledOut(s))
@@ -1335,6 +1337,9 @@ export function LiveGameWorkspace({
                           commitFoul={commitFoul}
                           commitJumpBallWithStats={commitJumpBallWithStats}
                           and1OppTeamFt={and1OppTeamFt}
+                          game={currentGame}
+                          bonusFtEnabled={bonusFtEnabled}
+                          and1Active={Boolean(and1RecipientId)}
                         />
                       </div>
                     )}

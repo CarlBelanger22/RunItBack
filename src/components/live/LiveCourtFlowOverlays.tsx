@@ -6,6 +6,8 @@ import { Switch } from '../ui/switch';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 import type { FoulCommitParams } from '../../liveEntry/foulFlow';
 import { ftCountOptionsForCategory, shouldSkipChargeDrawer, resolveFoulFtAward } from '../../liveEntry/foulFlow';
+import { shouldShowBonusFtPrompt } from '../../liveEntry/periodTeamFouls';
+import type { Game } from '../../App';
 import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
 import { LiveCourtTipPanel } from './LiveCourtTipPanel';
 
@@ -23,6 +25,12 @@ interface LiveCourtFlowOverlaysProps {
   reboundShootingTeamId: string | null;
   reboundDefendingTeamId: string | null;
   possessionArrowTeamId: string | null;
+  /** Current game — used for period bonus FT hint. */
+  game: Pick<Game, 'events' | 'currentPeriod' | 'tournamentId'>;
+  /** 5v5 only. */
+  bonusFtEnabled?: boolean;
+  /** And-1 session — do not show period bonus prompt. */
+  and1Active?: boolean;
   onFastbreakChange: (value: boolean) => void;
   onPendingReboundTypeChange: (value: string | null) => void;
   onTurnoverPlayerIdChange: (value: string | undefined) => void;
@@ -69,6 +77,9 @@ export function LiveCourtFlowOverlays({
   commitFoul,
   commitJumpBallWithStats,
   and1OppTeamFt = false,
+  game,
+  bonusFtEnabled = false,
+  and1Active = false,
 }: LiveCourtFlowOverlaysProps) {
   if (phase.kind === 'shot' && phase.step === 'fastbreak' && pending) {
     const shotPayload: PendingShot = {
@@ -684,12 +695,24 @@ export function LiveCourtFlowOverlays({
         : homeTeamId
       : phase.offendedTeamId ?? offenseTeamId;
     const oppShootsFts = !trackBoth && offendedTeamId === awayTeamId;
+    const showBonus = shouldShowBonusFtPrompt({
+      game,
+      foulingTeamId,
+      foulCategory: category,
+      bonusEnabled: bonusFtEnabled,
+      and1Active: and1Active || and1OppTeamFt,
+    });
 
     return (
       <LiveCourtOverlayShell>
         <Card className="border-primary/50 shadow-xl w-[min(90%,320px)]">
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-center text-base">Free throws</CardTitle>
+            {showBonus ? (
+              <p className="text-center text-xs font-medium text-primary">
+                Bonus — team foul 5+ this period (suggest 2 FTs)
+              </p>
+            ) : null}
             {oppShootsFts ? (
               <p className="text-center text-xs text-muted-foreground">Opponent team FTs</p>
             ) : null}
@@ -704,10 +727,11 @@ export function LiveCourtFlowOverlays({
                 awayTeamId,
                 recipientId: phase.recipientId,
               });
+              const emphasizeBonusTwo = showBonus && n === 2;
               return (
                 <Button
                   key={n}
-                  variant="outline"
+                  variant={emphasizeBonusTwo ? 'default' : 'outline'}
                   onClick={overlayClick(() => {
                     if (!award.canAward) return;
                     commitFoul({

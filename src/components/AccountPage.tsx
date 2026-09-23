@@ -6,6 +6,7 @@ import { Badge } from './ui/badge';
 import { getUserDisplayName, useAuth } from '../lib/auth/AuthProvider';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { paths } from '../routing/paths';
+import { SIGN_IN_AGE_NOTICE } from '../lib/legal/signInAgeNotice';
 import { useState } from 'react';
 
 function roleLabel(role: string | null): string {
@@ -81,7 +82,11 @@ export function AccountPage() {
                 {avatarUrl ? (
                   <img
                     src={avatarUrl}
-                    alt=""
+                    alt={
+                      displayName
+                        ? `${displayName} profile photo`
+                        : 'Profile photo'
+                    }
                     className="w-14 h-14 rounded-full object-cover border"
                     referrerPolicy="no-referrer"
                   />
@@ -129,6 +134,7 @@ export function AccountPage() {
                 <LogIn className="w-4 h-4 mr-2" />
                 Sign in with Google
               </Button>
+              <p className="text-xs text-muted-foreground">{SIGN_IN_AGE_NOTICE}</p>
             </>
           )}
 

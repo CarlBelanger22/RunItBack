@@ -3,6 +3,7 @@ import type { Game } from '../../App';
 import { Button } from '../ui/button';
 import { Edit2, SkipForward, Trash2, ArrowLeft } from 'lucide-react';
 import { LIVE_TEAM_HEX } from './liveEntryTheme';
+import { countPeriodTeamFoulsTowardBonus } from '../../liveEntry/periodTeamFouls';
 
 interface LiveGameHeaderProps {
   game: Game;
@@ -72,19 +73,16 @@ export function LiveGameHeader({
     ? game.homeTeam.abbreviation
     : game.awayTeam.abbreviation;
 
-  const homeFouls = game.events.filter(
-    (e) =>
-      e.period === game.currentPeriod &&
-      e.type === 'foul' &&
-      e.teamId === game.homeTeamId
-  ).length;
-
-  const awayFouls = game.events.filter(
-    (e) =>
-      e.period === game.currentPeriod &&
-      e.type === 'foul' &&
-      e.teamId === game.awayTeamId
-  ).length;
+  const homeFouls = countPeriodTeamFoulsTowardBonus(
+    game,
+    game.homeTeamId,
+    game.currentPeriod
+  );
+  const awayFouls = countPeriodTeamFoulsTowardBonus(
+    game,
+    game.awayTeamId,
+    game.currentPeriod
+  );
 
   const period = game.currentPeriod;
   const quarterButtons = period <= 4 ? [1, 2, 3, 4] : [1, 2, 3, 4, period];
