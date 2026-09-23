@@ -559,6 +559,26 @@ export class GameLogic {
       updatedGame = this.recordEvent(updatedGame, { ...event });
     });
 
+    // End Q2 toggles courtSidesFlipped outside the event payload. Undoing that
+    // period_end must restore tip-off camera so live 180° rotate unwinds.
+    if (lastEvent.type === 'period_end') {
+      const endedPeriod =
+        typeof lastEvent.details?.period === 'number'
+          ? lastEvent.details.period
+          : lastEvent.period;
+      if (endedPeriod === 2) {
+        updatedGame = {
+          ...updatedGame,
+          courtSidesFlipped:
+            updatedGame.courtSidesFlippedAtTip === true
+              ? true
+              : updatedGame.courtSidesFlippedAtTip === false
+                ? false
+                : undefined,
+        };
+      }
+    }
+
     return updatedGame;
   }
 
