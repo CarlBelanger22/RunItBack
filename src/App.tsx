@@ -86,9 +86,14 @@ import { currentLocationPath, navigateWithReturnTo } from './routing/navigation'
 import {
   dedupeActiveGames,
   getActiveGame,
+  isGameInProgress,
+  isGamePaused,
   isOrphanedIncompleteGame,
+  pauseGameState,
   resolveSetupPlayersToRemove,
   resolveTeamsToDeleteWithGame,
+  resumeGameState,
+  shouldPersistLiveSession,
 } from './utils/activeGame';
 import {
   evaluatePlayerDeletion,
@@ -407,6 +412,11 @@ export interface Game {
   /** LE-95 — bracket slot within a classification stage. */
   bracketSlotId?: string;
   isActive: boolean;
+  /**
+   * Explicitly parked mid-session (`isActive` false). Free to start another live game;
+   * resume restores this as the live session. Persisted in team_stats.__meta.
+   */
+  isPaused?: boolean;
   isCompleted: boolean;
   finalScore?: {
     home: number;
@@ -1741,10 +1751,7 @@ export default function App() {
   useEffect(() => {
     const flushLiveDurability = (reason: string) => {
       if (skipSaveRef.current || isDataLoading) return;
-      const active = currentGameRef.current;
-      const hasLive =
-        Boolean(active?.isActive && !active?.isCompleted) ||
-        gamesRef.current.some((g) => g.isActive && !g.isCompleted);
+      const hasLive = gamesRef.current.some(shouldPersistLiveSession);
       if (!hasLive) return;
 
       if (saveTimeoutRef.current) {
@@ -1809,16 +1816,89 @@ export default function App() {
       }
 
       const deactivated = games.map((g) =>
-        g.isActive && !g.isCompleted && g.id !== game.id
-          ? { ...g, isActive: false }
-          : g
+        isGameInProgress(g) && g.id !== game.id ? pauseGameState(g) : g
       );
 
-      setGames([...deactivated.filter((g) => g.id !== game.id), game]);
-      setCurrentGame(game);
+      const started = { ...game, isActive: true, isPaused: false };
+      setGames([...deactivated.filter((g) => g.id !== started.id), started]);
+      setCurrentGame(started);
       return true;
     },
     [games, currentGame]
+  );
+
+  const handlePauseGame = useCallback(
+    (game: Game) => {
+      localMutatedSinceMountRef.current = true;
+      const paused = pauseGameState(
+        copyForwardStartTime(
+          gamesRef.current.find((g) => g.id === game.id) ??
+            currentGameRef.current,
+          game
+        )
+      );
+
+      const nextGames = [
+        ...gamesRef.current.filter((g) => g.id !== paused.id),
+        paused,
+      ];
+      gamesRef.current = nextGames;
+      setGames(nextGames);
+      if (currentGameRef.current?.id === paused.id) {
+        setCurrentGame(null);
+        currentGameRef.current = null;
+      }
+
+      liveLocalSnapshotAtRef.current = Date.now();
+      saveAppDataSnapshot({
+        teams: teamsRef.current,
+        tournaments: tournamentsRef.current,
+        games: nextGames,
+        darkMode: true,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: tournamentRostersRef.current,
+      });
+
+      if (isCloudSaveQueueIdle()) {
+        void runCloudPersist('full');
+      }
+    },
+    [runCloudPersist]
+  );
+
+  const handleResumeGame = useCallback(
+    (gameId: string): boolean => {
+      const target = gamesRef.current.find((g) => g.id === gameId);
+      if (!target || target.isCompleted) return false;
+
+      localMutatedSinceMountRef.current = true;
+      const nextGames = gamesRef.current.map((g) => {
+        if (g.id === gameId) return resumeGameState(g);
+        if (isGameInProgress(g)) return pauseGameState(g);
+        return g;
+      });
+      const resumed = nextGames.find((g) => g.id === gameId)!;
+      gamesRef.current = nextGames;
+      setGames(nextGames);
+      setCurrentGame(resumed);
+      currentGameRef.current = resumed;
+
+      liveLocalSnapshotAtRef.current = Date.now();
+      saveAppDataSnapshot({
+        teams: teamsRef.current,
+        tournaments: tournamentsRef.current,
+        games: nextGames,
+        darkMode: true,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: tournamentRostersRef.current,
+      });
+
+      if (isCloudSaveQueueIdle()) {
+        void runCloudPersist('full');
+      }
+      return true;
+    },
+    [runCloudPersist]
   );
 
   const handleDeleteActiveGame = useCallback(
@@ -1953,12 +2033,22 @@ export default function App() {
   const handleGameUpdate = useCallback((game: Game) => {
     localMutatedSinceMountRef.current = true;
     const previous = gamesRef.current.find((g) => g.id === game.id);
-    const nextGame = copyForwardStartTime(previous ?? currentGameRef.current, game);
+    let nextGame = copyForwardStartTime(previous ?? currentGameRef.current, game);
 
-    if (nextGame.isActive) {
+    // After Pause, a late live-session write must not resurrect isActive.
+    if (
+      previous &&
+      isGamePaused(previous) &&
+      nextGame.isActive &&
+      !nextGame.isPaused
+    ) {
+      nextGame = pauseGameState(nextGame);
+    }
+
+    if (isGameInProgress(nextGame)) {
       setCurrentGame(nextGame);
       currentGameRef.current = nextGame;
-    } else if (currentGame?.id === nextGame.id) {
+    } else if (currentGameRef.current?.id === nextGame.id) {
       setCurrentGame(null);
       currentGameRef.current = null;
     }
@@ -2018,8 +2108,7 @@ export default function App() {
     // Throttle to limit localStorage churn during rapid tapping; hide flush is separate.
     const now = Date.now();
     const shouldSnapshot =
-      nextGame.isActive &&
-      !nextGame.isCompleted &&
+      shouldPersistLiveSession(nextGame) &&
       now - liveLocalSnapshotAtRef.current >= 250;
     if (shouldSnapshot || nextGame.isCompleted) {
       liveLocalSnapshotAtRef.current = now;
@@ -3070,6 +3159,8 @@ export default function App() {
           onGamesUpdate={handleGamesUpdate}
           onGameComplete={handleGameComplete}
           onDeleteActiveGame={handleDeleteActiveGame}
+          onPauseGame={handlePauseGame}
+          onResumeGame={handleResumeGame}
         />
       </main>
     </div>

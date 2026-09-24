@@ -8,6 +8,7 @@ import {
   canDeleteIncompleteGame,
   deleteGameConfirmDescription,
   isGameInProgress,
+  isGamePaused,
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { resolveTeamScore, sortGamesByDateDesc } from '../utils/gameDisplay';
@@ -52,7 +53,11 @@ export function RecentGames({
   const filteredGames = sortedGames.filter(game => {
     if (filterStatus === 'completed') return game.isCompleted;
     if (filterStatus === 'ongoing') {
-      return isGameInProgress(game) || isOrphanedIncompleteGame(game);
+      return (
+        isGameInProgress(game) ||
+        isGamePaused(game) ||
+        isOrphanedIncompleteGame(game)
+      );
     }
     return true;
   });
@@ -127,6 +132,7 @@ export function RecentGames({
             const homeScore = resolveTeamScore(game, homeTeam.id);
             const awayScore = resolveTeamScore(game, awayTeam.id);
             const inProgress = isGameInProgress(game);
+            const paused = isGamePaused(game);
             const orphaned = isOrphanedIncompleteGame(game);
             const showIncompleteActions = canDeleteIncompleteGame(game);
             const showDelete = Boolean(onDeleteActiveGame);
@@ -150,7 +156,7 @@ export function RecentGames({
                         <div className="flex-1 flex items-start justify-end gap-2">
                           <div className="text-right">
                             <div className="font-medium">{homeTeam.name}</div>
-                            {game.isCompleted && (
+                            {(game.isCompleted || inProgress || paused) && (
                               <div className="text-2xl font-bold tabular-nums mt-1">{homeScore}</div>
                             )}
                           </div>
@@ -158,9 +164,11 @@ export function RecentGames({
                         </div>
                         
                         {/* Status */}
-                        <div className="flex items-center px-4 shrink-0">
+                        <div className="flex items-center px-4 shrink-0 gap-2">
                           {inProgress ? (
                             <Badge variant="outline">Live</Badge>
+                          ) : paused ? (
+                            <Badge variant="secondary">Paused</Badge>
                           ) : !game.isCompleted ? (
                             <Badge variant="secondary">Incomplete</Badge>
                           ) : (
@@ -175,7 +183,7 @@ export function RecentGames({
                           <TeamBadge team={awayTeam} teamId={awayTeam.id} size="lg" />
                           <div className="text-left">
                             <div className="font-medium">{awayTeam.name}</div>
-                            {game.isCompleted && (
+                            {(game.isCompleted || inProgress || paused) && (
                               <div className="text-2xl font-bold tabular-nums mt-1">{awayScore}</div>
                             )}
                           </div>
@@ -208,7 +216,7 @@ export function RecentGames({
                           className="flex flex-wrap gap-2 mt-4 justify-center"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {inProgress && (
+                          {(inProgress || paused) && (
                             <Button
                               size="sm"
                               onClick={() => onNavigateToGame(game.id)}

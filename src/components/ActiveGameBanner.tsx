@@ -1,19 +1,21 @@
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import type { Game, Tournament } from '../App';
-import { Play, CalendarDays } from 'lucide-react';
+import { Play, Pause, CalendarDays } from 'lucide-react';
 import { resolveGameMetaLabel } from '../utils/friendlyGame';
 
 interface ActiveGameBannerProps {
   game: Game;
   tournament?: Tournament;
   onResume: () => void;
+  onPause?: () => void;
 }
 
 export function ActiveGameBanner({
   game,
   tournament,
   onResume,
+  onPause,
 }: ActiveGameBannerProps) {
   const matchup = `${game.homeTeam.abbreviation || game.homeTeam.name} vs ${
     game.awayTeam.abbreviation || game.awayTeam.name
@@ -41,12 +43,26 @@ export function ActiveGameBanner({
           </div>
         </div>
         <p className="text-sm text-muted-foreground">
-          Finish or delete this game before starting another.
+          Pause this game to free the slot and start another. Resume anytime from
+          Ongoing games.
         </p>
-        <Button size="lg" className="w-full sm:w-auto" onClick={onResume}>
-          <Play className="w-4 h-4 mr-2" />
-          Resume game
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button size="lg" className="w-full sm:w-auto" onClick={onResume}>
+            <Play className="w-4 h-4 mr-2" />
+            Resume game
+          </Button>
+          {onPause && (
+            <Button
+              size="lg"
+              variant="outline"
+              className="w-full sm:w-auto"
+              onClick={onPause}
+            >
+              <Pause className="w-4 h-4 mr-2" />
+              Pause game
+            </Button>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

@@ -73,6 +73,7 @@ interface LiveGameWorkspaceProps {
   tournamentRosters: TournamentRosterEntry[];
   onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void | Promise<boolean>;
+  onPauseGame: (game: Game) => void;
   onDeleteGame: () => void;
 }
 
@@ -451,6 +452,7 @@ export function LiveGameWorkspace({
   tournamentRosters,
   onGameUpdate,
   onGameComplete,
+  onPauseGame,
   onDeleteGame,
 }: LiveGameWorkspaceProps) {
   const navigate = useNavigate();
@@ -483,6 +485,7 @@ export function LiveGameWorkspace({
   } = session;
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pauseDialogOpen, setPauseDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [fastbreak, setFastbreak] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
@@ -1156,6 +1159,7 @@ export function LiveGameWorkspace({
           endPeriodBusy={completingGame}
           endPeriodDisabled={completingGame}
           onEdit={() => setIsEditDialogOpen(true)}
+          onPause={() => setPauseDialogOpen(true)}
           onDelete={() => setDeleteDialogOpen(true)}
           onBack={() => navigateBack(navigate, location, paths.home)}
           tournamentName={headerMetaLabel}
@@ -1695,6 +1699,29 @@ export function LiveGameWorkspace({
           onSave={handleSaveEventEdit}
           onRequestRelocate={handleRequestShotRelocate}
         />
+
+        <AlertDialog open={pauseDialogOpen} onOpenChange={setPauseDialogOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Pause this game?</AlertDialogTitle>
+              <AlertDialogDescription>
+                Progress is saved. You can start another game, then resume this
+                one from Ongoing games.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={() => {
+                  setPauseDialogOpen(false);
+                  onPauseGame(currentGame);
+                }}
+              >
+                Pause game
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
         <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
           <AlertDialogContent>

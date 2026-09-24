@@ -84,6 +84,7 @@ import {
   isGameLive,
   isScheduledTournamentGame,
 } from '../utils/scheduledGames';
+import { isGamePaused } from '../utils/activeGame';
 import type { StatsEntryPrefill } from '../routing/statsEntryPrefill';
 import {
   groupSeedLabels,
@@ -1202,7 +1203,12 @@ export function TournamentPage({
     // Filter games based on status
     const filteredGames = tournamentGames.filter((game) => {
       if (gamesFilterStatus === 'completed' && !isGameCompleted(game)) return false;
-      if (gamesFilterStatus === 'live' && !isGameLive(game)) return false;
+      if (
+        gamesFilterStatus === 'live' &&
+        !isGameLive(game) &&
+        !isGamePaused(game)
+      )
+        return false;
       if (gamesFilterStatus === 'upcoming' && !isScheduledTournamentGame(game)) {
         return false;
       }
@@ -1306,7 +1312,13 @@ export function TournamentPage({
                   size="sm"
                   onClick={() => setGamesFilterStatus('live')}
                 >
-                  Live ({tournamentGames.filter(isGameLive).length})
+                  Live (
+                    {
+                      tournamentGames.filter(
+                        (g) => isGameLive(g) || isGamePaused(g)
+                      ).length
+                    }
+                  )
                 </Button>
                 <Button
                   variant={
@@ -1488,18 +1500,20 @@ export function TournamentPage({
                 : null;
               const scheduled = isScheduledTournamentGame(game);
               const live = isGameLive(game);
+              const paused = isGamePaused(game);
               const completed = isGameCompleted(game);
+              const canResume = (live || paused) && onResumeLiveGame != null;
               const canTrackStats =
                 scheduled &&
                 canEditLeague &&
                 onNavigateToStatsEntry != null;
-              const canOpenSummary = completed || live;
+              const canOpenSummary = completed || live || paused;
               const handleCardClick = () => {
-                if (live && onResumeLiveGame) {
-                  onResumeLiveGame(game.id);
+                if (canResume) {
+                  onResumeLiveGame!(game.id);
                   return;
                 }
-                if (canOpenSummary) onNavigateToGame(game.id);
+                if (completed) onNavigateToGame(game.id);
               };
               const prefill: StatsEntryPrefill = {
                 gameId: game.id,
@@ -1548,6 +1562,8 @@ export function TournamentPage({
                               </>
                             ) : live ? (
                               <Badge variant="default">Live</Badge>
+                            ) : paused ? (
+                              <Badge variant="secondary">Paused</Badge>
                             ) : (
                               <span className="text-sm font-medium text-muted-foreground">
                                 vs
@@ -1621,13 +1637,13 @@ export function TournamentPage({
                           Track stats
                         </Button>
                       )}
-                      {live && onResumeLiveGame && (
+                      {canResume && (
                         <Button
                           type="button"
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation();
-                            onResumeLiveGame(game.id);
+                            onResumeLiveGame!(game.id);
                           }}
                         >
                           Resume

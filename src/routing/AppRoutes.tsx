@@ -18,7 +18,7 @@ import { RecentGames } from '../components/RecentGames';
 import { ActiveGameBanner } from '../components/ActiveGameBanner';
 import { GameSetup } from '../components/GameSetup';
 import { LiveGameEntry } from '../components/LiveGameEntry';
-import { getActiveGame } from '../utils/activeGame';
+import { getActiveGame, isGameInProgress, isGamePaused } from '../utils/activeGame';
 import { STATS_ENTRY_PREFILL_STATE_KEY } from './statsEntryPrefill';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
@@ -89,6 +89,8 @@ export interface AppRoutesProps {
   onGamesUpdate: (games: Game[]) => void;
   onGameComplete: (game: Game) => void | Promise<boolean>;
   onDeleteActiveGame: (gameId: string) => void;
+  onPauseGame: (game: Game) => void;
+  onResumeGame: (gameId: string) => boolean;
 }
 
 function findPlayer(teams: Team[], playerId: string): { player: Player; team: Team } | null {
@@ -112,6 +114,7 @@ function TournamentDetailRoute({
   onUpdateTournament,
   onDeleteTournament,
   onGamesUpdate,
+  onResumeGame,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -176,7 +179,10 @@ function TournamentDetailRoute({
           state: { [STATS_ENTRY_PREFILL_STATE_KEY]: prefill },
         })
       }
-      onResumeLiveGame={(gameId) => navigate(liveGamePath(gameId))}
+      onResumeLiveGame={(gameId) => {
+        if (!onResumeGame(gameId)) return;
+        navigateWithReturnTo(navigate, liveGamePath(gameId), returnTo);
+      }}
       activeGame={activeGame}
       onCreateTeam={onCreateTeam}
       onAddTeamToTournament={onAddTeamToTournament}
@@ -427,17 +433,20 @@ function LiveGameRoute({
   onGameUpdate,
   onGameComplete,
   onDeleteActiveGame,
+  onPauseGame,
 }: AppRoutesProps) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
 
   const persistedActive =
     gameId != null
-      ? games.find((g) => g.id === gameId && g.isActive && !g.isCompleted)
+      ? games.find((g) => g.id === gameId && isGameInProgress(g))
       : undefined;
 
   const rawLiveGame =
-    currentGame?.id === gameId ? currentGame : persistedActive;
+    currentGame?.id === gameId && currentGame && isGameInProgress(currentGame)
+      ? currentGame
+      : persistedActive;
 
   const liveGame = useMemo(() => {
     if (!rawLiveGame) return undefined;
@@ -477,6 +486,10 @@ function LiveGameRoute({
       tournamentRosters={tournamentRosters}
       onGameUpdate={onGameUpdate}
       onGameComplete={onGameComplete}
+      onPauseGame={(g) => {
+        onPauseGame(g);
+        navigate(paths.statsEntry);
+      }}
       onDeleteGame={() => {
         onDeleteActiveGame(liveGame.id);
         navigate(paths.statsEntry);
@@ -507,6 +520,8 @@ export function AppRoutes(props: AppRoutesProps) {
     onGamesUpdate,
     onGameComplete,
     onDeleteActiveGame,
+    onPauseGame,
+    onResumeGame,
   } = props;
 
   const activeGame = useMemo(
@@ -515,6 +530,11 @@ export function AppRoutes(props: AppRoutesProps) {
   );
 
   const returnTo = currentLocationPath(location);
+
+  const resumeLiveGame = (gameId: string) => {
+    if (!onResumeGame(gameId)) return;
+    navigateWithReturnTo(navigate, liveGamePath(gameId), returnTo);
+  };
 
   const navigateToTournament = (tournamentId: string, tab: TournamentTab = 'home') => {
     const tournament = tournaments.find((t) => t.id === tournamentId);
@@ -618,9 +638,8 @@ export function AppRoutes(props: AppRoutesProps) {
             onBack={() => navigate(paths.home)}
             onNavigateToGame={(gameId) => {
               const game = games.find((g) => g.id === gameId);
-              if (game?.isActive && !game.isCompleted) {
-                setCurrentGame(game);
-                navigateWithReturnTo(navigate, liveGamePath(gameId), returnTo);
+              if (game && (isGameInProgress(game) || isGamePaused(game))) {
+                resumeLiveGame(gameId);
               } else {
                 navigateWithReturnTo(navigate, gamePath(gameId), returnTo);
               }
@@ -655,7 +674,8 @@ export function AppRoutes(props: AppRoutesProps) {
               <ActiveGameBanner
                 game={activeGame}
                 tournament={tournaments.find((t) => t.id === activeGame.tournamentId)}
-                onResume={() => navigate(liveGamePath(activeGame.id))}
+                onResume={() => resumeLiveGame(activeGame.id)}
+                onPause={() => onPauseGame(activeGame)}
               />
             ) : (
               <GameSetup

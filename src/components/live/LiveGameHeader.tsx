@@ -1,7 +1,7 @@
 import React from 'react';
 import type { Game } from '../../App';
 import { Button } from '../ui/button';
-import { Edit2, SkipForward, Trash2, ArrowLeft } from 'lucide-react';
+import { Edit2, SkipForward, Trash2, ArrowLeft, Pause } from 'lucide-react';
 import { LIVE_TEAM_HEX } from './liveEntryTheme';
 import { countPeriodTeamFoulsTowardBonus } from '../../liveEntry/periodTeamFouls';
 
@@ -15,6 +15,7 @@ interface LiveGameHeaderProps {
   endPeriodDisabled?: boolean;
   endPeriodBusy?: boolean;
   onEdit: () => void;
+  onPause: () => void;
   onDelete: () => void;
   onBack?: () => void;
   tournamentName?: string;
@@ -61,6 +62,7 @@ export function LiveGameHeader({
   endPeriodDisabled = false,
   endPeriodBusy = false,
   onEdit,
+  onPause,
   onDelete,
   onBack,
   tournamentName,
@@ -190,6 +192,16 @@ export function LiveGameHeader({
           </div>
           <div className="live-scoreboard-right-ops">
             <div className="live-ops-row">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onPause}
+                className="live-ops-btn live-ops-btn-sm"
+                title="Pause and free the live slot for another game"
+              >
+                <Pause className="live-ops-btn-icon" />
+                Pause
+              </Button>
               <Button
                 variant="ghost"
                 size="sm"

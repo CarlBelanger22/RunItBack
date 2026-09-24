@@ -183,6 +183,8 @@
             "test:foul-stat-coverage": "tsx scripts/test-foul-stat-coverage.ts",
             "test:shot-chart-display": "tsx scripts/test-shot-chart-display.ts",
             "test:shot-flip-orientation": "tsx scripts/test-shot-flip-orientation.ts",
+            "test:live-shot-marker-placement": "tsx scripts/test-live-shot-marker-placement.ts",
+            "test:undo-miss-rebound": "tsx scripts/test-undo-miss-rebound.ts",
             "test:shot-lateral-canonical": "tsx scripts/test-shot-lateral-canonical.ts",
             "test:live-game-freshness": "tsx scripts/test-live-game-freshness.ts",
             "test:player-shot-chart": "tsx scripts/test-player-shot-chart.ts",

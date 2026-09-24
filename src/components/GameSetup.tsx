@@ -1034,6 +1034,7 @@ export function GameSetup({
       trackBothTeams,
       isFriendly: isFriendly ? true : undefined,
       isActive: true,
+      isPaused: false,
       isCompleted: false,
       setupCreatedTeamIds:
         setupCreatedTeamIds.length > 0 ? setupCreatedTeamIds : undefined,
@@ -1044,7 +1045,7 @@ export function GameSetup({
     const started = onGameStart(game);
     if (!started) {
       setStartBlockedMessage(
-        "A game is already in progress. Resume or delete it before starting a new one."
+        "A game is already in progress. Resume, pause, or delete it before starting a new one."
       );
       return;
     }

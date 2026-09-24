@@ -8,6 +8,7 @@ export function isScheduledTournamentGame(game: Game): boolean {
       game.awayTeamId &&
       !game.isCompleted &&
       !game.isActive &&
+      !game.isPaused &&
       !game.finalScore
   );
 }

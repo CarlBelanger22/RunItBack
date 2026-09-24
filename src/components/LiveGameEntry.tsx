@@ -10,6 +10,7 @@ interface LiveGameEntryProps {
   tournamentRosters: TournamentRosterEntry[];
   onGameUpdate: (game: Game) => void;
   onGameComplete: (game: Game) => void | Promise<boolean>;
+  onPauseGame: (game: Game) => void;
   onDeleteGame: () => void;
 }
 
@@ -20,6 +21,7 @@ export function LiveGameEntry({
   tournamentRosters,
   onGameUpdate,
   onGameComplete,
+  onPauseGame,
   onDeleteGame,
 }: LiveGameEntryProps) {
   return (
@@ -30,6 +32,7 @@ export function LiveGameEntry({
       tournamentRosters={tournamentRosters}
       onGameUpdate={onGameUpdate}
       onGameComplete={onGameComplete}
+      onPauseGame={onPauseGame}
       onDeleteGame={onDeleteGame}
     />
   );

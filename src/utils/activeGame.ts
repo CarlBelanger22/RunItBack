@@ -8,19 +8,65 @@ export function isSetupAddedPlayerId(playerId: string): boolean {
   return SETUP_ADDED_PLAYER_ID.test(playerId);
 }
 
-export function isGameInProgress(game: Game): boolean {
-  return Boolean(game.isActive && !game.isCompleted);
+/** Explicitly parked mid-session (not the current live editor). */
+export function isGamePaused(game: Game): boolean {
+  return Boolean(game.isPaused && !game.isCompleted);
 }
 
-/** Stale row: not active, not completed, no final score — except scheduled fixtures. */
+/** Current live stats-entry session (blocks starting another until paused/completed). */
+export function isGameInProgress(game: Game): boolean {
+  return Boolean(game.isActive && !game.isCompleted && !game.isPaused);
+}
+
+/** Live or paused — has tracked progress that must not be orphan-deleted. */
+export function gameHasTrackedProgress(game: Game): boolean {
+  return (
+    (game.events?.length ?? 0) > 0 ||
+    (game.shots?.length ?? 0) > 0 ||
+    (game.gameStats ?? []).some(
+      (s) =>
+        (s.fg_attempted ?? 0) > 0 ||
+        (s.ft_attempted ?? 0) > 0 ||
+        (s.points ?? 0) > 0
+    )
+  );
+}
+
+/** Stale row: not live, not paused, not completed, no progress — except scheduled fixtures. */
 export function isOrphanedIncompleteGame(game: Game): boolean {
   if (game.isCompleted || game.finalScore || isGameInProgress(game)) return false;
+  if (isGamePaused(game)) return false;
+  if (gameHasTrackedProgress(game)) return false;
   if (isScheduledTournamentGame(game)) return false;
   return true;
 }
 
 export function canDeleteIncompleteGame(game: Game): boolean {
-  return isGameInProgress(game) || isOrphanedIncompleteGame(game);
+  return (
+    isGameInProgress(game) ||
+    isGamePaused(game) ||
+    isOrphanedIncompleteGame(game)
+  );
+}
+
+/** Park a live session: keep all progress; free the live slot. */
+export function pauseGameState(game: Game): Game {
+  return {
+    ...game,
+    isActive: false,
+    isPaused: true,
+    isCompleted: false,
+  };
+}
+
+/** Resume a paused (or inactive tracked) game as the live session. */
+export function resumeGameState(game: Game): Game {
+  return {
+    ...game,
+    isActive: true,
+    isPaused: false,
+    isCompleted: false,
+  };
 }
 
 /** Confirmation copy for delete-game dialogs. */
@@ -222,10 +268,15 @@ export function dedupeActiveGames(games: Game[]): {
   const cleaned = games.map((g) => {
     if (isGameInProgress(g) && g.id !== active.id) {
       changed = true;
-      return { ...g, isActive: false };
+      return pauseGameState(g);
     }
     return g;
   });
 
   return { games: cleaned, active, changed };
+}
+
+/** Live or paused mid-session — persist live meta / events payload. */
+export function shouldPersistLiveSession(game: Game): boolean {
+  return isGameInProgress(game) || isGamePaused(game);
 }

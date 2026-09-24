@@ -163,6 +163,47 @@ export function resolveTipOffFlipped(options: {
 }
 
 /**
+ * Live committed-shot basket in tip-frame coords (same rule as session preview markers).
+ * Use while the game is an active live session with tip-frame drawing + optional CSS halfRotate.
+ */
+export function liveSessionShotAttacksLeft(
+  homeTeamId: string,
+  shootingTeamId: string,
+  tipFlipped: boolean
+): boolean {
+  return homeAttacksLeft(homeTeamId, shootingTeamId, tipFlipped);
+}
+
+/**
+ * Basket side for a shot marker on the horizontal full court.
+ * Live sessions: tip-frame + shooting team (parity with preview).
+ * Completed / inactive: capture-time absolute orientation.
+ */
+export function resolveShotMarkerAttacksLeft(options: {
+  liveSession: boolean;
+  homeTeamId: string;
+  shootingTeamId: string;
+  tipFlipped: boolean;
+  absolute: {
+    isHomeShooter: boolean;
+    shotPeriod: number;
+    currentPeriod: number;
+    currentFlipped: boolean;
+    tipOffFlipped?: boolean | null;
+    gameCompletedOrFlipUnknown?: boolean;
+  };
+}): boolean {
+  if (options.liveSession) {
+    return liveSessionShotAttacksLeft(
+      options.homeTeamId,
+      options.shootingTeamId,
+      options.tipFlipped
+    );
+  }
+  return shotAttacksLeftOnFullCourt(options.absolute);
+}
+
+/**
  * Live entry: after half (or manual flip ≠ tip), spin the tip-frame court 180°.
  * Completed / inactive games never rotate — markers stay in absolute tip frame only.
  */

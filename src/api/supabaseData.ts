@@ -18,6 +18,7 @@ import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { normalizeTournamentStructure } from '../utils/tournamentStructure';
 import { applyResolvedPossessionArrow } from '../liveEntry/possessionArrow';
 import { applyPreservedStartTime } from '../lib/gameStartTime';
+import { shouldPersistLiveSession } from '../utils/activeGame';
 
 export const DEFAULT_LEAGUE_ID = 'league-default';
 
@@ -591,6 +592,8 @@ type GameSetupMeta = {
   possessionArrowTeamId?: string | null;
   /** Shared lead changes / times tied (imports or live applyGameFlow). */
   gameFlow?: Game['gameFlow'];
+  /** Mid-session park — free live slot without orphan-deleting progress. */
+  isPaused?: boolean;
 };
 
 type PersistedTeamStats = Game['teamStats'] & {
@@ -605,6 +608,7 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
   const hasGameFlow =
     game.gameFlow != null &&
     (game.gameFlow.leadChanges != null || game.gameFlow.timesTied != null);
+  const liveSession = shouldPersistLiveSession(game);
   const hasMeta =
     (game.setupCreatedTeamIds?.length ?? 0) > 0 ||
     (game.setupRosterChanges?.length ?? 0) > 0 ||
@@ -616,7 +620,7 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     Boolean(game.bracketSlotId) ||
     game.courtSidesFlippedAtTip !== undefined ||
     hasGameFlow ||
-    (game.isActive && !game.isCompleted);
+    liveSession;
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
       setupCreatedTeamIds: game.setupCreatedTeamIds,
@@ -627,26 +631,24 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
       stageId: game.stageId,
       groupId: game.groupId,
       bracketSlotId: game.bracketSlotId,
-      courtSidesFlipped:
-        game.isActive && !game.isCompleted ? !!game.courtSidesFlipped : undefined,
+      courtSidesFlipped: liveSession ? !!game.courtSidesFlipped : undefined,
       courtSidesFlippedAtTip:
         game.courtSidesFlippedAtTip === true
           ? true
           : game.courtSidesFlippedAtTip === false
             ? false
             : undefined,
-      gameDayRosterIds:
-        game.isActive && !game.isCompleted ? game.gameDayRosterIds : undefined,
-      possessionArrowTeamId:
-        game.isActive && !game.isCompleted
-          ? game.possessionArrowTeamId ?? null
-          : undefined,
+      gameDayRosterIds: liveSession ? game.gameDayRosterIds : undefined,
+      possessionArrowTeamId: liveSession
+        ? game.possessionArrowTeamId ?? null
+        : undefined,
       gameFlow: hasGameFlow
         ? {
             leadChanges: game.gameFlow!.leadChanges ?? null,
             timesTied: game.gameFlow!.timesTied ?? null,
           }
         : undefined,
+      isPaused: game.isPaused === true ? true : undefined,
     };
   }
   return payload;
@@ -690,6 +692,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   gameDayRosterIds?: { home: string[]; away: string[] };
   possessionArrowTeamId?: string | null;
   gameFlow?: Game['gameFlow'];
+  isPaused?: boolean;
 } {
   const raw = row as PersistedTeamStats;
   const meta = raw[TEAM_STATS_META_KEY];
@@ -713,6 +716,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
     gameDayRosterIds: meta?.gameDayRosterIds,
     possessionArrowTeamId: meta?.possessionArrowTeamId ?? undefined,
     gameFlow: parseGameFlowMeta(meta?.gameFlow),
+    isPaused: meta?.isPaused === true ? true : undefined,
   };
 }
 
@@ -769,6 +773,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     gameDayRosterIds,
     possessionArrowTeamId,
     gameFlow,
+    isPaused,
   } = parseTeamStats(row.team_stats);
 
   return applyResolvedPossessionArrow({
@@ -803,6 +808,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     gameDayRosterIds,
     possessionArrowTeamId: possessionArrowTeamId ?? undefined,
     isActive: row.is_active,
+    isPaused,
     isCompleted: row.is_completed,
     finalScore:
       row.final_score_home != null && row.final_score_away != null

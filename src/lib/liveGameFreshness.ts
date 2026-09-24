@@ -1,5 +1,6 @@
 import type { Game } from '../App';
 import { mergeGamesPreferCompleted } from './completedGamePersist';
+import { shouldPersistLiveSession } from '../utils/activeGame';
 
 /** Measurable progress for an in-progress game (events weigh heaviest). */
 export function incompleteGameProgressScore(game: Game): number {
@@ -17,7 +18,8 @@ export function incompleteGameProgressScore(game: Game): number {
  * Between two copies of the same game id:
  * - completed always beats incomplete
  * - two incomplete → strictly higher progress wins
- * - tie → keep `fallback` (typically cloud / already-applied)
+ * - tie → prefer local pause / parked session over stale cloud "still live"
+ * - else keep `fallback` (typically cloud)
  */
 export function preferFresherIncompleteGame(
   candidate: Game,
@@ -36,7 +38,13 @@ export function preferFresherIncompleteGame(
 
   const candidateScore = incompleteGameProgressScore(candidate);
   const fallbackScore = incompleteGameProgressScore(fallback);
-  return candidateScore > fallbackScore ? candidate : fallback;
+  if (candidateScore > fallbackScore) return candidate;
+  if (candidateScore < fallbackScore) return fallback;
+
+  // Equal progress: do not let cloud wipe a local Pause (isActive false + isPaused).
+  if (candidate.isPaused && !fallback.isPaused) return candidate;
+  if (!candidate.isActive && fallback.isActive) return candidate;
+  return fallback;
 }
 
 /**
@@ -44,9 +52,9 @@ export function preferFresherIncompleteGame(
  * local incomplete copy of the same id.
  * - Local completed beats cloud still-active (End Game before sync).
  * - When **both** are completed, keep **cloud** (server remaps / truth).
- * - Local-only rows: keep only in-progress live games (durability). Do **not**
- *   keep completed/inactive local-only games — that resurrects cloud deletes
- *   from a stale snapshot on refresh.
+ * - Local-only rows: keep live **or paused** mid-session games (durability).
+ *   Do **not** keep completed/empty-inactive local-only games — that resurrects
+ *   cloud deletes from a stale snapshot on refresh.
  * - `omitLocalOnlyIds`: intentionally deleted ids (skip even if still live in memory).
  */
 export function mergeCloudGamesWithFresherLocal(
@@ -80,7 +88,7 @@ export function mergeCloudGamesWithFresherLocal(
   for (const local of localGames) {
     if (seen.has(local.id)) continue;
     if (omit?.has(local.id)) continue;
-    if (local.isActive && !local.isCompleted) {
+    if (shouldPersistLiveSession(local)) {
       merged.push(local);
     }
   }

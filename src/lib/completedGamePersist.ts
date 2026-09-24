@@ -37,6 +37,7 @@ export function buildCompletedGamePayload(
   return {
     ...game,
     isActive: false,
+    isPaused: false,
     isCompleted: true,
     currentPeriod: game.currentPeriod || 4,
     currentGameTime: game.currentGameTime || '00:00',

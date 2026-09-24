@@ -534,11 +534,25 @@ export class GameLogic {
   static undoLastEvent(game: Game): Game {
     if (game.events.length === 0) return game;
 
-    const eventsToKeep = game.events.slice(0, -1);
-    const lastEvent = game.events[game.events.length - 1];
+    const lastEvent = game.events[game.events.length - 1]!;
+    const prevEvent =
+      game.events.length >= 2 ? game.events[game.events.length - 2]! : null;
+
+    // Miss/block FGA is followed by a rebound — one Undo should clear both so the
+    // court mark disappears in a single press.
+    const pairMissRebound =
+      lastEvent.type === 'rebound' &&
+      prevEvent?.type === 'shot_attempt' &&
+      prevEvent.details?.made === false;
+
+    const dropCount = pairMissRebound ? 2 : 1;
+    const removed = game.events.slice(-dropCount);
+    const eventsToKeep = game.events.slice(0, -dropCount);
+    const shotAttemptsRemoved = removed.filter((e) => e.type === 'shot_attempt')
+      .length;
     const shotsToKeep =
-      lastEvent.type === 'shot_attempt'
-        ? game.shots.slice(0, -1)
+      shotAttemptsRemoved > 0
+        ? game.shots.slice(0, Math.max(0, game.shots.length - shotAttemptsRemoved))
         : [...game.shots];
 
     const resetGame: Game = {
@@ -561,11 +575,12 @@ export class GameLogic {
 
     // End Q2 toggles courtSidesFlipped outside the event payload. Undoing that
     // period_end must restore tip-off camera so live 180° rotate unwinds.
-    if (lastEvent.type === 'period_end') {
+    const periodEndRemoved = removed.find((e) => e.type === 'period_end');
+    if (periodEndRemoved) {
       const endedPeriod =
-        typeof lastEvent.details?.period === 'number'
-          ? lastEvent.details.period
-          : lastEvent.period;
+        typeof periodEndRemoved.details?.period === 'number'
+          ? periodEndRemoved.details.period
+          : periodEndRemoved.period;
       if (endedPeriod === 2) {
         updatedGame = {
           ...updatedGame,

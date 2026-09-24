@@ -9,8 +9,8 @@ import {
   homeAttacksLeft,
   horizontalClickToHalfCourtPoint,
   halfCourtPointToHorizontalSvg,
-  shotAttacksLeftOnFullCourt,
   resolveTipOffFlipped,
+  resolveShotMarkerAttacksLeft,
   liveCourtNeedsHalfRotate,
   invertClientPointAroundRectCenter,
 } from '../../lib/horizontalCourtClick';
@@ -19,6 +19,7 @@ import type { CourtMarker as SessionMarker } from '../../liveEntry/liveEntryStat
 import type { Game, Shot } from '../../App';
 import { cn } from '../ui/utils';
 import { isOpponentUnitShotPlayerId } from '../../liveEntry/opponentUnit';
+import { teamIdForPlayer } from '../../liveEntry/reboundTeams';
 
 interface HorizontalFullCourtCanvasProps {
   game: Game;
@@ -40,23 +41,38 @@ function tipOffFlippedFromGame(game: Game): boolean {
   });
 }
 
-function shotAttacksLeft(shot: Shot, game: Game): boolean {
-  const isHome =
-    !isOpponentUnitShotPlayerId(shot.playerId) &&
-    game.homeTeam.players.some((p) => p.id === shot.playerId);
-  const flipUnknown = !!game.isCompleted || !game.isActive;
-  return shotAttacksLeftOnFullCourt({
-    isHomeShooter: isHome,
-    shotPeriod: shot.period ?? 1,
-    currentPeriod: game.currentPeriod ?? 1,
-    currentFlipped: !!game.courtSidesFlipped,
-    tipOffFlipped:
-      game.courtSidesFlippedAtTip === true
-        ? true
-        : game.courtSidesFlippedAtTip === false
-          ? false
-          : null,
-    gameCompletedOrFlipUnknown: flipUnknown,
+function shootingTeamIdForShot(shot: Shot, game: Game): string {
+  if (isOpponentUnitShotPlayerId(shot.playerId)) return game.awayTeamId;
+  return (
+    teamIdForPlayer(game, shot.playerId) ??
+    (game.homeTeam.players.some((p) => p.id === shot.playerId)
+      ? game.homeTeamId
+      : game.awayTeamId)
+  );
+}
+
+function shotMarkerAttacksLeft(shot: Shot, game: Game, tipFlipped: boolean): boolean {
+  const shootingTeamId = shootingTeamIdForShot(shot, game);
+  const isHome = shootingTeamId === game.homeTeamId;
+  const liveSession = Boolean(game.isActive && !game.isCompleted);
+  return resolveShotMarkerAttacksLeft({
+    liveSession,
+    homeTeamId: game.homeTeamId,
+    shootingTeamId,
+    tipFlipped,
+    absolute: {
+      isHomeShooter: isHome,
+      shotPeriod: shot.period ?? 1,
+      currentPeriod: game.currentPeriod ?? 1,
+      currentFlipped: !!game.courtSidesFlipped,
+      tipOffFlipped:
+        game.courtSidesFlippedAtTip === true
+          ? true
+          : game.courtSidesFlippedAtTip === false
+            ? false
+            : null,
+      gameCompletedOrFlipUnknown: !liveSession,
+    },
   });
 }
 
@@ -104,7 +120,10 @@ export function HorizontalFullCourtCanvas({
   const markers = useMemo((): HorizontalCourtMarker[] => {
     const shotMarkers = shots.map((s) => {
       const half = percentToCourtPointM(s.x, s.y);
-      const { x, y } = halfCourtPointToHorizontalSvg(half, shotAttacksLeft(s, game));
+      const { x, y } = halfCourtPointToHorizontalSvg(
+        half,
+        shotMarkerAttacksLeft(s, game, drawFlipped)
+      );
       return {
         x,
         y,

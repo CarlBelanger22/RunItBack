@@ -9,6 +9,7 @@ import {
 import {
   dedupeActiveGames,
   isOrphanedIncompleteGame,
+  shouldPersistLiveSession,
 } from '../utils/activeGame';
 import { dedupeTeamsById } from '../utils/rosterPlayers';
 import { normalizeGamesTeamRosters } from '../utils/gameTeamRosters';
@@ -61,6 +62,8 @@ export interface SnapshotGame {
   date: string;
   isActive: boolean;
   isCompleted: boolean;
+  /** Mid-session park — free live slot; live payload still snapshotted. */
+  isPaused?: boolean;
   /** Lite player box scores — enough for player pages and roster reconcile. */
   gameStats: GameStats[];
   homeStarters: string[];
@@ -299,6 +302,7 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
       date: game.date,
       isActive: game.isActive,
       isCompleted: game.isCompleted,
+      isPaused: game.isPaused === true ? true : undefined,
       gameStats: toSnapshotGameStats(game.gameStats ?? []),
       homeStarters: game.homeStarters ?? [],
       awayStarters: game.awayStarters ?? [],
@@ -313,7 +317,7 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
       startTime: game.startTime,
     };
 
-    if (game.isActive && !game.isCompleted) {
+    if (shouldPersistLiveSession(game)) {
       base.liveEvents = game.events ?? [];
       base.liveTeamStats = game.teamStats;
       base.liveShots = game.shots ?? [];
@@ -418,6 +422,7 @@ export function hydrateSnapshotGames(
       bracketSlotId: row.bracketSlotId,
       startTime: row.startTime,
       isActive: row.isActive,
+      isPaused: row.isPaused === true ? true : undefined,
       isCompleted: row.isCompleted,
       finalScore: row.finalScore,
       possessionArrowTeamId: row.possessionArrowTeamId ?? undefined,
