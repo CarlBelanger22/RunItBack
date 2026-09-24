@@ -1502,19 +1502,31 @@ export function TournamentPage({
               const live = isGameLive(game);
               const paused = isGamePaused(game);
               const completed = isGameCompleted(game);
-              const canResume = (live || paused) && onResumeLiveGame != null;
+              const midTracked = live || paused;
+              const canResume =
+                midTracked && canEditLeague && onResumeLiveGame != null;
               const canTrackStats =
                 scheduled &&
                 canEditLeague &&
                 onNavigateToStatsEntry != null;
-              const canOpenSummary = completed || live || paused;
+              const canOpenSummary = completed || midTracked;
               const handleCardClick = () => {
                 if (canResume) {
                   onResumeLiveGame!(game.id);
                   return;
                 }
-                if (completed) onNavigateToGame(game.id);
+                if (completed || (midTracked && !canEditLeague)) {
+                  onNavigateToGame(game.id);
+                }
               };
+              const statusBadge =
+                completed && game.finalScore ? null : midTracked ? (
+                  canEditLeague && paused ? (
+                    <Badge variant="secondary">Paused</Badge>
+                  ) : (
+                    <Badge variant="default">Live</Badge>
+                  )
+                ) : null;
               const prefill: StatsEntryPrefill = {
                 gameId: game.id,
                 tournamentId: tournament.id,
@@ -1560,10 +1572,8 @@ export function TournamentPage({
                                   {game.finalScore.away}
                                 </div>
                               </>
-                            ) : live ? (
-                              <Badge variant="default">Live</Badge>
-                            ) : paused ? (
-                              <Badge variant="secondary">Paused</Badge>
+                            ) : statusBadge ? (
+                              statusBadge
                             ) : (
                               <span className="text-sm font-medium text-muted-foreground">
                                 vs

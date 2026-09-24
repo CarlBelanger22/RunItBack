@@ -19,6 +19,7 @@ import { ActiveGameBanner } from '../components/ActiveGameBanner';
 import { GameSetup } from '../components/GameSetup';
 import { LiveGameEntry } from '../components/LiveGameEntry';
 import { getActiveGame, isGameInProgress, isGamePaused } from '../utils/activeGame';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 import { STATS_ENTRY_PREFILL_STATE_KEY } from './statsEntryPrefill';
 import { sortGamesByDateDesc } from '../utils/gameDisplay';
 import { GameSummary } from '../components/GameSummary';
@@ -501,6 +502,7 @@ function LiveGameRoute({
 export function AppRoutes(props: AppRoutesProps) {
   const location = useLocation();
   const navigate = useNavigate();
+  const { canEditLeague } = useAuthCapabilities();
   const {
     teams,
     tournaments,
@@ -638,7 +640,11 @@ export function AppRoutes(props: AppRoutesProps) {
             onBack={() => navigate(paths.home)}
             onNavigateToGame={(gameId) => {
               const game = games.find((g) => g.id === gameId);
-              if (game && (isGameInProgress(game) || isGamePaused(game))) {
+              if (
+                canEditLeague &&
+                game &&
+                (isGameInProgress(game) || isGamePaused(game))
+              ) {
                 resumeLiveGame(gameId);
               } else {
                 navigateWithReturnTo(navigate, gamePath(gameId), returnTo);

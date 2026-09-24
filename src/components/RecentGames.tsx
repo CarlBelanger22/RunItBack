@@ -25,6 +25,7 @@ import {
 } from './ui/alert-dialog';
 import { TeamBadge } from './TeamBadge';
 import { resolveGameTeam } from '../utils/gameTeams';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 
 interface RecentGamesProps {
   games: Game[];
@@ -43,6 +44,7 @@ export function RecentGames({
   onNavigateToGame,
   onDeleteActiveGame,
 }: RecentGamesProps) {
+  const { canEditLeague } = useAuthCapabilities();
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'ongoing'>('all');
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
   
@@ -133,9 +135,11 @@ export function RecentGames({
             const awayScore = resolveTeamScore(game, awayTeam.id);
             const inProgress = isGameInProgress(game);
             const paused = isGamePaused(game);
+            const midTracked = inProgress || paused;
             const orphaned = isOrphanedIncompleteGame(game);
-            const showIncompleteActions = canDeleteIncompleteGame(game);
-            const showDelete = Boolean(onDeleteActiveGame);
+            const showIncompleteActions =
+              canEditLeague && canDeleteIncompleteGame(game);
+            const showDelete = canEditLeague && Boolean(onDeleteActiveGame);
             const showCardActions = showIncompleteActions || (showDelete && game.isCompleted);
             const tournamentName = game.tournamentId
               ? tournaments.find((t) => t.id === game.tournamentId)?.name
@@ -156,7 +160,7 @@ export function RecentGames({
                         <div className="flex-1 flex items-start justify-end gap-2">
                           <div className="text-right">
                             <div className="font-medium">{homeTeam.name}</div>
-                            {(game.isCompleted || inProgress || paused) && (
+                            {(game.isCompleted || midTracked) && (
                               <div className="text-2xl font-bold tabular-nums mt-1">{homeScore}</div>
                             )}
                           </div>
@@ -165,10 +169,12 @@ export function RecentGames({
                         
                         {/* Status */}
                         <div className="flex items-center px-4 shrink-0 gap-2">
-                          {inProgress ? (
-                            <Badge variant="outline">Live</Badge>
-                          ) : paused ? (
-                            <Badge variant="secondary">Paused</Badge>
+                          {midTracked ? (
+                            canEditLeague && paused ? (
+                              <Badge variant="secondary">Paused</Badge>
+                            ) : (
+                              <Badge variant="outline">Live</Badge>
+                            )
                           ) : !game.isCompleted ? (
                             <Badge variant="secondary">Incomplete</Badge>
                           ) : (
@@ -183,7 +189,7 @@ export function RecentGames({
                           <TeamBadge team={awayTeam} teamId={awayTeam.id} size="lg" />
                           <div className="text-left">
                             <div className="font-medium">{awayTeam.name}</div>
-                            {(game.isCompleted || inProgress || paused) && (
+                            {(game.isCompleted || midTracked) && (
                               <div className="text-2xl font-bold tabular-nums mt-1">{awayScore}</div>
                             )}
                           </div>
@@ -216,7 +222,7 @@ export function RecentGames({
                           className="flex flex-wrap gap-2 mt-4 justify-center"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          {(inProgress || paused) && (
+                          {(inProgress || paused) && canEditLeague && (
                             <Button
                               size="sm"
                               onClick={() => onNavigateToGame(game.id)}
