@@ -8,6 +8,7 @@ import { PrivacyPolicyPage } from '../components/PrivacyPolicyPage';
 import { TermsOfUsePage } from '../components/TermsOfUsePage';
 import { RequireAdmin } from '../components/RequireAdmin';
 import { NotFound } from '../components/NotFound';
+import { FontPreviewPage } from '../components/FontPreviewPage';
 import { Dashboard } from '../components/Dashboard';
 import { TournamentManager } from '../components/TournamentManager';
 import { TournamentPage } from '../components/TournamentPage';
@@ -699,6 +700,7 @@ export function AppRoutes(props: AppRoutesProps) {
         }
       />
 
+      <Route path="/font-preview" element={<FontPreviewPage />} />
       <Route path={paths.account} element={<AccountPage />} />
       <Route path={paths.contentRemoval} element={<ContentRemovalPage />} />
       <Route path={paths.privacy} element={<PrivacyPolicyPage />} />

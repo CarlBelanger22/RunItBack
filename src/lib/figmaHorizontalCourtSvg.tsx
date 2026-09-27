@@ -465,7 +465,7 @@ export function FigmaHorizontalCourtSvg({
           paintOrder="stroke"
           fontSize={5.5}
           fontWeight={700}
-          fontFamily="JetBrains Mono, monospace"
+          fontFamily="Hanken Grotesk, sans-serif"
           letterSpacing={1.5}
         >
           {leftFloorLabel}
@@ -489,7 +489,7 @@ export function FigmaHorizontalCourtSvg({
           paintOrder="stroke"
           fontSize={5.5}
           fontWeight={700}
-          fontFamily="JetBrains Mono, monospace"
+          fontFamily="Hanken Grotesk, sans-serif"
           letterSpacing={1.5}
         >
           {rightFloorLabel}

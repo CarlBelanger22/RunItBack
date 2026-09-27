@@ -49,7 +49,7 @@ export function JerseyIcon({
           fontSize={fontSize}
           fontWeight={fontWeight}
           fill="var(--foreground)"
-          style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif' }}
+          style={{ fontFamily: '"Big Shoulders Text", "Arial Narrow", sans-serif' }}
         >
           {number}
         </text>
