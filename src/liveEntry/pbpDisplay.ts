@@ -422,7 +422,8 @@ export function formatPbpAction(
       const isOffensive = rt === 'offensive' || rt === 'team_offensive';
 
       if (isTeam && teamSnap) {
-        const teamReb = isOffensive ? teamSnap.orb : teamSnap.drb;
+        const coach = teamSnap.team_coach;
+        const teamReb = isOffensive ? (coach?.orb ?? 0) : (coach?.drb ?? 0);
         const teamLabel = isOffensive ? 'team orb' : 'team drb';
         return {
           playerLine: 'Team',
