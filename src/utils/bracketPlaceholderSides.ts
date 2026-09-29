@@ -24,6 +24,31 @@ export function isLoserPlacementLabel(label: string | undefined): boolean {
   return t.includes('3rd') || t.includes('7th') || t.includes('11th');
 }
 
+/** SF1 → "Semi-final 1". Other slot labels stay as stored. */
+export function clarifyBracketSlotLabel(label: string): string {
+  const semi = label.trim().match(/^SF\s*(\d+)$/i);
+  if (semi) return `Semi-final ${semi[1]}`;
+  return label;
+}
+
+/**
+ * Games-list tag for a bracket fixture. The stage is often named "Finals"
+ * for the whole knockout, so the badge must name the round itself:
+ * Semi-final 1, Final, 3rd place.
+ */
+export function bracketFixtureStageTag(
+  stageName: string,
+  slotLabel?: string
+): string {
+  if (!slotLabel?.trim()) return stageName;
+  const label = slotLabel.trim();
+  const clarified = clarifyBracketSlotLabel(label);
+  if (clarified !== label) return clarified;
+  if (/^final$/i.test(label)) return 'Final';
+  if (/place$/i.test(label)) return label;
+  return `${stageName} · ${label}`;
+}
+
 function feederLabel(
   rounds: BracketRound[],
   fromSlotId: string | null | undefined,
@@ -33,7 +58,7 @@ function feederLabel(
   const label = findSlotLabel(rounds, fromSlotId);
   if (!label) return null;
   const prefix = outcome === 'loser' ? 'Loser' : 'Winner';
-  return `${prefix} · ${label}`;
+  return `${prefix} · ${clarifyBracketSlotLabel(label)}`;
 }
 
 /** Home/away display strings for a bracket slot (seeds, feeders, or TBD). */
@@ -64,7 +89,7 @@ export function bracketPlaceholderSides(
     ? findSlotLabel(rounds, slot.awayFromSlotId)
     : null;
   return [
-    a ? `${prefix} · ${a}` : 'TBD',
-    b ? `${prefix} · ${b}` : 'TBD',
+    a ? `${prefix} · ${clarifyBracketSlotLabel(a)}` : 'TBD',
+    b ? `${prefix} · ${clarifyBracketSlotLabel(b)}` : 'TBD',
   ];
 }

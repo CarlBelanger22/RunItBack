@@ -22,6 +22,7 @@ import {
   resolveGroupTeamIds,
   roundRobinStages,
 } from './groupMembers';
+import { resolveGroupSeedMatchups } from './groupMatchRows';
 
 export interface RetagReport {
   groupTagged: number;
@@ -184,16 +185,43 @@ export function retagTournamentGames(
 
     const homeId = game.homeTeamId;
     const awayId = game.awayTeamId;
+    const pairKey = matchupPairKey(homeId, awayId);
 
-    // LE-147 — try each RR stage (latest order first so secondary pools win ties).
+    // A later placing pool may include the same clubs via seeds. It only
+    // owns a game when the game is that scheduled fixture (id or date).
     for (let i = rrStages.length - 1; i >= 0; i -= 1) {
       const rrStage = rrStages[i];
-      const groupByTeam = teamGroupMapForStage(rrStage, structure);
-      const homeGroup = groupByTeam.get(homeId);
-      const awayGroup = groupByTeam.get(awayId);
+      for (const group of rrStage.groups ?? []) {
+        const matchups = resolveGroupSeedMatchups(group);
+        if (matchups.length === 0) continue;
+        const claimed = matchups.some((matchup) => {
+          if (matchup.gameId && matchup.gameId === game.id) return true;
+          if (!matchup.date || matchup.date !== game.date) return false;
+          const seedHome = structure.seedSnapshot?.[matchup.homeSeed];
+          const seedAway = structure.seedSnapshot?.[matchup.awaySeed];
+          if (!seedHome || !seedAway) return false;
+          return matchupPairKey(seedHome, seedAway) === pairKey;
+        });
+        if (!claimed) continue;
+        report.groupTagged += 1;
+        return {
+          ...game,
+          stageId: rrStage.id,
+          groupId: group.id,
+          bracketSlotId: undefined,
+        };
+      }
+    }
 
-      if (homeGroup && awayGroup && homeGroup.id === awayGroup.id) {
-        const pairKey = matchupPairKey(homeId, awayId);
+    // Explicit roster membership. Earliest stage wins so a group-stage
+    // result stays there when both clubs are still in that group.
+    for (const rrStage of rrStages) {
+      const homeGroup = (rrStage.groups ?? []).find(
+        (group) =>
+          group.teamIds.includes(homeId) && group.teamIds.includes(awayId)
+      );
+
+      if (homeGroup) {
         const earliestId = earliestByPairByStage.get(rrStage.id)?.get(pairKey);
         const isRematch =
           rrStage.id === primaryRr.id &&

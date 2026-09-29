@@ -711,7 +711,9 @@ function teamGameSeasonContribution(
     points_in_paint: seasonStatNum(persisted?.points_in_paint),
     second_chance_points: seasonStatNum(persisted?.second_chance_points),
     fastbreak_points: seasonStatNum(persisted?.fastbreak_points),
-    bench_points: seasonStatNum(persisted?.bench_points),
+    bench_points: seasonStatNum(
+      resolveOptionalAdvancedTeamStat(game, side, 'bench_points')
+    ),
   };
 }
 

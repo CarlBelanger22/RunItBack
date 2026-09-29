@@ -99,8 +99,7 @@ import {
   sortGamesTabEntries,
 } from '../utils/groupMatchRows';
 import { buildBracketFixtureRows } from '../utils/bracketFixtureRows';
-import { normalizeSeedCode } from '../utils/seedCodes';
-
+import { bracketFixtureStageTag } from '../utils/bracketPlaceholderSides';
 interface TournamentPageProps {
   tournament: Tournament;
   teams: Team[];
@@ -1264,9 +1263,7 @@ export function TournamentPage({
       const stage = structure?.stages.find((s) => s.id === fixture.stageId);
       if (!stage) return null;
       if (fixture.bracketSlotId) {
-        return fixture.slotLabel
-          ? `${stage.name} · ${fixture.slotLabel}`
-          : stage.name;
+        return bracketFixtureStageTag(stage.name, fixture.slotLabel);
       }
       if (fixture.groupId) {
         const group = stage.groups?.find((g) => g.id === fixture.groupId);
@@ -1275,11 +1272,8 @@ export function TournamentPage({
       return stage.name;
     };
 
-    const isFixtureSidePlaceholder = (team: Team, label: string) =>
-      isSeedPlaceholderTeamId(team.id) ||
-      Boolean(normalizeSeedCode(label)) ||
-      /^(Winner|Loser)\s·/.test(label) ||
-      label === 'TBD';
+    const isFixtureSidePlaceholder = (team: Team) =>
+      isSeedPlaceholderTeamId(team.id);
 
     return (
       <div className="space-y-6">
@@ -1386,8 +1380,8 @@ export function TournamentPage({
                   fixture.homeTeam ?? seedPlaceholderTeam(fixture.homeLabel);
                 const awayTeam =
                   fixture.awayTeam ?? seedPlaceholderTeam(fixture.awayLabel);
-                const homeSeed = isFixtureSidePlaceholder(homeTeam, fixture.homeLabel);
-                const awaySeed = isFixtureSidePlaceholder(awayTeam, fixture.awayLabel);
+                const homeSeed = isFixtureSidePlaceholder(homeTeam);
+                const awaySeed = isFixtureSidePlaceholder(awayTeam);
                 const stageTag = fixtureStageTag(fixture);
 
                 return (

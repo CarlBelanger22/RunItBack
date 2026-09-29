@@ -83,7 +83,9 @@ function matchGameToSeedMatchup(
   if (matchup.gameId && game.id === matchup.gameId) return true;
   const homeId = snap[matchup.homeSeed];
   const awayId = snap[matchup.awaySeed];
-  if (homeId && awayId) {
+  // Same clubs on an earlier date are a different game. Attach only when
+  // this row is that fixture (date), not merely the same pair.
+  if (homeId && awayId && matchup.date && game.date === matchup.date) {
     const key = matchupPairKey(homeId, awayId);
     if (key === matchupPairKey(game.homeTeamId, game.awayTeamId)) return true;
   }

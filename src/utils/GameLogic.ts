@@ -51,6 +51,7 @@ export class GameLogic {
     }
 
     this.updateStats(updatedGame, event);
+    this.syncBenchPoints(updatedGame);
     this.syncTrackedTeamTotalsFromPlayersInPlace(updatedGame);
 
     event.homeScore = updatedGame.teamStats.home.total_points;
@@ -139,6 +140,30 @@ export class GameLogic {
       (teamStats[periodKey] as number) += points;
     } else if (scoringPeriod > 4) {
       teamStats.ot_points += points;
+    }
+  }
+
+  /**
+   * Bench points are points by players who did not start. Rebuilt from the
+   * box after every event so an edit or a late score keeps the running total.
+   * Left blank until the starting five is set.
+   */
+  private static syncBenchPoints(game: Game): void {
+    for (const side of ['home', 'away'] as const) {
+      const starters = side === 'home' ? game.homeStarters : game.awayStarters;
+      if (!starters?.length) continue;
+      const team = side === 'home' ? game.homeTeam : game.awayTeam;
+      const rosterIds = new Set((team.players ?? []).map((player) => player.id));
+      const played = (game.gameStats ?? []).some((stat) => rosterIds.has(stat.playerId));
+      if (!played) continue;
+      const starterIds = new Set(starters);
+      let total = 0;
+      for (const stat of game.gameStats ?? []) {
+        if (!rosterIds.has(stat.playerId) || starterIds.has(stat.playerId)) continue;
+        total += stat.points ?? 0;
+      }
+      const teamStats = side === 'home' ? game.teamStats.home : game.teamStats.away;
+      teamStats.bench_points = total;
     }
   }
 
