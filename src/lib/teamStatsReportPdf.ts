@@ -1,6 +1,13 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { PDF_REPORT_THEME } from './gameReportPdf';
+import {
+  PDF_BRAND_LOGO_SRC,
+  PDF_REPORT_THEME,
+  drawOfficialPdfFooter,
+  drawPdfHorizontalRule,
+  drawPdfImage,
+  loadPdfImage,
+} from './gameReportPdf';
 import {
   buildTeamStatsReportModel,
   type BuildTeamStatsReportModelInput,
@@ -11,14 +18,15 @@ import {
   getTeamStatsPdfGlossaryEntries,
 } from '../utils/playerStatsGlossary';
 
-const PAGE_TITLE = 'PLAYER STATS';
+const PAGE_TITLE = 'Player Stats';
 const TABLE_FONT_SIZE = 7;
-const TABLE_CELL_PADDING = 2;
-const PAGE_MARGIN = 16;
-const SECTION_GAP = 8;
-const SECTION_TITLE_FONT_SIZE = 9;
+const TABLE_CELL_PADDING = 1.8;
+const PAGE_MARGIN = 28;
+const SECTION_GAP = 14;
+const SECTION_TITLE_FONT_SIZE = 12;
 const LEGEND_TITLE = 'Legend';
 const LEGEND_COLUMNS = 3;
+const FOOTER_CLEARANCE = 36;
 
 const COMMON_COLUMN_WIDTHS = {
   rank: 12,
@@ -30,6 +38,10 @@ const COMMON_COLUMN_WIDTHS = {
 
 function getPageWidth(doc: jsPDF): number {
   return doc.internal.pageSize.getWidth();
+}
+
+function getPageHeight(doc: jsPDF): number {
+  return doc.internal.pageSize.getHeight();
 }
 
 function getLastTableBottom(doc: jsPDF): number | undefined {
@@ -66,43 +78,54 @@ function buildStatsTableColumnStyles(
   return styles;
 }
 
-function drawReportHeader(doc: jsPDF, model: TeamStatsReportModel): number {
+async function drawReportHeader(
+  doc: jsPDF,
+  model: TeamStatsReportModel
+): Promise<number> {
   const pageWidth = getPageWidth(doc);
-  let y = 22;
+  const logoSize = 26;
+  let y = 18;
 
-  doc.setTextColor(...PDF_REPORT_THEME.titleBar);
+  const [brand, teamIcon] = await Promise.all([
+    loadPdfImage(PDF_BRAND_LOGO_SRC),
+    loadPdfImage(model.teamIcon),
+  ]);
+  drawPdfImage(doc, brand, PAGE_MARGIN, y - 4, logoSize, logoSize);
+  drawPdfImage(
+    doc,
+    teamIcon,
+    pageWidth - PAGE_MARGIN - logoSize,
+    y - 4,
+    logoSize,
+    logoSize
+  );
+
+  doc.setTextColor(...PDF_REPORT_THEME.navy);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13);
-  doc.text(PAGE_TITLE, pageWidth / 2, y, { align: 'center' });
-  y += 14;
+  doc.setFontSize(14);
+  doc.text(model.teamName, pageWidth / 2, y + 8, { align: 'center' });
+  y += 22;
 
-  doc.setFontSize(10);
-  doc.text(model.teamName, pageWidth / 2, y, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text(PAGE_TITLE, pageWidth / 2, y, { align: 'center' });
   y += 12;
+
+  doc.setFontSize(7);
+  doc.setTextColor(...PDF_REPORT_THEME.navyMuted);
+  doc.text(
+    `${model.tournamentScopeLabel}  ·  ${model.formatScopeLabel}  ·  ${model.playerCount} players  ·  Sorted by PPG`,
+    pageWidth / 2,
+    y,
+    { align: 'center' }
+  );
+  y += 10;
+  drawPdfHorizontalRule(doc, y, PAGE_MARGIN);
+  y += 14;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7);
-  doc.setTextColor(60, 60, 60);
-  doc.text(
-    `Tournaments: ${model.tournamentScopeLabel}`,
-    pageWidth / 2,
-    y,
-    { align: 'center' }
-  );
-  y += 9;
-  doc.text(`Format: ${model.formatScopeLabel}`, pageWidth / 2, y, {
-    align: 'center',
-  });
-  y += 9;
-  doc.text(
-    `${model.playerCount} players · Exported ${model.exportedAt}`,
-    pageWidth / 2,
-    y,
-    { align: 'center' }
-  );
-  y += 9;
-  doc.text('Sorted by PPG (descending)', pageWidth / 2, y, { align: 'center' });
-  y += 9;
+  doc.setTextColor(...PDF_REPORT_THEME.navyMuted);
 
   if (model.shotDataCoverage?.isPartial) {
     doc.text(
@@ -145,7 +168,7 @@ function drawReportHeader(doc: jsPDF, model: TeamStatsReportModel): number {
   }
 
   doc.setTextColor(0, 0, 0);
-  return y + 4;
+  return y + 6;
 }
 
 function drawStatsTableSection(
@@ -160,37 +183,35 @@ function drawStatsTableSection(
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(SECTION_TITLE_FONT_SIZE);
-  doc.setTextColor(...PDF_REPORT_THEME.titleBar);
+  doc.setTextColor(...PDF_REPORT_THEME.navy);
   doc.text(sectionTitle, pageWidth / 2, startY, { align: 'center' });
   doc.setTextColor(0, 0, 0);
 
   autoTable(doc, {
-    startY: startY + 6,
-    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN },
+    startY: startY + 10,
+    margin: { left: PAGE_MARGIN, right: PAGE_MARGIN, bottom: FOOTER_CLEARANCE },
     tableWidth: pageWidth - PAGE_MARGIN * 2,
     head: [headers],
     body,
-    showHead: 'firstPage',
-    pageBreak: 'avoid',
-    rowPageBreak: 'avoid',
+    showHead: 'everyPage',
     theme: 'grid',
     styles: {
       fontSize: TABLE_FONT_SIZE,
       cellPadding: TABLE_CELL_PADDING,
       halign: 'center',
-      overflow: 'linebreak',
-      minCellHeight: 9,
+      overflow: 'ellipsize',
+      lineColor: PDF_REPORT_THEME.rule,
+      lineWidth: 0.35,
+      textColor: [20, 20, 20],
     },
     headStyles: {
-      fillColor: PDF_REPORT_THEME.titleBar,
+      fillColor: PDF_REPORT_THEME.navy,
       textColor: 255,
       fontStyle: 'bold',
       fontSize: TABLE_FONT_SIZE,
       halign: 'center',
-      cellPadding: TABLE_CELL_PADDING,
     },
     columnStyles: buildStatsTableColumnStyles(pageWidth, statColumnCount),
-    alternateRowStyles: { fillColor: [248, 248, 248] },
   });
 
   return getLastTableBottom(doc) ?? startY + 60;
@@ -210,7 +231,7 @@ function drawLegendSection(doc: jsPDF, startY: number): number {
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(SECTION_TITLE_FONT_SIZE);
-  doc.setTextColor(...PDF_REPORT_THEME.titleBar);
+  doc.setTextColor(...PDF_REPORT_THEME.navy);
   doc.text(LEGEND_TITLE, pageWidth / 2, y, { align: 'center' });
   y += 10;
 
@@ -241,14 +262,22 @@ function drawLegendSection(doc: jsPDF, startY: number): number {
   return y + rowsPerColumn * lineHeight + 4;
 }
 
-export function generateTeamStatsReportPdf(model: TeamStatsReportModel): Blob {
+function ensureSpace(doc: jsPDF, y: number, needed: number): number {
+  if (y + needed <= getPageHeight(doc) - FOOTER_CLEARANCE) return y;
+  doc.addPage('letter', 'landscape');
+  return 36;
+}
+
+export async function generateTeamStatsReportPdf(
+  model: TeamStatsReportModel
+): Promise<Blob> {
   const doc = new jsPDF({
     orientation: 'landscape',
     unit: 'pt',
     format: 'letter',
   });
 
-  let y = drawReportHeader(doc, model);
+  let y = await drawReportHeader(doc, model);
 
   y = drawStatsTableSection(
     doc,
@@ -258,24 +287,38 @@ export function generateTeamStatsReportPdf(model: TeamStatsReportModel): Blob {
     model.standardBody
   );
 
+  y = ensureSpace(doc, y + SECTION_GAP, 80);
   y = drawStatsTableSection(
     doc,
-    y + SECTION_GAP,
+    y,
     'Advanced',
     model.advancedHeaders,
     model.advancedBody
   );
 
-  drawLegendSection(doc, y + SECTION_GAP);
+  y = ensureSpace(doc, y + SECTION_GAP, 90);
+  drawLegendSection(doc, y);
+
+  const totalPages = doc.getNumberOfPages();
+  for (let page = 1; page <= totalPages; page += 1) {
+    doc.setPage(page);
+    drawOfficialPdfFooter(
+      doc,
+      page,
+      totalPages,
+      model.exportedAt,
+      PAGE_MARGIN
+    );
+  }
 
   return doc.output('blob');
 }
 
-export function downloadTeamStatsReportPdf(
+export async function downloadTeamStatsReportPdf(
   input: BuildTeamStatsReportModelInput
-): void {
+): Promise<void> {
   const model = buildTeamStatsReportModel(input);
-  const blob = generateTeamStatsReportPdf(model);
+  const blob = await generateTeamStatsReportPdf(model);
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

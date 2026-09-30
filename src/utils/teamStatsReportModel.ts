@@ -60,6 +60,7 @@ export const TEAM_STATS_ADVANCED_COLUMN_COUNT = TEAM_STATS_ADVANCED_HEADERS.leng
 export interface TeamStatsReportModel {
   filename: string;
   teamName: string;
+  teamIcon?: string;
   tournamentScopeLabel: string;
   formatScopeLabel: string;
   playerCount: number;
@@ -225,6 +226,7 @@ export function buildTeamStatsReportModel(
   return {
     filename: buildTeamStatsReportFilename(team.abbreviation, tournamentScopeSlug),
     teamName: team.name,
+    teamIcon: team.icon,
     tournamentScopeLabel: tournamentSelectionTriggerLabel(
       selectedTournamentIds,
       tournamentOptions,
