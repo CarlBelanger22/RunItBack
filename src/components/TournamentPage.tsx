@@ -263,6 +263,7 @@ export function TournamentPage({
   const [isAddTeamDialogOpen, setIsAddTeamDialogOpen] = useState(false);
   const [addTeamQuery, setAddTeamQuery] = useState('');
   const [isEditTournamentDialogOpen, setIsEditTournamentDialogOpen] = useState(false);
+  const [structureSavedNotice, setStructureSavedNotice] = useState(false);
   const [editTournamentPane, setEditTournamentPane] = useState<'details' | 'structure'>(
     'details'
   );
@@ -951,11 +952,17 @@ export function TournamentPage({
               <Card key={group.id}>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-base">
-                    {group.name}
+                    {group.leagueTable ? 'Tournament Standings' : group.name}
                     <Badge variant="secondary">{memberCount} teams</Badge>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
+                  {group.leagueTable ? (
+                    renderStandingsTable(groupRows, {
+                      groupGames,
+                      showH2h: true,
+                    })
+                  ) : (
                   <Tabs defaultValue="standings" className="group-standings-tabs">
                     <TabsList className="group-standings-tabs-list">
                       <TabsTrigger value="standings">Standings</TabsTrigger>
@@ -1109,6 +1116,7 @@ export function TournamentPage({
                       )}
                     </TabsContent>
                   </Tabs>
+                  )}
                 </CardContent>
               </Card>
             );
@@ -1267,6 +1275,7 @@ export function TournamentPage({
       }
       if (fixture.groupId) {
         const group = stage.groups?.find((g) => g.id === fixture.groupId);
+        if (group?.leagueTable) return 'Tournament Standings';
         return group ? `${stage.name} · ${group.name}` : stage.name;
       }
       return stage.name;
@@ -1854,9 +1863,10 @@ export function TournamentPage({
           </DialogHeader>
           <Tabs
             value={editTournamentPane}
-            onValueChange={(v) =>
-              setEditTournamentPane(v as 'details' | 'structure')
-            }
+            onValueChange={(v) => {
+              setEditTournamentPane(v as 'details' | 'structure');
+              setStructureSavedNotice(false);
+            }}
           >
             <TabsList className="flex w-full flex-wrap h-auto gap-1 justify-start">
               <TabsTrigger value="details">Details</TabsTrigger>
@@ -1868,6 +1878,8 @@ export function TournamentPage({
               )}
               <TournamentForm
                 key={tournament.id}
+                formId="edit-tournament-form"
+                hideActions
                 initialData={{
                   name: tournament.name,
                   description: tournament.description || '',
@@ -1971,6 +1983,45 @@ export function TournamentPage({
               />
             </TabsContent>
           </Tabs>
+          <div className="tournament-form-actions shrink-0">
+            {editTournamentPane === 'details' ? (
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleTournamentFormCancel}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" form="edit-tournament-form">
+                  Save
+                </Button>
+              </>
+            ) : (
+              <>
+                {structureSavedNotice ? (
+                  <span className="text-sm text-muted-foreground mr-auto">
+                    Saved
+                  </span>
+                ) : null}
+                <Button
+                  type="button"
+                  onClick={() => {
+                    onUpdateTournament({
+                      id: tournament.id,
+                      patch: (prev) => ({
+                        ...prev,
+                        structure: normalizeTournamentStructure(prev.structure),
+                      }),
+                    });
+                    setStructureSavedNotice(true);
+                  }}
+                >
+                  Save
+                </Button>
+              </>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

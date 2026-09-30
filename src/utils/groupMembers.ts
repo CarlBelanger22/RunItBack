@@ -65,7 +65,9 @@ export function seedSourceStage(
   return rr[idx - 1];
 }
 
-function groupLetter(group: TournamentGroup): string | null {
+/** Letter used in seed codes. A league table is always L (L1 = 1st). */
+export function seedLetterForGroup(group: TournamentGroup): string | null {
+  if (group.leagueTable) return 'L';
   const fromName = group.name.match(/\b([A-Z])\b/i)?.[1];
   if (fromName) return fromName.toUpperCase();
   const fromId = group.id.match(/(?:^|[-_])([a-z])(?:$|[-_])/i)?.[1];
@@ -76,7 +78,7 @@ function groupLetter(group: TournamentGroup): string | null {
 export function availableSeedCodesForStage(stage: TournamentStage): string[] {
   const codes: string[] = [];
   for (const group of stage.groups ?? []) {
-    const letter = groupLetter(group);
+    const letter = seedLetterForGroup(group);
     if (!letter) continue;
     const count = Math.max(group.teamIds.length, group.seedLabels?.length ?? 0, 1);
     for (let place = 1; place <= count; place += 1) {

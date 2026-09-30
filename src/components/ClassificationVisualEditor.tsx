@@ -18,6 +18,7 @@ import {
   buildEightTeamBracket,
   buildFourTeamBracket,
   buildLast16Bracket,
+  buildLeagueTop8Bracket,
   buildTwelveTeamBracket,
 } from '../utils/fourTeamBracket';
 import {
@@ -139,7 +140,7 @@ export function ClassificationVisualEditor({
   const [linkOpen, setLinkOpen] = useState(false);
   const [selectedGameId, setSelectedGameId] = useState('');
   const [pendingTemplate, setPendingTemplate] = useState<
-    'four' | 'eight' | 'twelve' | 'sixteen' | null
+    'four' | 'eight' | 'league' | 'twelve' | 'sixteen' | null
   >(null);
 
   const classificationStages = useMemo(
@@ -217,22 +218,28 @@ export function ClassificationVisualEditor({
     );
   };
 
-  const applyTemplate = (kind: 'four' | 'eight' | 'twelve' | 'sixteen') => {
+  const applyTemplate = (
+    kind: 'four' | 'eight' | 'league' | 'twelve' | 'sixteen'
+  ) => {
     if (!activeStage) return;
     const rounds =
       kind === 'sixteen'
         ? buildLast16Bracket(activeStage.id).rounds
         : kind === 'twelve'
           ? buildTwelveTeamBracket(activeStage.id).rounds
-          : kind === 'eight'
-            ? buildEightTeamBracket(activeStage.id).rounds
-            : buildFourTeamBracket(activeStage.id).rounds;
+          : kind === 'league'
+            ? buildLeagueTop8Bracket(activeStage.id).rounds
+            : kind === 'eight'
+              ? buildEightTeamBracket(activeStage.id).rounds
+              : buildFourTeamBracket(activeStage.id).rounds;
     updateActiveRounds(rounds);
     setSelectedSlotId(null);
     setPendingTemplate(null);
   };
 
-  const requestTemplate = (kind: 'four' | 'eight' | 'twelve' | 'sixteen') => {
+  const requestTemplate = (
+    kind: 'four' | 'eight' | 'league' | 'twelve' | 'sixteen'
+  ) => {
     if (!activeStage) return;
     const hasMatches = (activeStage.bracket?.rounds ?? []).some(
       (r) => r.slots.length > 0
@@ -341,6 +348,9 @@ export function ClassificationVisualEditor({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => requestTemplate('eight')}>
             8-Team
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => requestTemplate('league')}>
+            League top 8
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => requestTemplate('twelve')}>
             12-Team
@@ -596,9 +606,11 @@ export function ClassificationVisualEditor({
                 ? '16-Team'
                 : pendingTemplate === 'twelve'
                   ? '12-Team'
-                  : pendingTemplate === 'eight'
-                    ? '8-Team'
-                    : '4-Team'}{' '}
+                  : pendingTemplate === 'league'
+                    ? 'League top 8'
+                    : pendingTemplate === 'eight'
+                      ? '8-Team'
+                      : '4-Team'}{' '}
               will replace
               the current matches on this stage (linked games on slots will be
               cleared from the tree).

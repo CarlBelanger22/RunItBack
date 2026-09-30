@@ -23,7 +23,10 @@ import {
   canBuildIubit2026Structure,
   applyIubitClassificationDisplayNames,
 } from '../utils/iubit2026Structure';
-import { buildEmptyClassificationBracket } from '../utils/fourTeamBracket';
+import {
+  buildEmptyClassificationBracket,
+  buildLeagueTop8Bracket,
+} from '../utils/fourTeamBracket';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -166,6 +169,52 @@ export function TournamentStructureEditor({
       const prevStages = prevStructure?.stages ?? [];
       const nextStages = withReindexedOrders(updater(prevStages));
       return nextStages.length > 0 ? { stages: nextStages } : undefined;
+    });
+  };
+
+  const addLeagueTop8 = () => {
+    persist((prevStructure) => {
+      const stages = [...(prevStructure?.stages ?? [])];
+      const league = stages.find((stage) =>
+        stage.groups?.some((group) => group.leagueTable)
+      );
+      if (!league) {
+        stages.push({
+          id: newStructureId('stage'),
+          name: 'Tournament Standings',
+          kind: 'round_robin',
+          order: stages.length + 1,
+          groups: [
+            {
+              id: newStructureId('group'),
+              name: 'Tournament Standings',
+              teamIds: teams.map((team) => team.id),
+              leagueTable: true,
+            },
+          ],
+        });
+      }
+      const hasTop8 = stages.some((stage) =>
+        stage.bracket?.rounds.some((round) =>
+          round.slots.some(
+            (slot) => slot.homeSeedLabel === 'L1' && slot.awaySeedLabel === 'L8'
+          )
+        )
+      );
+      if (!hasTop8) {
+        const stageId = newStructureId('stage');
+        stages.push({
+          id: stageId,
+          name: 'Knockout',
+          kind: 'classification',
+          order: stages.length + 1,
+          bracket: { rounds: buildLeagueTop8Bracket(stageId).rounds },
+        });
+      }
+      return {
+        ...(prevStructure ?? { stages: [] }),
+        stages: withReindexedOrders(stages),
+      };
     });
   };
 
@@ -381,13 +430,18 @@ export function TournamentStructureEditor({
           <p className="text-sm text-muted-foreground">
             Optional stages and groups. Leave empty for a single overall
             standings table. Classification brackets appear on Standings (view)
-            once slots are set up and games are linked here.
+            once slots are set up and games are linked here. League, top 8 adds
+            one league table and a knockout (1st vs 8th, 4th vs 5th, 2nd vs 7th,
+            3rd vs 6th). Places stay blank until you finalize.
           </p>
 
           {!hasStructure ? (
             <div className="flex flex-wrap gap-2">
               <Button type="button" onClick={enableEmpty}>
                 Enable structure
+              </Button>
+              <Button type="button" variant="outline" onClick={addLeagueTop8}>
+                League, top 8
               </Button>
               {canApplyGroupDraw && (
                 <Button type="button" variant="secondary" onClick={applyIubit}>
@@ -500,6 +554,9 @@ export function TournamentStructureEditor({
               <Button type="button" onClick={addStage}>
                 <Plus className="h-4 w-4 mr-1" />
                 Add
+              </Button>
+              <Button type="button" variant="outline" onClick={addLeagueTop8}>
+                League, top 8
               </Button>
             </CardContent>
           </Card>

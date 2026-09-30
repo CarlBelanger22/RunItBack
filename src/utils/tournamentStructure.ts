@@ -17,6 +17,11 @@ export interface TournamentGroup {
   seedFromStageId?: string;
   /** LE-147 — Scheduled seed-vs-seed fixtures for Matches tab before games exist. */
   seedMatchups?: GroupSeedMatchup[];
+  /**
+   * Single league table. Places are L1, L2, … (shown as 1st, 2nd).
+   * Every meeting counts; a later game is not dropped as a rematch.
+   */
+  leagueTable?: boolean;
 }
 
 /** One scheduled RR leg in a seed-based group (e.g. A3 vs B4 on 28 Sep). */
@@ -160,6 +165,7 @@ function normalizeGroup(raw: unknown): TournamentGroup | null {
         .filter((m): m is GroupSeedMatchup => m != null)
     : [];
   if (seedMatchups.length > 0) group.seedMatchups = seedMatchups;
+  if (row.leagueTable === true) group.leagueTable = true;
   return group;
 }
 

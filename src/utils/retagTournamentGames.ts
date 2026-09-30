@@ -224,6 +224,7 @@ export function retagTournamentGames(
       if (homeGroup) {
         const earliestId = earliestByPairByStage.get(rrStage.id)?.get(pairKey);
         const isRematch =
+          !homeGroup.leagueTable &&
           rrStage.id === primaryRr.id &&
           earliestId != null &&
           game.id !== earliestId;
@@ -304,6 +305,7 @@ export function describeGameStageTag(
   if (!stage) return null;
   if (game.groupId) {
     const group = stage.groups?.find((g) => g.id === game.groupId);
+    if (group?.leagueTable) return 'Tournament Standings';
     return group ? `${stage.name} · ${group.name}` : stage.name;
   }
   return stage.name;

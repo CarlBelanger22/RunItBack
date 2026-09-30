@@ -34,4 +34,23 @@ export function parseSeedMatchupLabel(
   return [a, b];
 }
 
+/** L1 → "1st". Other codes, including A1, stay as written. */
+export function displaySeedLabel(raw: string): string {
+  const code = normalizeSeedCode(raw);
+  if (!code || !code.startsWith('L')) return raw.trim();
+  const place = Number(code.slice(1));
+  const teen = place % 100;
+  const suffix =
+    teen >= 11 && teen <= 13
+      ? 'th'
+      : place % 10 === 1
+        ? 'st'
+        : place % 10 === 2
+          ? 'nd'
+          : place % 10 === 3
+            ? 'rd'
+            : 'th';
+  return `${place}${suffix}`;
+}
+
 export { SEED_MAX_PLACE };

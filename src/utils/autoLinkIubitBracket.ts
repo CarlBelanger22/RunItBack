@@ -23,6 +23,7 @@ import type {
 } from './tournamentStructure';
 import { normalizeTournamentStructure } from './tournamentStructure';
 import { normalizeSeedCode, parseSeedMatchupLabel } from './seedCodes';
+import { seedLetterForGroup } from './groupMembers';
 
 export interface AutoLinkReport {
   linked: number;
@@ -61,13 +62,6 @@ function gameHasTeams(game: Game, a: string, b: string): boolean {
   return ids.has(a) && ids.has(b);
 }
 
-function groupLetter(group: TournamentGroup): string | null {
-  const fromName = group.name.match(/\b([A-Z])\b/i)?.[1];
-  if (fromName) return fromName.toUpperCase();
-  const fromId = group.id.match(/(?:^|[-_])([a-z])(?:$|[-_])/i)?.[1];
-  return fromId ? fromId.toUpperCase() : null;
-}
-
 /** Map "A1" / "A10" → teamId from group finish places. */
 export function resolveSeedTeamId(
   code: string,
@@ -78,7 +72,7 @@ export function resolveSeedTeamId(
   if (!normalized) return null;
   const letter = normalized[0];
   const place = Number(normalized.slice(1));
-  const group = groups.find((g) => groupLetter(g) === letter);
+  const group = groups.find((g) => seedLetterForGroup(g) === letter);
   if (!group) return null;
   for (const teamId of group.teamIds) {
     if (placesByTeam.get(teamId) === place) return teamId;

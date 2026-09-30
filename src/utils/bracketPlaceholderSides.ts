@@ -3,6 +3,7 @@
  */
 
 import type { BracketRound, BracketSlot } from './tournamentStructure';
+import { displaySeedLabel } from './seedCodes';
 
 export function parseSeedSides(label: string | undefined): [string, string] | null {
   if (!label) return null;
@@ -46,6 +47,7 @@ export function bracketFixtureStageTag(
   if (clarified !== label) return clarified;
   if (/^final$/i.test(label)) return 'Final';
   if (/place$/i.test(label)) return label;
+  if (/ vs /i.test(label)) return label;
   return `${stageName} · ${label}`;
 }
 
@@ -73,8 +75,8 @@ export function bracketPlaceholderSides(
 
   if (homeSeed || awaySeed || homeFeeder || awayFeeder) {
     return [
-      homeSeed || homeFeeder || 'TBD',
-      awaySeed || awayFeeder || 'TBD',
+      homeSeed ? displaySeedLabel(homeSeed) : homeFeeder || 'TBD',
+      awaySeed ? displaySeedLabel(awaySeed) : awayFeeder || 'TBD',
     ];
   }
 

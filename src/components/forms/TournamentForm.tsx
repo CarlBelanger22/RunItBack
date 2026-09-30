@@ -31,6 +31,8 @@ interface TournamentFormProps {
   }) => void;
   onCancel: () => void;
   isEditing?: boolean;
+  formId?: string;
+  hideActions?: boolean;
 }
 
 function teamMatchesQuery(team: Team, query: string): boolean {
@@ -48,7 +50,9 @@ export const TournamentForm = React.memo(({
   teams,
   onSubmit,
   onCancel,
-  isEditing = false
+  isEditing = false,
+  formId,
+  hideActions = false,
 }: TournamentFormProps) => {
   const nameRef = useRef<HTMLInputElement>(null);
   const descriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -117,7 +121,7 @@ export const TournamentForm = React.memo(({
   }, [onSubmit, month, selectedTeams, icon]);
 
   return (
-    <form onSubmit={handleSubmit} className="tournament-form" onKeyDown={(e) => {
+    <form id={formId} onSubmit={handleSubmit} className="tournament-form" onKeyDown={(e) => {
       if (e.key === 'Enter' && (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
         e.preventDefault();
       }
@@ -275,6 +279,7 @@ export const TournamentForm = React.memo(({
         )}
       </div>
 
+      {hideActions ? null : (
       <div className="tournament-form-actions">
         <Button
           type="button"
@@ -284,9 +289,10 @@ export const TournamentForm = React.memo(({
           Cancel
         </Button>
         <Button type="submit">
-          {isEditing ? 'Update Tournament' : 'Create Tournament'}
+          {isEditing ? 'Save' : 'Create Tournament'}
         </Button>
       </div>
+      )}
     </form>
   );
 });

@@ -10,6 +10,7 @@ import { pickGameForMatchup } from './matchupGamePick';
 import { computeGroupFinishPlaces, retagTournamentGames } from './retagTournamentGames';
 import {
   roundRobinStages,
+  seedLetterForGroup,
   syncSeedGroupsFromSnapshot,
 } from './groupMembers';
 import type {
@@ -34,13 +35,6 @@ export interface FinalizeSeedingsResult {
   structure: TournamentStructure;
   games: Game[];
   report: FinalizeSeedingsReport;
-}
-
-function groupLetter(group: TournamentGroup): string | null {
-  const fromName = group.name.match(/\b([A-Z])\b/i)?.[1];
-  if (fromName) return fromName.toUpperCase();
-  const fromId = group.id.match(/(?:^|[-_])([a-z])(?:$|[-_])/i)?.[1];
-  return fromId ? fromId.toUpperCase() : null;
 }
 
 function parseSeedMatchup(label: string | undefined): [string, string] | null {
@@ -74,7 +68,7 @@ export function buildSeedSnapshot(
   if (!rr) return {};
   const snap: Record<string, string> = {};
   for (const group of rr.groups ?? []) {
-    const letter = groupLetter(group);
+    const letter = seedLetterForGroup(group);
     if (!letter) continue;
     const places = computeGroupFinishPlaces(group, tournamentGames, structure);
     for (const [teamId, place] of places) {

@@ -5099,10 +5099,24 @@ html {
   width: min(96vw, 56rem) !important;
   max-width: min(96vw, 56rem) !important;
   max-height: min(85vh, 56rem) !important;
-  overflow-x: hidden !important;
-  overflow-y: auto !important;
+  overflow: hidden !important;
   min-width: 0 !important;
   box-sizing: border-box !important;
+}
+
+.tournament-edit-dialog [data-slot="tabs"] {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.tournament-edit-dialog [data-slot="tabs-content"] {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .tournament-edit-dialog > * {

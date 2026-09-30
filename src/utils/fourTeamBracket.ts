@@ -101,6 +101,65 @@ export function buildFourTeamBracket(stageId: string): {
 }
 
 /**
+ * League top 8. Places are L1…L8 (shown as 1st…8th).
+ * 1st and 2nd are in opposite halves so they meet only in the final.
+ * 9th and below are not given a match.
+ */
+export function buildLeagueTop8Bracket(stageId: string): {
+  rounds: BracketRound[];
+} {
+  const qf1 = `${stageId}-qf-1-8`;
+  const qf2 = `${stageId}-qf-4-5`;
+  const qf3 = `${stageId}-qf-2-7`;
+  const qf4 = `${stageId}-qf-3-6`;
+  const sf12 = `${stageId}-sf-1`;
+  const sf34 = `${stageId}-sf-2`;
+
+  return {
+    rounds: [
+      round(`${stageId}-r-qf`, 'Quarter-finals', [
+        seedMatch(qf1, '1st vs 8th', 'L1', 'L8'),
+        seedMatch(qf2, '4th vs 5th', 'L4', 'L5'),
+        seedMatch(qf3, '2nd vs 7th', 'L2', 'L7'),
+        seedMatch(qf4, '3rd vs 6th', 'L3', 'L6'),
+      ]),
+      round(`${stageId}-r-sf`, 'Semis', [
+        slot(sf12, 'SF1', {
+          homeFromSlotId: qf1,
+          awayFromSlotId: qf2,
+          homeFromOutcome: 'winner',
+          awayFromOutcome: 'winner',
+        }),
+        slot(sf34, 'SF2', {
+          homeFromSlotId: qf3,
+          awayFromSlotId: qf4,
+          homeFromOutcome: 'winner',
+          awayFromOutcome: 'winner',
+        }),
+      ]),
+      round(`${stageId}-r-finals`, 'Finals', [
+        slot(`${stageId}-final`, 'Final', {
+          homeFromSlotId: sf12,
+          awayFromSlotId: sf34,
+          homeFromOutcome: 'winner',
+          awayFromOutcome: 'winner',
+          winnerPlace: 1,
+          loserPlace: 2,
+        }),
+        slot(`${stageId}-3rd`, '3rd Place', {
+          homeFromSlotId: sf12,
+          awayFromSlotId: sf34,
+          homeFromOutcome: 'loser',
+          awayFromOutcome: 'loser',
+          winnerPlace: 3,
+          loserPlace: 4,
+        }),
+      ]),
+    ],
+  };
+}
+
+/**
  * 8-Team bracket: 4 Quarters → 2 Semis → Final + 3rd (places 1–4).
  * Default QF seeds: A1 vs C2, D1 vs B2, C1 vs A2, B1 vs D2.
  */

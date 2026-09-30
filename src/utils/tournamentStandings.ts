@@ -352,6 +352,22 @@ export function withExtendedShootingStats(
   });
 }
 
+function groupIdStillExists(
+  structure: TournamentStructure | undefined,
+  groupId: string
+): boolean {
+  return (structure?.stages ?? []).some((stage) =>
+    (stage.groups ?? []).some((group) => group.id === groupId)
+  );
+}
+
+function stageIdStillExists(
+  structure: TournamentStructure | undefined,
+  stageId: string
+): boolean {
+  return (structure?.stages ?? []).some((stage) => stage.id === stageId);
+}
+
 /** Games that count for a group's standings (tagged groupId, else both teams in group). */
 export function filterGamesForGroup(
   games: Game[],
@@ -365,12 +381,21 @@ export function filterGamesForGroup(
   const eligible = games.filter((game) => {
     if (isExcludedFromGroupRoundRobin(game, structure, linkedIds)) return false;
     if (game.groupId === group.id) return true;
-    if (game.groupId) return false;
-    if (groupStageId && game.stageId && game.stageId !== groupStageId) {
+    // A tag for a group or stage that was deleted is not a reason to drop the result.
+    if (game.groupId && groupIdStillExists(structure, game.groupId)) return false;
+    if (
+      groupStageId &&
+      game.stageId &&
+      game.stageId !== groupStageId &&
+      stageIdStillExists(structure, game.stageId)
+    ) {
       return false;
     }
     return members.has(game.homeTeamId) && members.has(game.awayTeamId);
   });
+
+  // A league table counts every meeting. Group RR keeps the earliest only.
+  if (group.leagueTable) return eligible;
 
   // LE-116: same pair met twice → only the earliest counts as RR
   return eligible.filter((game) => {
