@@ -5,7 +5,12 @@ import { Label } from '../ui/label';
 import { Switch } from '../ui/switch';
 import type { LiveEntryAction, LiveEntryPhase, PendingShot } from '../../liveEntry/liveEntryStateMachine';
 import type { FoulCommitParams } from '../../liveEntry/foulFlow';
-import { ftCountOptionsForCategory, shouldSkipChargeDrawer, resolveFoulFtAward } from '../../liveEntry/foulFlow';
+import {
+  ftCountOptionsForCategory,
+  shouldSkipChargeDrawer,
+  resolveFoulFtAward,
+  OFFENSIVE_FOUL_NO_BONUS_FT_NOTE,
+} from '../../liveEntry/foulFlow';
 import { shouldShowBonusFtPrompt } from '../../liveEntry/periodTeamFouls';
 import type { Game } from '../../App';
 import { LiveCourtOverlayShell, overlayClick } from './LiveCourtOverlayShell';
@@ -574,6 +579,11 @@ export function LiveCourtFlowOverlays({
               <CardTitle className="text-center text-base">
                 {isOffensive ? 'Opponent offensive foul' : 'Opponent foul'}
               </CardTitle>
+              {isOffensive ? (
+                <p className="text-center text-xs text-muted-foreground">
+                  {OFFENSIVE_FOUL_NO_BONUS_FT_NOTE}
+                </p>
+              ) : null}
             </CardHeader>
             <CardContent className="space-y-2 pb-4">
               <Button
@@ -619,7 +629,7 @@ export function LiveCourtFlowOverlays({
           <CardHeader className="pb-2 pt-4">
             <CardTitle className="text-center text-base">Offensive foul</CardTitle>
             <p className="text-center text-xs text-muted-foreground">
-              No free throws — possession to Opp
+              {OFFENSIVE_FOUL_NO_BONUS_FT_NOTE}
             </p>
           </CardHeader>
           <CardContent className="space-y-2 pb-4">

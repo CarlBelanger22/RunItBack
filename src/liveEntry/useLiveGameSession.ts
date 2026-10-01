@@ -31,7 +31,7 @@ import {
 import { derivePossessionSnapshot } from './possessionEngine';
 import { gameNeedsOpeningJumpBall, hasOpeningTipBeenRecorded, opponentTeamId, applyResolvedPossessionArrow } from './possessionArrow';
 import type { FoulCommitParams } from './foulFlow';
-import { foulFtAwardIncomplete } from './foulFlow';
+import { awardedFreeThrowsForFoul, foulFtAwardIncomplete } from './foulFlow';
 import {
   deriveReboundTeamsForMissedShot,
   resolveReboundTeams,
@@ -416,6 +416,7 @@ export function useLiveGameSession(
 
       const game = currentGameRef.current;
       const offendedTeamId = params.offendedTeamId ?? offenseTeamId;
+      const ftCount = awardedFreeThrowsForFoul(params.foulCategory, params.ftCount);
       const event = buildFoulEvent(game, {
         foulingTeamId: params.foulingTeamId,
         committerId: params.committerId,
@@ -432,7 +433,7 @@ export function useLiveGameSession(
       const g = GameLogic.recordEvent(game, event);
       syncGame(g);
 
-      if (params.ftCount > 0 && (params.ftShooterId || params.ftShootingTeamId)) {
+      if (ftCount > 0 && (params.ftShooterId || params.ftShootingTeamId)) {
         const shooterTeam = params.ftShooterId
           ? teamIdForPlayer(g, params.ftShooterId) ??
             (g.homeTeam.players.some((p) => p.id === params.ftShooterId)
@@ -450,7 +451,7 @@ export function useLiveGameSession(
           type: 'START_FT',
           playerId: params.ftShooterId,
           shootingTeamId: shooterTeam,
-          ftTotal: params.ftCount,
+          ftTotal: ftCount,
           retainPossession,
           offendedTeamId,
           possessionTeamAfterFt,

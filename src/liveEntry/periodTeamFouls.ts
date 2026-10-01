@@ -6,23 +6,59 @@ import type { Tournament } from '../App';
 /** FIBA-style: team enters bonus on the 5th counting foul in the period. */
 export const PERIOD_BONUS_TEAM_FOUL_THRESHOLD = 5;
 
-/**
- * Fouls that fill the live scoreboard PF dots / period bonus (locked: personal +
- * unsportsmanlike). Technicial / offensive / double are excluded from this count.
- */
-export function foulEventCountsTowardPeriodBonus(
-  event: Pick<GameEvent, 'type' | 'details'>
-): boolean {
-  if (event.type !== 'foul') return false;
+function foulCategoryOnEvent(event: Pick<GameEvent, 'details'>): string {
+  if (event.details?.isOffensiveFoul === true) return 'offensive';
   const category =
     (typeof event.details?.foulCategory === 'string'
       ? event.details.foulCategory
       : undefined) ??
     (typeof event.details?.foulType === 'string' ? event.details.foulType : undefined) ??
     'personal';
-  return category === 'personal' || category === 'unsportsmanlike';
+  if (category === 'normal') return 'personal';
+  return category;
 }
 
+/** Coach and bench technicals are charged to the coach and are not team fouls. */
+function isBenchTechnical(
+  event: Pick<GameEvent, 'details'>,
+  category: string
+): boolean {
+  if (category !== 'technical') return false;
+  return event.details?.isCoachFoul === true || event.details?.isTeamFoul === true;
+}
+
+/**
+ * Scoreboard dots for this quarter. Personal, unsportsmanlike, offensive,
+ * player technical, and both sides of a double foul count. A bench or coach
+ * technical does not.
+ */
+export function foulEventCountsForPeriodTeam(
+  event: Pick<GameEvent, 'type' | 'teamId' | 'details'>,
+  teamId: string
+): boolean {
+  if (event.type !== 'foul') return false;
+  const category = foulCategoryOnEvent(event);
+  if (isBenchTechnical(event, category)) return false;
+  const counts =
+    category === 'personal' ||
+    category === 'unsportsmanlike' ||
+    category === 'offensive' ||
+    category === 'technical' ||
+    category === 'double';
+  if (!counts) return false;
+  if (event.teamId === teamId) return true;
+  return (
+    category === 'double' &&
+    event.details?.doublePartnerTeamId === teamId &&
+    event.teamId !== teamId
+  );
+}
+
+/**
+ * The bonus hint (suggest 2 free throws) is only for a personal or
+ * unsportsmanlike foul. An offensive foul still fills a dot and never
+ * suggests free throws, even when the team is already in the bonus.
+ */
 export function foulCategoryCountsTowardPeriodBonus(
   category: FoulCategory | string | undefined
 ): boolean {
@@ -37,10 +73,7 @@ export function countPeriodTeamFoulsTowardBonus(
   period: number
 ): number {
   return game.events.filter(
-    (e) =>
-      e.period === period &&
-      e.teamId === teamId &&
-      foulEventCountsTowardPeriodBonus(e)
+    (e) => e.period === period && foulEventCountsForPeriodTeam(e, teamId)
   ).length;
 }
 
@@ -58,6 +91,13 @@ export function shouldShowBonusFtPrompt(params: {
   and1Active?: boolean;
 }): boolean {
   if (!params.bonusEnabled || params.and1Active) return false;
+  // Offensive and double fouls fill the dots and still award no free throws.
+  if (
+    params.foulCategory === 'offensive' ||
+    params.foulCategory === 'double'
+  ) {
+    return false;
+  }
   if (!foulCategoryCountsTowardPeriodBonus(params.foulCategory)) return false;
   const prior = countPeriodTeamFoulsTowardBonus(
     params.game,

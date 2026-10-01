@@ -54,6 +54,21 @@ export function ftCountOptionsForCategory(category: FoulCategory): number[] {
 }
 
 /**
+ * An offensive foul is a team foul, and it is still a throw-in. Do not award
+ * free throws when the team is already in the bonus. A double foul is the same.
+ */
+export function awardedFreeThrowsForFoul(
+  category: FoulCategory | string | undefined,
+  requested: number
+): number {
+  if (category === 'offensive' || category === 'double') return 0;
+  return requested;
+}
+
+export const OFFENSIVE_FOUL_NO_BONUS_FT_NOTE =
+  'Counts as a team foul. Do not award free throws, even in the bonus.';
+
+/**
  * Single-team: Opp has no roster — skip fouled-player pick when home commits
  * a personal or unsportsmanlike foul (Opp team FTs instead).
  */

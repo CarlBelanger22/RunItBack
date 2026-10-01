@@ -64,7 +64,12 @@ import {
 import { isPeriodBonusFtEnabledForGame } from '../../liveEntry/periodTeamFouls';
 import { resolveGameMetaLabel } from '../../utils/friendlyGame';
 import { resolveSideScore } from '../../utils/gameDisplay';
-import { shouldSkipFoulRecipient, shouldSkipTechShooterPick, shouldSkipChargeDrawer } from '../../liveEntry/foulFlow';
+import {
+  shouldSkipFoulRecipient,
+  shouldSkipTechShooterPick,
+  shouldSkipChargeDrawer,
+  OFFENSIVE_FOUL_NO_BONUS_FT_NOTE,
+} from '../../liveEntry/foulFlow';
 
 interface LiveGameWorkspaceProps {
   game: Game;
@@ -295,7 +300,7 @@ function resolveColumnPick(
     return {
       side: teamSide(game, foulingTeamId),
       hint: isOffensive
-        ? 'Offensive foul — select player'
+        ? `Offensive foul — select player. ${OFFENSIVE_FOUL_NO_BONUS_FT_NOTE}`
         : handlers.and1OppTeamFt
           ? 'And-1 foul — select home player'
           : 'Foul committed by',
@@ -373,7 +378,7 @@ function resolveColumnPick(
     }
     return {
       side: teamSide(game, drawerTeamId),
-      hint: 'Foul drawn by (defender)',
+      hint: `Foul drawn by (defender). ${OFFENSIVE_FOUL_NO_BONUS_FT_NOTE}`,
       onSelect: (p) => {
         commitFoul({
           foulingTeamId: committerTeamId,
