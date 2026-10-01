@@ -5,6 +5,7 @@
 import type { Game, Team } from '../App';
 import { resolveSeedTeamId } from './autoLinkIubitBracket';
 import { linkGameToBracketSlot } from './bracketGameLink';
+import { ensureScheduledFixtureGames } from './ensureScheduledFixtureGames';
 import { autoLinkBracketByResolvedTeams } from './resolveBracketFeeders';
 import { pickGameForMatchup } from './matchupGamePick';
 import { computeGroupFinishPlaces, retagTournamentGames } from './retagTournamentGames';
@@ -298,6 +299,18 @@ export function finalizeGroupSeedings(
     groupStageLocked: true,
     seedSnapshot: snapshot,
   };
+
+  const scheduled = ensureScheduledFixtureGames(
+    nextStructure,
+    nextGames,
+    tournamentId,
+    _teams
+  );
+  nextStructure = scheduled.structure;
+  nextGames = scheduled.games;
+  for (const line of scheduled.report.details) {
+    report.details.push(line);
+  }
 
   report.details.unshift(
     `Locked ${report.seeds} seeds: ${Object.keys(snapshot).sort().join(', ')}`

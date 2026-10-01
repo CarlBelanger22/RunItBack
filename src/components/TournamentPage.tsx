@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -99,6 +99,7 @@ import {
   sortGamesTabEntries,
 } from '../utils/groupMatchRows';
 import { buildBracketFixtureRows } from '../utils/bracketFixtureRows';
+import { ensureScheduledFixtureGames } from '../utils/ensureScheduledFixtureGames';
 import { bracketFixtureStageTag } from '../utils/bracketPlaceholderSides';
 interface TournamentPageProps {
   tournament: Tournament;
@@ -148,6 +149,22 @@ export function TournamentPage({
   // Teams/games derived from games table (tournamentId) with enrollment fallback
   const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
   const tournamentGames = filterGamesForTournament(tournament, games);
+
+  useEffect(() => {
+    if (!canEditLeague) return;
+    const result = ensureScheduledFixtureGames(
+      tournament.structure,
+      games,
+      tournament.id,
+      teams
+    );
+    if (result.report.created === 0 && result.report.linked === 0) return;
+    onUpdateTournament({
+      id: tournament.id,
+      patch: (prev) => ({ ...prev, structure: result.structure }),
+    });
+    onGamesUpdate(result.games);
+  }, [canEditLeague, games, onGamesUpdate, onUpdateTournament, teams, tournament]);
   
   // Home + unstructured Standings: RR/group games only when structure exists
   // (exclude KO so Home matches Group standings — LE-131).

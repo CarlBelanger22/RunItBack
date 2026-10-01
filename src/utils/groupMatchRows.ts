@@ -161,9 +161,17 @@ export function buildGroupMatchRows(
   const rows: GroupMatchRow[] = [];
 
   for (const matchup of scheduled) {
-    const game = groupGames.find(
+    // A later placing date is not the group's earliest meeting, so it is
+    // absent from standings. Still attach that scheduled game so the
+    // fixture card does not sit beside the new Track stats row.
+    const direct = allGames.find(
       (g) => !usedGameIds.has(g.id) && matchGameToSeedMatchup(g, matchup, snap)
     );
+    const game =
+      direct ??
+      groupGames.find(
+        (g) => !usedGameIds.has(g.id) && matchGameToSeedMatchup(g, matchup, snap)
+      );
     if (game) {
       usedGameIds.add(game.id);
       rows.push(
