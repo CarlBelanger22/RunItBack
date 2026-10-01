@@ -1,5 +1,6 @@
 import type { Game, GameEvent } from '../App';
 import type { FoulCategory } from './foulFlow';
+import { defaultClockForTournament, type GameClockSettings } from '../utils/gameClock';
 import { getTournamentGameFormat } from '../utils/gameFormat';
 import type { Tournament } from '../App';
 
@@ -66,14 +67,41 @@ export function foulCategoryCountsTowardPeriodBonus(
   return cat === 'personal' || cat === 'unsportsmanlike';
 }
 
+function regulationPeriodsOf(game: {
+  tournamentId?: string;
+  clockSettings?: GameClockSettings;
+}): number {
+  const stored = game.clockSettings?.regulationPeriods;
+  if (typeof stored === 'number' && stored > 0) return stored;
+  return defaultClockForTournament(game.tournamentId).regulationPeriods;
+}
+
+/**
+ * Regulation quarters each have their own team-foul count. Overtime does not.
+ * Every overtime shares the last regulation period (the fourth quarter in 5v5).
+ */
+export function eventFallsInTeamFoulPeriod(
+  eventPeriod: number,
+  period: number,
+  regulationPeriods: number
+): boolean {
+  if (period > regulationPeriods) {
+    return eventPeriod >= regulationPeriods && eventPeriod <= period;
+  }
+  return eventPeriod === period;
+}
+
 /** Period team fouls already on the event log (scoreboard dots / bonus). */
 export function countPeriodTeamFoulsTowardBonus(
-  game: Pick<Game, 'events'>,
+  game: Pick<Game, 'events' | 'tournamentId' | 'clockSettings'>,
   teamId: string,
   period: number
 ): number {
+  const regulationPeriods = regulationPeriodsOf(game);
   return game.events.filter(
-    (e) => e.period === period && foulEventCountsForPeriodTeam(e, teamId)
+    (e) =>
+      eventFallsInTeamFoulPeriod(e.period, period, regulationPeriods) &&
+      foulEventCountsForPeriodTeam(e, teamId)
   ).length;
 }
 
@@ -82,7 +110,7 @@ export function countPeriodTeamFoulsTowardBonus(
  * Pending foul is not on the log yet — include it when it counts.
  */
 export function shouldShowBonusFtPrompt(params: {
-  game: Pick<Game, 'events' | 'currentPeriod' | 'tournamentId'>;
+  game: Pick<Game, 'events' | 'currentPeriod' | 'tournamentId' | 'clockSettings'>;
   foulingTeamId: string;
   foulCategory: FoulCategory | string | undefined;
   /** 5v5 only; false for 3×3. */
