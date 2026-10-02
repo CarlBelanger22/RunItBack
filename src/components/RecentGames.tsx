@@ -12,6 +12,7 @@ import {
   isOrphanedIncompleteGame,
 } from '../utils/activeGame';
 import { resolveTeamScore, sortGamesByDateDesc } from '../utils/gameDisplay';
+import { completedGameStatusLabel } from '../utils/gameClock';
 import { resolveGameListLabel } from '../utils/friendlyGame';
 import {
   AlertDialog,
@@ -212,7 +213,7 @@ export function RecentGames({
                         {game.isCompleted && (
                           <>
                             <span>•</span>
-                            <Badge variant="outline" className="text-xs">Final</Badge>
+                            <Badge variant="outline" className="text-xs">{completedGameStatusLabel(game)}</Badge>
                           </>
                         )}
                       </div>

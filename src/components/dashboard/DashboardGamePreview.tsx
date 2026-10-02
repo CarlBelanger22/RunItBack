@@ -5,6 +5,7 @@ import type { Game, Team } from '../../App';
 import { resolveTeamScore } from '../../utils/gameDisplay';
 import { resolveGameTeam } from '../../utils/gameTeams';
 import { resolveGameListLabel } from '../../utils/friendlyGame';
+import { completedGameStatusLabel } from '../../utils/gameClock';
 
 interface DashboardGamePreviewProps {
   game: Game;
@@ -45,7 +46,7 @@ export function DashboardGamePreview({
           {classification && <p className="mt-0.5">{classification}</p>}
         </div>
         <Badge variant="outline" className="text-[10px] shrink-0">
-          Final
+          {completedGameStatusLabel(game)}
         </Badge>
       </div>
 

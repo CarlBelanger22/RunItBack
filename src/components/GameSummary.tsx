@@ -15,6 +15,7 @@ import { TeamBadge } from './TeamBadge';
 import { GameForm } from './forms/GameForm';
 import { ErrorBoundary } from './ErrorBoundary';
 import { resolveTeamScore } from '../utils/gameDisplay';
+import { completedGameStatusLabel } from '../utils/gameClock';
 import {
   buildGameMetadataPatch,
   getFinalScoreMismatchWarning,
@@ -239,7 +240,7 @@ export function GameSummary({
           {/* Game Status */}
           <div className="text-center mt-6">
             <Badge variant="outline" className="px-4 py-2">
-              {game.isActive ? 'In Progress' : 'Final'}
+              {game.isActive ? 'In Progress' : game.isCompleted ? completedGameStatusLabel(game) : 'Final'}
             </Badge>
           </div>
         </CardContent>

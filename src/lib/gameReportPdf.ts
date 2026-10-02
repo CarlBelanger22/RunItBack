@@ -446,7 +446,7 @@ function drawScoreboard(
     y += compact ? 12 : 14;
     doc.setFontSize(8);
     doc.setTextColor(...PDF_REPORT_THEME.navyMuted);
-    doc.text(`FINAL / ${model.overtimeLabel}`, centerX, y, { align: 'center' });
+    doc.text('FINAL - OT', centerX, y, { align: 'center' });
   }
 
   y += compact ? 14 : 18;

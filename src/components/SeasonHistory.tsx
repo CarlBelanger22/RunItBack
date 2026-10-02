@@ -21,6 +21,7 @@ import {
   Archive
 } from 'lucide-react';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { completedGameStatusLabel } from '../utils/gameClock';
 
 interface SeasonHistoryProps {
   games: Game[];
@@ -291,7 +292,7 @@ export function SeasonHistory({ games, onGameSelect }: SeasonHistoryProps) {
                         
                         <TableCell className="text-center">
                           <Badge variant={game.isActive ? "default" : "secondary"}>
-                            {game.isActive ? 'Live' : 'Final'}
+                            {game.isActive ? 'Live' : game.isCompleted ? completedGameStatusLabel(game) : 'Final'}
                           </Badge>
                         </TableCell>
                         

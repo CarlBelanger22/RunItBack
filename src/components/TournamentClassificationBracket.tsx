@@ -3,6 +3,7 @@
  */
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Game, Team, Tournament } from '../App';
+import { completedGameStatusLabel } from '../utils/gameClock';
 import type { TournamentUpdate } from '../App';
 import { Button } from './ui/button';
 import { Card, CardContent } from './ui/card';
@@ -103,7 +104,11 @@ function gameOptionLabel(game: Game): string {
   const home = game.homeTeam?.abbreviation || game.homeTeam?.name || 'Home';
   const away = game.awayTeam?.abbreviation || game.awayTeam?.name || 'Away';
   const score = resolveScore(game);
-  const scoreText = score ? `${score.home}–${score.away}` : game.isCompleted ? 'Final' : 'In progress';
+  const scoreText = score
+    ? `${score.home}–${score.away}`
+    : game.isCompleted
+      ? completedGameStatusLabel(game)
+      : 'In progress';
   return `${home} vs ${away} · ${game.date} · ${scoreText}`;
 }
 

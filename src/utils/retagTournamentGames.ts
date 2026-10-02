@@ -12,6 +12,8 @@ import type {
   TournamentStructure,
 } from './tournamentStructure';
 import { findStage, normalizeTournamentStructure } from './tournamentStructure';
+import type { BracketSlot } from './tournamentStructure';
+import { bracketFixtureStageTag } from './bracketPlaceholderSides';
 import {
   filterGamesForGroup,
   calculateTeamStandings,
@@ -295,6 +297,19 @@ export function retagTournamentGames(
   return { games, report };
 }
 
+function findLinkedBracketSlot(
+  game: Game,
+  stage: TournamentStage
+): BracketSlot | undefined {
+  for (const round of stage.bracket?.rounds ?? []) {
+    for (const slot of round.slots) {
+      if (game.bracketSlotId && slot.id === game.bracketSlotId) return slot;
+      if (slot.gameId && slot.gameId === game.id) return slot;
+    }
+  }
+  return undefined;
+}
+
 export function describeGameStageTag(
   game: Game,
   structure: TournamentStructure | undefined
@@ -303,6 +318,8 @@ export function describeGameStageTag(
   const stage = findStage(structure, game.stageId);
   // LE-116: never show raw orphan stage ids in the UI
   if (!stage) return null;
+  const slot = findLinkedBracketSlot(game, stage);
+  if (slot?.label) return bracketFixtureStageTag(stage.name, slot.label);
   if (game.groupId) {
     const group = stage.groups?.find((g) => g.id === game.groupId);
     if (group?.leagueTable) return 'Tournament Standings';

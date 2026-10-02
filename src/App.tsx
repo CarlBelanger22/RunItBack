@@ -19,7 +19,7 @@ import { TeamBadge } from './components/TeamBadge';
 import { TournamentBadge } from './components/TournamentBadge';
 import { isSupabaseConfigured } from './lib/supabase';
 import { useAuthCapabilities } from './lib/auth/useAuthCapabilities';
-import type { GameClockSettings } from './utils/gameClock';
+import { completedGameStatusLabel, type GameClockSettings } from './utils/gameClock';
 import type { TournamentStructure } from './utils/tournamentStructure';
 import {
   deleteGamesFromSupabase,
@@ -3104,7 +3104,7 @@ export default function App() {
                           <div className="text-xs text-muted-foreground truncate">
                             {result.game.date} ·{' '}
                             {result.game.isCompleted
-                              ? `Final: ${result.game.finalScore?.home}-${result.game.finalScore?.away}`
+                              ? `${completedGameStatusLabel(result.game)}: ${result.game.finalScore?.home}-${result.game.finalScore?.away}`
                               : 'In Progress'}
                           </div>
                         </div>

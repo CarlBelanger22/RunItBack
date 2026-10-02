@@ -94,6 +94,25 @@ export function endPeriodButtonLabel(
   return shouldCompleteGameOnPeriodEnd(game, homeScore, awayScore) ? 'End Game' : 'End Q';
 }
 
+/** True when play went past the last regulation period (one or more overtimes). */
+export function gameWentToOvertime(
+  game: Pick<Game, 'currentPeriod' | 'events' | 'teamStats' | 'clockSettings' | 'tournamentId'>
+): boolean {
+  const regulation = resolveGameClockSettings(game as Game).regulationPeriods;
+  if ((game.currentPeriod ?? 1) > regulation) return true;
+  if ((game.events ?? []).some((event) => event.period > regulation)) return true;
+  const homeOt = game.teamStats?.home?.ot_points ?? 0;
+  const awayOt = game.teamStats?.away?.ot_points ?? 0;
+  return homeOt > 0 || awayOt > 0;
+}
+
+/** Result badge for a finished game. Overtime stays on the same word, with OT. */
+export function completedGameStatusLabel(
+  game: Pick<Game, 'currentPeriod' | 'events' | 'teamStats' | 'clockSettings' | 'tournamentId'>
+): 'Final' | 'Final - OT' {
+  return gameWentToOvertime(game) ? 'Final - OT' : 'Final';
+}
+
 /** True when period end should complete the game (ahead at end of regulation or OT). */
 export function shouldCompleteGameOnPeriodEnd(
   game: Game,

@@ -35,6 +35,7 @@ import { aggregateTournamentTeamSeasonStats } from '../utils/tournamentTeamSeaso
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { sortGamesByDateAsc } from '../utils/gameDisplay';
+import { completedGameStatusLabel } from '../utils/gameClock';
 import {
   filterGamesForTournament,
   filterTeamsForTournament,
@@ -1630,7 +1631,7 @@ export function TournamentPage({
                             <>
                               <span>•</span>
                               <Badge variant="outline" className="text-xs">
-                                Final
+                                {completedGameStatusLabel(game)}
                               </Badge>
                             </>
                           )}
