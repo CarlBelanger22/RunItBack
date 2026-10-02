@@ -7,7 +7,7 @@ import { sortGamesByDateAsc } from './gameDisplay';
 import { filterGamesForGroup } from './tournamentStandings';
 import type { GroupSeedMatchup, TournamentGroup, TournamentStructure } from './tournamentStructure';
 import { normalizeTournamentStructure } from './tournamentStructure';
-import { groupSeedLabels } from './groupMembers';
+import { groupSeedLabels, resolveSeedTeamId } from './groupMembers';
 import { normalizeSeedCode } from './seedCodes';
 import { matchupPairKey } from './matchupGamePick';
 
@@ -183,8 +183,18 @@ export function buildGroupMatchRows(
         )
       );
     } else {
-      const homeId = snap[matchup.homeSeed];
-      const awayId = snap[matchup.awaySeed];
+      const homeId = resolveSeedTeamId(
+        group,
+        normalized,
+        matchup.homeSeed,
+        seeds.indexOf(matchup.homeSeed)
+      );
+      const awayId = resolveSeedTeamId(
+        group,
+        normalized,
+        matchup.awaySeed,
+        seeds.indexOf(matchup.awaySeed)
+      );
       rows.push({
         key: `seed-${matchup.homeSeed}-${matchup.awaySeed}`,
         homeLabel: matchup.homeSeed,

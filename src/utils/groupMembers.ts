@@ -124,6 +124,26 @@ export function seedPlaceholderTeam(seedCode: string): Team {
 }
 
 /**
+ * Club for one seed code. The freeze list wins. After that list is cleared,
+ * the clubs already written on the pool (same order as the seed labels) stay.
+ */
+export function resolveSeedTeamId(
+  group: TournamentGroup,
+  structure: TournamentStructure | undefined,
+  code: string,
+  seedIndex: number
+): string | undefined {
+  const snap = normalizeTournamentStructure(structure)?.seedSnapshot ?? {};
+  if (snap[code]) return snap[code];
+  const seeds = groupSeedLabels(group);
+  const stored = (group.teamIds ?? []).filter(
+    (id) => id && !isSeedPlaceholderTeamId(id)
+  );
+  if (seedIndex < 0 || stored.length !== seeds.length) return undefined;
+  return stored[seedIndex];
+}
+
+/**
  * Teams to show in a group standings table — real teams when resolved,
  * seed-code placeholders (A3, B3, …) when not.
  */
@@ -138,9 +158,8 @@ export function resolveGroupStandingsTeams(
       .map((id) => teamById.get(id))
       .filter((t): t is Team => t != null);
   }
-  const snap = normalizeTournamentStructure(structure)?.seedSnapshot ?? {};
-  return seeds.map((code) => {
-    const resolvedId = snap[code];
+  return seeds.map((code, index) => {
+    const resolvedId = resolveSeedTeamId(group, structure, code, index);
     if (resolvedId) {
       const live = teamById.get(resolvedId);
       if (live) return live;

@@ -105,6 +105,22 @@ function placementClassificationStage(
   return classification[classification.length - 1];
 }
 
+function bracketSlotForGame(
+  structure: TournamentStructure,
+  game: Game
+): { stageId: string; slotId: string } | undefined {
+  for (const stage of structure.stages) {
+    for (const round of stage.bracket?.rounds ?? []) {
+      for (const slot of round.slots) {
+        if (slot.gameId && slot.gameId === game.id) {
+          return { stageId: stage.id, slotId: slot.id };
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
 /**
  * Retag tournament games. Clears previous stage/group tags on games in this
  * tournament, then assigns from structure.
@@ -167,6 +183,19 @@ export function retagTournamentGames(
 
   const games = allGames.map((game) => {
     if (game.tournamentId !== tournamentId) return game;
+
+    // A bracket slot that already names this game is the link, even when the
+    // game row itself lost bracketSlotId. Put the link back so a later lock
+    // does not treat the knockout result as an unlabeled group game.
+    const slotLink = bracketSlotForGame(structure, game);
+    if (slotLink && !game.bracketSlotId) {
+      return {
+        ...game,
+        stageId: slotLink.stageId,
+        groupId: undefined,
+        bracketSlotId: slotLink.slotId,
+      };
+    }
 
     // Keep bracket-linked games, but repair orphan stageId to the slot's stage.
     if (game.bracketSlotId) {
