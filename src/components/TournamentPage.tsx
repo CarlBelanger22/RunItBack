@@ -108,10 +108,6 @@ import {
 import { buildBracketFixtureRows } from '../utils/bracketFixtureRows';
 import { ensureScheduledFixtureGames } from '../utils/ensureScheduledFixtureGames';
 import { bracketFixtureStageTag } from '../utils/bracketPlaceholderSides';
-import {
-  SUNIG_2026_TOURNAMENT_ID,
-  SunigSixthManAwardTab,
-} from './sunig2026/SunigSixthManAwardTab';
 interface TournamentPageProps {
   tournament: Tournament;
   teams: Team[];
@@ -1819,10 +1815,6 @@ export function TournamentPage({
           <TabsTrigger value="teams">Team Stats</TabsTrigger>
           <TabsTrigger value="players">Player Stats</TabsTrigger>
           <TabsTrigger value="games">Games</TabsTrigger>
-          {/* TEMP Sunig 2026 — delete with src/components/sunig2026/ */}
-          {tournament.id === SUNIG_2026_TOURNAMENT_ID ? (
-            <TabsTrigger value="awards">Awards</TabsTrigger>
-          ) : null}
         </TabsList>
 
         <TabsContent value="home" className="space-y-6">
@@ -1851,17 +1843,6 @@ export function TournamentPage({
         <TabsContent value="games" className="space-y-6">
           {GamesTab()}
         </TabsContent>
-
-        {/* TEMP Sunig 2026 — delete with src/components/sunig2026/ */}
-        {tournament.id === SUNIG_2026_TOURNAMENT_ID ? (
-          <TabsContent value="awards" className="space-y-0">
-            <SunigSixthManAwardTab
-              games={tournamentGames}
-              teams={teams}
-              onNavigateToPlayer={onNavigateToPlayer}
-            />
-          </TabsContent>
-        ) : null}
       </Tabs>
 
       <GroupH2hDetailsDialog
