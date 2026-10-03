@@ -93,6 +93,12 @@ import {
   seedPlaceholderTeam,
 } from '../utils/groupMembers';
 import {
+  meetsTournamentLeaderFgFloor,
+  meetsTournamentLeaderFtFloor,
+  meetsTournamentLeaderGamesFloor,
+  meetsTournamentLeaderThreeFloor,
+} from '../utils/tournamentLeaders';
+import {
   buildGroupMatchRows,
   buildSeedFixtureRows,
   buildStructureStartTimeByGameId,
@@ -177,34 +183,51 @@ export function TournamentPage({
   
   // Get tournament leaders
   const getTournamentLeaders = () => {
+    // Completed games only — leaders should not swing on a live box mid-game.
+    const leaderGames = tournamentGames.filter(isGameCompleted);
+
+    const teamGamesInTournament = new Map<string, number>();
+    for (const game of leaderGames) {
+      const homeId = game.homeTeamId || game.homeTeam?.id;
+      const awayId = game.awayTeamId || game.awayTeam?.id;
+      if (homeId) {
+        teamGamesInTournament.set(homeId, (teamGamesInTournament.get(homeId) ?? 0) + 1);
+      }
+      if (awayId) {
+        teamGamesInTournament.set(awayId, (teamGamesInTournament.get(awayId) ?? 0) + 1);
+      }
+    }
+
     const allPlayerStats: Array<{ player: Player; team: Team; stats: GameStats }> = [];
-    
-    tournamentGames.forEach(game => {
-      (game.gameStats ?? []).forEach(stat => {
-        const playerTeam = tournamentTeams.find(team => 
-          team.players.some(p => p.id === stat.playerId)
+
+    leaderGames.forEach((game) => {
+      (game.gameStats ?? []).forEach((stat) => {
+        const playerTeam = tournamentTeams.find((team) =>
+          team.players.some((p) => p.id === stat.playerId)
         );
-        const player = playerTeam?.players.find(p => p.id === stat.playerId);
-        
+        const player = playerTeam?.players.find((p) => p.id === stat.playerId);
+
         if (player && playerTeam) {
           allPlayerStats.push({ player, team: playerTeam, stats: stat });
         }
       });
     });
-    
+
     // Aggregate stats by player
-    const playerTotals = new Map<string, { 
-      player: Player; 
-      team: Team; 
-      totalStats: GameStats; 
-      gamesPlayed: number; 
-    }>();
-    
+    const playerTotals = new Map<
+      string,
+      {
+        player: Player;
+        team: Team;
+        totalStats: GameStats;
+        gamesPlayed: number;
+      }
+    >();
+
     allPlayerStats.forEach(({ player, team, stats }) => {
       const existing = playerTotals.get(player.id);
       if (existing) {
-        // Aggregate stats
-        Object.keys(stats).forEach(key => {
+        Object.keys(stats).forEach((key) => {
           if (key !== 'playerId' && typeof stats[key as keyof GameStats] === 'number') {
             (existing.totalStats as any)[key] += (stats as any)[key];
           }
@@ -215,45 +238,94 @@ export function TournamentPage({
           player,
           team,
           totalStats: { ...stats },
-          gamesPlayed: 1
+          gamesPlayed: 1,
         });
       }
     });
-    
-    const playersArray = Array.from(playerTotals.values());
-    
+
+    const playersArray = Array.from(playerTotals.values()).filter((p) =>
+      meetsTournamentLeaderGamesFloor(
+        p.gamesPlayed,
+        teamGamesInTournament.get(p.team.id) ?? 0
+      )
+    );
+
     return {
-      points: playersArray.sort((a, b) => (b.totalStats.points / b.gamesPlayed) - (a.totalStats.points / a.gamesPlayed)).slice(0, 5),
-      rebounds: playersArray.sort((a, b) => ((b.totalStats.orb + b.totalStats.drb) / b.gamesPlayed) - ((a.totalStats.orb + a.totalStats.drb) / a.gamesPlayed)).slice(0, 5),
-      assists: playersArray.sort((a, b) => (b.totalStats.assists / b.gamesPlayed) - (a.totalStats.assists / a.gamesPlayed)).slice(0, 5),
-      steals: playersArray.sort((a, b) => (b.totalStats.steals / b.gamesPlayed) - (a.totalStats.steals / a.gamesPlayed)).slice(0, 5),
-      blocks: playersArray.sort((a, b) => (b.totalStats.blocks / b.gamesPlayed) - (a.totalStats.blocks / a.gamesPlayed)).slice(0, 5),
-      threes: playersArray.sort((a, b) => (b.totalStats.three_made / b.gamesPlayed) - (a.totalStats.three_made / a.gamesPlayed)).slice(0, 5),
-      efficiency: playersArray.map(p => ({
-        ...p,
-        eff: MetricsCalculator.calculateEfficiency(p.totalStats) / p.gamesPlayed
-      })).sort((a, b) => b.eff - a.eff).slice(0, 5),
-      fgPercentage: playersArray
-        .filter(p => p.totalStats.fg_attempted >= p.gamesPlayed * 2) // Min 2 FGA per game
-        .map(p => ({
+      points: playersArray
+        .sort(
+          (a, b) =>
+            b.totalStats.points / b.gamesPlayed - a.totalStats.points / a.gamesPlayed
+        )
+        .slice(0, 5),
+      rebounds: playersArray
+        .sort(
+          (a, b) =>
+            (b.totalStats.orb + b.totalStats.drb) / b.gamesPlayed -
+            (a.totalStats.orb + a.totalStats.drb) / a.gamesPlayed
+        )
+        .slice(0, 5),
+      assists: playersArray
+        .sort(
+          (a, b) =>
+            b.totalStats.assists / b.gamesPlayed - a.totalStats.assists / a.gamesPlayed
+        )
+        .slice(0, 5),
+      steals: playersArray
+        .sort(
+          (a, b) =>
+            b.totalStats.steals / b.gamesPlayed - a.totalStats.steals / a.gamesPlayed
+        )
+        .slice(0, 5),
+      blocks: playersArray
+        .sort(
+          (a, b) =>
+            b.totalStats.blocks / b.gamesPlayed - a.totalStats.blocks / a.gamesPlayed
+        )
+        .slice(0, 5),
+      threes: playersArray
+        .sort(
+          (a, b) =>
+            b.totalStats.three_made / b.gamesPlayed -
+            a.totalStats.three_made / a.gamesPlayed
+        )
+        .slice(0, 5),
+      efficiency: playersArray
+        .map((p) => ({
           ...p,
-          fgPct: (p.totalStats.fg_made / p.totalStats.fg_attempted) * 100
+          eff: MetricsCalculator.calculateEfficiency(p.totalStats) / p.gamesPlayed,
+        }))
+        .sort((a, b) => b.eff - a.eff)
+        .slice(0, 5),
+      fgPercentage: playersArray
+        .filter((p) =>
+          meetsTournamentLeaderFgFloor(p.totalStats.fg_attempted, p.gamesPlayed)
+        )
+        .map((p) => ({
+          ...p,
+          fgPct: (p.totalStats.fg_made / p.totalStats.fg_attempted) * 100,
         }))
         .sort((a, b) => b.fgPct - a.fgPct)
         .slice(0, 5),
       threePercentage: playersArray
-        .filter(p => p.totalStats.three_attempted >= p.gamesPlayed * 1) // Min 1 3PA per game
-        .map(p => ({
+        .filter((p) =>
+          meetsTournamentLeaderThreeFloor(
+            p.totalStats.three_attempted,
+            p.gamesPlayed
+          )
+        )
+        .map((p) => ({
           ...p,
-          threePct: (p.totalStats.three_made / p.totalStats.three_attempted) * 100
+          threePct: (p.totalStats.three_made / p.totalStats.three_attempted) * 100,
         }))
         .sort((a, b) => b.threePct - a.threePct)
         .slice(0, 5),
       ftPercentage: playersArray
-        .filter(p => p.totalStats.ft_attempted >= p.gamesPlayed * 1) // Min 1 FTA per game
-        .map(p => ({
+        .filter((p) =>
+          meetsTournamentLeaderFtFloor(p.totalStats.ft_attempted, p.gamesPlayed)
+        )
+        .map((p) => ({
           ...p,
-          ftPct: (p.totalStats.ft_made / p.totalStats.ft_attempted) * 100
+          ftPct: (p.totalStats.ft_made / p.totalStats.ft_attempted) * 100,
         }))
         .sort((a, b) => b.ftPct - a.ftPct)
         .slice(0, 5),
