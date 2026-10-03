@@ -1,4 +1,5 @@
-export type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games';
+// TEMP: 'awards' is Sunig-2026-only UI — remove with src/components/sunig2026/
+export type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games' | 'awards';
 export type TeamTab = 'overview' | 'roster' | 'stats' | 'players' | 'games';
 export type PlayerTab = 'overview' | 'gamelog' | 'stats' | 'advanced';
 
@@ -8,6 +9,7 @@ const TOURNAMENT_TABS: TournamentTab[] = [
   'teams',
   'players',
   'games',
+  'awards', // TEMP Sunig 2026
 ];
 const TEAM_TABS: TeamTab[] = ['overview', 'roster', 'stats', 'players', 'games'];
 const PLAYER_TABS: PlayerTab[] = ['overview', 'gamelog', 'stats', 'advanced'];
