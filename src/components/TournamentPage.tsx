@@ -539,7 +539,12 @@ export function TournamentPage({
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {tournamentGames.slice().reverse().slice(0, 5).map(game => {
+              {tournamentGames
+                .filter(isGameCompleted)
+                .slice()
+                .reverse()
+                .slice(0, 5)
+                .map((game) => {
                 const homeTeam = resolveGameTeam(teams, game, 'home');
                 const awayTeam = resolveGameTeam(teams, game, 'away');
                 return (
