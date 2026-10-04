@@ -53,6 +53,7 @@ interface GameSummaryProps {
   onDeleteGame?: () => void;
   onNavigateToPlayer?: (playerId: string, teamId: string) => void;
   onNavigateToTeam?: (teamId: string) => void;
+  onNavigateToTournament?: (tournamentId: string) => void;
 }
 
 export function GameSummary({
@@ -64,6 +65,7 @@ export function GameSummary({
   onDeleteGame,
   onNavigateToPlayer,
   onNavigateToTeam,
+  onNavigateToTournament,
 }: GameSummaryProps) {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -179,22 +181,34 @@ export function GameSummary({
 
       {/* Game Header */}
       <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-2xl">Game Summary</CardTitle>
-            <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-4 text-sm text-muted-foreground">
-              {tournament ? (
-                <span className="inline-flex items-center gap-2 text-foreground font-medium">
-                  <TournamentBadge
-                    tournament={tournament}
-                    tournamentId={tournament.id}
-                    size="sm"
-                  />
-                  <span>{tournament.name}</span>
-                </span>
-              ) : metaLabel ? (
-                <span>{metaLabel}</span>
-              ) : null}
+        <CardHeader className="space-y-3">
+          <div className="flex flex-col items-center gap-2 text-center">
+            {tournament ? (
+              <button
+                type="button"
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-md px-2 py-1 font-medium text-foreground',
+                  'transition-colors hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  onNavigateToTournament ? 'cursor-pointer' : 'cursor-default'
+                )}
+                onClick={() => onNavigateToTournament?.(tournament.id)}
+                disabled={!onNavigateToTournament}
+              >
+                <TournamentBadge
+                  tournament={tournament}
+                  tournamentId={tournament.id}
+                  size="md"
+                />
+                <span className="text-base sm:text-lg">{tournament.name}</span>
+              </button>
+            ) : metaLabel ? (
+              <span className="text-base font-medium text-foreground">
+                {metaLabel}
+              </span>
+            ) : (
+              <CardTitle className="text-2xl">Game Summary</CardTitle>
+            )}
+            <div className="flex flex-wrap items-center justify-center gap-3 text-sm text-muted-foreground">
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
                 {gameDate.toLocaleDateString()}

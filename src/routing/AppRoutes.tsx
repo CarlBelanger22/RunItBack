@@ -421,6 +421,12 @@ function GameSummaryRoute({
           navigateWithReturnTo(navigate, teamPath(team), returnTo);
         }
       }}
+      onNavigateToTournament={(tournamentId) => {
+        const tournament = tournaments.find((t) => t.id === tournamentId);
+        if (tournament) {
+          navigateWithReturnTo(navigate, tournamentPath(tournament), returnTo);
+        }
+      }}
     />
   );
 }
