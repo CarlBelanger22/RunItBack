@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -106,7 +106,10 @@ import {
   sortGamesTabEntries,
 } from '../utils/groupMatchRows';
 import { buildBracketFixtureRows } from '../utils/bracketFixtureRows';
-import { ensureScheduledFixtureGames } from '../utils/ensureScheduledFixtureGames';
+import {
+  createGameFromTournamentFixture,
+  fixtureCanTrackStats,
+} from '../utils/createGameFromTournamentFixture';
 import { bracketFixtureStageTag } from '../utils/bracketPlaceholderSides';
 interface TournamentPageProps {
   tournament: Tournament;
@@ -157,22 +160,6 @@ export function TournamentPage({
   const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
   const tournamentGames = filterGamesForTournament(tournament, games);
 
-  useEffect(() => {
-    if (!canEditLeague) return;
-    const result = ensureScheduledFixtureGames(
-      tournament.structure,
-      games,
-      tournament.id,
-      teams
-    );
-    if (result.report.created === 0 && result.report.linked === 0) return;
-    onUpdateTournament({
-      id: tournament.id,
-      patch: (prev) => ({ ...prev, structure: result.structure }),
-    });
-    onGamesUpdate(result.games);
-  }, [canEditLeague, games, onGamesUpdate, onUpdateTournament, teams, tournament]);
-  
   // Home + unstructured Standings: RR/group games only when structure exists
   // (exclude KO so Home matches Group standings — LE-131).
   const calculateStandings = () =>
@@ -1482,6 +1469,10 @@ export function TournamentPage({
                 const homeSeed = isFixtureSidePlaceholder(homeTeam);
                 const awaySeed = isFixtureSidePlaceholder(awayTeam);
                 const stageTag = fixtureStageTag(fixture);
+                const canTrackFixture =
+                  canEditLeague &&
+                  onNavigateToStatsEntry != null &&
+                  fixtureCanTrackStats(fixture);
 
                 return (
                   <Card key={fixture.key} className="transition-shadow">
@@ -1576,6 +1567,46 @@ export function TournamentPage({
                             ) : null}
                           </div>
                         </div>
+                        {canTrackFixture ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={Boolean(activeGame)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const result = createGameFromTournamentFixture(
+                                tournament.structure,
+                                games,
+                                tournament.id,
+                                fixture
+                              );
+                              if (result.created || result.structure !== tournament.structure) {
+                                onUpdateTournament({
+                                  id: tournament.id,
+                                  patch: (prev) => ({
+                                    ...prev,
+                                    structure: result.structure,
+                                  }),
+                                });
+                              }
+                              onGamesUpdate(result.games);
+                              const prefill: StatsEntryPrefill = {
+                                gameId: result.game.id,
+                                tournamentId: tournament.id,
+                                homeTeamId: result.game.homeTeamId,
+                                awayTeamId: result.game.awayTeamId,
+                                date: result.game.date || undefined,
+                                startTime:
+                                  result.game.startTime ?? fixture.startTime,
+                                stageId: result.game.stageId,
+                                groupId: result.game.groupId,
+                              };
+                              onNavigateToStatsEntry?.(prefill);
+                            }}
+                          >
+                            Track stats
+                          </Button>
+                        ) : null}
                       </div>
                     </CardContent>
                   </Card>
