@@ -64,7 +64,6 @@ export interface TeamStatsReportModel {
   tournamentScopeLabel: string;
   formatScopeLabel: string;
   playerCount: number;
-  exportedAt: string;
   sortedRows: PlayerSeasonRow[];
   standardHeaders: string[];
   standardBody: string[][];
@@ -90,15 +89,6 @@ export interface BuildTeamStatsReportModelInput {
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
   personalFoulsCoverage?: ScopedStatCoverage;
-  exportedAt?: Date;
-}
-
-export function formatTeamStatsExportDate(date = new Date()): string {
-  return date.toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
 }
 
 export function buildTeamStatsReportFilename(
@@ -201,7 +191,6 @@ export function buildTeamStatsReportModel(
     plusMinusCoverage,
     foulsDrawnCoverage,
     personalFoulsCoverage,
-    exportedAt = new Date(),
   } = input;
 
   const playableRows = rows.filter((row) => row.gamesPlayed > 0);
@@ -234,7 +223,6 @@ export function buildTeamStatsReportModel(
     ),
     formatScopeLabel: gameFormatScopeLabel(gameFormatScope),
     playerCount: sortedRows.length,
-    exportedAt: formatTeamStatsExportDate(exportedAt),
     sortedRows,
     standardHeaders,
     standardBody,

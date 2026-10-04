@@ -302,13 +302,7 @@ export async function generateTeamStatsReportPdf(
   const totalPages = doc.getNumberOfPages();
   for (let page = 1; page <= totalPages; page += 1) {
     doc.setPage(page);
-    drawOfficialPdfFooter(
-      doc,
-      page,
-      totalPages,
-      model.exportedAt,
-      PAGE_MARGIN
-    );
+    drawOfficialPdfFooter(doc, page, totalPages, PAGE_MARGIN);
   }
 
   return doc.output('blob');
