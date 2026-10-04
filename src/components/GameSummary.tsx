@@ -12,6 +12,7 @@ import { GameReportOverview } from './GameReportOverview';
 import { GameLeadersSection } from './GameLeadersSection';
 import { GameTeamLink } from './GameTeamLink';
 import { TeamBadge } from './TeamBadge';
+import { TournamentBadge } from './TournamentBadge';
 import { GameForm } from './forms/GameForm';
 import { ErrorBoundary } from './ErrorBoundary';
 import { resolveTeamScore } from '../utils/gameDisplay';
@@ -181,8 +182,19 @@ export function GameSummary({
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-2xl">Game Summary</CardTitle>
-            <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              {metaLabel && <span>{metaLabel}</span>}
+            <div className="flex flex-wrap items-center justify-end gap-3 sm:gap-4 text-sm text-muted-foreground">
+              {tournament ? (
+                <span className="inline-flex items-center gap-2 text-foreground font-medium">
+                  <TournamentBadge
+                    tournament={tournament}
+                    tournamentId={tournament.id}
+                    size="sm"
+                  />
+                  <span>{tournament.name}</span>
+                </span>
+              ) : metaLabel ? (
+                <span>{metaLabel}</span>
+              ) : null}
               <div className="flex items-center gap-1">
                 <Calendar className="h-4 w-4" />
                 {gameDate.toLocaleDateString()}
