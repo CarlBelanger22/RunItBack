@@ -16,8 +16,8 @@ import { TeamManager } from '../components/TeamManager';
 import { TeamPage } from '../components/TeamPage';
 import { PlayerPage } from '../components/PlayerPage';
 import { RecentGames } from '../components/RecentGames';
-import { ActiveGameBanner } from '../components/ActiveGameBanner';
 import { GameSetup } from '../components/GameSetup';
+import { StatsEntrySessions } from '../components/StatsEntrySessions';
 import { LiveGameEntry } from '../components/LiveGameEntry';
 import { getActiveGame, isGameInProgress, isGamePaused } from '../utils/activeGame';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
@@ -673,28 +673,27 @@ export function AppRoutes(props: AppRoutesProps) {
         path={paths.statsEntry}
         element={
           <RequireAdmin>
-          <div className="space-y-4">
+          <div className="space-y-6">
             <Button variant="ghost" size="sm" onClick={() => navigate(paths.home)}>
               ← Back to Dashboard
             </Button>
-            {activeGame ? (
-              <ActiveGameBanner
-                game={activeGame}
-                tournament={tournaments.find((t) => t.id === activeGame.tournamentId)}
-                onResume={() => resumeLiveGame(activeGame.id)}
-                onPause={() => onPauseGame(activeGame)}
-              />
-            ) : (
-              <GameSetup
-                tournaments={tournaments}
-                teams={teams}
-                games={games}
-                tournamentRosters={tournamentRosters}
-                onGameStart={handleGameStart}
-                onCreateTeam={onCreateTeam}
-                onUpdateTeam={onUpdateTeam}
-              />
-            )}
+            <StatsEntrySessions
+              games={games}
+              teams={teams}
+              tournaments={tournaments}
+              onResume={resumeLiveGame}
+              onPause={onPauseGame}
+              onDelete={onDeleteActiveGame}
+            />
+            <GameSetup
+              tournaments={tournaments}
+              teams={teams}
+              games={games}
+              tournamentRosters={tournamentRosters}
+              onGameStart={handleGameStart}
+              onCreateTeam={onCreateTeam}
+              onUpdateTeam={onUpdateTeam}
+            />
           </div>
           </RequireAdmin>
         }
