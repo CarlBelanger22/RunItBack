@@ -32,7 +32,11 @@ import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage, getPersonalFoulsCoverage } from '../utils/playerSeasonStats';
 import { aggregateTournamentTeamSeasonStats } from '../utils/tournamentTeamSeasonStats';
-import type { TournamentRosterEntry } from '../utils/tournamentRosters';
+import {
+  resolvePlayerTeamFromTournamentRoster,
+  type TournamentRosterEntry,
+} from '../utils/tournamentRosters';
+import { resolvePlayerTeamInGame } from '../utils/rosterPlayers';
 import { resolveGameTeam } from '../utils/gameTeams';
 import { sortGamesByDateAsc } from '../utils/gameDisplay';
 import { completedGameStatusLabel } from '../utils/gameClock';
@@ -190,10 +194,17 @@ export function TournamentPage({
 
     leaderGames.forEach((game) => {
       (game.gameStats ?? []).forEach((stat) => {
-        const playerTeam = tournamentTeams.find((team) =>
-          team.players.some((p) => p.id === stat.playerId)
+        const fromRoster = resolvePlayerTeamFromTournamentRoster(
+          stat.playerId,
+          tournament.id,
+          teams,
+          tournamentRosters
         );
-        const player = playerTeam?.players.find((p) => p.id === stat.playerId);
+        const fromGame = fromRoster
+          ? null
+          : resolvePlayerTeamInGame(stat.playerId, game, teams);
+        const player = fromRoster?.player ?? fromGame?.players.find((p) => p.id === stat.playerId);
+        const playerTeam = fromRoster?.team ?? fromGame;
 
         if (player && playerTeam) {
           allPlayerStats.push({ player, team: playerTeam, stats: stat });

@@ -391,6 +391,32 @@ export function isPlayerOnTournamentRoster(
   );
 }
 
+/**
+ * Club + player for a tournament from `tournament_rosters` (not current club
+ * membership). Prefer this when a player id still sits on multiple club rosters.
+ */
+export function resolvePlayerTeamFromTournamentRoster(
+  playerId: string,
+  tournamentId: string,
+  teams: Team[],
+  rosters: TournamentRosterEntry[]
+): { player: Player; team: Team } | null {
+  const entry = rosters.find(
+    (r) => r.tournamentId === tournamentId && r.playerId === playerId
+  );
+  if (!entry) return null;
+  const team = teams.find((t) => t.id === entry.teamId);
+  if (!team) return null;
+  const player = getPlayersForTeamInTournament(
+    team.id,
+    tournamentId,
+    teams,
+    rosters
+  ).find((p) => p.id === playerId);
+  if (!player) return null;
+  return { player, team };
+}
+
 export function findTournamentByNameHint(
   tournaments: Tournament[],
   hint: string
