@@ -102,6 +102,7 @@ import {
   buildGroupMatchRows,
   buildSeedFixtureRows,
   buildStructureStartTimeByGameId,
+  buildTeamFixtureRows,
   resolveGameListStartTime,
   sortGamesTabEntries,
 } from '../utils/groupMatchRows';
@@ -1271,8 +1272,14 @@ export function TournamentPage({
   const GamesTab = () => {
     const structure = normalizeTournamentStructure(tournament.structure);
     const hasStructure = tournamentHasStructure(structure);
-    const teamById = new Map(tournamentTeams.map((t) => [t.id, t]));
+    // Full club catalog so league/bracket fixtures resolve logos even before a game exists.
+    const teamById = new Map(teams.map((t) => [t.id, t]));
     const seedFixtures = buildSeedFixtureRows(
+      tournament.structure,
+      tournamentGames,
+      teamById
+    );
+    const teamFixtures = buildTeamFixtureRows(
       tournament.structure,
       tournamentGames,
       teamById
@@ -1282,7 +1289,7 @@ export function TournamentPage({
       tournamentGames,
       teamById
     );
-    const allFixtures = [...seedFixtures, ...bracketFixtures];
+    const allFixtures = [...seedFixtures, ...teamFixtures, ...bracketFixtures];
     const structureTipsByGameId = buildStructureStartTimeByGameId(
       tournament.structure,
       tournamentGames,

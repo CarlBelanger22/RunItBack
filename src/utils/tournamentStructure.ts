@@ -18,6 +18,11 @@ export interface TournamentGroup {
   /** LE-147 — Scheduled seed-vs-seed fixtures for Matches tab before games exist. */
   seedMatchups?: GroupSeedMatchup[];
   /**
+   * Scheduled club-vs-club fixtures (league tables) before a game row exists.
+   * Track stats creates the game and writes `gameId` back here.
+   */
+  teamMatchups?: GroupTeamMatchup[];
+  /**
    * Single league table. Places are L1, L2, … (shown as 1st, 2nd).
    * Every meeting counts; a later game is not dropped as a rematch.
    */
@@ -28,6 +33,15 @@ export interface TournamentGroup {
 export interface GroupSeedMatchup {
   homeSeed: string;
   awaySeed: string;
+  date?: string;
+  startTime?: string;
+  gameId?: string;
+}
+
+/** One scheduled RR leg between two known clubs (no seed codes). */
+export interface GroupTeamMatchup {
+  homeTeamId: string;
+  awayTeamId: string;
   date?: string;
   startTime?: string;
   gameId?: string;
@@ -144,6 +158,22 @@ function normalizeSeedMatchup(raw: unknown): GroupSeedMatchup | null {
   return matchup;
 }
 
+function normalizeTeamMatchup(raw: unknown): GroupTeamMatchup | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const row = raw as Record<string, unknown>;
+  const homeTeamId = asString(row.homeTeamId);
+  const awayTeamId = asString(row.awayTeamId);
+  if (!homeTeamId || !awayTeamId || homeTeamId === awayTeamId) return null;
+  const matchup: GroupTeamMatchup = { homeTeamId, awayTeamId };
+  const date = asString(row.date);
+  const startTime = asString(row.startTime);
+  const gameId = asString(row.gameId);
+  if (date) matchup.date = date;
+  if (startTime) matchup.startTime = startTime;
+  if (gameId) matchup.gameId = gameId;
+  return matchup;
+}
+
 function normalizeGroup(raw: unknown): TournamentGroup | null {
   if (!raw || typeof raw !== 'object') return null;
   const row = raw as Record<string, unknown>;
@@ -165,6 +195,12 @@ function normalizeGroup(raw: unknown): TournamentGroup | null {
         .filter((m): m is GroupSeedMatchup => m != null)
     : [];
   if (seedMatchups.length > 0) group.seedMatchups = seedMatchups;
+  const teamMatchups = Array.isArray(row.teamMatchups)
+    ? row.teamMatchups
+        .map(normalizeTeamMatchup)
+        .filter((m): m is GroupTeamMatchup => m != null)
+    : [];
+  if (teamMatchups.length > 0) group.teamMatchups = teamMatchups;
   if (row.leagueTable === true) group.leagueTable = true;
   return group;
 }

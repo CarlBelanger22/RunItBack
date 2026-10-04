@@ -156,6 +156,40 @@ function linkSeedMatchupGameId(
   };
 }
 
+function linkTeamMatchupGameId(
+  structure: TournamentStructure,
+  groupId: string,
+  homeTeamId: string,
+  awayTeamId: string,
+  date: string | undefined,
+  gameId: string
+): TournamentStructure {
+  const day = (date ?? '').slice(0, 10);
+  return {
+    ...structure,
+    stages: structure.stages.map((stage) => {
+      if (stage.kind !== 'round_robin') return stage;
+      return {
+        ...stage,
+        groups: (stage.groups ?? []).map((group) => {
+          if (group.id !== groupId) return group;
+          const matchups = group.teamMatchups ?? [];
+          return {
+            ...group,
+            teamMatchups: matchups.map((m) => {
+              if (m.homeTeamId !== homeTeamId || m.awayTeamId !== awayTeamId) {
+                return m;
+              }
+              if (day && (m.date ?? '').slice(0, 10) !== day) return m;
+              return { ...m, gameId };
+            }),
+          };
+        }),
+      };
+    }),
+  };
+}
+
 /** Both clubs present and not seed placeholders. */
 export function fixtureCanTrackStats(fixture: TournamentFixtureRow): boolean {
   const home = fixture.homeTeam;
@@ -270,6 +304,76 @@ export function createGameFromTournamentFixture(
 
   if (fixture.groupId) {
     const groupId = fixture.groupId;
+
+    if (fixture.teamMatchup) {
+      const existing = findReusable({ groupId });
+      if (existing) {
+        const taggedGames = allGames.map((g) =>
+          g.id === existing.id
+            ? { ...g, stageId: fixture.stageId, groupId }
+            : g
+        );
+        return {
+          structure: linkTeamMatchupGameId(
+            structure,
+            groupId,
+            home.id,
+            away.id,
+            date,
+            existing.id
+          ),
+          games: taggedGames,
+          game: taggedGames.find((g) => g.id === existing.id) ?? existing,
+          created: false,
+        };
+      }
+      const id = `game-sched-${groupId}-${home.id}-${away.id}-${date || 'nodate'}`;
+      const already = allGames.find((g) => g.id === id);
+      if (already) {
+        const taggedGames = allGames.map((g) =>
+          g.id === already.id
+            ? { ...g, stageId: fixture.stageId, groupId }
+            : g
+        );
+        return {
+          structure: linkTeamMatchupGameId(
+            structure,
+            groupId,
+            home.id,
+            away.id,
+            date,
+            id
+          ),
+          games: taggedGames,
+          game: taggedGames.find((g) => g.id === id) ?? already,
+          created: false,
+        };
+      }
+      const created = buildUnplayedGame({
+        id,
+        tournamentId,
+        home,
+        away,
+        date,
+        startTime,
+        stageId: fixture.stageId,
+        groupId,
+      });
+      return {
+        structure: linkTeamMatchupGameId(
+          structure,
+          groupId,
+          home.id,
+          away.id,
+          date,
+          created.id
+        ),
+        games: [...allGames, created],
+        game: created,
+        created: true,
+      };
+    }
+
     const homeSeed = fixture.homeLabel;
     const awaySeed = fixture.awayLabel;
     const existing = findReusable({ groupId });

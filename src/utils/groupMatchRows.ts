@@ -5,7 +5,12 @@
 import type { Game, Team } from '../App';
 import { sortGamesByDateAsc } from './gameDisplay';
 import { filterGamesForGroup } from './tournamentStandings';
-import type { GroupSeedMatchup, TournamentGroup, TournamentStructure } from './tournamentStructure';
+import type {
+  GroupSeedMatchup,
+  GroupTeamMatchup,
+  TournamentGroup,
+  TournamentStructure,
+} from './tournamentStructure';
 import { normalizeTournamentStructure } from './tournamentStructure';
 import { groupSeedLabels, resolveSeedTeamId } from './groupMembers';
 import { normalizeSeedCode } from './seedCodes';
@@ -30,6 +35,8 @@ export interface TournamentFixtureRow extends GroupMatchRow {
   bracketSlotId?: string;
   slotLabel?: string;
   roundName?: string;
+  /** Club-vs-club league fixture (not seed codes). */
+  teamMatchup?: boolean;
 }
 
 /** Default 3-team placing pool (Sunig-style: A3, B3, B4). */
@@ -256,6 +263,63 @@ export function buildSeedFixtureRows(
   return fixtures;
 }
 
+function teamMatchupHasGame(
+  matchup: GroupTeamMatchup,
+  allGames: Game[],
+  gameById: Map<string, Game>
+): boolean {
+  if (matchup.gameId && gameById.has(matchup.gameId)) return true;
+  const pair = matchupPairKey(matchup.homeTeamId, matchup.awayTeamId);
+  const day = (matchup.date ?? '').slice(0, 10);
+  return allGames.some((game) => {
+    if (matchupPairKey(game.homeTeamId, game.awayTeamId) !== pair) return false;
+    if (!day) return true;
+    return (game.date ?? '').slice(0, 10) === day;
+  });
+}
+
+/**
+ * Unplayed club-vs-club fixtures from `group.teamMatchups` (league tables).
+ * Skips matchups that already have a linked or same-date game row.
+ */
+export function buildTeamFixtureRows(
+  structureInput: TournamentStructure | undefined,
+  allGames: Game[],
+  teamById: Map<string, Team>
+): TournamentFixtureRow[] {
+  const structure = normalizeTournamentStructure(structureInput);
+  if (!structure) return [];
+
+  const gameById = new Map(allGames.map((g) => [g.id, g]));
+  const fixtures: TournamentFixtureRow[] = [];
+  for (const stage of structure.stages) {
+    if (stage.kind !== 'round_robin') continue;
+    for (const group of stage.groups ?? []) {
+      for (const matchup of group.teamMatchups ?? []) {
+        if (teamMatchupHasGame(matchup, allGames, gameById)) continue;
+        const homeTeam = teamById.get(matchup.homeTeamId);
+        const awayTeam = teamById.get(matchup.awayTeamId);
+        fixtures.push({
+          key: `team-${group.id}-${matchup.homeTeamId}-${matchup.awayTeamId}-${matchup.date ?? 'nodate'}`,
+          homeLabel:
+            homeTeam?.abbreviation ?? homeTeam?.name ?? matchup.homeTeamId,
+          awayLabel:
+            awayTeam?.abbreviation ?? awayTeam?.name ?? matchup.awayTeamId,
+          homeTeam,
+          awayTeam,
+          date: matchup.date,
+          startTime: matchup.startTime,
+          isPlaceholder: !homeTeam || !awayTeam,
+          stageId: stage.id,
+          groupId: group.id,
+          teamMatchup: true,
+        });
+      }
+    }
+  }
+  return sortGamesTabEntries(fixtures);
+}
+
 export function sortGamesTabEntries<
   T extends { date?: string; startTime?: string; game?: Game },
 >(entries: T[]): T[] {
@@ -294,6 +358,10 @@ export function buildStructureStartTimeByGameId(
       )) {
         const tip = row.startTime?.trim();
         if (row.game?.id && tip) map.set(row.game.id, tip);
+      }
+      for (const matchup of group.teamMatchups ?? []) {
+        const tip = matchup.startTime?.trim();
+        if (matchup.gameId && tip) map.set(matchup.gameId, tip);
       }
     }
 
