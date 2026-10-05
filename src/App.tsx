@@ -1339,7 +1339,7 @@ export default function App() {
             pendingTournamentRosterDeletesRef.current =
               acknowledgeRosterDeletes(
                 pendingTournamentRosterDeletesRef.current,
-                tournamentRosterDeletes
+                tournamentRosterDeletesAfterSanitize
               );
           }
 
