@@ -1,5 +1,4 @@
 import React, { useRef, useState, useMemo, useCallback } from 'react';
-import { Card, CardContent } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Button } from './ui/button';
 import {
@@ -160,7 +159,7 @@ function SortableHead({
 
   return (
     <TableHead
-      className={`cursor-pointer select-none ${active ? 'bg-muted/50' : ''} ${className}`}
+      className={`cursor-pointer select-none ${active ? 'is-sorted' : ''} ${className}`}
       onClick={() => onSort(field)}
     >
       <div className={`flex items-center gap-1 ${center ? 'justify-center' : ''}`}>
@@ -275,7 +274,28 @@ export function PlayerStatsTable({
     sortField === field && activeSortFields.has(field);
 
   const cellHighlight = (field: PlayerStatsSortField) =>
-    isActiveSortField(field) ? 'bg-muted/50' : '';
+    isActiveSortField(field) ? 'is-sorted' : '';
+
+  const stickyPlayerHeadClass = isBreakdown
+    ? 'player-stats-sticky-player player-stats-sticky-player--flush'
+    : 'player-stats-sticky-player';
+  const stickyRankHeadClass = 'player-stats-sticky-rank';
+
+  const stickyPlayerCellClass = (
+    field: PlayerStatsSortField,
+    isSummaryRow: boolean
+  ) => {
+    const parts = [
+      'player-stats-sticky-player',
+      isBreakdown ? 'player-stats-sticky-player--flush' : '',
+      isSummaryRow ? 'is-summary' : '',
+      isActiveSortField(field) ? 'is-sorted' : '',
+    ];
+    return parts.filter(Boolean).join(' ');
+  };
+
+  const stickyRankCellClass = (isSummaryRow: boolean) =>
+    `player-stats-sticky-rank text-sm${isSummaryRow ? ' is-summary' : ''}`;
 
   return (
     <div className="space-y-3">
@@ -312,41 +332,38 @@ export function PlayerStatsTable({
         )}
       </div>
 
-      <Card>
-        <CardContent className="p-0">
-          <div
-            ref={tableContainerRef}
-            className="overflow-x-auto max-h-[80vh] overflow-y-auto"
-          >
-            <Table>
-              <TableHeader className="sticky top-0 bg-background z-10">
-                <TableRow>
-                  {!isBreakdown && (
-                    <StatTooltipHead
-                      label="#"
-                      tooltip={COLUMN_TOOLTIPS['#']}
-                      className="w-12 text-center"
-                    />
-                  )}
-                  {isBreakdown ? (
-                    <SortableHead
-                      label="Tournament"
-                      field="Scope"
-                      sortField={sortField}
-                      sortOrder={sortOrder}
-                      onSort={handleSort}
-                      activeSortFields={activeSortFields}
-                    />
-                  ) : (
-                    <SortableHead
-                      label="Player"
-                      field="Player"
-                      sortField={sortField}
-                      sortOrder={sortOrder}
-                      onSort={handleSort}
-                      activeSortFields={activeSortFields}
-                    />
-                  )}
+      <div ref={tableContainerRef} className="player-stats-scroll">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {!isBreakdown && (
+                <StatTooltipHead
+                  label="#"
+                  tooltip={COLUMN_TOOLTIPS['#']}
+                  className={`${stickyRankHeadClass} text-center`}
+                />
+              )}
+              {isBreakdown ? (
+                <SortableHead
+                  label="Tournament"
+                  field="Scope"
+                  sortField={sortField}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                  activeSortFields={activeSortFields}
+                  className={stickyPlayerHeadClass}
+                />
+              ) : (
+                <SortableHead
+                  label="Player"
+                  field="Player"
+                  sortField={sortField}
+                  sortOrder={sortOrder}
+                  onSort={handleSort}
+                  activeSortFields={activeSortFields}
+                  className={stickyPlayerHeadClass}
+                />
+              )}
                   {showTeamColumn && (
                     <SortableHead
                       label="Team"
@@ -493,13 +510,15 @@ export function PlayerStatsTable({
                       }
                     >
                       {!isBreakdown && (
-                        <TableCell className="text-center text-sm">{index + 1}</TableCell>
+                        <TableCell className={stickyRankCellClass(isSummaryRow)}>
+                          {index + 1}
+                        </TableCell>
                       )}
                       {isBreakdown ? (
                         <TableCell
                           className={`text-sm ${cellHighlight('Scope')} ${
                             isSummaryRow ? 'font-semibold' : ''
-                          }`}
+                          } ${stickyPlayerCellClass('Scope', isSummaryRow)}`}
                         >
                           {!isSummaryRow &&
                           playerData.scopeId &&
@@ -527,7 +546,7 @@ export function PlayerStatsTable({
                               : 'cursor-pointer hover:text-primary'
                           } ${cellHighlight('Player')} ${
                             playerData.isSummaryRow ? 'font-semibold' : ''
-                          }`}
+                          } ${stickyPlayerCellClass('Player', isSummaryRow)}`}
                           onClick={() => {
                             if (!disableRowNavigation && onNavigateToPlayer) {
                               onNavigateToPlayer(
@@ -609,8 +628,6 @@ export function PlayerStatsTable({
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

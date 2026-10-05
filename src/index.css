@@ -5719,3 +5719,116 @@ html {
   flex-shrink: 0;
   border-radius: 0.25rem;
 }
+
+/* LE-135 — Player Stats sticky scrollport.
+   Arbitrary Tailwind (h-[70vh], overflow-auto, left-0, border-separate, etc.)
+   is often missing from this precompiled bundle — use named CSS instead. */
+.player-stats-scroll {
+  max-height: 80vh;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background-color: var(--card);
+}
+
+.player-stats-scroll [data-slot='table-container'] {
+  overflow: visible;
+}
+
+.player-stats-scroll table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.player-stats-scroll thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* Match pre-sticky look: darker bar than body (muted is lighter than card). */
+  background-color: var(--background);
+  border-bottom: 1px solid var(--border);
+}
+
+.player-stats-scroll tbody td {
+  border-bottom: 1px solid var(--border);
+  background-color: var(--card);
+}
+
+/* Row hover — backgrounds live on td (row hover bg can't show through). */
+.player-stats-scroll tbody tr:hover td {
+  background-color: color-mix(in oklab, var(--muted) 50%, var(--card));
+}
+
+/* Active sort column highlight (restores pre-sticky bg-muted/50 look). */
+.player-stats-scroll thead th.is-sorted {
+  background-color: color-mix(in oklab, var(--muted) 65%, var(--background));
+}
+
+.player-stats-scroll tbody td.is-sorted {
+  background-color: color-mix(in oklab, var(--muted) 45%, var(--card));
+}
+
+.player-stats-scroll tbody tr:hover td.is-sorted {
+  background-color: color-mix(in oklab, var(--muted) 70%, var(--card));
+}
+
+.player-stats-sticky-rank,
+.player-stats-sticky-player {
+  position: sticky;
+  z-index: 10;
+  box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.25);
+}
+
+.player-stats-sticky-rank {
+  left: 0;
+  width: 3rem;
+  min-width: 3rem;
+  text-align: center;
+}
+
+.player-stats-sticky-player {
+  left: 3rem;
+  min-width: 9rem;
+}
+
+/* Breakdown layout: no # column — Player/Tournament sticks at left edge */
+.player-stats-sticky-player--flush {
+  left: 0;
+}
+
+/* Must beat `.player-stats-scroll tbody td` so #/Player match header. */
+.player-stats-scroll td.player-stats-sticky-rank,
+.player-stats-scroll td.player-stats-sticky-player {
+  background-color: var(--background);
+}
+
+.player-stats-scroll thead th.player-stats-sticky-rank,
+.player-stats-scroll thead th.player-stats-sticky-player {
+  z-index: 40;
+  top: 0;
+  background-color: var(--background);
+}
+
+.player-stats-scroll thead th.player-stats-sticky-player.is-sorted {
+  background-color: color-mix(in oklab, var(--muted) 65%, var(--background));
+}
+
+.player-stats-scroll td.player-stats-sticky-rank.is-summary,
+.player-stats-scroll td.player-stats-sticky-player.is-summary {
+  background-color: color-mix(in oklab, var(--muted) 35%, var(--background));
+}
+
+.player-stats-scroll td.player-stats-sticky-player.is-sorted {
+  background-color: color-mix(in oklab, var(--muted) 50%, var(--background));
+}
+
+.player-stats-scroll tbody tr:hover td.player-stats-sticky-rank,
+.player-stats-scroll tbody tr:hover td.player-stats-sticky-player {
+  background-color: color-mix(in oklab, var(--muted) 45%, var(--background));
+}
+
+.player-stats-scroll tbody tr:hover td.player-stats-sticky-player.is-sorted {
+  background-color: color-mix(in oklab, var(--muted) 65%, var(--background));
+}

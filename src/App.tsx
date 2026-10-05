@@ -1138,6 +1138,28 @@ export default function App() {
       prevTournamentsRef.current
     );
 
+    const sanitizedRosters = sanitizeTournamentRostersForCloud({
+      entries: processed.tournamentRosters,
+      teams: teamsWithIcons,
+      games: processed.games,
+    });
+    if (sanitizedRosters.changed) {
+      const autoRemoves = collectTournamentRosterRemovals(
+        processed.tournamentRosters,
+        sanitizedRosters.entries
+      );
+      if (autoRemoves.length > 0) {
+        pendingTournamentRosterDeletesRef.current = remapTournamentRosterDeletes([
+          ...pendingTournamentRosterDeletesRef.current,
+          ...autoRemoves,
+        ]);
+      }
+      processed = {
+        ...processed,
+        tournamentRosters: sanitizedRosters.entries,
+      };
+    }
+
     setTeams(teamsWithIcons);
     setLoadedOrphanPlayers(processed.orphanPlayers);
     setTournaments(tournamentsWithIcons);
@@ -1220,13 +1242,11 @@ export default function App() {
         teamsToSave = mergeTeamRostersUnion(teamsToSave, prevTeamsRef.current);
       }
 
-      const tournamentRosterDeletes = remapTournamentRosterDeletes([
-        ...pendingTournamentRosterDeletesRef.current,
-      ]);
-
+      const rostersBeforeSanitize = tournamentRostersRef.current;
       const sanitizedRosters = sanitizeTournamentRostersForCloud({
-        entries: tournamentRostersRef.current,
+        entries: rostersBeforeSanitize,
         teams: teamsToSave,
+        games: gamesToSave,
       });
       if (sanitizedRosters.changed) {
         if (import.meta.env.DEV) {
@@ -1234,6 +1254,16 @@ export default function App() {
             remappedCount: sanitizedRosters.remappedCount,
             droppedPlayerIds: [...new Set(sanitizedRosters.droppedPlayerIds)],
           });
+        }
+        const autoRemoves = collectTournamentRosterRemovals(
+          rostersBeforeSanitize,
+          sanitizedRosters.entries
+        );
+        if (autoRemoves.length > 0) {
+          pendingTournamentRosterDeletesRef.current = remapTournamentRosterDeletes([
+            ...pendingTournamentRosterDeletesRef.current,
+            ...autoRemoves,
+          ]);
         }
         tournamentRostersRef.current = sanitizedRosters.entries;
         setTournamentRosters(sanitizedRosters.entries);
@@ -1246,6 +1276,10 @@ export default function App() {
           tournamentRosters: sanitizedRosters.entries,
         });
       }
+
+      const tournamentRosterDeletesAfterSanitize = remapTournamentRosterDeletes([
+        ...pendingTournamentRosterDeletesRef.current,
+      ]);
 
       const rostersToSave = reconcileTournamentRostersFromGames(
         gamesToSave,
@@ -1264,14 +1298,17 @@ export default function App() {
               rostersToSave,
               gamesToSave,
               teamsToSave,
-              tournamentRosterDeletes.length > 0
-                ? { tournamentRosterDeletes }
+              tournamentRosterDeletesAfterSanitize.length > 0
+                ? {
+                    tournamentRosterDeletes:
+                      tournamentRosterDeletesAfterSanitize,
+                  }
                 : undefined
             );
             pendingTournamentRosterDeletesRef.current =
               acknowledgeRosterDeletes(
                 pendingTournamentRosterDeletesRef.current,
-                tournamentRosterDeletes
+                tournamentRosterDeletesAfterSanitize
               );
           } else {
             const saved = await saveAppDataToSupabase(
@@ -1283,8 +1320,11 @@ export default function App() {
               rostersToSave,
               {
                 ...(rosterDeletes.length > 0 ? { rosterDeletes } : {}),
-                ...(tournamentRosterDeletes.length > 0
-                  ? { tournamentRosterDeletes }
+                ...(tournamentRosterDeletesAfterSanitize.length > 0
+                  ? {
+                      tournamentRosterDeletes:
+                        tournamentRosterDeletesAfterSanitize,
+                    }
                   : {}),
               }
             );
@@ -1516,11 +1556,34 @@ export default function App() {
         .then((data) => {
           if (cancelled) return;
           const processed = processLoadedAppData(data);
-          const mergedRosters = mergeLocalAndCloudTournamentRosters(
+          let mergedRosters = mergeLocalAndCloudTournamentRosters(
             tournamentRostersRef.current,
             processed.tournamentRosters,
             pendingTournamentRosterDeletesRef.current
           );
+          const sanitizedMerged = sanitizeTournamentRostersForCloud({
+            entries: mergedRosters,
+            teams: mergeTeamRostersUnion(teamsRef.current, processed.teams),
+            games: mergeCloudGamesWithFresherLocal(
+              processed.games,
+              gamesRef.current,
+              { omitLocalOnlyIds: pendingDeletedGameIdsRef.current }
+            ),
+          });
+          if (sanitizedMerged.changed) {
+            const autoRemoves = collectTournamentRosterRemovals(
+              mergedRosters,
+              sanitizedMerged.entries
+            );
+            if (autoRemoves.length > 0) {
+              pendingTournamentRosterDeletesRef.current =
+                remapTournamentRosterDeletes([
+                  ...pendingTournamentRosterDeletesRef.current,
+                  ...autoRemoves,
+                ]);
+            }
+            mergedRosters = sanitizedMerged.entries;
+          }
           const rostersAheadOfCloud = !tournamentRosterSetsEqual(
             mergedRosters,
             processed.tournamentRosters

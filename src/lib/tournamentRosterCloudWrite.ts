@@ -1,8 +1,11 @@
 import {
   mergeTournamentRosters,
+  resolvePlayerTeamSideInGame,
+  buildClubRosterByTeam,
   tournamentRosterEntryKey,
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
+import type { Game, Team } from '../App';
 
 export interface TournamentRosterDelete {
   tournamentId: string;
@@ -42,11 +45,14 @@ export function collectKnownPlayerIdsFromTeams(
 
 /**
  * Remap known merged aliases, drop roster rows whose player is not on any
- * club roster (avoids tournament_rosters_player_id_fkey), then dedupe keys.
+ * club roster (avoids tournament_rosters_player_id_fkey), drop cross-club
+ * leftovers with no games for that team in that tournament, then dedupe keys.
  */
 export function sanitizeTournamentRostersForCloud(args: {
   entries: TournamentRosterEntry[];
-  teams: Array<{ players?: Array<{ id: string }> }>;
+  teams: Array<{ id?: string; players?: Array<{ id: string }> }>;
+  /** When set, cross-club roster rows are kept if the player has stats for that team. */
+  games?: Game[];
   aliases?: Readonly<Record<string, string>>;
 }): {
   entries: TournamentRosterEntry[];
@@ -56,6 +62,31 @@ export function sanitizeTournamentRostersForCloud(args: {
 } {
   const aliases = args.aliases ?? MERGED_PLAYER_ID_ALIASES;
   const known = collectKnownPlayerIdsFromTeams(args.teams);
+  const clubPlayerIdsByTeam = new Map<string, Set<string>>();
+  for (const team of args.teams) {
+    if (!team.id) continue;
+    clubPlayerIdsByTeam.set(
+      team.id,
+      new Set((team.players ?? []).map((p) => p.id).filter(Boolean))
+    );
+  }
+
+  const clubByTeam = buildClubRosterByTeam(args.teams as Team[]);
+  const playedForTeam = new Set<string>();
+  for (const game of args.games ?? []) {
+    if (!game.isCompleted || !game.tournamentId) continue;
+    for (const stat of game.gameStats ?? []) {
+      if (!stat.playerId) continue;
+      const side = resolvePlayerTeamSideInGame(
+        stat.playerId,
+        game,
+        clubByTeam
+      );
+      if (!side) continue;
+      playedForTeam.add(`${game.tournamentId}:${side}:${stat.playerId}`);
+    }
+  }
+
   let remappedCount = 0;
   const droppedPlayerIds: string[] = [];
 
@@ -73,6 +104,14 @@ export function sanitizeTournamentRostersForCloud(args: {
     if (!known.has(row.playerId)) {
       droppedPlayerIds.push(row.playerId);
       continue;
+    }
+    const clubIds = clubPlayerIdsByTeam.get(row.teamId);
+    if (clubIds && !clubIds.has(row.playerId)) {
+      const playedKey = `${row.tournamentId}:${row.teamId}:${row.playerId}`;
+      if (!playedForTeam.has(playedKey)) {
+        droppedPlayerIds.push(row.playerId);
+        continue;
+      }
     }
     byKey.set(tournamentRosterEntryKey(row), row);
   }

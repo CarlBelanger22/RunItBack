@@ -342,7 +342,9 @@ export function getPlayersForTeamInTournament(
   );
 
   return rosterRows.map((row) => {
-    const template = team.players.find((p) => p.id === row.playerId);
+    const template =
+      team.players.find((p) => p.id === row.playerId) ??
+      teams.flatMap((t) => t.players).find((p) => p.id === row.playerId);
     if (template) {
       return {
         ...template,

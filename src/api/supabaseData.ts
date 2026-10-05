@@ -3,6 +3,7 @@ import { prepareIconsForCloudSave } from '../lib/teamAssetStorage';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import {
+  collectTournamentRosterRemovals,
   planTournamentRosterCloudWrite,
   remapTournamentRosterDeletes,
   sanitizeTournamentRostersForCloud,
@@ -492,6 +493,7 @@ async function persistTournamentRosterEntries(
   const sanitized = sanitizeTournamentRostersForCloud({
     entries: tournamentRosters,
     teams,
+    games,
   });
   if (
     (sanitized.remappedCount > 0 || sanitized.droppedPlayerIds.length > 0) &&
@@ -502,9 +504,16 @@ async function persistTournamentRosterEntries(
       droppedPlayerIds: [...new Set(sanitized.droppedPlayerIds)],
     });
   }
+  const autoRemoves = collectTournamentRosterRemovals(
+    tournamentRosters,
+    sanitized.entries
+  );
   const plan = planTournamentRosterCloudWrite({
     clientRows: dedupeTournamentRostersForDb(sanitized.entries, games, teams),
-    pendingDeletes: remapTournamentRosterDeletes(pendingDeletes),
+    pendingDeletes: remapTournamentRosterDeletes([
+      ...pendingDeletes,
+      ...autoRemoves,
+    ]),
   });
   await upsertChunks(
     'tournament_rosters',
