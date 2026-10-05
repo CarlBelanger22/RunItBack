@@ -166,12 +166,16 @@ export function TournamentPage({
   const tournamentGames = filterGamesForTournament(tournament, games);
 
   // Home + unstructured Standings: RR/group games only when structure exists
-  // (exclude KO so Home matches Group standings — LE-131).
+  // (exclude KO so Standings tab matches Group tables — LE-131).
   const calculateStandings = () =>
     calculateTeamStandings(
       tournamentTeams,
       filterRoundRobinGames(tournamentGames, tournament.structure)
     );
+
+  // Home Standings card only: count every completed tournament game (incl. KO).
+  const calculateHomeStandings = () =>
+    calculateTeamStandings(tournamentTeams, tournamentGames);
   
   // Get tournament leaders
   const getTournamentLeaders = () => {
@@ -339,6 +343,7 @@ export function TournamentPage({
     );
   
   const standings = calculateStandings();
+  const homeStandings = calculateHomeStandings();
   const leaders = getTournamentLeaders();
   const extendedStandings = calculateStandingsWithExtendedStats();
   const groupStandingsTables = buildGroupStandingsTables(
@@ -518,7 +523,7 @@ export function TournamentPage({
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {standings.slice(0, 5).map((standing, index) => {
+              {homeStandings.slice(0, 5).map((standing, index) => {
                 return (
                   <div key={standing.team.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 cursor-pointer" onClick={() => onNavigateToTeam(standing.team.id)}>
                     <div className="flex items-center gap-3">
