@@ -18,6 +18,7 @@ import {
 } from './ui/alert-dialog';
 import { Tournament, Team, Game, CreateTeamOptions } from '../App';
 import type { TournamentUpdate } from '../App';
+import { TournamentAwardsTab } from './TournamentAwardsTab';
 import type { TournamentTab } from '../routing/tabs';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamStatsTable } from './TeamStatsTable';
@@ -1874,6 +1875,7 @@ export function TournamentPage({
           <TabsTrigger value="teams">Team Stats</TabsTrigger>
           <TabsTrigger value="players">Player Stats</TabsTrigger>
           <TabsTrigger value="games">Games</TabsTrigger>
+          {canEditLeague && <TabsTrigger value="awards">Awards</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="home" className="space-y-6">
@@ -1902,6 +1904,20 @@ export function TournamentPage({
         <TabsContent value="games" className="space-y-6">
           {GamesTab()}
         </TabsContent>
+
+        {canEditLeague && (
+          <TabsContent value="awards" className="space-y-6">
+            <TournamentAwardsTab
+              tournamentId={tournament.id}
+              tournamentName={tournament.name}
+              games={tournamentGames}
+              teams={teams}
+              tournamentRosters={tournamentRosters}
+              structure={tournament.structure}
+              onNavigateToPlayer={onNavigateToPlayer}
+            />
+          </TabsContent>
+        )}
       </Tabs>
 
       <GroupH2hDetailsDialog

@@ -157,6 +157,7 @@
             "test:friendly-game": "tsx scripts/test-friendly-game.ts",
             "test:foul-out": "tsx scripts/test-foul-out.ts",
             "test:pbp-edit": "tsx scripts/test-pbp-edit.ts",
+            "test:pbp-team-rebound": "tsx scripts/test-pbp-team-rebound.ts",
             "test:and1-ft-flow": "tsx scripts/test-and1-ft-flow.ts",
             "test:and1-event-sequence": "tsx scripts/test-and1-event-sequence.ts",
             "test:ft-substitution-flow": "tsx scripts/test-ft-substitution-flow.ts",
@@ -220,6 +221,9 @@
             "test:four-team-bracket": "tsx scripts/test-four-team-bracket.ts",
             "test:bracket-game-link": "tsx scripts/test-bracket-game-link.ts",
             "test:auto-link-iubit-bracket": "tsx scripts/test-auto-link-iubit-bracket.ts",
-            "test:tournament-tabs": "tsx scripts/test-tournament-tabs.ts"
+            "test:tournament-tabs": "tsx scripts/test-tournament-tabs.ts",
+            "test:tournament-awards": "tsx scripts/test-tournament-awards.ts",
+            "test:tournament-all-teams": "tsx scripts/test-tournament-all-teams.ts",
+            "test:tournament-progression": "tsx scripts/test-tournament-progression.ts"
       }
 }

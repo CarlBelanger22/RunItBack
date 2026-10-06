@@ -37,7 +37,7 @@ import {
   teamPath,
   tournamentPath,
 } from './paths';
-import { parsePlayerTab, parseTeamTab, parseTournamentTab, type PlayerTab, type TeamTab, type TournamentTab } from './tabs';
+import { parsePlayerTab, parseTeamTab, parseTournamentTab, resolveTournamentTabForViewer, type PlayerTab, type TeamTab, type TournamentTab } from './tabs';
 import { parseGameFormatScope } from '../utils/gameFormat';
 import { normalizeGameTeamRosters } from '../utils/gameTeamRosters';
 import { parseTournamentSelection } from '../utils/tournamentSelection';
@@ -122,6 +122,7 @@ function TournamentDetailRoute({
   const [searchParams] = useSearchParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const { canEditLeague } = useAuthCapabilities();
   const activeGame = useMemo(
     () => getActiveGame(games, currentGame),
     [games, currentGame]
@@ -134,10 +135,14 @@ function TournamentDetailRoute({
     return <NotFound />;
   }
 
-  const tab = parseTournamentTab(searchParams.get('tab'));
+  const requestedTab = parseTournamentTab(searchParams.get('tab'));
+  const tab = resolveTournamentTabForViewer(requestedTab, canEditLeague);
   const canonical = tournamentPath(tournament, tab);
 
   if (parsed.slug !== slugify(tournament.name)) {
+    return <Navigate to={canonical} replace state={location.state} />;
+  }
+  if (tab !== requestedTab) {
     return <Navigate to={canonical} replace state={location.state} />;
   }
 

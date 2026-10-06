@@ -1,4 +1,4 @@
-export type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games';
+export type TournamentTab = 'home' | 'teams' | 'standings' | 'players' | 'games' | 'awards';
 export type TeamTab = 'overview' | 'roster' | 'stats' | 'players' | 'games';
 export type PlayerTab = 'overview' | 'gamelog' | 'stats' | 'advanced';
 
@@ -8,6 +8,7 @@ const TOURNAMENT_TABS: TournamentTab[] = [
   'teams',
   'players',
   'games',
+  'awards',
 ];
 const TEAM_TABS: TeamTab[] = ['overview', 'roster', 'stats', 'players', 'games'];
 const PLAYER_TABS: PlayerTab[] = ['overview', 'gamelog', 'stats', 'advanced'];
@@ -19,6 +20,15 @@ export function parseTournamentTab(value: string | null): TournamentTab {
     return value as TournamentTab;
   }
   return 'home';
+}
+
+/** Awards tab is admin-only; non-admins landing on ?tab=awards go Home. */
+export function resolveTournamentTabForViewer(
+  tab: TournamentTab,
+  canEditLeague: boolean
+): TournamentTab {
+  if (tab === 'awards' && !canEditLeague) return 'home';
+  return tab;
 }
 
 export function parseTeamTab(value: string | null): TeamTab {
