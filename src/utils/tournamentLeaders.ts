@@ -2,14 +2,15 @@
  * Tournament home-page league leaders: qualification floors.
  *
  * - Counting + % boards: played >= 50% of that club's games in the tournament
- * - FG%: >= 2 FGA per game played
+ * - FG%: >= 3 FGA per game played
  * - 3P%: >= 1 3PA per game played
- * - FT%: >= 1.5 FTA per game played
+ * - FT%: > 1.5 FTA per game played (strictly greater than)
  */
 
 export const TOURNAMENT_LEADER_MIN_TEAM_GAME_FRACTION = 0.5;
-export const TOURNAMENT_LEADER_MIN_FGA_PER_GAME = 2;
+export const TOURNAMENT_LEADER_MIN_FGA_PER_GAME = 3;
 export const TOURNAMENT_LEADER_MIN_3PA_PER_GAME = 1;
+/** FT% requires strictly more than this many FTA per game played. */
 export const TOURNAMENT_LEADER_MIN_FTA_PER_GAME = 1.5;
 
 /** Player must have appeared in at least half of their team's tournament games. */
@@ -39,5 +40,8 @@ export function meetsTournamentLeaderFtFloor(
   ftAttempted: number,
   gamesPlayed: number
 ): boolean {
-  return gamesPlayed > 0 && ftAttempted >= gamesPlayed * TOURNAMENT_LEADER_MIN_FTA_PER_GAME;
+  return (
+    gamesPlayed > 0 &&
+    ftAttempted > gamesPlayed * TOURNAMENT_LEADER_MIN_FTA_PER_GAME
+  );
 }
