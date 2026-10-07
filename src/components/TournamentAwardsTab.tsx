@@ -48,6 +48,11 @@ function formatAvg(total: number, gp: number, digits = 1): string {
   return (total / gp).toFixed(digits);
 }
 
+function formatAwardScore(sortValue: number): string {
+  if (!Number.isFinite(sortValue)) return '—';
+  return sortValue.toFixed(1);
+}
+
 function ContenderTable({
   contenders,
   onNavigateToPlayer,
@@ -91,9 +96,7 @@ function ContenderTable({
             <TableHead className="text-center">TOPG</TableHead>
             <TableHead className="text-center">+/−</TableHead>
             <TableHead className="text-center">GmSc</TableHead>
-            {showAllTeamScore && (
-              <TableHead className="text-center">Score</TableHead>
-            )}
+            <TableHead className="text-center">Score</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -165,11 +168,11 @@ function ContenderTable({
                 <TableCell className="text-center">
                   {c.gmscPerGame.toFixed(1)}
                 </TableCell>
-                {showAllTeamScore && (
-                  <TableCell className="text-center">
-                    {member.allTeamScore.toFixed(1)}
-                  </TableCell>
-                )}
+                <TableCell className="text-center font-medium">
+                  {showAllTeamScore
+                    ? member.allTeamScore.toFixed(1)
+                    : formatAwardScore(c.sortValue)}
+                </TableCell>
               </TableRow>
             );
           })}
@@ -278,7 +281,7 @@ function AllTeamsPanel({
     return (
       <p className="text-sm text-muted-foreground">
         No eligible All-{result.shortName} players yet (need completed games and
-        ≥50% team GP).
+        ≥60% team GP for majors).
       </p>
     );
   }
@@ -298,6 +301,37 @@ function AllTeamsPanel({
           />
         )
       )}
+      {result.honorableMentions.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold tracking-tight">
+              Honourable Mentions
+            </h3>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex text-muted-foreground hover:text-foreground"
+                  aria-label="How honourable mentions are chosen"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm text-sm">
+                Next {result.honorableMentions.length} eligible players by
+                All-Team Score who did not make First, Second, or Third Team
+                All-{result.shortName}. Seat shows position bucket (G/F), not an
+                All-Team seat.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <ContenderTable
+            contenders={result.honorableMentions}
+            onNavigateToPlayer={onNavigateToPlayer}
+            showAllTeamScore
+          />
+        </section>
+      )}
     </div>
   );
 }
@@ -316,6 +350,7 @@ export function TournamentAwardsTab({
     games,
     teams,
     tournamentRosters,
+    structure,
   });
   const allTeams = buildAllTournamentTeamsForGames({
     tournamentId,

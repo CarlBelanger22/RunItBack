@@ -10,7 +10,7 @@ import {
   type AwardContender,
   type AwardPlayerAggregate,
 } from './tournamentAwards';
-import { meetsTournamentLeaderGamesFloor } from './tournamentLeaders';
+import { meetsTournamentMajorAwardGamesFloor } from './tournamentLeaders';
 import type { TournamentRosterEntry } from './tournamentRosters';
 import { calculateTeamStandings } from './tournamentStandings';
 import type { TournamentStructure } from './tournamentStructure';
@@ -44,8 +44,12 @@ export interface AllTournamentTeamsResult {
   first: AllTeamMember[];
   second: AllTeamMember[];
   third: AllTeamMember[];
+  /** Next 3 eligible by AllTeamScore who missed First/Second/Third. */
+  honorableMentions: AllTeamMember[];
   tooltip: string;
 }
+
+const HONORABLE_MENTION_N = 3;
 
 const MAX_PER_CLUB = 3;
 const SEAT_PATTERN: AllTeamBucket[] = ['G', 'G', 'F', 'F', 'F'];
@@ -288,7 +292,7 @@ export function buildAllTournamentTeams(input: {
 }): AllTournamentTeamsResult {
   const shortName = allTournamentShortName(input.tournamentName);
   const eligible = input.players.filter((r) =>
-    meetsTournamentLeaderGamesFloor(r.gamesPlayed, r.teamGames)
+    meetsTournamentMajorAwardGamesFloor(r.gamesPlayed, r.teamGames)
   );
   const progression = input.progressionByTeamId ?? new Map();
   const nTeams = Math.max(
@@ -320,18 +324,36 @@ export function buildAllTournamentTeams(input: {
   const secondFill = fillOneSquad(firstFill.remaining, scores);
   const thirdFill = fillOneSquad(secondFill.remaining, scores);
 
+  const honorableMentions = [...thirdFill.remaining]
+    .sort((a, b) => {
+      const sa = scores.get(a.playerId)!;
+      const sb = scores.get(b.playerId)!;
+      return compareAllTeamCandidates(a, b, sa.score, sb.score);
+    })
+    .slice(0, HONORABLE_MENTION_N)
+    .map((row) => {
+      const meta = scores.get(row.playerId)!;
+      return toMember(row, {
+        meta,
+        // Display natural bucket in Seat column (not an All-Team seat).
+        seat: positionToAllTeamBucket(row.player.position),
+      });
+    });
+
   const tooltip =
     `Stats-only All-${shortName}: GmSc/g × context (±15%). ` +
     `Context = tournament progression place when known (Final / 3rd / placing pool; splits when those games finish), ` +
     `otherwise team win%. ` +
     `Each team is 2G / 3F (C and blank Pos count as F; empty seats soft-fill). ` +
-    `Max 3 from the same club per First/Second/Third. Eligible: ≥50% of team games.`;
+    `Max 3 from the same club per First/Second/Third. Eligible: ≥60% of team games. ` +
+    `Honourable mentions = next 3 by Score who missed the teams.`;
 
   return {
     shortName,
     first: firstFill.squad,
     second: secondFill.squad,
     third: thirdFill.squad,
+    honorableMentions,
     tooltip,
   };
 }

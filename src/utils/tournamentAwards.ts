@@ -1,35 +1,48 @@
 /**
  * Admin Awards tab: top-5 contenders per stats-only award for one tournament.
- * Completed games only; ≥50% of that club's tournament games for eligibility.
+ * Completed games only. Majors (MVP/DPOY/Sixth Man) ≥60% team GP;
+ * other awards ≥50% (same as Home leaders).
  */
 import type { Game, GameStats, Player, Team } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import { isGameCompleted } from './scheduledGames';
 import { gameRecordsStat } from './statRecordingCoverage';
 import {
-  meetsTournamentLeaderFgFloor,
-  meetsTournamentLeaderFtFloor,
   meetsTournamentLeaderGamesFloor,
   meetsTournamentLeaderThreeFloor,
+  meetsTournamentMajorAwardGamesFloor,
 } from './tournamentLeaders';
 import {
   resolvePlayerTeamFromTournamentRoster,
   type TournamentRosterEntry,
 } from './tournamentRosters';
 import { resolvePlayerTeamInGame } from './rosterPlayers';
+import { calculateTeamStandings } from './tournamentStandings';
+import type { TournamentStructure } from './tournamentStructure';
+import {
+  buildTeamProgressionPlaces,
+  countTournamentTeamsForProgression,
+  progressionPlaceMultiplier,
+  recordWinMultiplier,
+  type TeamProgressionPlace,
+} from './tournamentProgression';
+import {
+  aggregateClutchStatsByPlayer,
+  clutchGmscPerGame,
+  tournamentHasClutchPbpCoverage,
+  type ClutchPlayerAggregate,
+} from './tournamentClutch';
 
 export type TournamentAwardId =
   | 'mvp'
   | 'dpoy'
   | 'sixth_man'
+  | 'clutch'
   | 'scoring'
   | 'playmaker'
   | 'rebounder'
   | 'iron_man'
   | 'plus_minus'
-  | 'fg_pct'
-  | 'three_pct'
-  | 'ft_pct'
   | 'three_volume';
 
 export interface AwardPlayerAggregate {
@@ -248,29 +261,196 @@ export function tournamentHasPlusMinusCoverage(games: Game[]): boolean {
   return games.filter(isGameCompleted).some((g) => gameRecordsStat(g, 'plus_minus'));
 }
 
+/** Non-major awards + shared pools: ≥50% team GP. */
 function eligibleBase(rows: AwardPlayerAggregate[]): AwardPlayerAggregate[] {
   return rows.filter((r) =>
     meetsTournamentLeaderGamesFloor(r.gamesPlayed, r.teamGames)
   );
 }
 
+/** MVP / DPOY / Sixth Man: ≥60% team GP. */
+function eligibleMajors(rows: AwardPlayerAggregate[]): AwardPlayerAggregate[] {
+  return rows.filter((r) =>
+    meetsTournamentMajorAwardGamesFloor(r.gamesPlayed, r.teamGames)
+  );
+}
+
+/**
+ * Team defensive context for DPOY: ±15% from points-allowed/g rank
+ * (best PAPG → 1.15, worst → 0.85). Teams with no scored games → 1.0.
+ */
+export function buildTeamDefMultiplierMap(
+  games: Game[],
+  teams: Team[]
+): Map<string, number> {
+  const completed = games.filter(isGameCompleted);
+  const standings = calculateTeamStandings(teams, completed);
+  const ranked = standings
+    .filter((r) => r.gamesPlayed > 0)
+    .sort(
+      (a, b) =>
+        a.papg - b.papg || a.team.name.localeCompare(b.team.name)
+    );
+  const map = new Map<string, number>();
+  for (const t of teams) map.set(t.id, 1);
+  const n = ranked.length;
+  if (n <= 1) return map;
+  ranked.forEach((row, idx) => {
+    map.set(row.team.id, 1.15 - (0.3 * idx) / (n - 1));
+  });
+  return map;
+}
+
+/** Light +/− weight when tracked (was 0.10 — too blowout-driven). */
+export const DPOY_PLUS_MINUS_WEIGHT = 0.07;
+
+/**
+ * Per-game defensive box blend before team multiplier.
+ * (1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP [+ 0.07×+/− when tracked].
+ */
+export function dpoyBoxPerGame(
+  row: AwardPlayerAggregate,
+  includePlusMinus: boolean
+): number {
+  const gp = row.gamesPlayed;
+  if (gp <= 0) return 0;
+  const s = row.totalStats;
+  let raw =
+    (1.5 * s.steals + 1.5 * s.blocks + 0.5 * s.drb - 0.25 * s.fouls) / gp;
+  if (includePlusMinus && row.plusMinusGames > 0) {
+    raw += DPOY_PLUS_MINUS_WEIGHT * (row.plusMinusTotal / row.plusMinusGames);
+  }
+  return raw;
+}
+
+export function dpoyScore(
+  row: AwardPlayerAggregate,
+  includePlusMinus: boolean,
+  teamDefMultiplierByTeamId: Map<string, number>
+): number {
+  const mult = teamDefMultiplierByTeamId.get(row.team.id) ?? 1;
+  return dpoyBoxPerGame(row, includePlusMinus) * mult;
+}
+
+/** Club win% 0–1 for award context (same idea as All-Teams record fallback). */
+export function buildAwardTeamWinPctMap(
+  games: Game[],
+  teams: Team[]
+): Map<string, number> {
+  const completed = games.filter(isGameCompleted);
+  const standings = calculateTeamStandings(teams, completed);
+  const map = new Map<string, number>();
+  for (const row of standings) {
+    map.set(
+      row.team.id,
+      row.gamesPlayed > 0 ? row.wins / row.gamesPlayed : 0.5
+    );
+  }
+  for (const t of teams) {
+    if (!map.has(t.id)) map.set(t.id, 0.5);
+  }
+  return map;
+}
+
+/**
+ * ±15% context: progression place when known, else team win%.
+ * Shared spirit with All-Teams (not imported — avoids circular deps).
+ */
+export function awardContextMultiplier(
+  teamId: string,
+  teamWinPct: number,
+  progression: Map<string, TeamProgressionPlace>,
+  nTeams: number
+): number {
+  const prog = progression.get(teamId);
+  if (prog) return progressionPlaceMultiplier(prog.place, nTeams);
+  return recordWinMultiplier(teamWinPct);
+}
+
+/** MVP / Sixth Man: GmSc/g × context (±15%). */
+export function mvpStyleScore(
+  row: AwardPlayerAggregate,
+  teamWinPctByTeamId: Map<string, number>,
+  progression: Map<string, TeamProgressionPlace>,
+  nTeams: number
+): number {
+  const winPct = teamWinPctByTeamId.get(row.team.id) ?? 0.5;
+  const mult = awardContextMultiplier(
+    row.team.id,
+    winPct,
+    progression,
+    nTeams
+  );
+  return gmscPerGame(row.totalStats, row.gamesPlayed) * mult;
+}
+
+/** Playmaker: APG × AST/(AST+TO). */
+export function playmakerScore(row: AwardPlayerAggregate): number {
+  const gp = row.gamesPlayed;
+  if (gp <= 0) return 0;
+  const ast = row.totalStats.assists;
+  const tov = row.totalStats.turnovers;
+  const apg = ast / gp;
+  const denom = ast + tov;
+  if (denom <= 0) return 0;
+  return apg * (ast / denom);
+}
+
+/** Glass Cleaner: (1.0×DRB + 1.1×ORB) / GP — ORB slightly harder. */
+export function rebounderScore(row: AwardPlayerAggregate): number {
+  const gp = row.gamesPlayed;
+  if (gp <= 0) return 0;
+  return (row.totalStats.drb + 1.1 * row.totalStats.orb) / gp;
+}
+
+/** +/− sample: ≥2 tracked games and coverage in ≥50% of player's GP. */
+export function meetsPlusMinusSampleFloor(row: AwardPlayerAggregate): boolean {
+  return (
+    row.plusMinusGames >= 2 &&
+    row.plusMinusGames * 2 >= row.gamesPlayed
+  );
+}
+
 /**
  * Ordered award sections for the admin Awards tab.
- * Omits Plus/Minus when the tournament has no +/- coverage.
+ * Omits Impact (+/−) when the tournament has no +/- coverage.
+ * Omits Clutch Player when the tournament has no play-by-play.
  */
 export function buildTournamentAwardSections(
   players: AwardPlayerAggregate[],
-  options: { includePlusMinus: boolean }
+  options: {
+    includePlusMinus: boolean;
+    includeClutch?: boolean;
+    clutchByPlayerId?: Map<string, ClutchPlayerAggregate>;
+    teamDefMultiplierByTeamId?: Map<string, number>;
+    teamWinPctByTeamId?: Map<string, number>;
+    progressionByTeamId?: Map<string, TeamProgressionPlace>;
+    nTeamsForProgression?: number;
+  }
 ): TournamentAwardSection[] {
   const base = eligibleBase(players);
+  const majors = eligibleMajors(players);
   const sections: TournamentAwardSection[] = [];
+  const teamDef =
+    options.teamDefMultiplierByTeamId ?? new Map<string, number>();
+  const winPctMap = options.teamWinPctByTeamId ?? new Map<string, number>();
+  const progression = options.progressionByTeamId ?? new Map();
+  const nTeams = Math.max(
+    2,
+    options.nTeamsForProgression ??
+      new Set(base.map((r) => r.team.id)).size
+  );
+
+  const mvpScore = (r: AwardPlayerAggregate) =>
+    mvpStyleScore(r, winPctMap, progression, nTeams);
 
   sections.push({
     id: 'mvp',
     title: 'MVP',
     tooltip:
-      'Highest average Game Score (GmSc) among players in at least half of their team’s completed tournament games.',
-    contenders: topBy(base, (r) => gmscPerGame(r.totalStats, r.gamesPlayed), (a, b) => {
+      'GmSc per game × context (±15%: tournament progression place when known, otherwise team win%). ' +
+      'Eligible: ≥60% of team games. Ties: EFF/g, then PPG.',
+    contenders: topBy(majors, mvpScore, (a, b) => {
       const eff =
         MetricsCalculator.calculateEfficiency(b.totalStats) / b.gamesPlayed -
         MetricsCalculator.calculateEfficiency(a.totalStats) / a.gamesPlayed;
@@ -279,20 +459,24 @@ export function buildTournamentAwardSections(
     }),
   });
 
+  const dpoyPmNote = options.includePlusMinus
+    ? ' When +/− is tracked, add 0.07 × +/− per game.'
+    : '';
   sections.push({
     id: 'dpoy',
-    title: 'Defensive Player (DPOY)',
+    title: 'Defensive Player',
     tooltip:
-      'Highest steals + blocks per game (box-score defense only). Eligible: ≥50% of team games. Ties: better +/− per game when tracked, otherwise fewer personal fouls per game.',
+      `Stats-only: ((1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
+      `× team defense multiplier (±15% from points allowed/g rank; best defense 1.15). ` +
+      `Eligible: ≥60% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,
     contenders: topBy(
-      base,
-      (r) => (r.totalStats.steals + r.totalStats.blocks) / r.gamesPlayed,
+      majors,
+      (r) => dpoyScore(r, options.includePlusMinus, teamDef),
       (a, b) => {
-        if (a.plusMinusGames > 0 && b.plusMinusGames > 0) {
-          const pm =
-            b.plusMinusTotal / b.plusMinusGames - a.plusMinusTotal / a.plusMinusGames;
-          if (pm !== 0) return pm;
-        }
+        const stocks =
+          (b.totalStats.steals + b.totalStats.blocks) / b.gamesPlayed -
+          (a.totalStats.steals + a.totalStats.blocks) / a.gamesPlayed;
+        if (stocks !== 0) return stocks;
         return (
           a.totalStats.fouls / a.gamesPlayed - b.totalStats.fouls / b.gamesPlayed
         );
@@ -300,18 +484,47 @@ export function buildTournamentAwardSections(
     ),
   });
 
-  const sixth = base.filter(isSixthManEligible);
+  const sixth = majors.filter(isSixthManEligible);
   sections.push({
     id: 'sixth_man',
     title: 'Sixth Man',
     tooltip:
-      'Highest GmSc per game among players who came off the bench in more games than they started (games with empty starter lists are skipped for that ratio). Also need ≥50% of team games.',
-    contenders: topBy(sixth, (r) => gmscPerGame(r.totalStats, r.gamesPlayed)),
+      'Same Score as MVP (GmSc/g × context ±15%) among players who came off the bench more than they started ' +
+      '(games with empty starter lists skipped for that ratio). Eligible: ≥60% of team games.',
+    contenders: topBy(sixth, mvpScore),
   });
+
+  if (options.includeClutch) {
+    const clutchMap =
+      options.clutchByPlayerId ?? new Map<string, ClutchPlayerAggregate>();
+    const clutchPool = players.filter((r) => {
+      const c = clutchMap.get(r.playerId);
+      return c != null && c.clutchGames > 0;
+    });
+    sections.push({
+      id: 'clutch',
+      title: 'Clutch Player',
+      tooltip:
+        'Highest Game Score per clutch game from play-by-play. Clutch = last half of Q4 action events (shots/FT/rebounds/turnovers/fouls, by count) ' +
+        'plus all OT action events, each with score margin ≤5 before the play. ' +
+        'Requires PBP; omitted when the tournament has none. No GP or clutch-sample floor.',
+      contenders: topBy(
+        clutchPool,
+        (r) => clutchGmscPerGame(clutchMap.get(r.playerId)!),
+        (a, b) => {
+          const ca = clutchMap.get(a.playerId)!;
+          const cb = clutchMap.get(b.playerId)!;
+          const pts = cb.totalStats.points - ca.totalStats.points;
+          if (pts !== 0) return pts;
+          return cb.totalStats.fg_made - ca.totalStats.fg_made;
+        }
+      ),
+    });
+  }
 
   sections.push({
     id: 'scoring',
-    title: 'Scoring',
+    title: 'Scoring Title',
     tooltip: 'Highest points per game. Eligible: ≥50% of team games.',
     contenders: topBy(base, (r) => r.totalStats.points / r.gamesPlayed),
   });
@@ -320,32 +533,26 @@ export function buildTournamentAwardSections(
     id: 'playmaker',
     title: 'Playmaker',
     tooltip:
-      'Highest assists per game. Eligible: ≥50% of team games. Ties: higher assist-to-turnover ratio.',
-    contenders: topBy(
-      base,
-      (r) => r.totalStats.assists / r.gamesPlayed,
-      (a, b) => {
-        const ratio = (r: AwardPlayerAggregate) =>
-          r.totalStats.turnovers > 0
-            ? r.totalStats.assists / r.totalStats.turnovers
-            : r.totalStats.assists > 0
-              ? Number.POSITIVE_INFINITY
-              : 0;
-        return ratio(b) - ratio(a);
-      }
-    ),
+      'APG × AST/(AST+TO) — rewards assist volume with turnover discipline. Eligible: ≥50% of team games. Ties: higher raw APG.',
+    contenders: topBy(base, playmakerScore, (a, b) => {
+      return (
+        b.totalStats.assists / b.gamesPlayed -
+        a.totalStats.assists / a.gamesPlayed
+      );
+    }),
   });
 
   sections.push({
     id: 'rebounder',
-    title: 'Rebounder',
+    title: 'Glass Cleaner',
     tooltip:
-      'Highest rebounds per game (ORB+DRB). Eligible: ≥50% of team games. Ties: higher offensive rebounds per game.',
-    contenders: topBy(
-      base,
-      (r) => (r.totalStats.orb + r.totalStats.drb) / r.gamesPlayed,
-      (a, b) => b.totalStats.orb / b.gamesPlayed - a.totalStats.orb / a.gamesPlayed
-    ),
+      '(1.0×DRB + 1.1×ORB) per game — offensive boards weighted slightly higher. Eligible: ≥50% of team games. Ties: higher total RPG.',
+    contenders: topBy(base, rebounderScore, (a, b) => {
+      const rpg =
+        (b.totalStats.orb + b.totalStats.drb) / b.gamesPlayed -
+        (a.totalStats.orb + a.totalStats.drb) / a.gamesPlayed;
+      return rpg;
+    }),
   });
 
   const withMinutes = base.filter((r) => r.totalStats.minutes_played > 0);
@@ -358,61 +565,19 @@ export function buildTournamentAwardSections(
   });
 
   if (options.includePlusMinus) {
-    const withPm = base.filter((r) => r.plusMinusGames > 0);
+    const withPm = base.filter(meetsPlusMinusSampleFloor);
     sections.push({
       id: 'plus_minus',
-      title: 'Plus/Minus',
+      title: 'Impact',
       tooltip:
-        'Highest average plus/minus in games that record +/−. Eligible: ≥50% of team games.',
+        'Highest average plus/minus. Eligible: ≥50% of team games, +/− in ≥2 games and in at least half of the player’s games.',
       contenders: topBy(withPm, (r) => r.plusMinusTotal / r.plusMinusGames),
     });
   }
 
-  const fgPool = base.filter((r) =>
-    meetsTournamentLeaderFgFloor(r.totalStats.fg_attempted, r.gamesPlayed)
-  );
-  sections.push({
-    id: 'fg_pct',
-    title: 'Field Goal %',
-    tooltip:
-      'Highest FG% with ≥4 field-goal attempts per game and ≥50% of team games.',
-    contenders: topBy(fgPool, (r) =>
-      r.totalStats.fg_attempted > 0
-        ? r.totalStats.fg_made / r.totalStats.fg_attempted
-        : 0
-    ),
-  });
-
   const threePool = base.filter((r) =>
     meetsTournamentLeaderThreeFloor(r.totalStats.three_attempted, r.gamesPlayed)
   );
-  sections.push({
-    id: 'three_pct',
-    title: 'Three-Point %',
-    tooltip:
-      'Highest 3P% with ≥1.5 three-point attempts per game and ≥50% of team games.',
-    contenders: topBy(threePool, (r) =>
-      r.totalStats.three_attempted > 0
-        ? r.totalStats.three_made / r.totalStats.three_attempted
-        : 0
-    ),
-  });
-
-  const ftPool = base.filter((r) =>
-    meetsTournamentLeaderFtFloor(r.totalStats.ft_attempted, r.gamesPlayed)
-  );
-  sections.push({
-    id: 'ft_pct',
-    title: 'Free Throw %',
-    tooltip:
-      'Highest FT% with ≥2 free-throw attempts per game and ≥50% of team games.',
-    contenders: topBy(ftPool, (r) =>
-      r.totalStats.ft_attempted > 0
-        ? r.totalStats.ft_made / r.totalStats.ft_attempted
-        : 0
-    ),
-  });
-
   sections.push({
     id: 'three_volume',
     title: 'Three-Point Volume',
@@ -429,9 +594,31 @@ export function buildTournamentAwardsForGames(input: {
   games: Game[];
   teams: Team[];
   tournamentRosters: TournamentRosterEntry[];
+  structure?: TournamentStructure | null;
 }): TournamentAwardSection[] {
   const players = aggregateTournamentAwardPlayers(input);
+  const progressionByTeamId = buildTeamProgressionPlaces({
+    structure: input.structure,
+    games: input.games,
+    teams: input.teams,
+  });
+  const includeClutch = tournamentHasClutchPbpCoverage(input.games);
   return buildTournamentAwardSections(players, {
     includePlusMinus: tournamentHasPlusMinusCoverage(input.games),
+    includeClutch,
+    clutchByPlayerId: includeClutch
+      ? aggregateClutchStatsByPlayer(input.games)
+      : undefined,
+    teamDefMultiplierByTeamId: buildTeamDefMultiplierMap(
+      input.games,
+      input.teams
+    ),
+    teamWinPctByTeamId: buildAwardTeamWinPctMap(input.games, input.teams),
+    progressionByTeamId,
+    nTeamsForProgression: countTournamentTeamsForProgression(
+      input.teams,
+      input.games,
+      progressionByTeamId
+    ),
   });
 }
