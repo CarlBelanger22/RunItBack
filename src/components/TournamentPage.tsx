@@ -39,7 +39,7 @@ import {
 } from '../utils/tournamentRosters';
 import { resolvePlayerTeamInGame } from '../utils/rosterPlayers';
 import { resolveGameTeam } from '../utils/gameTeams';
-import { sortGamesByDateAsc } from '../utils/gameDisplay';
+import { sortGamesByDateAsc, sortGamesByDateDesc } from '../utils/gameDisplay';
 import { completedGameStatusLabel } from '../utils/gameClock';
 import {
   filterGamesForTournament,
@@ -557,10 +557,7 @@ export function TournamentPage({
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {tournamentGames
-                .filter(isGameCompleted)
-                .slice()
-                .reverse()
+              {sortGamesByDateDesc(tournamentGames.filter(isGameCompleted))
                 .slice(0, 5)
                 .map((game) => {
                 const homeTeam = resolveGameTeam(teams, game, 'home');
