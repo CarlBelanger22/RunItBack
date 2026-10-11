@@ -9,7 +9,6 @@ import { isGameCompleted } from './scheduledGames';
 import { gameRecordsStat } from './statRecordingCoverage';
 import {
   meetsTournamentLeaderGamesFloor,
-  meetsTournamentLeaderThreeFloor,
   meetsTournamentMajorAwardGamesFloor,
 } from './tournamentLeaders';
 import {
@@ -22,8 +21,8 @@ import type { TournamentStructure } from './tournamentStructure';
 import {
   buildTeamProgressionPlaces,
   countTournamentTeamsForProgression,
-  progressionPlaceMultiplier,
-  recordWinMultiplier,
+  progressionPlaceBonus,
+  recordWinPlaceBonus,
   type TeamProgressionPlace,
 } from './tournamentProgression';
 import {
@@ -32,8 +31,25 @@ import {
   tournamentHasClutchPbpCoverage,
   type ClutchPlayerAggregate,
 } from './tournamentClutch';
+import {
+  buildTeamDef01Map,
+  buildTeamSuccessIndexMap,
+  defenseValueRaw,
+  dpoyScoreFromParts,
+  DPOY_PLUS_MINUS_WEIGHT as DPOY_PM_WEIGHT,
+  gmscPerGameRaw,
+  mvpScoreFromParts,
+  percentileById,
+  sixthScoreFromParts,
+  tsiFromWinAndProgression,
+} from './tournamentAwardScoring';
+import { buildFinalsMvpContenders } from './tournamentFinalsMvp';
+
+/** Re-export for callers/tests that imported from awards. */
+export const DPOY_PLUS_MINUS_WEIGHT = DPOY_PM_WEIGHT;
 
 export type TournamentAwardId =
+  | 'finals_mvp'
   | 'mvp'
   | 'dpoy'
   | 'sixth_man'
@@ -42,8 +58,7 @@ export type TournamentAwardId =
   | 'playmaker'
   | 'rebounder'
   | 'iron_man'
-  | 'plus_minus'
-  | 'three_volume';
+  | 'plus_minus';
 
 export interface AwardPlayerAggregate {
   playerId: string;
@@ -301,28 +316,21 @@ export function buildTeamDefMultiplierMap(
   return map;
 }
 
-/** Light +/− weight when tracked (was 0.10 — too blowout-driven). */
-export const DPOY_PLUS_MINUS_WEIGHT = 0.07;
-
 /**
- * Per-game defensive box blend before team multiplier.
+ * Per-game defensive box blend (legacy helper / tests).
  * (1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP [+ 0.07×+/− when tracked].
  */
 export function dpoyBoxPerGame(
   row: AwardPlayerAggregate,
   includePlusMinus: boolean
 ): number {
-  const gp = row.gamesPlayed;
-  if (gp <= 0) return 0;
-  const s = row.totalStats;
-  let raw =
-    (1.5 * s.steals + 1.5 * s.blocks + 0.5 * s.drb - 0.25 * s.fouls) / gp;
-  if (includePlusMinus && row.plusMinusGames > 0) {
-    raw += DPOY_PLUS_MINUS_WEIGHT * (row.plusMinusTotal / row.plusMinusGames);
-  }
-  return raw;
+  return defenseValueRaw(row, includePlusMinus);
 }
 
+/**
+ * @deprecated Prefer NBA-style dpoyScoreFromParts with percentiles.
+ * Legacy: box × PAPG multiplier map (0.85–1.15).
+ */
 export function dpoyScore(
   row: AwardPlayerAggregate,
   includePlusMinus: boolean,
@@ -353,35 +361,52 @@ export function buildAwardTeamWinPctMap(
 }
 
 /**
- * ±15% context: progression place when known, else team win%.
- * Shared spirit with All-Teams (not imported — avoids circular deps).
+ * @deprecated Flat place bonus — replaced by TSI percentiles for majors.
+ * Kept for older call sites / scripts.
  */
-export function awardContextMultiplier(
+export function awardContextBonus(
   teamId: string,
   teamWinPct: number,
   progression: Map<string, TeamProgressionPlace>,
   nTeams: number
 ): number {
   const prog = progression.get(teamId);
-  if (prog) return progressionPlaceMultiplier(prog.place, nTeams);
-  return recordWinMultiplier(teamWinPct);
+  if (prog) return progressionPlaceBonus(prog.place, nTeams);
+  return recordWinPlaceBonus(teamWinPct, nTeams);
 }
 
-/** MVP / Sixth Man: GmSc/g × context (±15%). */
+/** @deprecated alias of awardContextBonus */
+export function awardContextMultiplier(
+  teamId: string,
+  teamWinPct: number,
+  progression: Map<string, TeamProgressionPlace>,
+  nTeams: number
+): number {
+  return awardContextBonus(teamId, teamWinPct, progression, nTeams);
+}
+
+/**
+ * MVP-style score for a single row given a pool (for tests).
+ * NBA blend: 0.75×OV01 + 0.25×TSI within the provided pool.
+ */
 export function mvpStyleScore(
   row: AwardPlayerAggregate,
   teamWinPctByTeamId: Map<string, number>,
   progression: Map<string, TeamProgressionPlace>,
-  nTeams: number
+  nTeams: number,
+  pool?: AwardPlayerAggregate[]
 ): number {
-  const winPct = teamWinPctByTeamId.get(row.team.id) ?? 0.5;
-  const mult = awardContextMultiplier(
-    row.team.id,
-    winPct,
+  const rows = pool ?? [row];
+  const ov01 = percentileById(
+    rows.map((r) => ({ id: r.playerId, value: gmscPerGameRaw(r) }))
+  ).get(row.playerId) ?? 0;
+  const tsi = tsiFromWinAndProgression({
+    teamId: row.team.id,
+    winPct: teamWinPctByTeamId.get(row.team.id) ?? 0.5,
     progression,
-    nTeams
-  );
-  return gmscPerGame(row.totalStats, row.gamesPlayed) * mult;
+    nTeams,
+  });
+  return mvpScoreFromParts(ov01, tsi);
 }
 
 /** Playmaker: APG × AST/(AST+TO). */
@@ -423,16 +448,17 @@ export function buildTournamentAwardSections(
     includeClutch?: boolean;
     clutchByPlayerId?: Map<string, ClutchPlayerAggregate>;
     teamDefMultiplierByTeamId?: Map<string, number>;
+    teamDef01ByTeamId?: Map<string, number>;
     teamWinPctByTeamId?: Map<string, number>;
+    tsiByTeamId?: Map<string, number>;
     progressionByTeamId?: Map<string, TeamProgressionPlace>;
     nTeamsForProgression?: number;
+    finalsMvpContenders?: AwardContender[];
   }
 ): TournamentAwardSection[] {
   const base = eligibleBase(players);
   const majors = eligibleMajors(players);
   const sections: TournamentAwardSection[] = [];
-  const teamDef =
-    options.teamDefMultiplierByTeamId ?? new Map<string, number>();
   const winPctMap = options.teamWinPctByTeamId ?? new Map<string, number>();
   const progression = options.progressionByTeamId ?? new Map();
   const nTeams = Math.max(
@@ -441,14 +467,42 @@ export function buildTournamentAwardSections(
       new Set(base.map((r) => r.team.id)).size
   );
 
+  if (options.finalsMvpContenders && options.finalsMvpContenders.length > 0) {
+    sections.push({
+      id: 'finals_mvp',
+      title: 'Finals MVP',
+      tooltip:
+        'Championship Final only: 85% Game Score + 15% +/− in that game ' +
+        '(100% GmSc when +/− is not tracked). #1 is the best player on the winning team ' +
+        'unless the best loser beats them by 5+ on this score. Top 3 shown.',
+      contenders: options.finalsMvpContenders.slice(0, 3),
+    });
+  }
+
+  const tsiFor = (teamId: string) => {
+    if (options.tsiByTeamId?.has(teamId)) {
+      return options.tsiByTeamId.get(teamId)!;
+    }
+    return tsiFromWinAndProgression({
+      teamId,
+      winPct: winPctMap.get(teamId) ?? 0.5,
+      progression,
+      nTeams,
+    });
+  };
+
+  const mvpOv01 = percentileById(
+    majors.map((r) => ({ id: r.playerId, value: gmscPerGameRaw(r) }))
+  );
   const mvpScore = (r: AwardPlayerAggregate) =>
-    mvpStyleScore(r, winPctMap, progression, nTeams);
+    mvpScoreFromParts(mvpOv01.get(r.playerId) ?? 0, tsiFor(r.team.id));
 
   sections.push({
     id: 'mvp',
     title: 'MVP',
     tooltip:
-      'GmSc per game × context (±15%: tournament progression place when known, otherwise team win%). ' +
+      'NBA-style: 75% Game Score/g (percentile among eligible) + 25% team success index ' +
+      '(finish place when known, else win% / net rating). ' +
       'Eligible: ≥60% of team games. Ties: EFF/g, then PPG.',
     contenders: topBy(majors, mvpScore, (a, b) => {
       const eff =
@@ -460,38 +514,62 @@ export function buildTournamentAwardSections(
   });
 
   const dpoyPmNote = options.includePlusMinus
-    ? ' When +/− is tracked, add 0.07 × +/− per game.'
+    ? ' When +/− is tracked, add 0.07 × +/− per game into the defense box.'
     : '';
+  const dv01 = percentileById(
+    majors.map((r) => ({
+      id: r.playerId,
+      value: defenseValueRaw(r, options.includePlusMinus),
+    }))
+  );
+  const teamDef01 = options.teamDef01ByTeamId ?? new Map<string, number>();
+  // Legacy PAPG mult map → approximate TeamDef01 if new map omitted
+  if (teamDef01.size === 0 && options.teamDefMultiplierByTeamId) {
+    for (const [id, mult] of options.teamDefMultiplierByTeamId) {
+      teamDef01.set(id, Math.min(1, Math.max(0, (mult - 0.85) / 0.3)));
+    }
+  }
+  const dpoyScoreFn = (r: AwardPlayerAggregate) =>
+    dpoyScoreFromParts(
+      dv01.get(r.playerId) ?? 0,
+      teamDef01.get(r.team.id) ?? 0.5,
+      tsiFor(r.team.id)
+    );
+
   sections.push({
     id: 'dpoy',
     title: 'Defensive Player',
     tooltip:
-      `Stats-only: ((1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
-      `× team defense multiplier (±15% from points allowed/g rank; best defense 1.15). ` +
+      `NBA-style: 70% defense box percentile ((1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
+      `+ 20% team defense (35% opponent eFG% rank + 25% DRtg rank + 20% team steals+blocks/g + 20% team DRB/g) ` +
+      `+ 10% team success index. ` +
       `Eligible: ≥60% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,
-    contenders: topBy(
-      majors,
-      (r) => dpoyScore(r, options.includePlusMinus, teamDef),
-      (a, b) => {
-        const stocks =
-          (b.totalStats.steals + b.totalStats.blocks) / b.gamesPlayed -
-          (a.totalStats.steals + a.totalStats.blocks) / a.gamesPlayed;
-        if (stocks !== 0) return stocks;
-        return (
-          a.totalStats.fouls / a.gamesPlayed - b.totalStats.fouls / b.gamesPlayed
-        );
-      }
-    ),
+    contenders: topBy(majors, dpoyScoreFn, (a, b) => {
+      const stocks =
+        (b.totalStats.steals + b.totalStats.blocks) / b.gamesPlayed -
+        (a.totalStats.steals + a.totalStats.blocks) / a.gamesPlayed;
+      if (stocks !== 0) return stocks;
+      return (
+        a.totalStats.fouls / a.gamesPlayed - b.totalStats.fouls / b.gamesPlayed
+      );
+    }),
   });
 
   const sixth = majors.filter(isSixthManEligible);
+  const sixthOv01 = percentileById(
+    sixth.map((r) => ({ id: r.playerId, value: gmscPerGameRaw(r) }))
+  );
+  const sixthScore = (r: AwardPlayerAggregate) =>
+    sixthScoreFromParts(sixthOv01.get(r.playerId) ?? 0, tsiFor(r.team.id));
+
   sections.push({
     id: 'sixth_man',
     title: 'Sixth Man',
     tooltip:
-      'Same Score as MVP (GmSc/g × context ±15%) among players who came off the bench more than they started ' +
-      '(games with empty starter lists skipped for that ratio). Eligible: ≥60% of team games.',
-    contenders: topBy(sixth, mvpScore),
+      'NBA-style: 88% Game Score/g (percentile among bench-eligible) + 12% team success index. ' +
+      'Must come off the bench more than start (games with empty starter lists skipped for that ratio). ' +
+      'Eligible: ≥60% of team games.',
+    contenders: topBy(sixth, sixthScore),
   });
 
   if (options.includeClutch) {
@@ -575,17 +653,6 @@ export function buildTournamentAwardSections(
     });
   }
 
-  const threePool = base.filter((r) =>
-    meetsTournamentLeaderThreeFloor(r.totalStats.three_attempted, r.gamesPlayed)
-  );
-  sections.push({
-    id: 'three_volume',
-    title: 'Three-Point Volume',
-    tooltip:
-      'Most threes made per game among players with ≥1.5 3PA per game and ≥50% of team games.',
-    contenders: topBy(threePool, (r) => r.totalStats.three_made / r.gamesPlayed),
-  });
-
   return sections;
 }
 
@@ -602,23 +669,41 @@ export function buildTournamentAwardsForGames(input: {
     games: input.games,
     teams: input.teams,
   });
+  const nTeamsForProgression = countTournamentTeamsForProgression(
+    input.teams,
+    input.games,
+    progressionByTeamId
+  );
+  const teamWinPctByTeamId = buildAwardTeamWinPctMap(input.games, input.teams);
+  const tsiByTeamId = buildTeamSuccessIndexMap({
+    games: input.games,
+    teams: input.teams,
+    progression: progressionByTeamId,
+    nTeams: nTeamsForProgression,
+    winPctByTeamId: teamWinPctByTeamId,
+  });
   const includeClutch = tournamentHasClutchPbpCoverage(input.games);
+  const finalsMvpContenders = buildFinalsMvpContenders({
+    structure: input.structure,
+    games: input.games,
+    teams: input.teams,
+    tournamentRosters: input.tournamentRosters,
+  });
   return buildTournamentAwardSections(players, {
     includePlusMinus: tournamentHasPlusMinusCoverage(input.games),
     includeClutch,
     clutchByPlayerId: includeClutch
       ? aggregateClutchStatsByPlayer(input.games)
       : undefined,
+    teamDef01ByTeamId: buildTeamDef01Map(input.games, input.teams),
     teamDefMultiplierByTeamId: buildTeamDefMultiplierMap(
       input.games,
       input.teams
     ),
-    teamWinPctByTeamId: buildAwardTeamWinPctMap(input.games, input.teams),
+    teamWinPctByTeamId,
+    tsiByTeamId,
     progressionByTeamId,
-    nTeamsForProgression: countTournamentTeamsForProgression(
-      input.teams,
-      input.games,
-      progressionByTeamId
-    ),
+    nTeamsForProgression,
+    finalsMvpContenders,
   });
 }

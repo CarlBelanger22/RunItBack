@@ -168,7 +168,8 @@ export function TournamentStructureEditor({
     persist((prevStructure) => {
       const prevStages = prevStructure?.stages ?? [];
       const nextStages = withReindexedOrders(updater(prevStages));
-      return nextStages.length > 0 ? { stages: nextStages } : undefined;
+      if (nextStages.length === 0) return undefined;
+      return { ...prevStructure, stages: nextStages };
     });
   };
 
@@ -260,6 +261,22 @@ export function TournamentStructureEditor({
   const renameStage = (stageId: string, name: string) => {
     updateStages((prev) =>
       prev.map((s) => (s.id === stageId ? { ...s, name } : s))
+    );
+  };
+
+  const setPlacingBasePlace = (stageId: string, raw: string) => {
+    updateStages((prev) =>
+      prev.map((s) => {
+        if (s.id !== stageId) return s;
+        const trimmed = raw.trim();
+        if (!trimmed) {
+          const { placingBasePlace: _drop, ...rest } = s;
+          return rest;
+        }
+        const n = Number(trimmed);
+        if (!Number.isFinite(n) || n < 1) return s;
+        return { ...s, placingBasePlace: Math.floor(n) };
+      })
     );
   };
 
@@ -625,6 +642,36 @@ export function TournamentStructureEditor({
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {stage.kind === 'round_robin' && isSecondaryRr ? (
+                    <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`placing-base-${stage.id}`}>
+                          Standings # starts at
+                        </Label>
+                        <Input
+                          id={`placing-base-${stage.id}`}
+                          type="number"
+                          min={1}
+                          step={1}
+                          className="w-28"
+                          placeholder="e.g. 5"
+                          value={
+                            stage.placingBasePlace != null
+                              ? String(stage.placingBasePlace)
+                              : ''
+                          }
+                          onChange={(e) =>
+                            setPlacingBasePlace(stage.id, e.target.value)
+                          }
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground max-w-md pb-1">
+                        Placing pool ranks use this as the first `#` (e.g. 5 →
+                        5, 6, 7). Leave blank to read from the stage name
+                        (“5th–7th” / “8-12 Placing”).
+                      </p>
+                    </div>
+                  ) : null}
                   {stage.kind === 'round_robin' ? (
                     <>
                       {(stage.groups ?? []).length === 0 && (

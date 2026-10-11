@@ -223,7 +223,11 @@
             "test:auto-link-iubit-bracket": "tsx scripts/test-auto-link-iubit-bracket.ts",
             "test:tournament-tabs": "tsx scripts/test-tournament-tabs.ts",
             "test:tournament-awards": "tsx scripts/test-tournament-awards.ts",
+            "test:tournament-finals-mvp": "tsx scripts/test-tournament-finals-mvp.ts",
             "test:tournament-all-teams": "tsx scripts/test-tournament-all-teams.ts",
-            "test:tournament-progression": "tsx scripts/test-tournament-progression.ts"
+            "test:tournament-all-defensive": "tsx scripts/test-tournament-all-defensive.ts",
+            "test:tournament-progression": "tsx scripts/test-tournament-progression.ts",
+            "test:home-standings-display": "tsx scripts/test-home-standings-display.ts",
+            "test:tournament-award-scoring": "tsx scripts/test-tournament-award-scoring.ts"
       }
 }

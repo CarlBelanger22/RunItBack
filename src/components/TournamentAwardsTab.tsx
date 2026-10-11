@@ -1,5 +1,5 @@
 /**
- * Admin-only tournament Awards tab: individual awards + All-Teams.
+ * Admin-only tournament Awards tab: individual + All-Teams + All-Defensive.
  */
 import { HelpCircle } from 'lucide-react';
 import type { Game, Team } from '../App';
@@ -17,6 +17,13 @@ import {
   type AllTeamTier,
   type AllTournamentTeamsResult,
 } from '../utils/tournamentAllTeams';
+import {
+  allDefensiveTierTitle,
+  buildAllDefensiveTeamsForGames,
+  type AllDefensiveTeamsResult,
+  type AllDefensiveTier,
+} from '../utils/tournamentAllDefensive';
+import { formatDecimalMinutes } from '../utils/formatMinutes';
 import {
   Table,
   TableBody,
@@ -43,6 +50,20 @@ function formatPct(made: number, attempted: number): string {
   return `${((made / attempted) * 100).toFixed(1)}%`;
 }
 
+function formatBoxPct(made: number, attempted: number): string {
+  if (attempted <= 0) return '—';
+  return `${((made / attempted) * 100).toFixed(1)}%`;
+}
+
+function formatFraction(made: number, attempted: number): string {
+  return `${Math.round(made)}/${Math.round(attempted)}`;
+}
+
+function formatInt(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return String(Math.round(n));
+}
+
 function formatAvg(total: number, gp: number, digits = 1): string {
   if (gp <= 0) return '—';
   return (total / gp).toFixed(digits);
@@ -53,14 +74,144 @@ function formatAwardScore(sortValue: number): string {
   return sortValue.toFixed(1);
 }
 
+function formatAstTo(assists: number, turnovers: number): string {
+  if (turnovers <= 0) {
+    if (assists <= 0) return '—';
+    return '∞';
+  }
+  return (assists / turnovers).toFixed(2);
+}
+
+function formatPlusMinusInt(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return '—';
+  const n = Math.round(value);
+  return `${n >= 0 ? '+' : ''}${n}`;
+}
+
+/** Single-game Finals MVP: box-score totals (not per-game averages). */
+function FinalsMvpBoxTable({
+  contenders,
+  onNavigateToPlayer,
+}: {
+  contenders: AwardContender[];
+  onNavigateToPlayer: (playerId: string, teamId?: string) => void;
+}) {
+  if (contenders.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground px-1 py-2">
+        No eligible contenders yet.
+      </p>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow className="text-xs">
+            <TableHead className="w-8 text-center">#</TableHead>
+            <TableHead>Player</TableHead>
+            <TableHead>Team</TableHead>
+            <TableHead className="text-center">MIN</TableHead>
+            <TableHead className="text-center">PTS</TableHead>
+            <TableHead className="text-center">REB</TableHead>
+            <TableHead className="text-center">AST</TableHead>
+            <TableHead className="text-center">STL</TableHead>
+            <TableHead className="text-center">BLK</TableHead>
+            <TableHead className="text-center">FG</TableHead>
+            <TableHead className="text-center">FG%</TableHead>
+            <TableHead className="text-center">3P</TableHead>
+            <TableHead className="text-center">3P%</TableHead>
+            <TableHead className="text-center">ORB</TableHead>
+            <TableHead className="text-center">TO</TableHead>
+            <TableHead className="text-center">+/−</TableHead>
+            <TableHead className="text-center">GmSc</TableHead>
+            <TableHead className="text-center">Score</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {contenders.map((c) => {
+            const s = c.totalStats;
+            const jersey =
+              c.jerseyNumber != null && Number.isFinite(c.jerseyNumber)
+                ? String(c.jerseyNumber)
+                : '—';
+            return (
+              <TableRow
+                key={c.playerId}
+                className="cursor-pointer hover:bg-muted/50 text-sm"
+                onClick={() => onNavigateToPlayer(c.playerId, c.team.id)}
+              >
+                <TableCell className="text-center font-mono text-muted-foreground">
+                  {jersey}
+                </TableCell>
+                <TableCell className="font-medium">{c.player.name}</TableCell>
+                <TableCell>{c.team.abbreviation || c.team.name}</TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatDecimalMinutes(s.minutes_played)}
+                </TableCell>
+                <TableCell className="text-center font-mono font-medium">
+                  {formatInt(s.points)}
+                </TableCell>
+                <TableCell className="text-center font-mono font-medium">
+                  {formatInt(s.orb + s.drb)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatInt(s.assists)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatInt(s.steals)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatInt(s.blocks)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatFraction(s.fg_made, s.fg_attempted)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatBoxPct(s.fg_made, s.fg_attempted)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatFraction(s.three_made, s.three_attempted)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatBoxPct(s.three_made, s.three_attempted)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatInt(s.orb)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatInt(s.turnovers)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {formatPlusMinusInt(c.plusMinusPerGame)}
+                </TableCell>
+                <TableCell className="text-center font-mono">
+                  {c.gmscPerGame.toFixed(1)}
+                </TableCell>
+                <TableCell className="text-center font-mono font-medium">
+                  {formatAwardScore(c.sortValue)}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
 function ContenderTable({
   contenders,
   onNavigateToPlayer,
   showAllTeamScore = false,
+  showAstTo = false,
 }: {
   contenders: AwardContender[] | AllTeamMember[];
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   showAllTeamScore?: boolean;
+  /** Playmaker: show AST/TO ratio instead of ORPG. */
+  showAstTo?: boolean;
 }) {
   if (contenders.length === 0) {
     return (
@@ -92,7 +243,9 @@ function ContenderTable({
             <TableHead className="text-center">FG%</TableHead>
             <TableHead className="text-center">3P%</TableHead>
             <TableHead className="text-center">FT%</TableHead>
-            <TableHead className="text-center">ORPG</TableHead>
+            <TableHead className="text-center">
+              {showAstTo ? 'AST/TO' : 'ORPG'}
+            </TableHead>
             <TableHead className="text-center">TOPG</TableHead>
             <TableHead className="text-center">+/−</TableHead>
             <TableHead className="text-center">GmSc</TableHead>
@@ -155,7 +308,9 @@ function ContenderTable({
                   {formatPct(s.ft_made, s.ft_attempted)}
                 </TableCell>
                 <TableCell className="text-center">
-                  {formatAvg(s.orb, gp)}
+                  {showAstTo
+                    ? formatAstTo(s.assists, s.turnovers)
+                    : formatAvg(s.orb, gp)}
                 </TableCell>
                 <TableCell className="text-center">
                   {formatAvg(s.turnovers, gp)}
@@ -208,10 +363,18 @@ function AwardBlock({
           </TooltipContent>
         </Tooltip>
       </div>
-      <ContenderTable
-        contenders={section.contenders}
-        onNavigateToPlayer={onNavigateToPlayer}
-      />
+      {section.id === 'finals_mvp' ? (
+        <FinalsMvpBoxTable
+          contenders={section.contenders}
+          onNavigateToPlayer={onNavigateToPlayer}
+        />
+      ) : (
+        <ContenderTable
+          contenders={section.contenders}
+          onNavigateToPlayer={onNavigateToPlayer}
+          showAstTo={section.id === 'playmaker'}
+        />
+      )}
     </section>
   );
 }
@@ -319,9 +482,124 @@ function AllTeamsPanel({
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-sm">
                 Next {result.honorableMentions.length} eligible players by
-                All-Team Score who did not make First, Second, or Third Team
-                All-{result.shortName}. Seat shows position bucket (G/F), not an
+                All-Team Score who did not make All-{result.shortName} 1st,
+                2nd, or 3rd Team. Seat shows position bucket (G/F), not an
                 All-Team seat.
+              </TooltipContent>
+            </Tooltip>
+          </div>
+          <ContenderTable
+            contenders={result.honorableMentions}
+            onNavigateToPlayer={onNavigateToPlayer}
+            showAllTeamScore
+          />
+        </section>
+      )}
+    </div>
+  );
+}
+
+function AllDefensiveBlock({
+  tier,
+  members,
+  tooltip,
+  showTooltip,
+  onNavigateToPlayer,
+}: {
+  tier: AllDefensiveTier;
+  members: AllTeamMember[];
+  tooltip: string;
+  showTooltip: boolean;
+  onNavigateToPlayer: (playerId: string, teamId?: string) => void;
+}) {
+  const title = allDefensiveTierTitle(tier);
+  return (
+    <section className="space-y-3">
+      <div className="flex items-center gap-2">
+        <h3 className="text-lg font-semibold tracking-tight">{title}</h3>
+        {showTooltip && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex text-muted-foreground hover:text-foreground"
+                aria-label="How All-Defensive teams are determined"
+              >
+                <HelpCircle className="h-4 w-4" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-sm text-sm">
+              {tooltip}
+              {' Seat * = soft-filled from another position.'}
+            </TooltipContent>
+          </Tooltip>
+        )}
+      </div>
+      <ContenderTable
+        contenders={members}
+        onNavigateToPlayer={onNavigateToPlayer}
+        showAllTeamScore
+      />
+    </section>
+  );
+}
+
+function AllDefensivePanel({
+  result,
+  onNavigateToPlayer,
+}: {
+  result: AllDefensiveTeamsResult;
+  onNavigateToPlayer: (playerId: string, teamId?: string) => void;
+}) {
+  const tiers: { tier: AllDefensiveTier; members: AllTeamMember[] }[] = [
+    { tier: 'first', members: result.first },
+    { tier: 'second', members: result.second },
+  ];
+  const anyMembers = tiers.some((t) => t.members.length > 0);
+
+  if (!anyMembers) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        No eligible All-Defensive players yet (need completed games and ≥60%
+        team GP for majors).
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-10">
+      {tiers.map(({ tier, members }, index) =>
+        members.length === 0 ? null : (
+          <AllDefensiveBlock
+            key={tier}
+            tier={tier}
+            members={members}
+            tooltip={result.tooltip}
+            showTooltip={index === 0}
+            onNavigateToPlayer={onNavigateToPlayer}
+          />
+        )
+      )}
+      {result.honorableMentions.length > 0 && (
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-semibold tracking-tight">
+              Honourable Mentions
+            </h3>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex text-muted-foreground hover:text-foreground"
+                  aria-label="How All-Defensive honourable mentions are chosen"
+                >
+                  <HelpCircle className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-sm text-sm">
+                Next {result.honorableMentions.length} eligible players by
+                All-Defensive Score who did not make 1st or 2nd Team. Seat shows
+                position bucket (G/F), not a team seat.
               </TooltipContent>
             </Tooltip>
           </div>
@@ -360,6 +638,14 @@ export function TournamentAwardsTab({
     tournamentRosters,
     structure,
   });
+  const allDefensive = buildAllDefensiveTeamsForGames({
+    tournamentId,
+    tournamentName,
+    games,
+    teams,
+    tournamentRosters,
+    structure,
+  });
 
   return (
     <div className="space-y-6">
@@ -376,6 +662,7 @@ export function TournamentAwardsTab({
           <TabsTrigger value="all-teams">
             All-{allTeams.shortName}
           </TabsTrigger>
+          <TabsTrigger value="all-defensive">All-Defensive</TabsTrigger>
         </TabsList>
 
         <TabsContent value="individual" className="space-y-10 mt-6">
@@ -391,6 +678,13 @@ export function TournamentAwardsTab({
         <TabsContent value="all-teams" className="mt-6">
           <AllTeamsPanel
             result={allTeams}
+            onNavigateToPlayer={onNavigateToPlayer}
+          />
+        </TabsContent>
+
+        <TabsContent value="all-defensive" className="mt-6">
+          <AllDefensivePanel
+            result={allDefensive}
             onNavigateToPlayer={onNavigateToPlayer}
           />
         </TabsContent>

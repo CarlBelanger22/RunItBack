@@ -63,6 +63,8 @@ import {
   type ExtendedStandingRow,
 } from '../utils/tournamentStandings';
 import { findH2hTieBlocks } from '../utils/standingsTiebreak';
+import { buildHomeStandingDisplayRows } from '../utils/homeStandingsDisplay';
+import { resolvePlacingBasePlace } from '../utils/tournamentProgression';
 import { GroupH2hDetailsDialog } from './GroupH2hDetailsDialog';
 import { MetricsCalculator } from './MetricsCalculator';
 import { 
@@ -345,6 +347,12 @@ export function TournamentPage({
   
   const standings = calculateStandings();
   const homeStandings = calculateHomeStandings();
+  const homeStandingRows = buildHomeStandingDisplayRows({
+    structure: tournament.structure,
+    games: tournamentGames,
+    teams: tournamentTeams,
+    standings: homeStandings,
+  });
   const leaders = getTournamentLeaders();
   const extendedStandings = calculateStandingsWithExtendedStats();
   const groupStandingsTables = buildGroupStandingsTables(
@@ -523,18 +531,52 @@ export function TournamentPage({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              {homeStandings.slice(0, 5).map((standing, index) => {
+            <div className="home-standings-list">
+              {homeStandingRows.slice(0, 5).map((standing) => {
+                const medalClass =
+                  standing.medal === 'gold'
+                    ? 'home-standings-row--gold'
+                    : standing.medal === 'silver'
+                      ? 'home-standings-row--silver'
+                      : standing.medal === 'bronze'
+                        ? 'home-standings-row--bronze'
+                        : '';
+                const sizeClass =
+                  standing.medal === 'gold'
+                    ? 'home-standings-row--champion'
+                    : standing.medal
+                      ? 'home-standings-row--medal'
+                      : '';
                 return (
-                  <div key={standing.team.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/50 cursor-pointer" onClick={() => onNavigateToTeam(standing.team.id)}>
-                    <div className="flex items-center gap-3">
-                      <Badge variant={index === 0 ? "default" : "secondary"} className="w-6 h-6 p-0 flex items-center justify-center text-xs">
-                        {index + 1}
+                  <div
+                    key={standing.team.id}
+                    className={`home-standings-row ${medalClass} ${sizeClass}`.trim()}
+                    onClick={() => onNavigateToTeam(standing.team.id)}
+                  >
+                    <div className="home-standings-row-main">
+                      <Badge
+                        variant={standing.place === 1 ? 'default' : 'secondary'}
+                        className="home-standings-rank"
+                      >
+                        {standing.place}
                       </Badge>
-                      <TeamBadge team={standing.team} teamId={standing.team.id} size="xs" />
-                      <span className="font-medium">{standing.team.name}</span>
+                      <TeamBadge
+                        team={standing.team}
+                        teamId={standing.team.id}
+                        size={standing.medal === 'gold' ? 'sm' : 'xs'}
+                      />
+                      <div className="home-standings-name-block">
+                        <span className="home-standings-name">
+                          {standing.team.name}
+                        </span>
+                        {standing.medal === 'gold' ? (
+                          <span className="home-standings-champion-label">
+                            Champion
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">
+                    <div className="home-standings-record">
                       {standing.wins}-{standing.losses}
                     </div>
                   </div>
@@ -866,11 +908,17 @@ export function TournamentPage({
 
   const renderStandingsTable = (
     rows: ExtendedStandingRow[],
-    opts?: { groupGames?: Game[]; showH2h?: boolean }
+    opts?: { groupGames?: Game[]; showH2h?: boolean; rankBase?: number }
   ) => {
     const tieBlocks = opts?.showH2h ? findH2hTieBlocks(rows) : [];
     const tieStartIndexes = new Set(tieBlocks.map((b) => b.startIndex));
     const blockByStart = new Map(tieBlocks.map((b) => [b.startIndex, b]));
+    const rankBase =
+      typeof opts?.rankBase === 'number' &&
+      Number.isFinite(opts.rankBase) &&
+      opts.rankBase >= 1
+        ? Math.floor(opts.rankBase)
+        : 1;
 
     return (
     <Table className="tournament-standings-table">
@@ -924,7 +972,7 @@ export function TournamentPage({
                 variant={index === 0 ? 'default' : 'secondary'}
                 className="w-6 h-6 p-0 flex items-center justify-center text-xs"
               >
-                {index + 1}
+                {rankBase + index}
               </Badge>
             </TableCell>
             <TableCell>
@@ -1045,6 +1093,8 @@ export function TournamentPage({
               group.teamIds.length,
               groupSeedLabels(group).length
             );
+            const placingBase = resolvePlacingBasePlace(stage);
+            const rankBase = placingBase ?? 1;
             return (
               <Card key={group.id}>
                 <CardHeader>
@@ -1058,6 +1108,7 @@ export function TournamentPage({
                     renderStandingsTable(groupRows, {
                       groupGames,
                       showH2h: true,
+                      rankBase: 1,
                     })
                   ) : (
                   <Tabs defaultValue="standings" className="group-standings-tabs">
@@ -1069,6 +1120,7 @@ export function TournamentPage({
                       {renderStandingsTable(groupRows, {
                         groupGames,
                         showH2h: true,
+                        rankBase,
                       })}
                     </TabsContent>
                     <TabsContent value="matches" className="mt-4">

@@ -97,6 +97,11 @@ export interface TournamentStage {
   kind: TournamentStageKind;
   /** Sort order ascending (group stage first). */
   order: number;
+  /**
+   * Standings `#` / progression base for placing RR pools (e.g. 5 → shows 5,6,7).
+   * When omitted, parsed from stage name ("5th–7th Placing") when possible.
+   */
+  placingBasePlace?: number | null;
   /** Round-robin pools (unequal sizes allowed). */
   groups?: TournamentGroup[];
   /** Classification / placement bracket rounds. */
@@ -298,6 +303,8 @@ function normalizeStage(raw: unknown): TournamentStage | null {
     kind: kindRaw as TournamentStageKind,
     order,
   };
+  const placingBasePlace = asPlace(row.placingBasePlace);
+  if (placingBasePlace != null) stage.placingBasePlace = placingBasePlace;
   if (groups && groups.length > 0) stage.groups = groups;
   if (rounds.length > 0) stage.bracket = { rounds };
   return stage;

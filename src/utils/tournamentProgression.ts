@@ -14,12 +14,16 @@ import {
   winnerLoserTeamIds,
 } from './resolveBracketFeeders';
 import { isGameCompleted } from './scheduledGames';
+import { resolveGroupTeamIds } from './groupMembers';
 import {
   normalizeTournamentStructure,
   type TournamentStage,
   type TournamentStructure,
 } from './tournamentStructure';
-import { calculateTeamStandings } from './tournamentStandings';
+import {
+  calculateTeamStandings,
+  filterGamesForGroup,
+} from './tournamentStandings';
 
 export type ProgressionPlaceSource = 'bracket' | 'placing_pool';
 
@@ -31,7 +35,43 @@ export interface TeamProgressionPlace {
   source: ProgressionPlaceSource;
 }
 
-/** ±15% band: place 1 → 1.15, place nTeams → 0.85. */
+/** Flat place-bonus: 1st = +5, last = 0, squared taper (front-loaded). */
+export const PLACE_BONUS_FIRST = 5;
+export const PLACE_BONUS_POWER = 2;
+
+/**
+ * Additive finish bonus for Awards / All-Teams.
+ * `5 × ((n − place) / (n − 1))²` — larger gaps near 1st than near last.
+ */
+export function progressionPlaceBonus(place: number, nTeams: number): number {
+  const n = Math.max(2, Math.floor(nTeams));
+  const p = Math.min(n, Math.max(1, Math.floor(place)));
+  const t = (n - p) / (n - 1);
+  return PLACE_BONUS_FIRST * Math.pow(t, PLACE_BONUS_POWER);
+}
+
+/**
+ * Map win% to a synthetic standings place on the same ladder
+ * (100% → place 1, 0% → place nTeams).
+ */
+export function recordWinPlace(teamWinPct: number, nTeams: number): number {
+  const n = Math.max(2, Math.floor(nTeams));
+  const w = Math.min(1, Math.max(0, teamWinPct));
+  return 1 + Math.round((1 - w) * (n - 1));
+}
+
+/** Record fallback: same front-loaded flat bonus via synthetic place. */
+export function recordWinPlaceBonus(
+  teamWinPct: number,
+  nTeams: number
+): number {
+  return progressionPlaceBonus(recordWinPlace(teamWinPct, nTeams), nTeams);
+}
+
+/**
+ * @deprecated Prefer progressionPlaceBonus (flat). Kept for older scripts.
+ * ±15% band: place 1 → 1.15, place nTeams → 0.85.
+ */
 export function progressionPlaceMultiplier(
   place: number,
   nTeams: number
@@ -41,7 +81,10 @@ export function progressionPlaceMultiplier(
   return 1.15 - (0.3 * (p - 1)) / (n - 1);
 }
 
-/** ±15% band from win% in [0,1]: 0% → 0.85, 50% → 1.00, 100% → 1.15. */
+/**
+ * @deprecated Prefer recordWinPlaceBonus (flat). Kept for older scripts.
+ * ±15% band from win% in [0,1]: 0% → 0.85, 50% → 1.00, 100% → 1.15.
+ */
 export function recordWinMultiplier(teamWinPct: number): number {
   const w = Math.min(1, Math.max(0, teamWinPct));
   return 0.85 + 0.3 * w;
@@ -65,6 +108,24 @@ export function parsePlacingPoolBasePlace(stageName: string): number | null {
   return null;
 }
 
+/**
+ * Placing-pool standings `#` / progression base.
+ * Explicit stage.placingBasePlace wins; else parse stage name; else null.
+ */
+export function resolvePlacingBasePlace(
+  stage: Pick<TournamentStage, 'name' | 'placingBasePlace'>
+): number | null {
+  const explicit = stage.placingBasePlace;
+  if (
+    typeof explicit === 'number' &&
+    Number.isFinite(explicit) &&
+    explicit >= 1
+  ) {
+    return Math.floor(explicit);
+  }
+  return parsePlacingPoolBasePlace(stage.name);
+}
+
 function gameByIdMap(games: Game[]): Map<string, Game> {
   return new Map(games.map((g) => [g.id, g]));
 }
@@ -74,7 +135,7 @@ function isMainGroupStage(
   stages: TournamentStage[]
 ): boolean {
   if (stage.kind !== 'round_robin') return false;
-  if (parsePlacingPoolBasePlace(stage.name) != null) return false;
+  if (resolvePlacingBasePlace(stage) != null) return false;
   // Earliest RR by order = main group stage
   const rr = stages
     .filter((s) => s.kind === 'round_robin')
@@ -169,16 +230,21 @@ export function buildTeamProgressionPlaces(input: {
   for (const stage of stages) {
     if (stage.kind !== 'round_robin') continue;
     if (isMainGroupStage(stage, stages)) continue;
-    const base = parsePlacingPoolBasePlace(stage.name);
+    const base = resolvePlacingBasePlace(stage);
     if (base == null) continue;
 
     for (const group of stage.groups ?? []) {
-      const memberIds = (group.teamIds ?? []).filter(Boolean);
+      const memberIds = resolveGroupTeamIds(group, structure).filter(Boolean);
       if (memberIds.length === 0) continue;
 
       const memberTeams = input.teams.filter((t) => memberIds.includes(t.id));
-      // Only games tagged to this placing stage (do not count earlier group H2H).
-      const groupGames = input.games.filter((g) => g.stageId === stage.id);
+      // Same eligibility as Standings tab (stage/group tags + seed members).
+      const groupGames = filterGamesForGroup(
+        input.games,
+        group,
+        structure,
+        stage.id
+      );
       const completedGroupGames = groupGames.filter(isGameCompleted);
 
       const expectedGames = (memberIds.length * (memberIds.length - 1)) / 2;

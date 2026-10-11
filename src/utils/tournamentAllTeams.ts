@@ -1,15 +1,26 @@
 /**
- * Stats-only First / Second / Third Team All-[Tournament].
- * Seats 2G / 3F; GmSc/g × progression (±15%) or W–L fallback (±15%).
+ * Stats-only All-[Tournament] 1st / 2nd / 3rd Team.
+ * NBA-style: ATI percentile + tiered TSI (1st 0.20 / 2nd 0.12 / 3rd+HM 0.07).
  */
 import type { Game, Team } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import { isGameCompleted } from './scheduledGames';
 import {
   aggregateTournamentAwardPlayers,
+  tournamentHasPlusMinusCoverage,
   type AwardContender,
   type AwardPlayerAggregate,
 } from './tournamentAwards';
+import {
+  allTeamImpactRaw,
+  allTeamTierScore,
+  blendScore,
+  buildTeamSuccessIndexMap,
+  FIRST_TEAM_SOFT_PREFER_EPS,
+  isTopThreeFinishPlace,
+  percentileById,
+  tsiFromWinAndProgression,
+} from './tournamentAwardScoring';
 import { meetsTournamentMajorAwardGamesFloor } from './tournamentLeaders';
 import type { TournamentRosterEntry } from './tournamentRosters';
 import { calculateTeamStandings } from './tournamentStandings';
@@ -17,8 +28,9 @@ import type { TournamentStructure } from './tournamentStructure';
 import {
   buildTeamProgressionPlaces,
   countTournamentTeamsForProgression,
-  progressionPlaceMultiplier,
+  progressionPlaceBonus,
   recordWinMultiplier,
+  recordWinPlaceBonus,
   type TeamProgressionPlace,
 } from './tournamentProgression';
 
@@ -29,8 +41,11 @@ export type AllTeamMultiplierSource = 'progression' | 'record';
 export interface AllTeamMember extends AwardContender {
   allTeamScore: number;
   teamWinPct: number;
-  /** @deprecated alias of contextMultiplier — kept for older call sites */
+  /** TSI used in tier blend (also mirrored on deprecated mult fields). */
+  placeBonus: number;
+  /** @deprecated alias of TSI — kept for older call sites */
   winMultiplier: number;
+  /** @deprecated alias of TSI — kept for older call sites */
   contextMultiplier: number;
   multiplierSource: AllTeamMultiplierSource;
   progressionPlace: number | null;
@@ -76,6 +91,32 @@ export function allTeamWinMultiplier(teamWinPct: number): number {
   return recordWinMultiplier(teamWinPct);
 }
 
+export function resolveAllTeamContextBonus(input: {
+  teamId: string;
+  teamWinPct: number;
+  progression: Map<string, TeamProgressionPlace>;
+  nTeams: number;
+}): {
+  bonus: number;
+  source: AllTeamMultiplierSource;
+  progressionPlace: number | null;
+} {
+  const prog = input.progression.get(input.teamId);
+  if (prog) {
+    return {
+      bonus: progressionPlaceBonus(prog.place, input.nTeams),
+      source: 'progression',
+      progressionPlace: prog.place,
+    };
+  }
+  return {
+    bonus: recordWinPlaceBonus(input.teamWinPct, input.nTeams),
+    source: 'record',
+    progressionPlace: null,
+  };
+}
+
+/** @deprecated alias of resolveAllTeamContextBonus (bonus stored as `mult`). */
 export function resolveAllTeamContextMultiplier(input: {
   teamId: string;
   teamWinPct: number;
@@ -86,26 +127,21 @@ export function resolveAllTeamContextMultiplier(input: {
   source: AllTeamMultiplierSource;
   progressionPlace: number | null;
 } {
-  const prog = input.progression.get(input.teamId);
-  if (prog) {
-    return {
-      mult: progressionPlaceMultiplier(prog.place, input.nTeams),
-      source: 'progression',
-      progressionPlace: prog.place,
-    };
-  }
+  const resolved = resolveAllTeamContextBonus(input);
   return {
-    mult: recordWinMultiplier(input.teamWinPct),
-    source: 'record',
-    progressionPlace: null,
+    mult: resolved.bonus,
+    source: resolved.source,
+    progressionPlace: resolved.progressionPlace,
   };
 }
 
+/** Blend ATI01 with TSI (default α = Third/HM 0.07). */
 export function computeAllTeamScore(
-  gmscPerGame: number,
-  contextMultiplier: number
+  ati01: number,
+  tsi: number,
+  alpha = 0.07
 ): number {
-  return gmscPerGame * contextMultiplier;
+  return blendScore(ati01, tsi, alpha);
 }
 
 /**
@@ -171,10 +207,12 @@ function softFillPrefs(seat: AllTeamBucket): AllTeamBucket[] {
 type ScoreMeta = {
   score: number;
   winPct: number;
-  mult: number;
+  bonus: number;
   source: AllTeamMultiplierSource;
   progressionPlace: number | null;
 };
+
+type TierKey = 'first' | 'second' | 'third' | 'hm';
 
 function toMember(
   row: AwardPlayerAggregate,
@@ -200,8 +238,9 @@ function toMember(
     gmscPerGame: gmscPerGame(row),
     allTeamScore: opts.meta.score,
     teamWinPct: opts.meta.winPct,
-    winMultiplier: opts.meta.mult,
-    contextMultiplier: opts.meta.mult,
+    placeBonus: opts.meta.bonus,
+    winMultiplier: opts.meta.bonus,
+    contextMultiplier: opts.meta.bonus,
     multiplierSource: opts.meta.source,
     progressionPlace: opts.meta.progressionPlace,
     naturalBucket: positionToAllTeamBucket(row.player.position),
@@ -230,11 +269,21 @@ function sortSquadDisplay(members: AllTeamMember[]): AllTeamMember[] {
 
 function fillOneSquad(
   pool: AwardPlayerAggregate[],
-  scores: Map<string, ScoreMeta>
+  scores: Map<string, ScoreMeta>,
+  opts?: { softPreferTopThree?: boolean }
 ): { squad: AllTeamMember[]; remaining: AwardPlayerAggregate[] } {
   const remaining = [...pool].sort((a, b) => {
     const sa = scores.get(a.playerId)!;
     const sb = scores.get(b.playerId)!;
+    if (
+      opts?.softPreferTopThree &&
+      Math.abs(sa.score - sb.score) <= FIRST_TEAM_SOFT_PREFER_EPS
+    ) {
+      const aTop = isTopThreeFinishPlace(sa.progressionPlace);
+      const bTop = isTopThreeFinishPlace(sb.progressionPlace);
+      if (aTop && !bTop) return -1;
+      if (bTop && !aTop) return 1;
+    }
     return compareAllTeamCandidates(a, b, sa.score, sb.score);
   });
 
@@ -282,13 +331,48 @@ function fillOneSquad(
   return { squad: sortSquadDisplay(picked), remaining: left };
 }
 
+function buildTierScoreMap(
+  eligible: AwardPlayerAggregate[],
+  ati01: Map<string, number>,
+  tsiByTeamId: Map<string, number>,
+  winPctByTeamId: Map<string, number>,
+  progression: Map<string, TeamProgressionPlace>,
+  nTeams: number,
+  tier: TierKey
+): Map<string, ScoreMeta> {
+  const scores = new Map<string, ScoreMeta>();
+  for (const row of eligible) {
+    const winPct = winPctByTeamId.get(row.team.id) ?? 0.5;
+    const prog = progression.get(row.team.id);
+    const tsi =
+      tsiByTeamId.get(row.team.id) ??
+      tsiFromWinAndProgression({
+        teamId: row.team.id,
+        winPct,
+        progression,
+        nTeams,
+      });
+    const ati = ati01.get(row.playerId) ?? 0;
+    scores.set(row.playerId, {
+      score: allTeamTierScore(ati, tsi, tier),
+      winPct,
+      bonus: tsi,
+      source: prog ? 'progression' : 'record',
+      progressionPlace: prog?.place ?? null,
+    });
+  }
+  return scores;
+}
+
 export function buildAllTournamentTeams(input: {
   tournamentName: string;
   players: AwardPlayerAggregate[];
   teamWinPctByTeamId: Map<string, number>;
-  /** When non-empty, clubs in the map use progression weight; others use W–L. */
+  /** When non-empty, clubs in the map use progression in TSI; others use W–L. */
   progressionByTeamId?: Map<string, TeamProgressionPlace>;
   nTeamsForProgression?: number;
+  tsiByTeamId?: Map<string, number>;
+  includePlusMinus?: boolean;
 }): AllTournamentTeamsResult {
   const shortName = allTournamentShortName(input.tournamentName);
   const eligible = input.players.filter((r) =>
@@ -300,52 +384,96 @@ export function buildAllTournamentTeams(input: {
     input.nTeamsForProgression ??
       new Set(eligible.map((r) => r.team.id)).size
   );
+  const includePm = input.includePlusMinus ?? false;
 
-  const scores = new Map<string, ScoreMeta>();
-  for (const row of eligible) {
-    const winPct = input.teamWinPctByTeamId.get(row.team.id) ?? 0.5;
-    const resolved = resolveAllTeamContextMultiplier({
-      teamId: row.team.id,
-      teamWinPct: winPct,
-      progression,
-      nTeams,
-    });
-    const score = computeAllTeamScore(gmscPerGame(row), resolved.mult);
-    scores.set(row.playerId, {
-      score,
-      winPct,
-      mult: resolved.mult,
-      source: resolved.source,
-      progressionPlace: resolved.progressionPlace,
-    });
+  const ati01 = percentileById(
+    eligible.map((r) => ({
+      id: r.playerId,
+      value: allTeamImpactRaw(r, includePm),
+    }))
+  );
+
+  const tsiByTeamId = input.tsiByTeamId ?? new Map<string, number>();
+  if (tsiByTeamId.size === 0) {
+    for (const row of eligible) {
+      if (tsiByTeamId.has(row.team.id)) continue;
+      tsiByTeamId.set(
+        row.team.id,
+        tsiFromWinAndProgression({
+          teamId: row.team.id,
+          winPct: input.teamWinPctByTeamId.get(row.team.id) ?? 0.5,
+          progression,
+          nTeams,
+        })
+      );
+    }
   }
 
-  const firstFill = fillOneSquad(eligible, scores);
-  const secondFill = fillOneSquad(firstFill.remaining, scores);
-  const thirdFill = fillOneSquad(secondFill.remaining, scores);
+  const firstScores = buildTierScoreMap(
+    eligible,
+    ati01,
+    tsiByTeamId,
+    input.teamWinPctByTeamId,
+    progression,
+    nTeams,
+    'first'
+  );
+  const firstFill = fillOneSquad(eligible, firstScores, {
+    softPreferTopThree: true,
+  });
 
+  const secondScores = buildTierScoreMap(
+    firstFill.remaining,
+    ati01,
+    tsiByTeamId,
+    input.teamWinPctByTeamId,
+    progression,
+    nTeams,
+    'second'
+  );
+  const secondFill = fillOneSquad(firstFill.remaining, secondScores);
+
+  const thirdScores = buildTierScoreMap(
+    secondFill.remaining,
+    ati01,
+    tsiByTeamId,
+    input.teamWinPctByTeamId,
+    progression,
+    nTeams,
+    'third'
+  );
+  const thirdFill = fillOneSquad(secondFill.remaining, thirdScores);
+
+  const hmScores = buildTierScoreMap(
+    thirdFill.remaining,
+    ati01,
+    tsiByTeamId,
+    input.teamWinPctByTeamId,
+    progression,
+    nTeams,
+    'hm'
+  );
   const honorableMentions = [...thirdFill.remaining]
     .sort((a, b) => {
-      const sa = scores.get(a.playerId)!;
-      const sb = scores.get(b.playerId)!;
+      const sa = hmScores.get(a.playerId)!;
+      const sb = hmScores.get(b.playerId)!;
       return compareAllTeamCandidates(a, b, sa.score, sb.score);
     })
     .slice(0, HONORABLE_MENTION_N)
     .map((row) => {
-      const meta = scores.get(row.playerId)!;
+      const meta = hmScores.get(row.playerId)!;
       return toMember(row, {
         meta,
-        // Display natural bucket in Seat column (not an All-Team seat).
         seat: positionToAllTeamBucket(row.player.position),
       });
     });
 
   const tooltip =
-    `Stats-only All-${shortName}: GmSc/g × context (±15%). ` +
-    `Context = tournament progression place when known (Final / 3rd / placing pool; splits when those games finish), ` +
-    `otherwise team win%. ` +
+    `Stats-only All-${shortName} (NBA-style): impact = 60% GmSc/g + 40% defense box, as a percentile; ` +
+    `then + team success (1st 20%, 2nd 12%, 3rd/HM 7%). ` +
+    `1st Team soft-prefers finish places 1–3 when scores are within 2 points. ` +
     `Each team is 2G / 3F (C and blank Pos count as F; empty seats soft-fill). ` +
-    `Max 3 from the same club per First/Second/Third. Eligible: ≥60% of team games. ` +
+    `Max 3 from the same club per 1st/2nd/3rd. Eligible: ≥60% of team games. ` +
     `Honourable mentions = next 3 by Score who missed the teams.`;
 
   return {
@@ -383,12 +511,21 @@ export function buildAllTournamentTeamsForGames(input: {
     input.games,
     progressionByTeamId
   );
+  const tsiByTeamId = buildTeamSuccessIndexMap({
+    games: input.games,
+    teams: input.teams,
+    progression: progressionByTeamId,
+    nTeams: nTeamsForProgression,
+    winPctByTeamId: teamWinPctByTeamId,
+  });
   return buildAllTournamentTeams({
     tournamentName: input.tournamentName,
     players,
     teamWinPctByTeamId,
     progressionByTeamId,
     nTeamsForProgression,
+    tsiByTeamId,
+    includePlusMinus: tournamentHasPlusMinusCoverage(input.games),
   });
 }
 
@@ -398,8 +535,8 @@ export function allTeamTierTitle(
   shortName: string
 ): string {
   const label =
-    tier === 'first' ? 'First' : tier === 'second' ? 'Second' : 'Third';
-  return `${label} Team All-${shortName}`;
+    tier === 'first' ? '1st' : tier === 'second' ? '2nd' : '3rd';
+  return `All-${shortName} ${label} Team`;
 }
 
 /** Exported for tests — soft-fill preference order. */
