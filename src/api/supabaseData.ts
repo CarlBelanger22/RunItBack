@@ -11,6 +11,7 @@ import {
 } from '../lib/tournamentRosterCloudWrite';
 import {
   dedupeTournamentRostersForDb,
+  syncTournamentRosterPositionsFromProfiles,
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
 import type { Team, Tournament, Game, GameStats, Player } from '../App';
@@ -490,8 +491,13 @@ async function persistTournamentRosterEntries(
   pendingDeletes: TournamentRosterDelete[] = []
 ): Promise<void> {
   if (!supabase) return;
+  // Profile owns position — never persist a forked tournament copy.
+  const positioned = syncTournamentRosterPositionsFromProfiles(
+    tournamentRosters,
+    teams
+  ).entries;
   const sanitized = sanitizeTournamentRostersForCloud({
-    entries: tournamentRosters,
+    entries: positioned,
     teams,
     games,
   });
@@ -1117,9 +1123,14 @@ export async function loadAppDataFromSupabase(
     };
   });
 
-  const tournamentRosters: TournamentRosterEntry[] = tournamentRosterRows
+  const tournamentRostersRaw: TournamentRosterEntry[] = tournamentRosterRows
     .filter((row) => leagueTournamentIds.has(row.tournament_id))
     .map(dbTournamentRosterToEntry);
+  const tournamentRosters = syncTournamentRosterPositionsFromProfiles(
+    tournamentRostersRaw,
+    teams,
+    orphanPlayers
+  ).entries;
 
   phases.buildTournaments = performance.now() - phaseStart;
   phaseStart = performance.now();

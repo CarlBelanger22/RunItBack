@@ -100,7 +100,9 @@ import {
 } from './utils/rosterPlayerRemoval';
 import { generateTeamAbbreviation } from './utils/teamAbbreviation';
 import {
+  cascadePlayerPositionToTournamentRosters,
   reconcileTournamentRostersFromGames,
+  syncTournamentRosterPositionsFromProfiles,
   upsertTournamentRosterEntry,
   type TournamentRosterEntry,
 } from './utils/tournamentRosters';
@@ -1157,6 +1159,17 @@ export default function App() {
       processed = {
         ...processed,
         tournamentRosters: sanitizedRosters.entries,
+      };
+    }
+    const positionedRosters = syncTournamentRosterPositionsFromProfiles(
+      processed.tournamentRosters,
+      teamsWithIcons,
+      processed.orphanPlayers
+    );
+    if (positionedRosters.changedCount > 0) {
+      processed = {
+        ...processed,
+        tournamentRosters: positionedRosters.entries,
       };
     }
 
@@ -2707,40 +2720,43 @@ export default function App() {
         return newTeams;
       });
 
-      if (tournamentJerseyUpdates.length > 0) {
-        setTournamentRosters((prev) => {
-          let next = prev;
-          for (const update of tournamentJerseyUpdates) {
-            const existing = next.find(
-              (row) =>
-                row.tournamentId === update.tournamentId &&
-                row.teamId === update.teamId &&
-                row.playerId === playerId
-            );
-            const team = teamsRef.current.find((t) => t.id === update.teamId);
-            const clubPlayer = team?.players?.find((p) => p.id === playerId);
-            next = upsertTournamentRosterEntry(next, {
-              tournamentId: update.tournamentId,
-              teamId: update.teamId,
-              playerId,
-              number: update.number,
-              position: existing?.position ?? clubPlayer?.position ?? '',
-              secondaryPosition:
-                existing?.secondaryPosition ?? clubPlayer?.secondaryPosition,
-            });
-          }
-          tournamentRostersRef.current = next;
-          saveAppDataSnapshot({
-            teams: teamsRef.current,
-            tournaments: tournamentsRef.current,
-            games: gamesRef.current,
-            darkMode: true,
-            orphanPlayers: loadedOrphanPlayersRef.current,
-            tournamentRosters: next,
+      // Position is global on the profile — cascade onto every tournament roster
+      // row for this player (and apply any jersey # edits in the same pass).
+      setTournamentRosters((prev) => {
+        let next = cascadePlayerPositionToTournamentRosters(
+          prev,
+          playerId,
+          profilePatch.position,
+          profilePatch.secondaryPosition
+        );
+        for (const update of tournamentJerseyUpdates) {
+          const existing = next.find(
+            (row) =>
+              row.tournamentId === update.tournamentId &&
+              row.teamId === update.teamId &&
+              row.playerId === playerId
+          );
+          next = upsertTournamentRosterEntry(next, {
+            tournamentId: update.tournamentId,
+            teamId: update.teamId,
+            playerId,
+            number: update.number,
+            position: profilePatch.position || existing?.position || '',
+            secondaryPosition:
+              profilePatch.secondaryPosition ?? existing?.secondaryPosition,
           });
-          return next;
+        }
+        tournamentRostersRef.current = next;
+        saveAppDataSnapshot({
+          teams: teamsRef.current,
+          tournaments: tournamentsRef.current,
+          games: gamesRef.current,
+          darkMode: true,
+          orphanPlayers: loadedOrphanPlayersRef.current,
+          tournamentRosters: next,
         });
-      }
+        return next;
+      });
 
       queueMicrotask(() => {
         void saveTeamsToSupabase(teamsRef.current)

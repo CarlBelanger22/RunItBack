@@ -346,11 +346,13 @@ export function getPlayersForTeamInTournament(
       team.players.find((p) => p.id === row.playerId) ??
       teams.flatMap((t) => t.players).find((p) => p.id === row.playerId);
     if (template) {
+      // Profile (template) owns position; tournament row only owns jersey #.
       return {
         ...template,
         number: row.number,
-        position: row.position || template.position,
-        secondaryPosition: row.secondaryPosition ?? template.secondaryPosition,
+        position: template.position || row.position,
+        secondaryPosition:
+          template.secondaryPosition ?? row.secondaryPosition,
       };
     }
     return {
@@ -569,4 +571,59 @@ export function upsertTournamentRosterEntry(
   const key = tournamentRosterEntryKey(entry);
   const without = rosters.filter((r) => tournamentRosterEntryKey(r) !== key);
   return [...without, entry];
+}
+
+/** Find a player profile across club teams (and optional orphans). */
+export function findPlayerProfile(
+  playerId: string,
+  teams: Team[],
+  orphanPlayers: Player[] = []
+): Player | undefined {
+  for (const team of teams) {
+    const hit = (team.players ?? []).find((p) => p.id === playerId);
+    if (hit) return hit;
+  }
+  return orphanPlayers.find((p) => p.id === playerId);
+}
+
+/**
+ * Position/secondary always come from the player profile (global SoT).
+ * Jersey number stays on the tournament_rosters row.
+ */
+export function syncTournamentRosterPositionsFromProfiles(
+  rosters: TournamentRosterEntry[],
+  teams: Team[],
+  orphanPlayers: Player[] = []
+): { entries: TournamentRosterEntry[]; changedCount: number } {
+  let changedCount = 0;
+  const entries = rosters.map((row) => {
+    const profile = findPlayerProfile(row.playerId, teams, orphanPlayers);
+    if (!profile) return row;
+    const position = profile.position || '';
+    const secondaryPosition = profile.secondaryPosition;
+    const same =
+      row.position === position &&
+      (row.secondaryPosition ?? undefined) === (secondaryPosition ?? undefined);
+    if (same) return row;
+    changedCount += 1;
+    return { ...row, position, secondaryPosition };
+  });
+  return { entries, changedCount };
+}
+
+/** Cascade profile position onto every tournament roster row for one player. */
+export function cascadePlayerPositionToTournamentRosters(
+  rosters: TournamentRosterEntry[],
+  playerId: string,
+  position: string,
+  secondaryPosition?: string
+): TournamentRosterEntry[] {
+  return rosters.map((row) => {
+    if (row.playerId !== playerId) return row;
+    return {
+      ...row,
+      position: position || '',
+      secondaryPosition,
+    };
+  });
 }
