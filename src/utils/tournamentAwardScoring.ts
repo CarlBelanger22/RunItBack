@@ -12,11 +12,11 @@ import type { TeamProgressionPlace } from './tournamentProgression';
 /** Same weight as legacy DPOY box (+/− term). */
 export const DPOY_PLUS_MINUS_WEIGHT = 0.07;
 
-export const MVP_TSI_WEIGHT = 0.25;
+export const MVP_TSI_WEIGHT = 0.3;
 export const SIXTH_TSI_WEIGHT = 0.12;
-/** DPOY + All-Defensive shared blend. Locked Designer 2026-10-12. */
-export const DPOY_DV_WEIGHT = 0.7;
-export const DPOY_TEAM_DEF_WEIGHT = 0.2;
+/** DPOY + All-Defensive shared blend. */
+export const DPOY_DV_WEIGHT = 0.5;
+export const DPOY_TEAM_DEF_WEIGHT = 0.4;
 export const DPOY_TSI_WEIGHT = 0.1;
 
 /** @deprecated Same as DPOY_* — kept for All-Defensive call sites. */
@@ -31,12 +31,16 @@ export type AwardRateRow = {
   plusMinusGames: number;
   plusMinusTotal: number;
 };
+/** Same blend shape as MVP (30% TSI on 1st); steps down for lower teams. */
 export const ALL_TEAM_TSI_ALPHA = {
-  first: 0.2,
-  second: 0.12,
-  third: 0.07,
-  hm: 0.07,
+  first: 0.3,
+  second: 0.2,
+  third: 0.1,
+  hm: 0.1,
 } as const;
+
+/** Finish ladder exponent inside TSI: linear=1, squared=2. Current: 1.5. */
+export const TSI_FINISH_EXPONENT = 1.5;
 
 /**
  * TeamDef01 blend P (DPOY + All-Defensive). Locked Designer 2026-10-12.
@@ -75,6 +79,38 @@ export function percentileById(
   return out;
 }
 
+/**
+ * Gap-preserving 0–1 scale: worst → 0, best → 1, others linear in raw value.
+ * Used for All-Teams / MVP / Sixth impact and DPOY / All-Defensive DV
+ * (not rank percentile). All equal (or n=1): everyone 1 when n=1, else 0.5.
+ */
+export function minmax01ById(
+  entries: ReadonlyArray<{ id: string; value: number }>
+): Map<string, number> {
+  const out = new Map<string, number>();
+  const n = entries.length;
+  if (n === 0) return out;
+  if (n === 1) {
+    out.set(entries[0].id, 1);
+    return out;
+  }
+  let min = Infinity;
+  let max = -Infinity;
+  for (const e of entries) {
+    if (e.value < min) min = e.value;
+    if (e.value > max) max = e.value;
+  }
+  const span = max - min;
+  if (!(span > 0) || !Number.isFinite(span)) {
+    for (const e of entries) out.set(e.id, 0.5);
+    return out;
+  }
+  for (const e of entries) {
+    out.set(e.id, (e.value - min) / span);
+  }
+  return out;
+}
+
 export function gmscPerGameRaw(row: AwardRateRow): number {
   if (row.gamesPlayed <= 0) return 0;
   return MetricsCalculator.calculateGameScore(row.totalStats) / row.gamesPlayed;
@@ -95,22 +131,32 @@ export function defenseValueRaw(
   return raw;
 }
 
+/**
+ * All-Teams impact = GmSc/g only (same raw as MVP OV).
+ * `includePlusMinus` kept for call-site compatibility; ignored.
+ */
+export const ALL_TEAM_GMSC_WEIGHT = 1;
+/** @deprecated All-Teams no longer blends +/− into impact. */
+export const ALL_TEAM_PLUS_MINUS_WEIGHT = 0;
+
 export function allTeamImpactRaw(
   row: AwardRateRow,
-  includePlusMinus: boolean
+  _includePlusMinus?: boolean
 ): number {
-  return 0.6 * gmscPerGameRaw(row) + 0.4 * defenseValueRaw(row, includePlusMinus);
+  return gmscPerGameRaw(row);
 }
 
+/** Finish ladder: 1st → 1, last → 0, then raised to TSI_FINISH_EXPONENT. */
 function finish01(place: number, nTeams: number): number {
   const n = Math.max(2, Math.floor(nTeams));
   const p = Math.min(n, Math.max(1, Math.floor(place)));
-  return Math.pow((n - p) / (n - 1), 2);
+  const linear = (n - p) / (n - 1);
+  return Math.pow(linear, TSI_FINISH_EXPONENT);
 }
 
 /**
  * Build TSI ∈ [0,1] per team.
- * With any progression places: 0.70 Finish² + 0.15 Win% + 0.15 Net01.
+ * With any progression places: 0.70 Finish^1.5 + 0.15 Win% + 0.15 Net01.
  * Else: 0.55 Win% + 0.45 Net01.
  */
 export function buildTeamSuccessIndexMap(input: {
@@ -194,7 +240,7 @@ export function buildTeamSuccessIndexMap(input: {
 
 /**
  * Lightweight TSI when games are unavailable (unit tests):
- * progression → Finish² blend with win%; else win% only (net=0.5).
+ * progression → Finish^1.5 blend with win%; else win% only (net=0.5).
  */
 export function tsiFromWinAndProgression(input: {
   teamId: string;
@@ -408,6 +454,48 @@ export function toAwardPoints(unitScore: number): number {
   return unitScore * 100;
 }
 
+/**
+ * Per team-game missed: multiplicative wither schedule.
+ * 1st miss −5%, 2nd −4%, 3rd and later −3% each.
+ * e.g. 3 misses → ×0.95 × 0.96 × 0.97 ≈ 0.8846.
+ */
+export const AWARD_MISS_PENALTY_SCHEDULE = [0.05, 0.04, 0.03] as const;
+
+/** @deprecated First-miss rate only; use AWARD_MISS_PENALTY_SCHEDULE. */
+export const AWARD_MISS_PENALTY = AWARD_MISS_PENALTY_SCHEDULE[0];
+
+export function teamGamesMissed(
+  gamesPlayed: number,
+  teamGames: number
+): number {
+  return Math.max(0, Math.floor(teamGames) - Math.floor(gamesPlayed));
+}
+
+/** Product of (1 − p_i) for each miss using AWARD_MISS_PENALTY_SCHEDULE. */
+export function missPenaltyFactor(misses: number): number {
+  const m = Math.max(0, Math.floor(misses));
+  if (m <= 0) return 1;
+  const schedule = AWARD_MISS_PENALTY_SCHEDULE;
+  const last = schedule[schedule.length - 1];
+  let factor = 1;
+  for (let i = 0; i < m; i += 1) {
+    const p = i < schedule.length ? schedule[i] : last;
+    factor *= 1 - p;
+  }
+  return factor;
+}
+
+/** Score × missPenaltyFactor(teamGames − gamesPlayed). */
+export function applyMissPenalty(
+  score: number,
+  gamesPlayed: number,
+  teamGames: number
+): number {
+  const misses = teamGamesMissed(gamesPlayed, teamGames);
+  if (misses <= 0 || !(score > 0)) return score;
+  return score * missPenaltyFactor(misses);
+}
+
 export function mvpScoreFromParts(ov01: number, tsi: number): number {
   return toAwardPoints(blendScore(ov01, tsi, MVP_TSI_WEIGHT));
 }
@@ -428,7 +516,7 @@ export function dpoyScoreFromParts(
   );
 }
 
-/** All-Defensive uses the same 70/20/10 blend as DPOY. */
+/** All-Defensive uses the same 50/40/10 blend as DPOY. */
 export function allDefScoreFromParts(
   dv01: number,
   teamDef01: number,

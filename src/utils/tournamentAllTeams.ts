@@ -1,6 +1,6 @@
 /**
  * Stats-only All-[Tournament] 1st / 2nd / 3rd Team.
- * NBA-style: ATI percentile + tiered TSI (1st 0.20 / 2nd 0.12 / 3rd+HM 0.07).
+ * GmSc/g min–max + tiered TSI (1st 0.30 / 2nd 0.20 / 3rd+HM 0.10), same shape as MVP.
  */
 import type { Game, Team } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
@@ -14,11 +14,10 @@ import {
 import {
   allTeamImpactRaw,
   allTeamTierScore,
+  applyMissPenalty,
   blendScore,
   buildTeamSuccessIndexMap,
-  FIRST_TEAM_SOFT_PREFER_EPS,
-  isTopThreeFinishPlace,
-  percentileById,
+  minmax01ById,
   tsiFromWinAndProgression,
 } from './tournamentAwardScoring';
 import { meetsTournamentMajorAwardGamesFloor } from './tournamentLeaders';
@@ -49,8 +48,9 @@ export interface AllTeamMember extends AwardContender {
   contextMultiplier: number;
   multiplierSource: AllTeamMultiplierSource;
   progressionPlace: number | null;
+  /** Position bucket from profile (G/F) — display/info only; not used for selection. */
   naturalBucket: AllTeamBucket;
-  /** Seat filled on this squad (may differ from naturalBucket when soft-filled). */
+  /** @deprecated alias of naturalBucket — selection no longer assigns seats. */
   seat: AllTeamBucket;
 }
 
@@ -65,9 +65,11 @@ export interface AllTournamentTeamsResult {
 }
 
 const HONORABLE_MENTION_N = 3;
-
-const MAX_PER_CLUB = 3;
-const SEAT_PATTERN: AllTeamBucket[] = ['G', 'G', 'F', 'F', 'F'];
+const SQUAD_SIZE = 5;
+/** Max players from one club on a single named squad (1st/2nd/3rd). */
+const MAX_PER_SQUAD = 2;
+/** Max players from one club across 1st + 2nd + 3rd combined. HM uncapped. */
+const MAX_ACROSS_NAMED = 5;
 
 /** Strip a trailing year, e.g. "NBL Div 1 2026" → "NBL Div 1". */
 export function allTournamentShortName(tournamentName: string): string {
@@ -135,11 +137,11 @@ export function resolveAllTeamContextMultiplier(input: {
   };
 }
 
-/** Blend ATI01 with TSI (default α = Third/HM 0.07). */
+/** Blend ATI01 with TSI (default α = Third/HM 0.10; 1st uses 0.30 like MVP). */
 export function computeAllTeamScore(
   ati01: number,
   tsi: number,
-  alpha = 0.07
+  alpha = 0.1
 ): number {
   return blendScore(ati01, tsi, alpha);
 }
@@ -199,11 +201,6 @@ function compareAllTeamCandidates(
   return a.player.name.localeCompare(b.player.name);
 }
 
-function softFillPrefs(seat: AllTeamBucket): AllTeamBucket[] {
-  if (seat === 'F') return ['F', 'G'];
-  return ['G', 'F'];
-}
-
 type ScoreMeta = {
   score: number;
   winPct: number;
@@ -218,11 +215,11 @@ function toMember(
   row: AwardPlayerAggregate,
   opts: {
     meta: ScoreMeta;
-    seat: AllTeamBucket;
   }
 ): AllTeamMember {
   const gp = row.gamesPlayed;
   const minutes = row.totalStats.minutes_played;
+  const naturalBucket = positionToAllTeamBucket(row.player.position);
   return {
     playerId: row.playerId,
     player: row.player,
@@ -243,92 +240,45 @@ function toMember(
     contextMultiplier: opts.meta.bonus,
     multiplierSource: opts.meta.source,
     progressionPlace: opts.meta.progressionPlace,
-    naturalBucket: positionToAllTeamBucket(row.player.position),
-    seat: opts.seat,
+    naturalBucket,
+    seat: naturalBucket,
   };
 }
 
-function sortSquadDisplay(members: AllTeamMember[]): AllTeamMember[] {
-  const bySeat: Record<AllTeamBucket, AllTeamMember[]> = {
-    G: [],
-    F: [],
-  };
-  for (const m of members) {
-    bySeat[m.seat].push(m);
-  }
-  const out: AllTeamMember[] = [];
-  for (const seat of SEAT_PATTERN) {
-    const next = bySeat[seat].shift();
-    if (next) out.push(next);
-  }
-  for (const seat of ['G', 'F'] as AllTeamBucket[]) {
-    out.push(...bySeat[seat]);
-  }
-  return out;
-}
-
+/**
+ * Top N by Score with club caps (no G/F seats).
+ * Rejected players stay in remaining for lower tiers / HM.
+ */
 function fillOneSquad(
   pool: AwardPlayerAggregate[],
   scores: Map<string, ScoreMeta>,
-  opts?: { softPreferTopThree?: boolean }
+  clubAcrossNamed: Map<string, number>,
+  maxAcrossNamed: number
 ): { squad: AllTeamMember[]; remaining: AwardPlayerAggregate[] } {
-  const remaining = [...pool].sort((a, b) => {
+  const ranked = [...pool].sort((a, b) => {
     const sa = scores.get(a.playerId)!;
     const sb = scores.get(b.playerId)!;
-    if (
-      opts?.softPreferTopThree &&
-      Math.abs(sa.score - sb.score) <= FIRST_TEAM_SOFT_PREFER_EPS
-    ) {
-      const aTop = isTopThreeFinishPlace(sa.progressionPlace);
-      const bTop = isTopThreeFinishPlace(sb.progressionPlace);
-      if (aTop && !bTop) return -1;
-      if (bTop && !aTop) return 1;
-    }
     return compareAllTeamCandidates(a, b, sa.score, sb.score);
   });
 
-  const need: Record<AllTeamBucket, number> = { G: 2, F: 3 };
-  const clubCount = new Map<string, number>();
-  const picked: AllTeamMember[] = [];
+  const squad: AllTeamMember[] = [];
   const pickedIds = new Set<string>();
+  const clubOnSquad = new Map<string, number>();
 
-  const canTake = (row: AwardPlayerAggregate) =>
-    (clubCount.get(row.team.id) ?? 0) < MAX_PER_CLUB;
-
-  const take = (row: AwardPlayerAggregate, seat: AllTeamBucket) => {
-    const meta = scores.get(row.playerId)!;
-    picked.push(toMember(row, { meta, seat }));
+  for (const row of ranked) {
+    if (squad.length >= SQUAD_SIZE) break;
+    const clubId = row.team.id;
+    const onSquad = clubOnSquad.get(clubId) ?? 0;
+    const across = clubAcrossNamed.get(clubId) ?? 0;
+    if (onSquad >= MAX_PER_SQUAD || across >= maxAcrossNamed) continue;
+    squad.push(toMember(row, { meta: scores.get(row.playerId)! }));
     pickedIds.add(row.playerId);
-    clubCount.set(row.team.id, (clubCount.get(row.team.id) ?? 0) + 1);
-    need[seat] -= 1;
-  };
-
-  for (const row of remaining) {
-    if (picked.length >= 5) break;
-    if (!canTake(row)) continue;
-    const bucket = positionToAllTeamBucket(row.player.position);
-    if (need[bucket] <= 0) continue;
-    take(row, bucket);
+    clubOnSquad.set(clubId, onSquad + 1);
+    clubAcrossNamed.set(clubId, across + 1);
   }
 
-  for (const seat of SEAT_PATTERN) {
-    if (need[seat] <= 0) continue;
-    const candidates = remaining.filter(
-      (r) => !pickedIds.has(r.playerId) && canTake(r)
-    );
-    let chosen: AwardPlayerAggregate | null = null;
-    for (const pref of softFillPrefs(seat)) {
-      chosen =
-        candidates.find(
-          (r) => positionToAllTeamBucket(r.player.position) === pref
-        ) ?? null;
-      if (chosen) break;
-    }
-    if (chosen) take(chosen, seat);
-  }
-
-  const left = remaining.filter((r) => !pickedIds.has(r.playerId));
-  return { squad: sortSquadDisplay(picked), remaining: left };
+  const remaining = ranked.filter((r) => !pickedIds.has(r.playerId));
+  return { squad, remaining };
 }
 
 function buildTierScoreMap(
@@ -354,7 +304,11 @@ function buildTierScoreMap(
       });
     const ati = ati01.get(row.playerId) ?? 0;
     scores.set(row.playerId, {
-      score: allTeamTierScore(ati, tsi, tier),
+      score: applyMissPenalty(
+        allTeamTierScore(ati, tsi, tier),
+        row.gamesPlayed,
+        row.teamGames
+      ),
       winPct,
       bonus: tsi,
       source: prog ? 'progression' : 'record',
@@ -386,7 +340,7 @@ export function buildAllTournamentTeams(input: {
   );
   const includePm = input.includePlusMinus ?? false;
 
-  const ati01 = percentileById(
+  const ati01 = minmax01ById(
     eligible.map((r) => ({
       id: r.playerId,
       value: allTeamImpactRaw(r, includePm),
@@ -409,6 +363,8 @@ export function buildAllTournamentTeams(input: {
     }
   }
 
+  const clubAcrossNamed = new Map<string, number>();
+
   const firstScores = buildTierScoreMap(
     eligible,
     ati01,
@@ -418,9 +374,12 @@ export function buildAllTournamentTeams(input: {
     nTeams,
     'first'
   );
-  const firstFill = fillOneSquad(eligible, firstScores, {
-    softPreferTopThree: true,
-  });
+  const firstFill = fillOneSquad(
+    eligible,
+    firstScores,
+    clubAcrossNamed,
+    MAX_ACROSS_NAMED
+  );
 
   const secondScores = buildTierScoreMap(
     firstFill.remaining,
@@ -431,7 +390,12 @@ export function buildAllTournamentTeams(input: {
     nTeams,
     'second'
   );
-  const secondFill = fillOneSquad(firstFill.remaining, secondScores);
+  const secondFill = fillOneSquad(
+    firstFill.remaining,
+    secondScores,
+    clubAcrossNamed,
+    MAX_ACROSS_NAMED
+  );
 
   const thirdScores = buildTierScoreMap(
     secondFill.remaining,
@@ -442,7 +406,12 @@ export function buildAllTournamentTeams(input: {
     nTeams,
     'third'
   );
-  const thirdFill = fillOneSquad(secondFill.remaining, thirdScores);
+  const thirdFill = fillOneSquad(
+    secondFill.remaining,
+    thirdScores,
+    clubAcrossNamed,
+    MAX_ACROSS_NAMED
+  );
 
   const hmScores = buildTierScoreMap(
     thirdFill.remaining,
@@ -462,19 +431,18 @@ export function buildAllTournamentTeams(input: {
     .slice(0, HONORABLE_MENTION_N)
     .map((row) => {
       const meta = hmScores.get(row.playerId)!;
-      return toMember(row, {
-        meta,
-        seat: positionToAllTeamBucket(row.player.position),
-      });
+      return toMember(row, { meta });
     });
 
   const tooltip =
-    `Stats-only All-${shortName} (NBA-style): impact = 60% GmSc/g + 40% defense box, as a percentile; ` +
-    `then + team success (1st 20%, 2nd 12%, 3rd/HM 7%). ` +
-    `1st Team soft-prefers finish places 1–3 when scores are within 2 points. ` +
-    `Each team is 2G / 3F (C and blank Pos count as F; empty seats soft-fill). ` +
-    `Max 3 from the same club per 1st/2nd/3rd. Eligible: ≥60% of team games. ` +
-    `Honourable mentions = next 3 by Score who missed the teams.`;
+    `Stats-only All-${shortName} (same ingredients as MVP): Game Score/g ` +
+    `scaled 0–100% vs the eligible field min/max; ` +
+    `then + team success (1st 30%, 2nd 20%, 3rd/HM 10%; TSI uses Finish^1.5); ` +
+    `then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
+    `Each team is the top 5 eligible by Score (no position seats). ` +
+    `Max 2 from the same club per 1st/2nd/3rd Team; max 5 across those three squads (overflow spills to honourable mentions). ` +
+    `Honourable mentions uncapped. ` +
+    `Eligible: ≥60% of team games.`;
 
   return {
     shortName,
@@ -537,9 +505,4 @@ export function allTeamTierTitle(
   const label =
     tier === 'first' ? '1st' : tier === 'second' ? '2nd' : '3rd';
   return `All-${shortName} ${label} Team`;
-}
-
-/** Exported for tests — soft-fill preference order. */
-export function allTeamSoftFillPrefs(seat: AllTeamBucket): AllTeamBucket[] {
-  return softFillPrefs(seat);
 }

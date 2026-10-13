@@ -1,6 +1,6 @@
 /**
  * Stats-only All-Defensive 1st / 2nd Team (+ 3 HM).
- * Score: same as DPOY — 70% DV01 + 20% TeamDef01 + 10% TSI.
+ * Score: same as DPOY — 50% DV01 + 40% TeamDef01 + 10% TSI.
  * TeamDef01 = Blend P: 0.35·opp eFG + 0.25·DRtg + 0.20·stocks + 0.20·DRB.
  */
 import type { Game, Team } from '../App';
@@ -12,10 +12,11 @@ import {
 } from './tournamentAwards';
 import {
   allDefScoreFromParts,
+  applyMissPenalty,
   buildTeamDef01Map,
   buildTeamSuccessIndexMap,
   defenseValueRaw,
-  percentileById,
+  minmax01ById,
   tsiFromWinAndProgression,
 } from './tournamentAwardScoring';
 import { meetsTournamentMajorAwardGamesFloor } from './tournamentLeaders';
@@ -30,7 +31,6 @@ import {
   allTournamentShortName,
   buildTeamWinPctMap,
   positionToAllTeamBucket,
-  type AllTeamBucket,
   type AllTeamMember,
   type AllTeamMultiplierSource,
 } from './tournamentAllTeams';
@@ -46,8 +46,11 @@ export interface AllDefensiveTeamsResult {
 }
 
 const HONORABLE_MENTION_N = 3;
-const MAX_PER_CLUB = 3;
-const SEAT_PATTERN: AllTeamBucket[] = ['G', 'G', 'F', 'F', 'F'];
+const SQUAD_SIZE = 5;
+/** Max players from one club on a single named squad (1st/2nd). */
+const MAX_PER_SQUAD = 2;
+/** Max players from one club across 1st + 2nd combined. HM uncapped. */
+const MAX_ACROSS_NAMED = 3;
 
 type ScoreMeta = {
   score: number;
@@ -82,17 +85,13 @@ function compareDefCandidates(
   return a.player.name.localeCompare(b.player.name);
 }
 
-function softFillPrefs(seat: AllTeamBucket): AllTeamBucket[] {
-  if (seat === 'F') return ['F', 'G'];
-  return ['G', 'F'];
-}
-
 function toMember(
   row: AwardPlayerAggregate,
-  opts: { meta: ScoreMeta; seat: AllTeamBucket }
+  opts: { meta: ScoreMeta }
 ): AllTeamMember {
   const gp = row.gamesPlayed;
   const minutes = row.totalStats.minutes_played;
+  const naturalBucket = positionToAllTeamBucket(row.player.position);
   return {
     playerId: row.playerId,
     player: row.player,
@@ -116,78 +115,46 @@ function toMember(
     contextMultiplier: opts.meta.bonus,
     multiplierSource: opts.meta.source,
     progressionPlace: opts.meta.progressionPlace,
-    naturalBucket: positionToAllTeamBucket(row.player.position),
-    seat: opts.seat,
+    naturalBucket,
+    seat: naturalBucket,
   };
 }
 
-function sortSquadDisplay(members: AllTeamMember[]): AllTeamMember[] {
-  const bySeat: Record<AllTeamBucket, AllTeamMember[]> = { G: [], F: [] };
-  for (const m of members) bySeat[m.seat].push(m);
-  const out: AllTeamMember[] = [];
-  for (const seat of SEAT_PATTERN) {
-    const next = bySeat[seat].shift();
-    if (next) out.push(next);
-  }
-  for (const seat of ['G', 'F'] as AllTeamBucket[]) {
-    out.push(...bySeat[seat]);
-  }
-  return out;
-}
-
+/**
+ * Top N by Score with club caps (no G/F seats).
+ * Rejected players stay in remaining for lower tiers / HM.
+ */
 function fillOneSquad(
   pool: AwardPlayerAggregate[],
-  scores: Map<string, ScoreMeta>
+  scores: Map<string, ScoreMeta>,
+  clubAcrossNamed: Map<string, number>,
+  maxAcrossNamed: number
 ): { squad: AllTeamMember[]; remaining: AwardPlayerAggregate[] } {
-  const remaining = [...pool].sort((a, b) => {
+  const ranked = [...pool].sort((a, b) => {
     const sa = scores.get(a.playerId)!;
     const sb = scores.get(b.playerId)!;
     return compareDefCandidates(a, b, sa.score, sb.score);
   });
 
-  const need: Record<AllTeamBucket, number> = { G: 2, F: 3 };
-  const clubCount = new Map<string, number>();
-  const picked: AllTeamMember[] = [];
+  const squad: AllTeamMember[] = [];
   const pickedIds = new Set<string>();
+  const clubOnSquad = new Map<string, number>();
 
-  const canTake = (row: AwardPlayerAggregate) =>
-    (clubCount.get(row.team.id) ?? 0) < MAX_PER_CLUB;
-
-  const take = (row: AwardPlayerAggregate, seat: AllTeamBucket) => {
-    const meta = scores.get(row.playerId)!;
-    picked.push(toMember(row, { meta, seat }));
+  for (const row of ranked) {
+    if (squad.length >= SQUAD_SIZE) break;
+    const clubId = row.team.id;
+    const onSquad = clubOnSquad.get(clubId) ?? 0;
+    const across = clubAcrossNamed.get(clubId) ?? 0;
+    if (onSquad >= MAX_PER_SQUAD || across >= maxAcrossNamed) continue;
+    squad.push(toMember(row, { meta: scores.get(row.playerId)! }));
     pickedIds.add(row.playerId);
-    clubCount.set(row.team.id, (clubCount.get(row.team.id) ?? 0) + 1);
-    need[seat] -= 1;
-  };
-
-  for (const row of remaining) {
-    if (picked.length >= 5) break;
-    if (!canTake(row)) continue;
-    const bucket = positionToAllTeamBucket(row.player.position);
-    if (need[bucket] <= 0) continue;
-    take(row, bucket);
-  }
-
-  for (const seat of SEAT_PATTERN) {
-    if (need[seat] <= 0) continue;
-    const candidates = remaining.filter(
-      (r) => !pickedIds.has(r.playerId) && canTake(r)
-    );
-    let chosen: AwardPlayerAggregate | null = null;
-    for (const pref of softFillPrefs(seat)) {
-      chosen =
-        candidates.find(
-          (r) => positionToAllTeamBucket(r.player.position) === pref
-        ) ?? null;
-      if (chosen) break;
-    }
-    if (chosen) take(chosen, seat);
+    clubOnSquad.set(clubId, onSquad + 1);
+    clubAcrossNamed.set(clubId, across + 1);
   }
 
   return {
-    squad: sortSquadDisplay(picked),
-    remaining: remaining.filter((r) => !pickedIds.has(r.playerId)),
+    squad,
+    remaining: ranked.filter((r) => !pickedIds.has(r.playerId)),
   };
 }
 
@@ -213,10 +180,14 @@ function buildAllDefScoreMap(
         nTeams,
       });
     scores.set(row.playerId, {
-      score: allDefScoreFromParts(
-        dv01.get(row.playerId) ?? 0,
-        teamDef01ByTeamId.get(row.team.id) ?? 0.5,
-        tsi
+      score: applyMissPenalty(
+        allDefScoreFromParts(
+          dv01.get(row.playerId) ?? 0,
+          teamDef01ByTeamId.get(row.team.id) ?? 0.5,
+          tsi
+        ),
+        row.gamesPlayed,
+        row.teamGames
       ),
       winPct,
       bonus: tsi,
@@ -249,7 +220,7 @@ export function buildAllDefensiveTeams(input: {
   );
   const includePm = input.includePlusMinus ?? false;
 
-  const dv01 = percentileById(
+  const dv01 = minmax01ById(
     eligible.map((r) => ({
       id: r.playerId,
       value: defenseValueRaw(r, includePm),
@@ -282,8 +253,19 @@ export function buildAllDefensiveTeams(input: {
     progression,
     nTeams
   );
-  const firstFill = fillOneSquad(eligible, scores);
-  const secondFill = fillOneSquad(firstFill.remaining, scores);
+  const clubAcrossNamed = new Map<string, number>();
+  const firstFill = fillOneSquad(
+    eligible,
+    scores,
+    clubAcrossNamed,
+    MAX_ACROSS_NAMED
+  );
+  const secondFill = fillOneSquad(
+    firstFill.remaining,
+    scores,
+    clubAcrossNamed,
+    MAX_ACROSS_NAMED
+  );
   const honorableMentions = [...secondFill.remaining]
     .sort((a, b) => {
       const sa = scores.get(a.playerId)!;
@@ -293,20 +275,21 @@ export function buildAllDefensiveTeams(input: {
     .slice(0, HONORABLE_MENTION_N)
     .map((row) => {
       const meta = scores.get(row.playerId)!;
-      return toMember(row, {
-        meta,
-        seat: positionToAllTeamBucket(row.player.position),
-      });
+      return toMember(row, { meta });
     });
 
   const tooltip =
     `Stats-only All-Defensive (same formula as Defensive Player): ` +
-    `70% defense-box percentile ((1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP` +
+    `50% defense box (scaled 0–100% vs eligible min/max; ` +
+    `(1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP` +
     (includePm ? `; + 0.07×+/−/g when tracked` : '') +
-    `) + 20% team defense (35% opponent eFG% + 25% DRtg + 20% steals+blocks/g + 20% DRB/g) ` +
+    `) + 40% team defense (35% opponent eFG% + 25% DRtg + 20% steals+blocks/g + 20% DRB/g) ` +
     `+ 10% team success index. ` +
-    `Each team is 2G / 3F; max 3 from the same club. Eligible: ≥60% of team games. ` +
-    `No finish-place soft-prefer (pure score). ` +
+    `Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
+    `Each team is the top 5 eligible by Score (no position seats). ` +
+    `Max 2 from the same club per 1st/2nd Team; max 3 across both (overflow spills to honourable mentions). ` +
+    `Honourable mentions uncapped. ` +
+    `Eligible: ≥60% of team games. ` +
     `Honourable mentions = next 3 by Score who missed 1st/2nd. ` +
     `Independent of All-${shortName} (players may appear on both).`;
 

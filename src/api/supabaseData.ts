@@ -3,9 +3,12 @@ import { prepareIconsForCloudSave } from '../lib/teamAssetStorage';
 import { migrateTeamsPlayerMeasurements } from '../lib/playerMeasurements';
 import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import {
+  applyMergedPlayerIdAliasesToGame,
   collectTournamentRosterRemovals,
+  filterMergedAwayPlayers,
   planTournamentRosterCloudWrite,
   remapTournamentRosterDeletes,
+  resolveMergedPlayerId,
   sanitizeTournamentRostersForCloud,
   type TournamentRosterDelete,
 } from '../lib/tournamentRosterCloudWrite';
@@ -280,6 +283,12 @@ function teamToDbRow(team: Team, leagueId: string): DbTeam {
   };
 }
 
+/** Import leftover like "Rekt League Season 1 (ScoreLab abc123…)" — never re-persist. */
+function isScoreLabImportDescription(description: string | null | undefined): boolean {
+  if (!description?.trim()) return false;
+  return /\(\s*ScoreLab\s+[a-f0-9]+\s*\)/i.test(description);
+}
+
 /** Omit icon/description when absent so cloud save does not wipe DB metadata. */
 function teamToDbRowForCloudSave(
   team: Team,
@@ -293,7 +302,11 @@ function teamToDbRowForCloudSave(
     current_tournament_id: team.currentTournamentId ?? null,
   };
   if (team.icon !== undefined) row.icon = team.icon ?? null;
-  if (team.description !== undefined) row.description = team.description ?? null;
+  if (team.description !== undefined) {
+    row.description = isScoreLabImportDescription(team.description)
+      ? null
+      : team.description ?? null;
+  }
   return row;
 }
 
@@ -547,11 +560,29 @@ async function savePlayersWithSchema(
   options?: SaveAppDataOptions
 ): Promise<void> {
   const replaceTeamIds = options?.replaceTeamPlayersForTeams ?? [];
+  // Profiles: drop merge-from ids so cloud save cannot recreate deleted duplicates.
+  // Club links: remap merge-from → kept id (jersey stays; profile name/pos untouched).
+  const teamsForProfiles = teams.map((t) => ({
+    ...t,
+    players: filterMergedAwayPlayers(t.players ?? []),
+  }));
+  const teamsForLinks = teams.map((t) => ({
+    ...t,
+    players: dedupeTeamPlayers(
+      (t.players ?? []).map((p) => ({
+        ...p,
+        id: resolveMergedPlayerId(p.id),
+      }))
+    ),
+  }));
 
   if (schema === 'global_position') {
-    const playerProfileRows = collectUniquePlayerProfiles(teams, leagueId);
-    const teamPlayerRows = teams.flatMap((t) =>
-      dedupeTeamPlayers(t.players ?? []).map((p) => playerToTeamPlayerRow(p, t.id))
+    const playerProfileRows = collectUniquePlayerProfiles(
+      teamsForProfiles,
+      leagueId
+    );
+    const teamPlayerRows = teamsForLinks.flatMap((t) =>
+      (t.players ?? []).map((p) => playerToTeamPlayerRow(p, t.id))
     );
 
     await upsertChunks('players', playerProfileRows, 'id');
@@ -565,11 +596,12 @@ async function savePlayersWithSchema(
   }
 
   if (schema === 'team_players') {
-    const playerProfileRows = collectUniquePlayerProfileBases(teams, leagueId);
-    const teamPlayerRows = teams.flatMap((t) =>
-      dedupeTeamPlayers(t.players ?? []).map((p) =>
-        playerToTeamPlayerRowWithPosition(p, t.id)
-      )
+    const playerProfileRows = collectUniquePlayerProfileBases(
+      teamsForProfiles,
+      leagueId
+    );
+    const teamPlayerRows = teamsForLinks.flatMap((t) =>
+      (t.players ?? []).map((p) => playerToTeamPlayerRowWithPosition(p, t.id))
     );
 
     await upsertChunks('players', playerProfileRows, 'id');
@@ -582,8 +614,8 @@ async function savePlayersWithSchema(
     return;
   }
 
-  assertCanSaveWithLegacySchema(teams);
-  const playerRows = teams.flatMap((t) =>
+  assertCanSaveWithLegacySchema(teamsForProfiles);
+  const playerRows = teamsForProfiles.flatMap((t) =>
     (t.players ?? []).map((p) => playerToLegacyDbRow(p, t.id))
   );
   await upsertChunks('players', playerRows, 'id');
@@ -742,6 +774,8 @@ function gameToDbRow(game: Game, leagueId: string): DbGame {
     throw new Error(`Game ${game.id} is missing home or away team id`);
   }
 
+  const remapped = applyMergedPlayerIdAliasesToGame(game);
+
   return {
     id: game.id,
     league_id: leagueId,
@@ -756,13 +790,13 @@ function gameToDbRow(game: Game, leagueId: string): DbGame {
     is_completed: game.isCompleted ?? false,
     final_score_home: game.finalScore?.home ?? null,
     final_score_away: game.finalScore?.away ?? null,
-    home_starters: game.homeStarters ?? [],
-    away_starters: game.awayStarters ?? [],
-    game_stats: game.gameStats ?? [],
-    team_stats: serializeTeamStats(game),
-    shots: game.shots ?? [],
-    events: game.events ?? [],
-    lineup_stints: game.lineupStints ?? [],
+    home_starters: remapped.homeStarters ?? [],
+    away_starters: remapped.awayStarters ?? [],
+    game_stats: remapped.gameStats ?? [],
+    team_stats: serializeTeamStats({ ...game, ...remapped }),
+    shots: remapped.shots ?? [],
+    events: remapped.events ?? [],
+    lineup_stints: remapped.lineupStints ?? [],
   };
 }
 
@@ -1345,7 +1379,7 @@ export async function saveAppDataToSupabase(
   });
   if (preservedGameStats > 0 && import.meta.env.DEV) {
     console.warn(
-      `[RunItBack] Preserved DB box scores for ${preservedGameStats} game(s) (incoming stats were placeholders).`
+      `[RunItBack] Preserved DB box scores for ${preservedGameStats} game(s) (incoming stats were placeholders or wiped minutes).`
     );
   }
   if (preservedStartTimes > 0 && import.meta.env.DEV) {

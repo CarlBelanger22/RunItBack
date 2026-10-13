@@ -27,6 +27,13 @@ export const TOURNAMENTS_WITHOUT_PLUS_MINUS = new Set([
 export const TOURNAMENTS_WITHOUT_PERSONAL_FOULS = new Set([
   'tournament-1789608630118', // FIBA 3x3 U23 Nations League 2024
   'tournament-1789608692317', // FIBA 3x3 U23 Nations League 2025
+  'tournament-rekt-s1-2025', // Rekt League Season 1 (ScoreLab — PF not tracked)
+]);
+
+/** Fouls drawn not on source (Rekt has +/- but no FD). */
+export const TOURNAMENTS_WITHOUT_FOULS_DRAWN = new Set([
+  ...TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS,
+  'tournament-rekt-s1-2025', // Rekt League Season 1 (ScoreLab — FD not tracked)
 ]);
 
 export function tournamentRecordsStat(
@@ -38,7 +45,7 @@ export function tournamentRecordsStat(
   }
   if (!tournamentId) return true;
   if (stat === 'fouls_drawn') {
-    return !TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS.has(tournamentId);
+    return !TOURNAMENTS_WITHOUT_FOULS_DRAWN.has(tournamentId);
   }
   if (stat === 'plus_minus') {
     return !TOURNAMENTS_WITHOUT_PLUS_MINUS.has(tournamentId);

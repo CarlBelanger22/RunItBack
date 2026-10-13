@@ -23,6 +23,14 @@ export const MERGED_PLAYER_ID_ALIASES: Readonly<Record<string, string>> = {
   'player-sunig-nus-14-paolo': 'player-nbl-d1-2026-xh-12-paolo',
   'player-sunig-nus-00-zachary-gan': 'player-nbl-d1-2026-sba-00-zachary',
   'player-sunig-nus-22-yifan': 'player-nbl-d1-2026-cg-22-yifan',
+  // Rekt import duplicates → kept profiles
+  'player-rekt-s2-unicorns-3-khai-mun': 'player-sunig-ntu-14',
+  'player-rekt-s2-og-basketball-9-tay-ding-loon': 'player-1788765662433',
+  'player-rekt-s2-soldiers-12-teo-sze-tuan': 'player-nbl-d1-2026-sgb-21-teo',
+  'player-rekt-s2-z3no-4-au-jin-kai': 'player-nbl-d1-2026-xh-04-au',
+  'player-rekt-s2-phalanx-7-thng-jun-rong': 'player-rekt-s1-kcw-7-thng-jun-rong',
+  'player-rekt-s2-og-basketball-6-ouyang-s-m': 'player-sunig-nus-11-auyeung',
+  'player-rekt-s2-phalanx-4-liang-rong': 'player-nbl-d1-2026-xh-19-wang',
 };
 
 export function tournamentRosterDeleteKey(
@@ -136,6 +144,82 @@ export function remapTournamentRosterDeletes(
       ? { ...row, playerId: nextId }
       : row;
   });
+}
+
+/** Resolve a stale merged id to the kept profile id. */
+export function resolveMergedPlayerId(
+  playerId: string,
+  aliases: Readonly<Record<string, string>> = MERGED_PLAYER_ID_ALIASES
+): string {
+  return aliases[playerId] ?? playerId;
+}
+
+/** Deep-remap merged player ids inside game JSON (stats/events/shots/stints/starters). */
+export function deepRemapMergedPlayerIds<T>(
+  value: T,
+  aliases: Readonly<Record<string, string>> = MERGED_PLAYER_ID_ALIASES
+): T {
+  if (typeof value === 'string') {
+    return (aliases[value] ?? value) as T;
+  }
+  if (Array.isArray(value)) {
+    return value.map((v) => deepRemapMergedPlayerIds(v, aliases)) as T;
+  }
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out[k] = deepRemapMergedPlayerIds(v, aliases);
+    }
+    return out as T;
+  }
+  return value;
+}
+
+/**
+ * Remap starter/stat/event player ids on a game before cloud upsert so a stale
+ * local snapshot cannot resurrect deleted merge-from profiles.
+ */
+export function applyMergedPlayerIdAliasesToGame<T extends {
+  homeStarters?: string[];
+  awayStarters?: string[];
+  gameStats?: Array<{ playerId?: string } & Record<string, unknown>>;
+  shots?: unknown[];
+  events?: unknown[];
+  lineupStints?: unknown[];
+  gameDayRosterIds?: { home: string[]; away: string[] };
+}>(
+  game: T,
+  aliases: Readonly<Record<string, string>> = MERGED_PLAYER_ID_ALIASES
+): T {
+  if (Object.keys(aliases).length === 0) return game;
+  const gameStats = deepRemapMergedPlayerIds(game.gameStats ?? [], aliases);
+  // If local state still had both merge-from and kept ids, keep one row per player.
+  const byPlayer = new Map<string, (typeof gameStats)[number]>();
+  for (const row of gameStats) {
+    const id = row.playerId;
+    if (!id) continue;
+    byPlayer.set(id, row);
+  }
+  return {
+    ...game,
+    homeStarters: deepRemapMergedPlayerIds(game.homeStarters ?? [], aliases),
+    awayStarters: deepRemapMergedPlayerIds(game.awayStarters ?? [], aliases),
+    gameStats: [...byPlayer.values()],
+    shots: deepRemapMergedPlayerIds(game.shots ?? [], aliases),
+    events: deepRemapMergedPlayerIds(game.events ?? [], aliases),
+    lineupStints: deepRemapMergedPlayerIds(game.lineupStints ?? [], aliases),
+    gameDayRosterIds: game.gameDayRosterIds
+      ? deepRemapMergedPlayerIds(game.gameDayRosterIds, aliases)
+      : game.gameDayRosterIds,
+  };
+}
+
+/** Drop merge-from profile ids so cloud save cannot recreate deleted duplicates. */
+export function filterMergedAwayPlayers<T extends { id: string }>(
+  players: T[],
+  aliases: Readonly<Record<string, string>> = MERGED_PLAYER_ID_ALIASES
+): T[] {
+  return players.filter((p) => !aliases[p.id]);
 }
 
 export function collectTournamentRosterRemovals(

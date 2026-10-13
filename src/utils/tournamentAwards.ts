@@ -37,9 +37,10 @@ import {
   defenseValueRaw,
   dpoyScoreFromParts,
   DPOY_PLUS_MINUS_WEIGHT as DPOY_PM_WEIGHT,
+  applyMissPenalty,
   gmscPerGameRaw,
+  minmax01ById,
   mvpScoreFromParts,
-  percentileById,
   sixthScoreFromParts,
   tsiFromWinAndProgression,
 } from './tournamentAwardScoring';
@@ -387,7 +388,7 @@ export function awardContextMultiplier(
 
 /**
  * MVP-style score for a single row given a pool (for tests).
- * NBA blend: 0.75×OV01 + 0.25×TSI within the provided pool.
+ * NBA blend: 0.70×OV01 + 0.30×TSI within the provided pool.
  */
 export function mvpStyleScore(
   row: AwardPlayerAggregate,
@@ -397,7 +398,7 @@ export function mvpStyleScore(
   pool?: AwardPlayerAggregate[]
 ): number {
   const rows = pool ?? [row];
-  const ov01 = percentileById(
+  const ov01 = minmax01ById(
     rows.map((r) => ({ id: r.playerId, value: gmscPerGameRaw(r) }))
   ).get(row.playerId) ?? 0;
   const tsi = tsiFromWinAndProgression({
@@ -406,7 +407,11 @@ export function mvpStyleScore(
     progression,
     nTeams,
   });
-  return mvpScoreFromParts(ov01, tsi);
+  return applyMissPenalty(
+    mvpScoreFromParts(ov01, tsi),
+    row.gamesPlayed,
+    row.teamGames
+  );
 }
 
 /** Playmaker: APG × AST/(AST+TO). */
@@ -491,18 +496,23 @@ export function buildTournamentAwardSections(
     });
   };
 
-  const mvpOv01 = percentileById(
+  const mvpOv01 = minmax01ById(
     majors.map((r) => ({ id: r.playerId, value: gmscPerGameRaw(r) }))
   );
   const mvpScore = (r: AwardPlayerAggregate) =>
-    mvpScoreFromParts(mvpOv01.get(r.playerId) ?? 0, tsiFor(r.team.id));
+    applyMissPenalty(
+      mvpScoreFromParts(mvpOv01.get(r.playerId) ?? 0, tsiFor(r.team.id)),
+      r.gamesPlayed,
+      r.teamGames
+    );
 
   sections.push({
     id: 'mvp',
     title: 'MVP',
     tooltip:
-      'NBA-style: 75% Game Score/g (percentile among eligible) + 25% team success index ' +
+      'NBA-style: 70% Game Score/g (scaled 0–100% vs eligible min/max) + 30% team success index ' +
       '(finish place when known, else win% / net rating). ' +
+      'Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
       'Eligible: ≥60% of team games. Ties: EFF/g, then PPG.',
     contenders: topBy(majors, mvpScore, (a, b) => {
       const eff =
@@ -516,7 +526,7 @@ export function buildTournamentAwardSections(
   const dpoyPmNote = options.includePlusMinus
     ? ' When +/− is tracked, add 0.07 × +/− per game into the defense box.'
     : '';
-  const dv01 = percentileById(
+  const dv01 = minmax01ById(
     majors.map((r) => ({
       id: r.playerId,
       value: defenseValueRaw(r, options.includePlusMinus),
@@ -530,19 +540,25 @@ export function buildTournamentAwardSections(
     }
   }
   const dpoyScoreFn = (r: AwardPlayerAggregate) =>
-    dpoyScoreFromParts(
-      dv01.get(r.playerId) ?? 0,
-      teamDef01.get(r.team.id) ?? 0.5,
-      tsiFor(r.team.id)
+    applyMissPenalty(
+      dpoyScoreFromParts(
+        dv01.get(r.playerId) ?? 0,
+        teamDef01.get(r.team.id) ?? 0.5,
+        tsiFor(r.team.id)
+      ),
+      r.gamesPlayed,
+      r.teamGames
     );
 
   sections.push({
     id: 'dpoy',
     title: 'Defensive Player',
     tooltip:
-      `NBA-style: 70% defense box percentile ((1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
-      `+ 20% team defense (35% opponent eFG% rank + 25% DRtg rank + 20% team steals+blocks/g + 20% team DRB/g) ` +
+      `NBA-style: 50% defense box (scaled 0–100% vs eligible min/max; ` +
+      `(1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
+      `+ 40% team defense (35% opponent eFG% rank + 25% DRtg rank + 20% team steals+blocks/g + 20% team DRB/g) ` +
       `+ 10% team success index. ` +
+      `Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
       `Eligible: ≥60% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,
     contenders: topBy(majors, dpoyScoreFn, (a, b) => {
       const stocks =
@@ -556,17 +572,22 @@ export function buildTournamentAwardSections(
   });
 
   const sixth = majors.filter(isSixthManEligible);
-  const sixthOv01 = percentileById(
+  const sixthOv01 = minmax01ById(
     sixth.map((r) => ({ id: r.playerId, value: gmscPerGameRaw(r) }))
   );
   const sixthScore = (r: AwardPlayerAggregate) =>
-    sixthScoreFromParts(sixthOv01.get(r.playerId) ?? 0, tsiFor(r.team.id));
+    applyMissPenalty(
+      sixthScoreFromParts(sixthOv01.get(r.playerId) ?? 0, tsiFor(r.team.id)),
+      r.gamesPlayed,
+      r.teamGames
+    );
 
   sections.push({
     id: 'sixth_man',
     title: 'Sixth Man',
     tooltip:
-      'NBA-style: 88% Game Score/g (percentile among bench-eligible) + 12% team success index. ' +
+      'NBA-style: 88% Game Score/g (scaled 0–100% vs bench-eligible min/max) + 12% team success index. ' +
+      'Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
       'Must come off the bench more than start (games with empty starter lists skipped for that ratio). ' +
       'Eligible: ≥60% of team games.',
     contenders: topBy(sixth, sixthScore),

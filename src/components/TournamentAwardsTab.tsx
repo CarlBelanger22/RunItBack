@@ -230,9 +230,6 @@ function ContenderTable({
             <TableHead>Player</TableHead>
             <TableHead>Team</TableHead>
             <TableHead>Pos</TableHead>
-            {showAllTeamScore && (
-              <TableHead className="text-center">Seat</TableHead>
-            )}
             <TableHead className="text-center">GP</TableHead>
             <TableHead className="text-center">MPG</TableHead>
             <TableHead className="text-center">PPG</TableHead>
@@ -260,7 +257,6 @@ function ContenderTable({
               c.jerseyNumber != null && Number.isFinite(c.jerseyNumber)
                 ? String(c.jerseyNumber)
                 : '—';
-            const member = c as AllTeamMember;
             return (
               <TableRow
                 key={c.playerId}
@@ -273,12 +269,6 @@ function ContenderTable({
                 <TableCell className="font-medium">{c.player.name}</TableCell>
                 <TableCell>{c.team.abbreviation || c.team.name}</TableCell>
                 <TableCell>{c.player.position || '—'}</TableCell>
-                {showAllTeamScore && (
-                  <TableCell className="text-center font-medium">
-                    {member.seat}
-                    {member.seat !== member.naturalBucket ? '*' : ''}
-                  </TableCell>
-                )}
                 <TableCell className="text-center">{gp}</TableCell>
                 <TableCell className="text-center">
                   {c.mpg != null ? c.mpg.toFixed(1) : '—'}
@@ -325,7 +315,7 @@ function ContenderTable({
                 </TableCell>
                 <TableCell className="text-center font-medium">
                   {showAllTeamScore
-                    ? member.allTeamScore.toFixed(1)
+                    ? (c as AllTeamMember).allTeamScore.toFixed(1)
                     : formatAwardScore(c.sortValue)}
                 </TableCell>
               </TableRow>
@@ -412,7 +402,6 @@ function AllTeamBlock({
             </TooltipTrigger>
             <TooltipContent className="max-w-sm text-sm">
               {tooltip}
-              {' Seat * = soft-filled from another position.'}
             </TooltipContent>
           </Tooltip>
         )}
@@ -483,8 +472,7 @@ function AllTeamsPanel({
               <TooltipContent className="max-w-sm text-sm">
                 Next {result.honorableMentions.length} eligible players by
                 All-Team Score who did not make All-{result.shortName} 1st,
-                2nd, or 3rd Team. Seat shows position bucket (G/F), not an
-                All-Team seat.
+                2nd, or 3rd Team.
               </TooltipContent>
             </Tooltip>
           </div>
@@ -530,7 +518,6 @@ function AllDefensiveBlock({
             </TooltipTrigger>
             <TooltipContent className="max-w-sm text-sm">
               {tooltip}
-              {' Seat * = soft-filled from another position.'}
             </TooltipContent>
           </Tooltip>
         )}
@@ -598,8 +585,7 @@ function AllDefensivePanel({
               </TooltipTrigger>
               <TooltipContent className="max-w-sm text-sm">
                 Next {result.honorableMentions.length} eligible players by
-                All-Defensive Score who did not make 1st or 2nd Team. Seat shows
-                position bucket (G/F), not a team seat.
+                All-Defensive Score who did not make 1st or 2nd Team.
               </TooltipContent>
             </Tooltip>
           </div>

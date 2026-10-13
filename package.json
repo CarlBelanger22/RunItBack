@@ -109,6 +109,7 @@
             "test:tournament-rosters": "tsx scripts/test-tournament-rosters.ts",
             "test:tournament-roster-persist": "tsx scripts/test-tournament-roster-persist.ts",
             "test:stat-recording": "tsx scripts/test-stat-recording.ts",
+            "test:game-stats-integrity": "tsx scripts/test-game-stats-integrity.ts",
             "test:player-participation-sort": "tsx scripts/test-player-participation-sort.ts",
             "test:player-jersey-groups": "tsx scripts/test-player-jersey-groups.ts",
             "test:player-jersey-resolution": "tsx scripts/test-player-jersey-resolution.ts",
