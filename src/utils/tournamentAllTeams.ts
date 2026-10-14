@@ -71,11 +71,16 @@ const MAX_PER_SQUAD = 2;
 /** Max players from one club across 1st + 2nd + 3rd combined. HM uncapped. */
 const MAX_ACROSS_NAMED = 5;
 
-/** Strip a trailing year, e.g. "NBL Div 1 2026" → "NBL Div 1". */
+/**
+ * Display stem for All-{name} / All-Defensive titles.
+ * Strips a trailing year ("NBL Div 1 2026" → "NBL Div 1") and a trailing
+ * "Season N" ("Rekt League Season 1" → "Rekt League" → All-Rekt League).
+ */
 export function allTournamentShortName(tournamentName: string): string {
   const trimmed = tournamentName.trim();
   if (!trimmed) return 'Tournament';
-  const stripped = trimmed.replace(/\s+\d{4}\s*$/, '').trim();
+  let stripped = trimmed.replace(/\s+\d{4}\s*$/, '').trim();
+  stripped = stripped.replace(/\s+Season\s*\d+\s*$/i, '').trim();
   return stripped || trimmed;
 }
 

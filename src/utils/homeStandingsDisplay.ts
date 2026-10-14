@@ -70,9 +70,10 @@ export function buildHomeStandingDisplayRows(input: {
     }));
   }
 
+  const SENTINEL = 999;
   const rows: HomeStandingDisplayRow[] = input.standings.map((row) => {
     const prog = progression.get(row.team.id);
-    const place = prog?.place ?? 999;
+    const place = prog?.place ?? SENTINEL;
     return {
       team: row.team,
       wins: row.wins,
@@ -92,6 +93,21 @@ export function buildHomeStandingDisplayRows(input: {
       b.winPercentage - a.winPercentage ||
       a.team.name.localeCompare(b.team.name)
   );
+
+  // Never show sentinel 999 — continue ranks by current sort order.
+  let maxReal = 0;
+  for (const r of rows) {
+    if (r.place < SENTINEL && r.place > maxReal) maxReal = r.place;
+  }
+  let next = maxReal + 1;
+  for (const r of rows) {
+    if (r.place >= SENTINEL) {
+      r.place = next;
+      next += 1;
+      r.medal = medalForPlace(r.place);
+      r.source = 'record';
+    }
+  }
 
   return rows;
 }

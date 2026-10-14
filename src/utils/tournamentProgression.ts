@@ -6,7 +6,7 @@
 import type { Game, Team } from '../App';
 import {
   inferPlacesFromLabel,
-  placeForMatchSide,
+  outcomeFeedsFurther,
   resolveSlotPlaces,
 } from './bracketPlaces';
 import {
@@ -25,7 +25,11 @@ import {
   filterGamesForGroup,
 } from './tournamentStandings';
 
-export type ProgressionPlaceSource = 'bracket' | 'placing_pool';
+export type ProgressionPlaceSource =
+  | 'bracket'
+  | 'placing_pool'
+  /** 5th+ when no placing games: W–L + group-stage H2H among unplaced. */
+  | 'record_remainder';
 
 export interface TeamProgressionPlace {
   /** Best-possible place while undecided; locked place when decided. */
@@ -196,26 +200,24 @@ export function buildTeamProgressionPlaces(input: {
         if (resolved.winner == null || resolved.loser == null) continue;
 
         const game = slot.gameId ? gameById.get(slot.gameId) : undefined;
-        const wl = game ? winnerLoserTeamIds(game) : null;
+        const wl =
+          game && isGameCompleted(game) ? winnerLoserTeamIds(game) : null;
 
         if (wl) {
-          const homePlace = placeForMatchSide(
-            slot,
-            homeId === wl.winnerId,
-            homeId === wl.loserId,
-            [slot.label, round.name],
-            rounds
-          );
-          const awayPlace = placeForMatchSide(
-            slot,
-            awayId === wl.winnerId,
-            awayId === wl.loserId,
-            [slot.label, round.name],
-            rounds
-          );
-          // null when this outcome still feeds another match (e.g. SF → Final)
-          if (homePlace != null) setPlace(homeId, homePlace, true, 'bracket');
-          if (awayPlace != null) setPlace(awayId, awayPlace, true, 'bracket');
+          // Prefer actual game W/L for place writes so mis-wired feeders
+          // (e.g. 3rd Place with null fromOutcome → SF winners) still work.
+          if (
+            resolved.winner != null &&
+            !outcomeFeedsFurther(rounds, slot.id, 'winner')
+          ) {
+            setPlace(wl.winnerId, resolved.winner, true, 'bracket');
+          }
+          if (
+            resolved.loser != null &&
+            !outcomeFeedsFurther(rounds, slot.id, 'loser')
+          ) {
+            setPlace(wl.loserId, resolved.loser, true, 'bracket');
+          }
         } else if (homeId || awayId) {
           // Undecided: both get best possible (winner place)
           const best = Math.min(resolved.winner, resolved.loser);
@@ -269,7 +271,66 @@ export function buildTeamProgressionPlaces(input: {
     }
   }
 
+  // --- Remainder places (5th+) when champion is locked and no placing games ---
+  fillRecordRemainderPlaces({
+    out,
+    setPlace,
+    games: input.games,
+    teams: input.teams,
+  });
+
   return out;
+}
+
+function hasLockedChampionPlace(
+  places: Map<string, TeamProgressionPlace>
+): boolean {
+  for (const row of places.values()) {
+    if (row.place === 1 && row.locked) return true;
+  }
+  return false;
+}
+
+/**
+ * After bracket/pools: unplaced teams → next places by W–L + H2H
+ * (same sort as group-stage standings). Only when place-1 is locked.
+ */
+function fillRecordRemainderPlaces(input: {
+  out: Map<string, TeamProgressionPlace>;
+  setPlace: (
+    teamId: string | null | undefined,
+    place: number,
+    locked: boolean,
+    source: ProgressionPlaceSource
+  ) => void;
+  games: Game[];
+  teams: Team[];
+}): void {
+  if (!hasLockedChampionPlace(input.out)) return;
+
+  const completed = input.games.filter(isGameCompleted);
+  if (completed.length === 0) return;
+
+  const playedIds = new Set<string>();
+  for (const g of completed) {
+    if (g.homeTeamId) playedIds.add(g.homeTeamId);
+    if (g.awayTeamId) playedIds.add(g.awayTeamId);
+  }
+
+  const candidateTeams = input.teams.filter(
+    (t) => playedIds.has(t.id) && !input.out.has(t.id)
+  );
+  if (candidateTeams.length === 0) return;
+
+  const standings = calculateTeamStandings(candidateTeams, completed);
+  let maxPlace = 0;
+  for (const row of input.out.values()) {
+    if (row.place > maxPlace) maxPlace = row.place;
+  }
+  const base = maxPlace + 1;
+  standings.forEach((row, idx) => {
+    input.setPlace(row.team.id, base + idx, true, 'record_remainder');
+  });
 }
 
 export function countTournamentTeamsForProgression(
