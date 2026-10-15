@@ -64,6 +64,11 @@ import {
 } from '../utils/tournamentStandings';
 import { findH2hTieBlocks } from '../utils/standingsTiebreak';
 import { buildHomeStandingDisplayRows } from '../utils/homeStandingsDisplay';
+import {
+  applyRektS3StandingsOrder,
+  isRektS3DemotedTeam,
+  rektS3StandingsFootnote,
+} from '../utils/rektS3StandingsOverrides';
 import { resolvePlacingBasePlace } from '../utils/tournamentProgression';
 import { GroupH2hDetailsDialog } from './GroupH2hDetailsDialog';
 import { MetricsCalculator } from './MetricsCalculator';
@@ -345,8 +350,14 @@ export function TournamentPage({
       filterRoundRobinGames(tournamentGames, tournament.structure)
     );
   
-  const standings = calculateStandings();
-  const homeStandings = calculateHomeStandings();
+  const standings = applyRektS3StandingsOrder(
+    tournament.id,
+    calculateStandings()
+  );
+  const homeStandings = applyRektS3StandingsOrder(
+    tournament.id,
+    calculateHomeStandings()
+  );
   const homeStandingRows = buildHomeStandingDisplayRows({
     structure: tournament.structure,
     games: tournamentGames,
@@ -354,12 +365,19 @@ export function TournamentPage({
     standings: homeStandings,
   });
   const leaders = getTournamentLeaders();
-  const extendedStandings = calculateStandingsWithExtendedStats();
+  const extendedStandings = applyRektS3StandingsOrder(
+    tournament.id,
+    calculateStandingsWithExtendedStats()
+  );
   const groupStandingsTables = buildGroupStandingsTables(
     tournament.structure,
     tournamentTeams,
     tournamentGames
-  );
+  ).map((table) => ({
+    ...table,
+    standings: applyRektS3StandingsOrder(tournament.id, table.standings),
+  }));
+  const s3StandingsFootnote = rektS3StandingsFootnote(tournament.id);
   
   // Team dialogs (hoisted outside tab components to avoid remount on keystroke)
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
@@ -547,10 +565,14 @@ export function TournamentPage({
                     : standing.medal
                       ? 'home-standings-row--medal'
                       : '';
+                const withdrawn = isRektS3DemotedTeam(
+                  tournament.id,
+                  standing.team.id
+                );
                 return (
                   <div
                     key={standing.team.id}
-                    className={`home-standings-row ${medalClass} ${sizeClass}`.trim()}
+                    className={`home-standings-row ${medalClass} ${sizeClass} ${withdrawn ? 'home-standings-row--withdrawn' : ''}`.trim()}
                     onClick={() => onNavigateToTeam(standing.team.id)}
                   >
                     <div className="home-standings-row-main">
@@ -583,6 +605,11 @@ export function TournamentPage({
                 );
               })}
             </div>
+            {s3StandingsFootnote ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {s3StandingsFootnote}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -957,19 +984,26 @@ export function TournamentPage({
       <TableBody>
         {rows.map((standing, index) => {
           const seedPlaceholder = isSeedPlaceholderTeamId(standing.team.id);
+          const withdrawn = isRektS3DemotedTeam(
+            tournament.id,
+            standing.team.id
+          );
           return (
           <TableRow
             key={standing.team.id}
-            className={
-              seedPlaceholder ? undefined : 'cursor-pointer hover:bg-muted/50'
-            }
+            className={[
+              seedPlaceholder ? undefined : 'cursor-pointer hover:bg-muted/50',
+              withdrawn ? 'tournament-standings-row--withdrawn' : undefined,
+            ]
+              .filter(Boolean)
+              .join(' ')}
             onClick={() => {
               if (!seedPlaceholder) onNavigateToTeam(standing.team.id);
             }}
           >
             <TableCell>
               <Badge
-                variant={index === 0 ? 'default' : 'secondary'}
+                variant={index === 0 && !withdrawn ? 'default' : 'secondary'}
                 className="w-6 h-6 p-0 flex items-center justify-center text-xs"
               >
                 {rankBase + index}
@@ -988,7 +1022,9 @@ export function TournamentPage({
                   className={
                     seedPlaceholder
                       ? 'truncate font-medium font-mono text-muted-foreground'
-                      : 'truncate font-medium'
+                      : withdrawn
+                        ? 'truncate font-medium text-muted-foreground'
+                        : 'truncate font-medium'
                   }
                 >
                   {standing.team.name}
@@ -1105,11 +1141,18 @@ export function TournamentPage({
                 </CardHeader>
                 <CardContent>
                   {group.leagueTable ? (
-                    renderStandingsTable(groupRows, {
-                      groupGames,
-                      showH2h: true,
-                      rankBase: 1,
-                    })
+                    <>
+                      {renderStandingsTable(groupRows, {
+                        groupGames,
+                        showH2h: true,
+                        rankBase: 1,
+                      })}
+                      {s3StandingsFootnote ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          {s3StandingsFootnote}
+                        </p>
+                      ) : null}
+                    </>
                   ) : (
                   <Tabs defaultValue="standings" className="group-standings-tabs">
                     <TabsList className="group-standings-tabs-list">
@@ -1294,7 +1337,14 @@ export function TournamentPage({
           <CardHeader>
             <CardTitle>Tournament Standings</CardTitle>
           </CardHeader>
-          <CardContent>{renderStandingsTable(extendedStandings)}</CardContent>
+          <CardContent>
+            {renderStandingsTable(extendedStandings)}
+            {s3StandingsFootnote ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {s3StandingsFootnote}
+              </p>
+            ) : null}
+          </CardContent>
         </Card>
       )}
     </div>

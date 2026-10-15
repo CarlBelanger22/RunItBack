@@ -4868,6 +4868,18 @@ html {
   background: color-mix(in oklab, var(--muted) 50%, transparent);
 }
 
+.home-standings-row--withdrawn {
+  opacity: 0.55;
+}
+
+.tournament-standings-row--withdrawn {
+  opacity: 0.55;
+}
+
+.tournament-standings-row--withdrawn:hover {
+  background: color-mix(in oklab, var(--muted) 35%, transparent);
+}
+
 .home-standings-row--medal {
   padding: 0.65rem 0.75rem;
 }
