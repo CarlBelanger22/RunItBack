@@ -605,11 +605,6 @@ export function TournamentPage({
                 );
               })}
             </div>
-            {s3StandingsFootnote ? (
-              <p className="mt-3 text-xs text-muted-foreground">
-                {s3StandingsFootnote}
-              </p>
-            ) : null}
           </CardContent>
         </Card>
 
