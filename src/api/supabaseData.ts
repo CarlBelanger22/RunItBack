@@ -14,6 +14,10 @@ import {
   type TournamentRosterDelete,
 } from '../lib/tournamentRosterCloudWrite';
 import {
+  fetchAllPaged,
+  warnIfUnderfetched,
+} from '../lib/supabasePagedFetch';
+import {
   dedupeTournamentRostersForDb,
   syncTournamentRosterPositionsFromProfiles,
   type TournamentRosterEntry,
@@ -1002,16 +1006,42 @@ export async function loadAppDataFromSupabase(
     tournamentRostersRes,
     gamesRes,
     prefsRes,
+    teamPlayersCountRes,
+    tournamentRostersCountRes,
   ] = await Promise.all([
     supabase.from('players').select('*').eq('league_id', leagueId),
     teamIds.length > 0
-      ? supabase.from('team_players').select('*').in('team_id', teamIds)
-      : Promise.resolve({ data: [], error: null }),
+      ? fetchAllPaged<DbTeamPlayer>((from, to) =>
+          supabase
+            .from('team_players')
+            .select('*')
+            .in('team_id', teamIds)
+            .order('team_id')
+            .order('player_id')
+            .range(from, to)
+        )
+      : Promise.resolve({ data: [] as DbTeamPlayer[], error: null }),
     supabase.from('tournaments').select('*').eq('league_id', leagueId),
     supabase.from('tournament_teams').select('tournament_id, team_id'),
-    supabase.from('tournament_rosters').select('*'),
+    fetchAllPaged<DbTournamentRoster>((from, to) =>
+      supabase
+        .from('tournament_rosters')
+        .select('*')
+        .order('tournament_id')
+        .order('player_id')
+        .range(from, to)
+    ),
     supabase.from('games').select('*').eq('league_id', leagueId),
     supabase.from('app_preferences').select('dark_mode').eq('league_id', leagueId).maybeSingle(),
+    teamIds.length > 0
+      ? supabase
+          .from('team_players')
+          .select('*', { count: 'exact', head: true })
+          .in('team_id', teamIds)
+      : Promise.resolve({ count: 0, error: null }),
+    supabase
+      .from('tournament_rosters')
+      .select('*', { count: 'exact', head: true }),
   ]);
 
   phases.parallelQueries = performance.now() - phaseStart;
@@ -1054,6 +1084,23 @@ export async function loadAppDataFromSupabase(
     : ((tournamentRostersRes.data ?? []) as DbTournamentRoster[]);
   const gameRows = (gamesRes.data ?? []) as DbGame[];
   const leagueTournamentIds = new Set(tournamentRows.map((t) => t.id));
+
+  if (import.meta.env.DEV) {
+    if (!teamPlayersCountRes.error) {
+      warnIfUnderfetched(
+        'team_players',
+        teamPlayerRows.length,
+        teamPlayersCountRes.count
+      );
+    }
+    if (!tournamentRostersCountRes.error) {
+      warnIfUnderfetched(
+        'tournament_rosters',
+        tournamentRosterRows.length,
+        tournamentRostersCountRes.count
+      );
+    }
+  }
 
   phases.validateResponses = performance.now() - phaseStart;
   phaseStart = performance.now();
@@ -1211,6 +1258,7 @@ export async function loadAppDataFromSupabase(
     games: games.length,
     players: playerRows.length,
     teamPlayers: teamPlayerRows.length,
+    tournamentRosters: tournamentRosterRows.length,
   });
 
   return {

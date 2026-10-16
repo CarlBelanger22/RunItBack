@@ -214,6 +214,7 @@
             "test:standings-tiebreak": "tsx scripts/test-standings-tiebreak.ts",
             "test:snapshot-icons": "tsx scripts/test-snapshot-icons.ts",
             "test:cloud-persist-apply": "tsx scripts/test-cloud-persist-apply.ts",
+            "test:supabase-paged-fetch": "tsx scripts/test-supabase-paged-fetch.ts",
             "test:completed-game-persist": "tsx scripts/test-completed-game-persist.ts",
             "test:navigation-return-to": "tsx scripts/test-navigation-return-to.ts",
             "test:auth-redirect": "tsx scripts/test-auth-redirect.ts",
