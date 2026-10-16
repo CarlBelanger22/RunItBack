@@ -44,6 +44,10 @@ import {
 } from '../utils/playerSeasonStats';
 import { getPlayerParticipatedTournaments } from '../utils/teamTournaments';
 import {
+  computePlayerCareerHighs,
+  formatCareerHighValue,
+} from '../utils/playerCareerHighs';
+import {
   getPlayerRosterEntries,
   resolvePlayerTeamInGame,
 } from '../utils/rosterPlayers';
@@ -124,8 +128,8 @@ interface PlayerPageProps {
   games: Game[];
   tournaments: Tournament[];
   tournamentRosters?: TournamentRosterEntry[];
-  activeTab: 'overview' | 'gamelog' | 'stats' | 'advanced';
-  onTabChange: (tab: 'overview' | 'gamelog' | 'stats' | 'advanced') => void;
+  activeTab: 'overview' | 'stats' | 'advanced' | 'gamelog';
+  onTabChange: (tab: 'overview' | 'stats' | 'advanced' | 'gamelog') => void;
   onBack: () => void;
   onNavigateToTeam: (teamId: string) => void;
   onNavigateToGame: (gameId: string) => void;
@@ -1149,9 +1153,125 @@ export function PlayerPage({
     };
     
     const filteredData = getFilteredStats();
+
+    const careerHighGames = useMemo(() => {
+      const allSelected = isAllTournamentsSelected(
+        selectedTournamentIds,
+        tournamentFilterAvailableIds
+      );
+      return playerGames.filter((game) => {
+        if (!game.isCompleted) return false;
+        if (allSelected) return true;
+        return (
+          !!game.tournamentId &&
+          selectedTournamentIds !== null &&
+          selectedTournamentIds.has(game.tournamentId)
+        );
+      });
+    }, [
+      playerGames,
+      selectedTournamentIds,
+      tournamentFilterAvailableIds,
+    ]);
+
+    const careerHighs = useMemo(
+      () =>
+        computePlayerCareerHighs(player.id, careerHighGames, {
+          includeFriendlies: false,
+        }),
+      [player.id, careerHighGames]
+    );
+
+    const careerHighGameById = useMemo(() => {
+      const map = new Map<string, Game>();
+      for (const game of careerHighGames) map.set(game.id, game);
+      return map;
+    }, [careerHighGames]);
     
     return (
       <div className="space-y-6">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle>Career Highs</CardTitle>
+            <p className="text-sm text-muted-foreground font-normal">
+              Single-game highs for this format
+              {isAllTournamentsSelected(
+                selectedTournamentIds,
+                tournamentFilterAvailableIds
+              )
+                ? ''
+                : ' and tournament selection'}
+              . Friendlies excluded.
+            </p>
+          </CardHeader>
+          <CardContent>
+            {careerHighs.scalars.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No completed games in this scope.
+              </p>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {careerHighs.scalars.map((row) => {
+                    const highGame = careerHighGameById.get(row.gameId);
+                    const ctx = highGame
+                      ? getGameTeamContext(highGame)
+                      : null;
+                    const matchup =
+                      ctx?.opponent?.abbreviation || ctx?.opponent?.name
+                        ? `${ctx.isHome ? 'vs' : '@'} ${
+                            ctx.opponent.abbreviation || ctx.opponent.name
+                          }`
+                        : null;
+                    const dateLabel = highGame
+                      ? new Date(highGame.date).toLocaleDateString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })
+                      : row.gameDate;
+                    return (
+                      <button
+                        key={row.key}
+                        type="button"
+                        className="flex items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-muted/50 transition-colors"
+                        onClick={() => onNavigateToGame(row.gameId)}
+                      >
+                        <span className="text-sm text-muted-foreground w-12 shrink-0">
+                          {row.label}
+                        </span>
+                        <span className="min-w-0 flex-1 flex items-baseline justify-end gap-2">
+                          <span className="text-sm font-mono font-semibold tabular-nums">
+                            {formatCareerHighValue(row.key, row.value)}
+                          </span>
+                          <span className="text-xs text-muted-foreground truncate">
+                            {dateLabel}
+                            {matchup ? ` · ${matchup}` : ''}
+                          </span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="grid grid-cols-2 gap-3 border-t pt-3">
+                  <div className="flex items-center justify-between px-2">
+                    <span className="text-sm text-muted-foreground">DD</span>
+                    <span className="text-sm font-mono font-semibold tabular-nums">
+                      {careerHighs.doubleDoubles}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between px-2">
+                    <span className="text-sm text-muted-foreground">TD</span>
+                    <span className="text-sm font-mono font-semibold tabular-nums">
+                      {careerHighs.tripleDoubles}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Advanced Metrics */}
         <Card>
           <CardHeader>
@@ -1526,9 +1646,9 @@ export function PlayerPage({
       <Tabs value={activeTab} onValueChange={(value) => onTabChange(value as any)}>
         <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="gamelog">Game Log</TabsTrigger>
           <TabsTrigger value="stats">Player Stats</TabsTrigger>
           <TabsTrigger value="advanced">Advanced Stats</TabsTrigger>
+          <TabsTrigger value="gamelog">Game Log</TabsTrigger>
         </TabsList>
 
         <div className="mt-4">
@@ -1559,10 +1679,6 @@ export function PlayerPage({
           <OverviewTab />
         </TabsContent>
 
-        <TabsContent value="gamelog">
-          <GameLogTab />
-        </TabsContent>
-
         <TabsContent value="stats">
           {canViewDetailedStats ? (
             <PlayerStatsTab />
@@ -1583,6 +1699,10 @@ export function PlayerPage({
               description="Advanced metrics and shot chart unlock after you sign in with Google."
             />
           )}
+        </TabsContent>
+
+        <TabsContent value="gamelog">
+          <GameLogTab />
         </TabsContent>
       </Tabs>
     </div>
