@@ -5,6 +5,7 @@ import { dedupeTeamPlayers, dedupeTeamsById } from '../utils/rosterPlayers';
 import {
   applyMergedPlayerIdAliasesToGame,
   collectTournamentRosterRemovals,
+  collectUpsertKeepTeams,
   filterMergedAwayPlayers,
   planTournamentRosterCloudWrite,
   remapTournamentRosterDeletes,
@@ -497,6 +498,26 @@ async function deleteTournamentRosterRows(
   }
 }
 
+/** Clear stale other-club rows the client may not know about (unique on tournament+player). */
+async function deleteOtherTeamTournamentRosterRows(
+  keeps: Array<{ tournamentId: string; playerId: string; keepTeamId: string }>
+): Promise<void> {
+  if (!supabase || keeps.length === 0) return;
+  for (const row of keeps) {
+    const { error } = await supabase
+      .from('tournament_rosters')
+      .delete()
+      .eq('tournament_id', row.tournamentId)
+      .eq('player_id', row.playerId)
+      .neq('team_id', row.keepTeamId);
+    if (error) {
+      throw new Error(
+        `tournament_rosters clear-other-team ${row.tournamentId}/${row.playerId}: ${error.message}`
+      );
+    }
+  }
+}
+
 async function persistTournamentRosterEntries(
   tournamentRosters: TournamentRosterEntry[],
   games: Game[],
@@ -543,6 +564,10 @@ async function persistTournamentRosterEntries(
     ]),
   });
   await deleteTournamentRosterRows(plan.deletes);
+  // Must run even when client never held the other-club row (Leyang UNI vs RGN).
+  await deleteOtherTeamTournamentRosterRows(
+    collectUpsertKeepTeams(plan.upsert)
+  );
   await upsertChunks(
     'tournament_rosters',
     plan.upsert.map(tournamentRosterEntryToDbRow),

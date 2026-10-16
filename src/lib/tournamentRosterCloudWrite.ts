@@ -252,6 +252,64 @@ export function planTournamentRosterCloudWrite(args: {
   return { upsert, deletes: pendingDeletes };
 }
 
+/**
+ * One keep-team per (tournamentId, playerId) from the upsert set.
+ * Persist must DELETE any other team_id for that pair in the cloud before
+ * upsert — otherwise a stale other-club row the client never held still
+ * violates tournament_rosters_tournament_id_player_id_key.
+ */
+export function collectUpsertKeepTeams(
+  upsert: TournamentRosterEntry[]
+): Array<{ tournamentId: string; playerId: string; keepTeamId: string }> {
+  const byPair = new Map<
+    string,
+    { tournamentId: string; playerId: string; keepTeamId: string }
+  >();
+  for (const row of upsert) {
+    const key = `${row.tournamentId}:${row.playerId}`;
+    // Last write wins within a batch; callers should dedupe first.
+    byPair.set(key, {
+      tournamentId: row.tournamentId,
+      playerId: row.playerId,
+      keepTeamId: row.teamId,
+    });
+  }
+  return [...byPair.values()];
+}
+
+/**
+ * Given known cloud/local rows, which other-team rows must be deleted so the
+ * upsert keep-team can land without unique (tournament_id, player_id) conflict.
+ */
+export function collectOtherTeamDeletesForUpsert(args: {
+  upsert: TournamentRosterEntry[];
+  existingRows: TournamentRosterEntry[];
+}): TournamentRosterDelete[] {
+  const keepByPair = new Map<string, string>();
+  for (const keep of collectUpsertKeepTeams(args.upsert)) {
+    keepByPair.set(
+      `${keep.tournamentId}:${keep.playerId}`,
+      keep.keepTeamId
+    );
+  }
+  const out: TournamentRosterDelete[] = [];
+  const seen = new Set<string>();
+  for (const row of args.existingRows) {
+    const pair = `${row.tournamentId}:${row.playerId}`;
+    const keepTeamId = keepByPair.get(pair);
+    if (!keepTeamId || row.teamId === keepTeamId) continue;
+    const key = tournamentRosterDeleteKey(row);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      tournamentId: row.tournamentId,
+      teamId: row.teamId,
+      playerId: row.playerId,
+    });
+  }
+  return out;
+}
+
 /** Union local + cloud; local jersey/position overlay; honor explicit removes. */
 export function mergeLocalAndCloudTournamentRosters(
   local: TournamentRosterEntry[],

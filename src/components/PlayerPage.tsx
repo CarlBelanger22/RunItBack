@@ -636,12 +636,14 @@ export function PlayerPage({
 
   const getGameTeamContext = useCallback(
     (game: Game) => {
-      const playerTeam = resolvePlayerTeamInGame(player.id, game, teams) ?? team;
+      const playerTeam =
+        resolvePlayerTeamInGame(player.id, game, teams, tournamentRosters) ??
+        team;
       const isHome = game.homeTeamId === playerTeam.id;
       const opponent = isHome ? game.awayTeam : game.homeTeam;
       return { playerTeam, isHome, opponent };
     },
-    [player.id, teams, team]
+    [player.id, teams, team, tournamentRosters]
   );
   
   const OverviewTab = () => (

@@ -2,7 +2,9 @@ import type { Team, Tournament, Game, Player } from '../App';
 import { getIdCreatedAtMs, getPlayerLastGameMs } from './playerParticipationSort';
 import {
   buildClubRosterByTeam,
+  buildTournamentRosterTeamByPlayer,
   resolvePlayerTeamSideInGame,
+  type TournamentRosterEntry,
 } from './tournamentRosters';
 
 /** One roster row per player id (last entry wins). */
@@ -275,12 +277,14 @@ export function getPlayerRosterEntries(
 export function resolvePlayerTeamInGame(
   playerId: string,
   game: Game,
-  teams: Team[]
+  teams: Team[],
+  tournamentRosters?: TournamentRosterEntry[]
 ): Team | null {
   const sideId = resolvePlayerTeamSideInGame(
     playerId,
     game,
-    buildClubRosterByTeam(teams)
+    buildClubRosterByTeam(teams),
+    buildTournamentRosterTeamByPlayer(game.tournamentId, tournamentRosters)
   );
   if (!sideId) return null;
   return teams.find((t) => t.id === sideId) ?? null;

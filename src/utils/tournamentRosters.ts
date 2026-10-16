@@ -47,11 +47,30 @@ export function buildTeamPlayerJerseyLookup(teams: Team[]): TeamPlayerJerseyLook
   return map;
 }
 
+/**
+ * Build playerId → teamId for one tournament from tournament_rosters.
+ * Used when a player is on multiple clubs in the same tournament.
+ */
+export function buildTournamentRosterTeamByPlayer(
+  tournamentId: string | undefined | null,
+  entries: TournamentRosterEntry[] | undefined
+): Map<string, string> {
+  const map = new Map<string, string>();
+  if (!tournamentId || !entries?.length) return map;
+  for (const row of entries) {
+    if (row.tournamentId !== tournamentId) continue;
+    map.set(row.playerId, row.teamId);
+  }
+  return map;
+}
+
 /** Which side (team id) the player was on for this game — for backfill / stats. */
 export function resolvePlayerTeamSideInGame(
   playerId: string,
   game: Game,
-  clubRosterByTeam?: Map<string, Set<string>>
+  clubRosterByTeam?: Map<string, Set<string>>,
+  /** playerId → teamId from tournament_rosters for game.tournamentId */
+  tournamentTeamByPlayer?: Map<string, string>
 ): string | null {
   const homeId = game.homeTeamId || game.homeTeam?.id;
   const awayId = game.awayTeamId || game.awayTeam?.id;
@@ -66,6 +85,13 @@ export function resolvePlayerTeamSideInGame(
     return awayId;
   }
 
+  // Dual-club same tournament: prefer the enrolled tournament roster team
+  // when it is actually playing in this game (Leyang → Reign not Unicorns).
+  const rosterTeam = tournamentTeamByPlayer?.get(playerId);
+  if (rosterTeam === homeId || rosterTeam === awayId) {
+    return rosterTeam;
+  }
+
   const onHomeClub = clubRosterByTeam?.get(homeId)?.has(playerId) ?? false;
   const onAwayClub = clubRosterByTeam?.get(awayId)?.has(playerId) ?? false;
   if (onHomeClub && !onAwayClub) return homeId;
@@ -78,6 +104,10 @@ export function resolvePlayerTeamSideInGame(
 
   if (homeStarters.includes(playerId)) return homeId;
   if (awayStarters.includes(playerId)) return awayId;
+
+  // Both clubs / both snapshots / no starters: do not guess home.
+  if (onHomeClub && onAwayClub) return null;
+  if (inHomeSnapshot && inAwaySnapshot) return null;
 
   return homeId;
 }
@@ -200,8 +230,9 @@ function countPlayerTeamGamesInTournament(
 
 /**
  * Enforce DB rule: one roster row per (tournament_id, player_id).
- * When game data assigns a player to multiple teams in one tournament,
- * keep the team with the most completed-game appearances.
+ * When completed games place the player on a team, that team wins — even if
+ * the only stored row is a wrong dual-club row (Leyang on Unicorns locally
+ * while GLs3 games are for Reign).
  */
 export function dedupeTournamentRostersForDb(
   entries: TournamentRosterEntry[],
@@ -219,11 +250,6 @@ export function dedupeTournamentRostersForDb(
 
   const deduped: TournamentRosterEntry[] = [];
   for (const group of grouped.values()) {
-    if (group.length === 1) {
-      deduped.push(group[0]);
-      continue;
-    }
-
     const { tournamentId, playerId } = group[0];
     const gameCounts = countPlayerTeamGamesInTournament(
       games,
@@ -232,17 +258,38 @@ export function dedupeTournamentRostersForDb(
       teams
     );
 
-    let winner = group[0];
-    let bestCount = gameCounts.get(winner.teamId) ?? 0;
-    for (const entry of group.slice(1)) {
-      const count = gameCounts.get(entry.teamId) ?? 0;
+    let bestTeamId: string | null = null;
+    let bestCount = 0;
+    for (const [teamId, count] of gameCounts) {
       if (
         count > bestCount ||
-        (count === bestCount && entry.teamId.localeCompare(winner.teamId) < 0)
+        (count === bestCount &&
+          (!bestTeamId || teamId.localeCompare(bestTeamId) < 0))
       ) {
-        winner = entry;
+        bestTeamId = teamId;
         bestCount = count;
       }
+    }
+
+    if (bestTeamId && bestCount > 0) {
+      const fromGroup = group.find((e) => e.teamId === bestTeamId);
+      deduped.push(
+        fromGroup ?? {
+          ...group[0],
+          teamId: bestTeamId,
+        }
+      );
+      continue;
+    }
+
+    if (group.length === 1) {
+      deduped.push(group[0]);
+      continue;
+    }
+
+    let winner = group[0];
+    for (const entry of group.slice(1)) {
+      if (entry.teamId.localeCompare(winner.teamId) < 0) winner = entry;
     }
     deduped.push(winner);
   }
