@@ -523,23 +523,31 @@ async function persistTournamentRosterEntries(
       droppedPlayerIds: [...new Set(sanitized.droppedPlayerIds)],
     });
   }
+  // Dedupe before removals: DB unique is (tournament_id, player_id), so a
+  // player moving teams (or appearing on two clubs) must delete the loser
+  // before upserting the winner — otherwise INSERT hits the unique constraint.
+  const deduped = dedupeTournamentRostersForDb(
+    sanitized.entries,
+    games,
+    teams
+  );
   const autoRemoves = collectTournamentRosterRemovals(
     tournamentRosters,
-    sanitized.entries
+    deduped
   );
   const plan = planTournamentRosterCloudWrite({
-    clientRows: dedupeTournamentRostersForDb(sanitized.entries, games, teams),
+    clientRows: deduped,
     pendingDeletes: remapTournamentRosterDeletes([
       ...pendingDeletes,
       ...autoRemoves,
     ]),
   });
+  await deleteTournamentRosterRows(plan.deletes);
   await upsertChunks(
     'tournament_rosters',
     plan.upsert.map(tournamentRosterEntryToDbRow),
     'tournament_id,team_id,player_id'
   );
-  await deleteTournamentRosterRows(plan.deletes);
 }
 
 async function replaceTeamPlayerRosters(teamIds: string[]): Promise<void> {

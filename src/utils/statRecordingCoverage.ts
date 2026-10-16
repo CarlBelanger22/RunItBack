@@ -32,6 +32,7 @@ export const TOURNAMENTS_WITHOUT_PERSONAL_FOULS = new Set([
   'tournament-rekt-gleague-s2-2026', // Rekt G-League S2 (ScoreLab — PF not tracked)
   'tournament-rekt-cup-2026', // REKT Cup 2026 (ScoreLab — PF not tracked)
   'tournament-rekt-s3-2026', // REKT League Season 3 (ScoreLab — PF not tracked)
+  'tournament-rekt-gleague-s3-2026', // REKT G-League Season 3 (ScoreLab — PF not tracked)
 ]);
 
 /** Fouls drawn not on source (Rekt has +/- but no FD). */
@@ -42,6 +43,7 @@ export const TOURNAMENTS_WITHOUT_FOULS_DRAWN = new Set([
   'tournament-rekt-gleague-s2-2026', // Rekt G-League S2 (ScoreLab — FD not tracked)
   'tournament-rekt-cup-2026', // REKT Cup 2026 (ScoreLab — FD not tracked)
   'tournament-rekt-s3-2026', // REKT League Season 3 (ScoreLab — FD not tracked)
+  'tournament-rekt-gleague-s3-2026', // REKT G-League Season 3 (ScoreLab — FD not tracked)
 ]);
 
 export function tournamentRecordsStat(

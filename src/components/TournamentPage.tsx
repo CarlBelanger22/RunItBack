@@ -1160,6 +1160,14 @@ export function TournamentPage({
                         showH2h: true,
                         rankBase,
                       })}
+                      {s3StandingsFootnote &&
+                      groupRows.some((r) =>
+                        isRektS3DemotedTeam(tournament.id, r.team.id)
+                      ) ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          {s3StandingsFootnote}
+                        </p>
+                      ) : null}
                     </TabsContent>
                     <TabsContent value="matches" className="mt-4">
                       {matchRows.length === 0 ? (

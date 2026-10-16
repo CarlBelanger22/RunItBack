@@ -1145,10 +1145,18 @@ export default function App() {
       teams: teamsWithIcons,
       games: processed.games,
     });
-    if (sanitizedRosters.changed) {
+    const loadRosters = reconcileTournamentRostersFromGames(
+      processed.games,
+      teamsWithIcons,
+      sanitizedRosters.entries
+    );
+    if (
+      sanitizedRosters.changed ||
+      !tournamentRosterSetsEqual(loadRosters, processed.tournamentRosters)
+    ) {
       const autoRemoves = collectTournamentRosterRemovals(
         processed.tournamentRosters,
-        sanitizedRosters.entries
+        loadRosters
       );
       if (autoRemoves.length > 0) {
         pendingTournamentRosterDeletesRef.current = remapTournamentRosterDeletes([
@@ -1158,7 +1166,7 @@ export default function App() {
       }
       processed = {
         ...processed,
-        tournamentRosters: sanitizedRosters.entries,
+        tournamentRosters: loadRosters,
       };
     }
     const positionedRosters = syncTournamentRosterPositionsFromProfiles(
@@ -1290,15 +1298,27 @@ export default function App() {
         });
       }
 
-      const tournamentRosterDeletesAfterSanitize = remapTournamentRosterDeletes([
-        ...pendingTournamentRosterDeletesRef.current,
-      ]);
-
       const rostersToSave = reconcileTournamentRostersFromGames(
         gamesToSave,
         teamsToSave,
         sanitizedRosters.entries
       );
+      // Reconcile/dedupe may drop a second-club row for the same player; those
+      // must be deleted before upsert or (tournament_id, player_id) unique fails.
+      const reconcileRemoves = collectTournamentRosterRemovals(
+        sanitizedRosters.entries,
+        rostersToSave
+      );
+      if (reconcileRemoves.length > 0) {
+        pendingTournamentRosterDeletesRef.current = remapTournamentRosterDeletes([
+          ...pendingTournamentRosterDeletesRef.current,
+          ...reconcileRemoves,
+        ]);
+      }
+
+      const tournamentRosterDeletesAfterSanitize = remapTournamentRosterDeletes([
+        ...pendingTournamentRosterDeletesRef.current,
+      ]);
 
       return enqueueCloudSave(async () => {
         let savedTeams = teamsToSave;
@@ -1574,19 +1594,32 @@ export default function App() {
             processed.tournamentRosters,
             pendingTournamentRosterDeletesRef.current
           );
+          const mergedTeams = mergeTeamRostersUnion(
+            teamsRef.current,
+            processed.teams
+          );
+          const mergedGames = mergeCloudGamesWithFresherLocal(
+            processed.games,
+            gamesRef.current,
+            { omitLocalOnlyIds: pendingDeletedGameIdsRef.current }
+          );
           const sanitizedMerged = sanitizeTournamentRostersForCloud({
             entries: mergedRosters,
-            teams: mergeTeamRostersUnion(teamsRef.current, processed.teams),
-            games: mergeCloudGamesWithFresherLocal(
-              processed.games,
-              gamesRef.current,
-              { omitLocalOnlyIds: pendingDeletedGameIdsRef.current }
-            ),
+            teams: mergedTeams,
+            games: mergedGames,
           });
-          if (sanitizedMerged.changed) {
+          const reconciledMerged = reconcileTournamentRostersFromGames(
+            mergedGames,
+            mergedTeams,
+            sanitizedMerged.entries
+          );
+          if (
+            sanitizedMerged.changed ||
+            !tournamentRosterSetsEqual(reconciledMerged, mergedRosters)
+          ) {
             const autoRemoves = collectTournamentRosterRemovals(
               mergedRosters,
-              sanitizedMerged.entries
+              reconciledMerged
             );
             if (autoRemoves.length > 0) {
               pendingTournamentRosterDeletesRef.current =
@@ -1595,7 +1628,7 @@ export default function App() {
                   ...autoRemoves,
                 ]);
             }
-            mergedRosters = sanitizedMerged.entries;
+            mergedRosters = reconciledMerged;
           }
           const rostersAheadOfCloud = !tournamentRosterSetsEqual(
             mergedRosters,
