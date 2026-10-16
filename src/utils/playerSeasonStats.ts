@@ -1,6 +1,8 @@
 import type { Game, GameStats, Player, Team, Tournament } from '../App';
 import { isScoreOnlyTeam, type TeamSide } from './gameDisplay';
 import {
+  buildClubRosterByTeam,
+  buildTournamentRosterTeamByPlayer,
   getPlayersForTeamInTournament,
   resolvePlayerTeamSideInGame,
   type TournamentRosterEntry,
@@ -367,34 +369,60 @@ export function aggregatePlayerSeasonStats(
   const rosterEntries = scopeTeams.flatMap((team) =>
     team.players.map((player) => ({ player, team }))
   );
+  const clubRosterByTeam = buildClubRosterByTeam(safeTeams);
+  const tournamentTeamByPlayer = buildTournamentRosterTeamByPlayer(
+    options?.tournamentId,
+    options?.tournamentRosters
+  );
+  const teamById = new Map(safeTeams.map((t) => [t.id, t]));
+
+  const resolveStatTeam = (playerId: string, game: Game): Team | null => {
+    // Tournament page: prefer tournament_rosters (Leyang → Reign not Unicorns).
+    const trTeamId = tournamentTeamByPlayer.get(playerId);
+    if (trTeamId) {
+      const trTeam = teamById.get(trTeamId);
+      if (trTeam) return trTeam;
+    }
+
+    const sideId = resolvePlayerTeamSideInGame(
+      playerId,
+      game,
+      clubRosterByTeam,
+      tournamentTeamByPlayer
+    );
+    if (sideId) {
+      const sideTeam = teamById.get(sideId);
+      if (sideTeam?.players.some((p) => p.id === playerId)) return sideTeam;
+      const rosterMatch = rosterEntries.find(
+        ({ player, team }) => player.id === playerId && team.id === sideId
+      );
+      if (rosterMatch) return rosterMatch.team;
+    }
+
+    if (options?.restrictTeamId) return null;
+
+    // Last resort: first club link — wrong for dual-club same tournament.
+    const playerTeam = safeTeams.find((team) =>
+      team.players.some((p) => p.id === playerId)
+    );
+    return playerTeam ?? null;
+  };
 
   const allPlayerStats: Array<{ player: Player; team: Team; stats: GameStats }> = [];
 
   (games ?? []).forEach((game) => {
     (game.gameStats ?? []).forEach((stat) => {
-      const rosterMatch = rosterEntries.find(
-        ({ player, team }) =>
-          player.id === stat.playerId &&
-          resolvePlayerTeamSideInGame(player.id, game) === team.id
-      );
-      if (rosterMatch) {
-        allPlayerStats.push({
-          player: rosterMatch.player,
-          team: rosterMatch.team,
-          stats: stat,
-        });
+      const playerTeam = resolveStatTeam(stat.playerId, game);
+      if (!playerTeam) return;
+      const player = playerTeam.players.find((p) => p.id === stat.playerId);
+      if (!player) {
+        // TR team may not have club template copy yet — pull profile from any club.
+        const any = rosterEntries.find((e) => e.player.id === stat.playerId);
+        if (!any) return;
+        allPlayerStats.push({ player: any.player, team: playerTeam, stats: stat });
         return;
       }
-
-      if (!options?.restrictTeamId) {
-        const playerTeam = safeTeams.find((team) =>
-          team.players.some((p) => p.id === stat.playerId)
-        );
-        const player = playerTeam?.players.find((p) => p.id === stat.playerId);
-        if (player && playerTeam) {
-          allPlayerStats.push({ player, team: playerTeam, stats: stat });
-        }
-      }
+      allPlayerStats.push({ player, team: playerTeam, stats: stat });
     });
   });
 
@@ -410,6 +438,11 @@ export function aggregatePlayerSeasonStats(
         }
       });
       existing.gamesPlayed++;
+      // Prefer TR / later resolved team over first-club fallthrough (UNI → RGN).
+      const trTeamId = tournamentTeamByPlayer.get(player.id);
+      if (trTeamId && team.id === trTeamId) {
+        existing.team = team;
+      }
     } else {
       playerTotals.set(player.id, {
         player,
@@ -467,9 +500,17 @@ export function aggregatePlayerSeasonStats(
         }
       }
     }
-    return Array.from(playerTotals.values()).filter((row) =>
+    const rows = Array.from(playerTotals.values()).filter((row) =>
       rosterPlayerIds.has(row.player.id)
     );
+    // Force Team column from tournament_rosters (not first dual-club link).
+    for (const row of rows) {
+      const trTeamId = tournamentTeamByPlayer.get(row.player.id);
+      if (!trTeamId) continue;
+      const trTeam = teamById.get(trTeamId);
+      if (trTeam) row.team = trTeam;
+    }
+    return rows;
   }
 
   scopeTeams.forEach((team) => {
