@@ -213,6 +213,7 @@
             "test:tournament-standings": "tsx scripts/test-tournament-standings.ts",
             "test:standings-tiebreak": "tsx scripts/test-standings-tiebreak.ts",
             "test:snapshot-icons": "tsx scripts/test-snapshot-icons.ts",
+            "test:app-data-snapshot-size": "tsx scripts/test-app-data-snapshot-size.ts",
             "test:cloud-persist-apply": "tsx scripts/test-cloud-persist-apply.ts",
             "test:supabase-paged-fetch": "tsx scripts/test-supabase-paged-fetch.ts",
             "test:completed-game-persist": "tsx scripts/test-completed-game-persist.ts",

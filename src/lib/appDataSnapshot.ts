@@ -24,10 +24,11 @@ import {
 } from '../utils/quarterScoring';
 import { applyResolvedPossessionArrow } from '../liveEntry/possessionArrow';
 
-export const APP_DATA_SNAPSHOT_VERSION = 8;
+/** v9: completed games omit PBP/shots so cache-first snapshots stay under quota. */
+export const APP_DATA_SNAPSHOT_VERSION = 9;
 const STORAGE_KEY = 'runitback_app_data_snapshot_v1';
 /** Stay under typical 5MB localStorage quota. */
-const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024;
+export const MAX_SNAPSHOT_CHARS = 4 * 1024 * 1024;
 
 const ROSTER_ONLY_GAME_STAT: GameStats = {
   playerId: '',
@@ -96,7 +97,10 @@ export interface SnapshotGame {
     home: SnapshotQuarterStats;
     away: SnapshotQuarterStats;
   };
-  /** Completed game PBP — enables quarter recompute on PDF export when needed. */
+  /**
+   * Legacy v8 fields — still hydrated if present, but v9+ writes omit them so
+   * league-sized snapshots fit under MAX_SNAPSHOT_CHARS.
+   */
   completedEvents?: GameEvent[];
   completedShots?: Shot[];
 }
@@ -340,12 +344,8 @@ export function toSnapshotGames(games: Game[]): SnapshotGame[] {
         home: snapshotQuarterStatsFromTeamStats(stamped.teamStats.home),
         away: snapshotQuarterStatsFromTeamStats(stamped.teamStats.away),
       };
-      if ((game.events?.length ?? 0) > 0) {
-        base.completedEvents = game.events;
-      }
-      if ((game.shots?.length ?? 0) > 0) {
-        base.completedShots = game.shots;
-      }
+      // Do not persist completedEvents/completedShots — full PBP/shots blow past
+      // localStorage quota and leave a stale smaller snapshot forever.
     }
 
     return base;
@@ -526,7 +526,7 @@ export function readAppDataSnapshot(
       return null;
     }
     if (!isSnapshotUsable(parsed)) {
-      if (import.meta.env.DEV) {
+      if (import.meta.env?.DEV) {
         console.info('[RunItBack] discarding unusable snapshot', {
           version: parsed.version,
           teams: parsed.teams.length,
@@ -541,6 +541,19 @@ export function readAppDataSnapshot(
   }
 }
 
+/** Drop cache-first snapshot so the next paint waits for cloud instead of stale UI. */
+export function clearAppDataSnapshot(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Persist cache-first snapshot. Returns false when skipped/failed (and clears any
+ * prior stale snapshot so refresh does not flash incomplete data).
+ */
 export function saveAppDataSnapshot(payload: {
   leagueId?: string;
   teams: Team[];
@@ -549,9 +562,9 @@ export function saveAppDataSnapshot(payload: {
   darkMode: boolean;
   orphanPlayers: Player[];
   tournamentRosters?: TournamentRosterEntry[];
-}): void {
+}): boolean {
   if (payload.teams.length === 0 || payload.games.length === 0) {
-    return;
+    return false;
   }
 
   try {
@@ -560,14 +573,15 @@ export function saveAppDataSnapshot(payload: {
 
     if (serialized.length > MAX_SNAPSHOT_CHARS) {
       console.warn(
-        '[RunItBack] Snapshot too large; skipping localStorage write.',
+        '[RunItBack] Snapshot too large; clearing stale localStorage snapshot.',
         { chars: serialized.length, max: MAX_SNAPSHOT_CHARS }
       );
-      return;
+      clearAppDataSnapshot();
+      return false;
     }
 
     localStorage.setItem(STORAGE_KEY, serialized);
-    if (import.meta.env.DEV) {
+    if (import.meta.env?.DEV) {
       console.info('[RunItBack] snapshot saved', {
         chars: serialized.length,
         teams: snapshot.teams.length,
@@ -575,8 +589,14 @@ export function saveAppDataSnapshot(payload: {
         tournamentRosters: snapshot.tournamentRosters.length,
       });
     }
+    return true;
   } catch (err) {
-    console.warn('[RunItBack] Could not write app data snapshot:', err);
+    console.warn(
+      '[RunItBack] Could not write app data snapshot; clearing stale snapshot:',
+      err
+    );
+    clearAppDataSnapshot();
+    return false;
   }
 }
 
