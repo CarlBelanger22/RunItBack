@@ -1,4 +1,5 @@
 import type { Game, Shot } from '../App';
+import { isCompetitiveGame } from './friendlyGame';
 import { gameHasShotChartData } from './gameDisplay';
 import {
   tournamentMatchesSelection,
@@ -21,8 +22,11 @@ export function collectPlayerShotChartData(
   games: Game[],
   selectedTournamentIds: TournamentIdSet
 ): PlayerShotChartAggregation {
+  // Match Advanced Stats: competitive games only. Friendlies have no tournamentId
+  // and would otherwise slip in when the tournament filter is "all".
   const scoped = (games ?? []).filter(
     (game) =>
+      isCompetitiveGame(game) &&
       playerAppearedInGame(game, playerId) &&
       tournamentMatchesSelection(game.tournamentId, selectedTournamentIds)
   );

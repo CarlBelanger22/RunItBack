@@ -68,6 +68,7 @@ import {
   getPlusMinusCoverage,
   getFoulsDrawnCoverage,
   getPersonalFoulsCoverage,
+  getBlocksAgainstCoverage,
   type TournamentScope,
 } from '../utils/playerSeasonStats';
 import {
@@ -591,6 +592,11 @@ export function TeamPage({
     [filteredStatsGames]
   );
 
+  const playerStatsBlocksAgainstCoverage = useMemo(
+    () => getBlocksAgainstCoverage(filteredStatsGames),
+    [filteredStatsGames]
+  );
+
   const handleExportTeamStatsPdf = useCallback(() => {
     if (!normalizedTeam) return;
     downloadTeamStatsReportPdf({
@@ -606,6 +612,7 @@ export function TeamPage({
       plusMinusCoverage: playerStatsPlusMinusCoverage,
       foulsDrawnCoverage: playerStatsFoulsDrawnCoverage,
       personalFoulsCoverage: playerStatsPersonalFoulsCoverage,
+      blocksAgainstCoverage: playerStatsBlocksAgainstCoverage,
     });
   }, [
     normalizedTeam,
@@ -620,6 +627,7 @@ export function TeamPage({
     playerStatsPlusMinusCoverage,
     playerStatsFoulsDrawnCoverage,
     playerStatsPersonalFoulsCoverage,
+    playerStatsBlocksAgainstCoverage,
   ]);
 
   const rosterStatsGames = useMemo(
@@ -1901,6 +1909,7 @@ export function TeamPage({
           plusMinusCoverage={playerStatsPlusMinusCoverage}
           foulsDrawnCoverage={playerStatsFoulsDrawnCoverage}
           personalFoulsCoverage={playerStatsPersonalFoulsCoverage}
+          blocksAgainstCoverage={playerStatsBlocksAgainstCoverage}
           onNavigateToPlayer={onNavigateToPlayer}
           onExportPdf={canExport ? handleExportTeamStatsPdf : undefined}
           exportDisabled={playerSeasonRows.length === 0}

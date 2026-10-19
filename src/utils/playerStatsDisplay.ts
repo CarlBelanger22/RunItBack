@@ -1,5 +1,6 @@
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
+  blocksAgainstPerGameForRow,
   foulsDrawnPerGameForRow,
   personalFoulsPerGameForRow,
   plusMinusPerGameForRow,
@@ -113,10 +114,7 @@ export function formatAdvancedPlayerStatsRow(
     row.gamesWithShotData > 0
       ? row.fastbreakPointsTotal / row.gamesWithShotData
       : null;
-  const blocksAgainstPg =
-    foulStatCoverage?.blocksAgainst && gamesPlayed > 0
-      ? totalStats.blocks_received / gamesPlayed
-      : null;
+  const blocksAgainstPg = blocksAgainstPerGameForRow(row);
   const technicalFoulsPg =
     foulStatCoverage?.techFouls && gamesPlayed > 0
       ? totalStats.tech_fouls / gamesPlayed

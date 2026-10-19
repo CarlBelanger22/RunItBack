@@ -1,6 +1,10 @@
 /** Stats tracked only in some tournaments (Easy Stats / legacy imports use 0 placeholders). */
 
-export type TournamentScopedStat = 'fouls_drawn' | 'plus_minus' | 'fouls';
+export type TournamentScopedStat =
+  | 'fouls_drawn'
+  | 'plus_minus'
+  | 'fouls'
+  | 'blocks_received';
 
 /** Tournaments where FDPG and +/- were not on source box scores. */
 export const TOURNAMENTS_WITHOUT_FOULS_DRAWN_AND_PLUS_MINUS = new Set([
@@ -50,6 +54,11 @@ export function tournamentRecordsStat(
   tournamentId: string | undefined,
   stat: TournamentScopedStat
 ): boolean {
+  // CSV / FIBA sheet imports leave BA at 0; only live entry (events) records it.
+  // gameRecordsStat still returns true when the game has a non-empty event log.
+  if (stat === 'blocks_received') {
+    return false;
+  }
   if (stat !== 'fouls_drawn' && stat !== 'plus_minus' && stat !== 'fouls') {
     return true;
   }

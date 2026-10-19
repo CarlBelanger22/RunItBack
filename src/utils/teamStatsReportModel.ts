@@ -74,6 +74,7 @@ export interface TeamStatsReportModel {
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
   personalFoulsCoverage?: ScopedStatCoverage;
+  blocksAgainstCoverage?: ScopedStatCoverage;
 }
 
 export interface BuildTeamStatsReportModelInput {
@@ -89,6 +90,7 @@ export interface BuildTeamStatsReportModelInput {
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
   personalFoulsCoverage?: ScopedStatCoverage;
+  blocksAgainstCoverage?: ScopedStatCoverage;
 }
 
 export function buildTeamStatsReportFilename(
@@ -191,6 +193,7 @@ export function buildTeamStatsReportModel(
     plusMinusCoverage,
     foulsDrawnCoverage,
     personalFoulsCoverage,
+    blocksAgainstCoverage,
   } = input;
 
   const playableRows = rows.filter((row) => row.gamesPlayed > 0);
@@ -233,5 +236,6 @@ export function buildTeamStatsReportModel(
     plusMinusCoverage,
     foulsDrawnCoverage,
     personalFoulsCoverage,
+    blocksAgainstCoverage,
   };
 }

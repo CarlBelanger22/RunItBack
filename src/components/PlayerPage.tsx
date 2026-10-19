@@ -25,7 +25,11 @@ import { MetricsCalculator, AdvancedMetrics } from './MetricsCalculator';
 import { PlayerShotChart } from './PlayerShotChart';
 import { PlayerForm } from './forms/PlayerForm';
 import { formatHeightForDisplay, formatWeightForDisplay } from '../lib/playerMeasurements';
-import { sortGamesByDateDesc } from '../utils/gameDisplay';
+import {
+  gameHasShotChartData,
+  getPlayerPaintAndFastbreakPoints,
+  sortGamesByDateDesc,
+} from '../utils/gameDisplay';
 import { isCompetitiveGame, isFriendlyGame, resolveGameListLabel, parseIncludeFriendliesInStats, serializeIncludeFriendliesInStats } from '../utils/friendlyGame';
 import {
   perGameAverageOrNull,
@@ -36,6 +40,7 @@ import {
   getPlusMinusCoverage,
   getFoulsDrawnCoverage,
   getPersonalFoulsCoverage,
+  getBlocksAgainstCoverage,
   getFoulStatCoverage,
   getShotDataCoverage,
   buildPlayerTournamentSeasonRows,
@@ -47,6 +52,7 @@ import {
   computePlayerCareerHighs,
   formatCareerHighValue,
 } from '../utils/playerCareerHighs';
+import { computePlayerAdvancedRates } from '../utils/playerAdvancedRates';
 import {
   getPlayerRosterEntries,
   resolvePlayerTeamInGame,
@@ -488,6 +494,8 @@ export function PlayerPage({
       gamesWithPlusMinusData: number;
       personalFoulsTrackedTotal: number;
       gamesWithPersonalFoulsData: number;
+      blocksReceivedTrackedTotal: number;
+      gamesWithBlocksReceivedData: number;
     }>();
     
     // Group games by tournament (competitive only — friendlies are a separate row later)
@@ -508,6 +516,8 @@ export function PlayerPage({
           gamesWithPlusMinusData: 0,
           personalFoulsTrackedTotal: 0,
           gamesWithPersonalFoulsData: 0,
+          blocksReceivedTrackedTotal: 0,
+          gamesWithBlocksReceivedData: 0,
         });
       }
       
@@ -531,6 +541,10 @@ export function PlayerPage({
       if (gameRecordsStat(game, 'fouls')) {
         tournamentData.personalFoulsTrackedTotal += stats.fouls;
         tournamentData.gamesWithPersonalFoulsData += 1;
+      }
+      if (gameRecordsStat(game, 'blocks_received')) {
+        tournamentData.blocksReceivedTrackedTotal += stats.blocks_received;
+        tournamentData.gamesWithBlocksReceivedData += 1;
       }
       
       tournamentData.games++;
@@ -1029,6 +1043,7 @@ export function PlayerPage({
     const plusMinusCoverage = getPlusMinusCoverage(coverageGames);
     const foulsDrawnCoverage = getFoulsDrawnCoverage(coverageGames);
     const personalFoulsCoverage = getPersonalFoulsCoverage(coverageGames);
+    const blocksAgainstCoverage = getBlocksAgainstCoverage(coverageGames);
 
     return (
       <div className="space-y-6">
@@ -1045,6 +1060,7 @@ export function PlayerPage({
           plusMinusCoverage={plusMinusCoverage}
           foulsDrawnCoverage={foulsDrawnCoverage}
           personalFoulsCoverage={personalFoulsCoverage}
+          blocksAgainstCoverage={blocksAgainstCoverage}
           onNavigateToTournament={onNavigateToTournament}
           onNavigateToTeam={onNavigateToTeam}
           teams={teams}
@@ -1086,9 +1102,11 @@ export function PlayerPage({
           foulsDrawnPerGame: null,
           plusMinusPerGame: null,
           personalFoulsPerGame: null,
+          blocksAgainstPerGame: null,
           gamesWithFoulsDrawnData: 0,
           gamesWithPlusMinusData: 0,
           gamesWithPersonalFoulsData: 0,
+          gamesWithBlocksReceivedData: 0,
         };
       }
       
@@ -1110,6 +1128,8 @@ export function PlayerPage({
       let gamesWithPlusMinusData = 0;
       let personalFoulsTotal = 0;
       let gamesWithPersonalFoulsData = 0;
+      let blocksReceivedTotal = 0;
+      let gamesWithBlocksReceivedData = 0;
 
       for (const tournamentData of filteredTournamentStats) {
         foulsDrawnTotal += tournamentData.foulsDrawnTrackedTotal;
@@ -1118,6 +1138,8 @@ export function PlayerPage({
         gamesWithPlusMinusData += tournamentData.gamesWithPlusMinusData;
         personalFoulsTotal += tournamentData.personalFoulsTrackedTotal;
         gamesWithPersonalFoulsData += tournamentData.gamesWithPersonalFoulsData;
+        blocksReceivedTotal += tournamentData.blocksReceivedTrackedTotal;
+        gamesWithBlocksReceivedData += tournamentData.gamesWithBlocksReceivedData;
       }
       
       // Calculate averages
@@ -1146,13 +1168,30 @@ export function PlayerPage({
           personalFoulsTotal,
           gamesWithPersonalFoulsData
         ),
+        blocksAgainstPerGame: perGameAverageOrNull(
+          blocksReceivedTotal,
+          gamesWithBlocksReceivedData
+        ),
         gamesWithFoulsDrawnData,
         gamesWithPlusMinusData,
         gamesWithPersonalFoulsData,
+        gamesWithBlocksReceivedData,
       };
     };
     
     const filteredData = getFilteredStats();
+    const advancedRates = computePlayerAdvancedRates(
+      filteredData.totals,
+      filteredData.gamesPlayed
+    );
+    const effPerGame =
+      filteredData.gamesPlayed > 0
+        ? filteredData.advanced.efficiency / filteredData.gamesPlayed
+        : null;
+    const gmscPerGame =
+      filteredData.gamesPlayed > 0
+        ? filteredData.advanced.gameScore / filteredData.gamesPlayed
+        : null;
 
     const careerHighGames = useMemo(() => {
       const allSelected = isAllTournamentsSelected(
@@ -1170,6 +1209,51 @@ export function PlayerPage({
       });
     }, [
       playerGames,
+      selectedTournamentIds,
+      tournamentFilterAvailableIds,
+    ]);
+
+    /** PITP / FB Pts from shot charts in the same competitive tournament scope. */
+    const shotChartAverages = useMemo(() => {
+      const allSelected = isAllTournamentsSelected(
+        selectedTournamentIds,
+        tournamentFilterAvailableIds
+      );
+      let paintTotal = 0;
+      let fastbreakTotal = 0;
+      let gamesWithShotData = 0;
+      for (const game of playerGames) {
+        if (!game.isCompleted || !isCompetitiveGame(game)) continue;
+        if (
+          !allSelected &&
+          !(
+            game.tournamentId &&
+            selectedTournamentIds !== null &&
+            selectedTournamentIds.has(game.tournamentId)
+          )
+        ) {
+          continue;
+        }
+        if (!gameHasShotChartData(game)) continue;
+        const { paintPoints, fastbreakPoints } = getPlayerPaintAndFastbreakPoints(
+          game,
+          player.id
+        );
+        paintTotal += paintPoints ?? 0;
+        fastbreakTotal += fastbreakPoints ?? 0;
+        gamesWithShotData += 1;
+      }
+      return {
+        paintPerGame: perGameAverageOrNull(paintTotal, gamesWithShotData),
+        fastbreakPerGame: perGameAverageOrNull(
+          fastbreakTotal,
+          gamesWithShotData
+        ),
+        gamesWithShotData,
+      };
+    }, [
+      playerGames,
+      player.id,
       selectedTournamentIds,
       tournamentFilterAvailableIds,
     ]);
@@ -1198,8 +1282,8 @@ export function PlayerPage({
         */}
         <Card className="gap-0 overflow-hidden py-0">
           <div className="flex flex-col lg:flex-row lg:items-stretch">
-            <div className="border-b lg:w-1/2 lg:border-b-0 lg:border-r">
-              <div className="space-y-1.5 px-4 py-3">
+            <div className="flex min-h-0 flex-col border-b lg:w-1/2 lg:border-b-0 lg:border-r">
+              <div className="shrink-0 space-y-1.5 px-4 py-3">
                 <h4 className="text-base font-semibold leading-none">Career Highs</h4>
                 <p className="text-xs font-normal text-muted-foreground">
                   Single-game highs
@@ -1212,7 +1296,7 @@ export function PlayerPage({
                   . Friendlies excluded.
                 </p>
               </div>
-              <div className="px-4 pb-4 pt-0">
+              <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
                 {careerHighs.scalars.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
                     No completed games in this scope.
@@ -1220,8 +1304,8 @@ export function PlayerPage({
                 ) : (
                   <>
                     <Table>
-                      <TableHeader>
-                        <TableRow>
+                      <TableHeader className="[&_tr]:border-b-0">
+                        <TableRow className="border-b-0 hover:bg-transparent">
                           <TableHead className="h-8 w-16 px-2 text-xs">Stat</TableHead>
                           <TableHead className="h-8 w-20 px-2 text-right text-xs">
                             High
@@ -1251,7 +1335,7 @@ export function PlayerPage({
                           return (
                             <TableRow
                               key={row.key}
-                              className="cursor-pointer"
+                              className="cursor-pointer border-b-0 hover:bg-muted/50"
                               onClick={() => onNavigateToGame(row.gameId)}
                             >
                               <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
@@ -1269,15 +1353,15 @@ export function PlayerPage({
                         })}
                       </TableBody>
                     </Table>
-                    <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 border-t pt-3 text-sm">
+                    <div className="mt-auto flex flex-wrap items-center justify-center space-x-8 border-t pt-3 text-sm">
                       <div className="flex items-baseline gap-2">
-                        <span className="text-muted-foreground">DD</span>
+                        <span className="text-muted-foreground">Double-Doubles</span>
                         <span className="font-mono font-semibold tabular-nums">
                           {careerHighs.doubleDoubles}
                         </span>
                       </div>
                       <div className="flex items-baseline gap-2">
-                        <span className="text-muted-foreground">TD</span>
+                        <span className="text-muted-foreground">Triple-Doubles</span>
                         <span className="font-mono font-semibold tabular-nums">
                           {careerHighs.tripleDoubles}
                         </span>
@@ -1292,7 +1376,7 @@ export function PlayerPage({
               <div className="shrink-0 space-y-1.5 px-4 py-3">
                 <h4 className="text-base font-semibold leading-none">Advanced Metrics</h4>
                 <p className="text-xs font-normal text-muted-foreground">
-                  Per-game averages for this view
+                  Rates and composites for this view
                   {!isAllTournamentsSelected(
                     selectedTournamentIds,
                     tournamentFilterAvailableIds
@@ -1303,32 +1387,68 @@ export function PlayerPage({
                 </p>
               </div>
               <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
-                <div className="flex h-8 shrink-0 items-center border-b px-2 text-xs font-medium text-muted-foreground">
+                <div className="flex h-8 shrink-0 items-center px-2 text-xs font-medium text-muted-foreground">
                   <span className="min-w-0 flex-1">Metric</span>
                   <span className="w-20 shrink-0 text-right">Value</span>
                 </div>
                 <ul className="flex min-h-0 flex-1 flex-col justify-between">
-                  <li className="flex items-center border-b px-2 py-1.5">
+                  <li className="flex items-center px-2 py-1.5">
                     <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Efficiency (EFF)
+                      True Shooting (TS%)
                     </span>
-                    <span className="flex w-20 shrink-0 justify-end">
-                      <Badge variant={filteredData.advanced.efficiency >= 15 ? "default" : "secondary"}>
-                        {(filteredData.advanced.efficiency / (filteredData.gamesPlayed || 1)).toFixed(1)}
-                      </Badge>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                      {advancedRates.trueShootingPct != null
+                        ? `${advancedRates.trueShootingPct.toFixed(1)}%`
+                        : '—'}
                     </span>
                   </li>
-                  <li className="flex items-center border-b px-2 py-1.5">
+                  <li className="flex items-center px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Effective FG (eFG%)
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                      {advancedRates.effectiveFgPct != null
+                        ? `${advancedRates.effectiveFgPct.toFixed(1)}%`
+                        : '—'}
+                    </span>
+                  </li>
+                  <li className="flex items-center px-2 py-1.5">
                     <span className="min-w-0 flex-1 text-sm text-muted-foreground">
                       Game Score (GmSc)
                     </span>
                     <span className="flex w-20 shrink-0 justify-end">
-                      <Badge variant={filteredData.advanced.gameScore >= 15 ? "default" : "secondary"}>
-                        {(filteredData.advanced.gameScore / (filteredData.gamesPlayed || 1)).toFixed(1)}
-                      </Badge>
+                      {gmscPerGame != null ? (
+                        <Badge
+                          variant={gmscPerGame >= 15 ? 'default' : 'secondary'}
+                        >
+                          {gmscPerGame.toFixed(1)}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm font-mono font-semibold tabular-nums">
+                          —
+                        </span>
+                      )}
                     </span>
                   </li>
-                  <li className="flex items-center border-b px-2 py-1.5">
+                  <li className="flex items-center px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Efficiency (EFF)
+                    </span>
+                    <span className="flex w-20 shrink-0 justify-end">
+                      {effPerGame != null ? (
+                        <Badge
+                          variant={effPerGame >= 15 ? 'default' : 'secondary'}
+                        >
+                          {effPerGame.toFixed(1)}
+                        </Badge>
+                      ) : (
+                        <span className="text-sm font-mono font-semibold tabular-nums">
+                          —
+                        </span>
+                      )}
+                    </span>
+                  </li>
+                  <li className="flex items-center px-2 py-1.5">
                     <span className="min-w-0 flex-1 text-sm text-muted-foreground">
                       Plus/Minus
                     </span>
@@ -1337,13 +1457,20 @@ export function PlayerPage({
                         tooltip={
                           filteredData.plusMinusPerGame !== null &&
                           filteredData.gamesWithPlusMinusData > 0 &&
-                          filteredData.gamesWithPlusMinusData < filteredData.gamesPlayed
+                          filteredData.gamesWithPlusMinusData <
+                            filteredData.gamesPlayed
                             ? `Average uses only games that recorded +/- (${filteredData.gamesWithPlusMinusData} of ${filteredData.gamesPlayed} games in this view).`
                             : undefined
                         }
                       />
                       {filteredData.plusMinusPerGame !== null ? (
-                        <Badge variant={filteredData.plusMinusPerGame >= 0 ? "default" : "destructive"}>
+                        <Badge
+                          variant={
+                            filteredData.plusMinusPerGame >= 0
+                              ? 'default'
+                              : 'destructive'
+                          }
+                        >
                           {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
                           {filteredData.plusMinusPerGame.toFixed(1)}
                         </Badge>
@@ -1352,48 +1479,75 @@ export function PlayerPage({
                       )}
                     </span>
                   </li>
-                  <li className="flex items-center border-b px-2 py-1.5">
+                  <li className="flex items-center px-2 py-1.5">
                     <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Games Played
+                      AST/TO
                     </span>
                     <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {filteredData.gamesPlayed}
-                    </span>
-                  </li>
-                  <li className="flex items-center border-b px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Minutes
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {filteredData.averages.minutes_played > 0
-                        ? filteredData.averages.minutes_played.toFixed(1)
-                        : '-'}
-                    </span>
-                  </li>
-                  <li className="flex items-center border-b px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Turnovers
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {filteredData.averages.turnovers.toFixed(1)}
+                      {advancedRates.assistToTurnover != null
+                        ? advancedRates.assistToTurnover.toFixed(2)
+                        : '—'}
                     </span>
                   </li>
                   <li className="flex items-center px-2 py-1.5">
                     <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Personal Fouls
+                      Free Throw Rate
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                      {advancedRates.freeThrowRatePct != null
+                        ? `${advancedRates.freeThrowRatePct.toFixed(1)}%`
+                        : '—'}
+                    </span>
+                  </li>
+                  <li className="flex items-center px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Three-Point Rate
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                      {advancedRates.threePointRatePct != null
+                        ? `${advancedRates.threePointRatePct.toFixed(1)}%`
+                        : '—'}
+                    </span>
+                  </li>
+                  <li className="flex items-center px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Points in the Paint
                     </span>
                     <span className="flex w-20 shrink-0 items-center justify-end gap-1">
                       <PartialAverageWarning
                         tooltip={
-                          filteredData.personalFoulsPerGame !== null &&
-                          filteredData.gamesWithPersonalFoulsData > 0 &&
-                          filteredData.gamesWithPersonalFoulsData < filteredData.gamesPlayed
-                            ? `Average uses only games that recorded personal fouls (${filteredData.gamesWithPersonalFoulsData} of ${filteredData.gamesPlayed} games in this view).`
+                          shotChartAverages.paintPerGame !== null &&
+                          shotChartAverages.gamesWithShotData > 0 &&
+                          shotChartAverages.gamesWithShotData <
+                            filteredData.gamesPlayed
+                            ? `Average uses only games with shot locations (${shotChartAverages.gamesWithShotData} of ${filteredData.gamesPlayed} games in this view).`
                             : undefined
                         }
                       />
                       <OptionalStatText
-                        value={filteredData.personalFoulsPerGame}
+                        value={shotChartAverages.paintPerGame}
+                        decimals={1}
+                        className="text-sm font-mono font-semibold tabular-nums"
+                      />
+                    </span>
+                  </li>
+                  <li className="flex items-center px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Fast Break Points
+                    </span>
+                    <span className="flex w-20 shrink-0 items-center justify-end gap-1">
+                      <PartialAverageWarning
+                        tooltip={
+                          shotChartAverages.fastbreakPerGame !== null &&
+                          shotChartAverages.gamesWithShotData > 0 &&
+                          shotChartAverages.gamesWithShotData <
+                            filteredData.gamesPlayed
+                            ? `Average uses only games with shot locations (${shotChartAverages.gamesWithShotData} of ${filteredData.gamesPlayed} games in this view).`
+                            : undefined
+                        }
+                      />
+                      <OptionalStatText
+                        value={shotChartAverages.fastbreakPerGame}
                         decimals={1}
                         className="text-sm font-mono font-semibold tabular-nums"
                       />
@@ -1404,6 +1558,7 @@ export function PlayerPage({
             </div>
           </div>
         </Card>
+
 
         {/* Defensive Stats */}
         <Card>
@@ -1439,7 +1594,22 @@ export function PlayerPage({
                 <div className="text-sm text-muted-foreground">Fouls drawn per game</div>
               </div>
               <div className="text-center">
-                <div className="text-2xl font-bold">{filteredData.averages.blocks_received.toFixed(1)}</div>
+                <div className="text-2xl font-bold flex items-center justify-center gap-1">
+                  <OptionalStatText
+                    value={filteredData.blocksAgainstPerGame}
+                    decimals={1}
+                  />
+                  <PartialAverageWarning
+                    tooltip={
+                      filteredData.blocksAgainstPerGame !== null &&
+                      filteredData.gamesWithBlocksReceivedData > 0 &&
+                      filteredData.gamesWithBlocksReceivedData <
+                        filteredData.gamesPlayed
+                        ? `Average uses only games that recorded blocks against (${filteredData.gamesWithBlocksReceivedData} of ${filteredData.gamesPlayed} games in this view).`
+                        : undefined
+                    }
+                  />
+                </div>
                 <div className="text-sm text-muted-foreground">Blocks against per game</div>
               </div>
             </div>

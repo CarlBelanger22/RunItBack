@@ -89,6 +89,7 @@ interface PlayerStatsTableProps {
   plusMinusCoverage?: ScopedStatCoverage;
   foulsDrawnCoverage?: ScopedStatCoverage;
   personalFoulsCoverage?: ScopedStatCoverage;
+  blocksAgainstCoverage?: ScopedStatCoverage;
   disableRowNavigation?: boolean;
   defaultSortField?: PlayerStatsSortField;
   defaultSortOrder?: 'asc' | 'desc';
@@ -196,6 +197,7 @@ export function PlayerStatsTable({
   plusMinusCoverage,
   foulsDrawnCoverage,
   personalFoulsCoverage,
+  blocksAgainstCoverage,
   disableRowNavigation = false,
   defaultSortField,
   defaultSortOrder,
@@ -239,6 +241,11 @@ export function PlayerStatsTable({
   const partialPersonalFoulsTooltip =
     personalFoulsCoverage?.isPartial
       ? `Averages use only games that recorded personal fouls (${personalFoulsCoverage.gamesWithData} of ${personalFoulsCoverage.gamesTotal} games in this view).`
+      : undefined;
+
+  const partialBlocksAgainstTooltip =
+    blocksAgainstCoverage?.isPartial
+      ? `Averages use only games that recorded blocks against (${blocksAgainstCoverage.gamesWithData} of ${blocksAgainstCoverage.gamesTotal} games in this view).`
       : undefined;
 
   const sortedRows = useMemo(
@@ -483,6 +490,7 @@ export function PlayerStatsTable({
                         activeSortFields={activeSortFields}
                         center
                         className="text-center"
+                        warningTooltip={partialBlocksAgainstTooltip}
                       />
                       <SortableHead label="TF" field="TFPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />
                       <SortableHead label="UF" field="UFPG" sortField={sortField} sortOrder={sortOrder} onSort={handleSort} activeSortFields={activeSortFields} center className="text-center" />

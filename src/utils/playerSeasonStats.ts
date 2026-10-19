@@ -59,6 +59,9 @@ export interface PlayerSeasonRow {
   /** Sum of personal fouls from games that recorded PF / FPG. */
   personalFoulsTotal: number;
   gamesWithPersonalFoulsData: number;
+  /** Sum of blocks against from games that recorded BA (live entry). */
+  blocksReceivedTotal: number;
+  gamesWithBlocksReceivedData: number;
   /** Tournament or summary label for player-page breakdown rows. */
   scopeLabel?: string;
   /** Tournament id, `no-tournament`, `all-time`, or `friendlies`. */
@@ -129,6 +132,12 @@ export function getPersonalFoulsCoverage(
   games: Game[] | undefined
 ): ScopedStatCoverage {
   return getScopedStatCoverage(games, 'fouls');
+}
+
+export function getBlocksAgainstCoverage(
+  games: Game[] | undefined
+): ScopedStatCoverage {
+  return getScopedStatCoverage(games, 'blocks_received');
 }
 
 /** True when BA / TF / UF are tracked for games in scope (zeros display as 0.0). */
@@ -220,6 +229,13 @@ export function personalFoulsPerGameForRow(row: PlayerSeasonRow): number | null 
   );
 }
 
+export function blocksAgainstPerGameForRow(row: PlayerSeasonRow): number | null {
+  return perGameAverageOrNull(
+    row.blocksReceivedTotal,
+    row.gamesWithBlocksReceivedData
+  );
+}
+
 function emptyPlayerSeasonRowExtras(): Pick<
   PlayerSeasonRow,
   | 'paintPointsTotal'
@@ -231,6 +247,8 @@ function emptyPlayerSeasonRowExtras(): Pick<
   | 'gamesWithPlusMinusData'
   | 'personalFoulsTotal'
   | 'gamesWithPersonalFoulsData'
+  | 'blocksReceivedTotal'
+  | 'gamesWithBlocksReceivedData'
 > {
   return {
     paintPointsTotal: 0,
@@ -242,6 +260,8 @@ function emptyPlayerSeasonRowExtras(): Pick<
     gamesWithPlusMinusData: 0,
     personalFoulsTotal: 0,
     gamesWithPersonalFoulsData: 0,
+    blocksReceivedTotal: 0,
+    gamesWithBlocksReceivedData: 0,
   };
 }
 
@@ -261,6 +281,10 @@ function accumulateRecordedFoulAndPlusMinus(
   if (gameRecordsStat(game, 'fouls')) {
     row.personalFoulsTotal += stat.fouls;
     row.gamesWithPersonalFoulsData += 1;
+  }
+  if (gameRecordsStat(game, 'blocks_received')) {
+    row.blocksReceivedTotal += stat.blocks_received;
+    row.gamesWithBlocksReceivedData += 1;
   }
 }
 
@@ -546,6 +570,8 @@ export function aggregateSinglePlayerSeasonStats(
   let gamesWithPlusMinusData = 0;
   let personalFoulsTotal = 0;
   let gamesWithPersonalFoulsData = 0;
+  let blocksReceivedTotal = 0;
+  let gamesWithBlocksReceivedData = 0;
 
   for (const game of games ?? []) {
     if (!game.isCompleted) continue;
@@ -581,6 +607,10 @@ export function aggregateSinglePlayerSeasonStats(
       personalFoulsTotal += stat.fouls;
       gamesWithPersonalFoulsData += 1;
     }
+    if (gameRecordsStat(game, 'blocks_received')) {
+      blocksReceivedTotal += stat.blocks_received;
+      gamesWithBlocksReceivedData += 1;
+    }
   }
 
   return {
@@ -597,6 +627,8 @@ export function aggregateSinglePlayerSeasonStats(
     gamesWithPlusMinusData,
     personalFoulsTotal,
     gamesWithPersonalFoulsData,
+    blocksReceivedTotal,
+    gamesWithBlocksReceivedData,
   };
 }
 
@@ -1078,9 +1110,13 @@ export function sortPlayerSeasonRows(
         break;
       case 'BlocksAgainst':
         aValue =
-          a.gamesPlayed > 0 ? a.totalStats.blocks_received / a.gamesPlayed : 0;
+          a.gamesWithBlocksReceivedData > 0
+            ? a.blocksReceivedTotal / a.gamesWithBlocksReceivedData
+            : Number.NEGATIVE_INFINITY;
         bValue =
-          b.gamesPlayed > 0 ? b.totalStats.blocks_received / b.gamesPlayed : 0;
+          b.gamesWithBlocksReceivedData > 0
+            ? b.blocksReceivedTotal / b.gamesWithBlocksReceivedData
+            : Number.NEGATIVE_INFINITY;
         break;
       case 'TFPG':
         aValue = a.gamesPlayed > 0 ? a.totalStats.tech_fouls / a.gamesPlayed : 0;
