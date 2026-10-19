@@ -1191,8 +1191,8 @@ export function PlayerPage({
 
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <Card>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+        <Card className="h-full">
           <CardHeader className="py-3 px-4">
             <CardTitle className="text-base">Career Highs</CardTitle>
             <p className="text-xs text-muted-foreground font-normal">
@@ -1283,30 +1283,57 @@ export function PlayerPage({
         </Card>
 
         {/* Advanced Metrics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Advanced Metrics</CardTitle>
+        <Card className="h-full">
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-base">Advanced Metrics</CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Per-game averages for this view
+              {!isAllTournamentsSelected(
+                selectedTournamentIds,
+                tournamentFilterAvailableIds
+              )
+                ? ' in this tournament selection'
+                : ''}
+              .
+            </p>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-6">
-              <div className="space-y-4">
-                <h4 className="font-medium">Efficiency Metrics</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Efficiency (EFF)</span>
+          <CardContent className="px-4 pb-4 pt-0">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="h-8 px-2 text-xs">Metric</TableHead>
+                  <TableHead className="h-8 w-20 px-2 text-right text-xs">
+                    Value
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Efficiency (EFF)
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right">
                     <Badge variant={filteredData.advanced.efficiency >= 15 ? "default" : "secondary"}>
                       {(filteredData.advanced.efficiency / (filteredData.gamesPlayed || 1)).toFixed(1)}
                     </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Game Score (GmSc)</span>
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Game Score (GmSc)
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right">
                     <Badge variant={filteredData.advanced.gameScore >= 15 ? "default" : "secondary"}>
                       {(filteredData.advanced.gameScore / (filteredData.gamesPlayed || 1)).toFixed(1)}
                     </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Plus/Minus</span>
-                    <span className="flex items-center gap-1">
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Plus/Minus
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right">
+                    <span className="inline-flex items-center justify-end gap-1">
                       <PartialAverageWarning
                         tooltip={
                           filteredData.plusMinusPerGame !== null &&
@@ -1325,32 +1352,40 @@ export function PlayerPage({
                         <OptionalStatBadge value={null} />
                       )}
                     </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h4 className="font-medium">Per Game Averages</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Games Played</span>
-                    <span className="text-sm font-mono">{filteredData.gamesPlayed}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Minutes</span>
-                    <span className="text-sm font-mono">
-                      {filteredData.averages.minutes_played > 0
-                        ? filteredData.averages.minutes_played.toFixed(1)
-                        : '-'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Turnovers</span>
-                    <span className="text-sm font-mono">{filteredData.averages.turnovers.toFixed(1)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Personal Fouls</span>
-                    <span className="flex items-center gap-1">
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Games Played
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
+                    {filteredData.gamesPlayed}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Minutes
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
+                    {filteredData.averages.minutes_played > 0
+                      ? filteredData.averages.minutes_played.toFixed(1)
+                      : '-'}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Turnovers
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
+                    {filteredData.averages.turnovers.toFixed(1)}
+                  </TableCell>
+                </TableRow>
+                <TableRow>
+                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                    Personal Fouls
+                  </TableCell>
+                  <TableCell className="px-2 py-1.5 text-right">
+                    <span className="inline-flex items-center justify-end gap-1">
                       <PartialAverageWarning
                         tooltip={
                           filteredData.personalFoulsPerGame !== null &&
@@ -1363,13 +1398,13 @@ export function PlayerPage({
                       <OptionalStatText
                         value={filteredData.personalFoulsPerGame}
                         decimals={1}
-                        className="text-sm font-mono"
+                        className="text-sm font-mono font-semibold tabular-nums"
                       />
                     </span>
-                  </div>
-                </div>
-              </div>
-            </div>
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
         </div>
