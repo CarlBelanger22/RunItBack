@@ -1192,8 +1192,8 @@ export function PlayerPage({
     return (
       <div className="space-y-6">
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
-        <Card className="h-full">
-          <CardHeader className="py-3 px-4">
+        <Card className="h-full gap-0">
+          <CardHeader className="shrink-0 py-3 px-4">
             <CardTitle className="text-base">Career Highs</CardTitle>
             <p className="text-xs text-muted-foreground font-normal">
               Single-game highs
@@ -1206,7 +1206,7 @@ export function PlayerPage({
               . Friendlies excluded.
             </p>
           </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
+          <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
             {careerHighs.scalars.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No completed games in this scope.
@@ -1282,9 +1282,9 @@ export function PlayerPage({
           </CardContent>
         </Card>
 
-        {/* Advanced Metrics */}
-        <Card className="h-full">
-          <CardHeader className="py-3 px-4">
+        {/* Advanced Metrics — fills sibling Career Highs height (no empty bottom gap) */}
+        <Card className="h-full gap-0">
+          <CardHeader className="shrink-0 py-3 px-4">
             <CardTitle className="text-base">Advanced Metrics</CardTitle>
             <p className="text-xs text-muted-foreground font-normal">
               Per-game averages for this view
@@ -1297,114 +1297,104 @@ export function PlayerPage({
               .
             </p>
           </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="h-8 px-2 text-xs">Metric</TableHead>
-                  <TableHead className="h-8 w-20 px-2 text-right text-xs">
-                    Value
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Efficiency (EFF)
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right">
-                    <Badge variant={filteredData.advanced.efficiency >= 15 ? "default" : "secondary"}>
-                      {(filteredData.advanced.efficiency / (filteredData.gamesPlayed || 1)).toFixed(1)}
+          <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
+            <div className="flex h-8 shrink-0 items-center border-b px-2 text-xs font-medium text-muted-foreground">
+              <span className="min-w-0 flex-1">Metric</span>
+              <span className="w-20 shrink-0 text-right">Value</span>
+            </div>
+            <ul className="flex min-h-0 flex-1 flex-col justify-between">
+              <li className="flex items-center border-b px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Efficiency (EFF)
+                </span>
+                <span className="flex w-20 shrink-0 justify-end">
+                  <Badge variant={filteredData.advanced.efficiency >= 15 ? "default" : "secondary"}>
+                    {(filteredData.advanced.efficiency / (filteredData.gamesPlayed || 1)).toFixed(1)}
+                  </Badge>
+                </span>
+              </li>
+              <li className="flex items-center border-b px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Game Score (GmSc)
+                </span>
+                <span className="flex w-20 shrink-0 justify-end">
+                  <Badge variant={filteredData.advanced.gameScore >= 15 ? "default" : "secondary"}>
+                    {(filteredData.advanced.gameScore / (filteredData.gamesPlayed || 1)).toFixed(1)}
+                  </Badge>
+                </span>
+              </li>
+              <li className="flex items-center border-b px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Plus/Minus
+                </span>
+                <span className="flex w-20 shrink-0 items-center justify-end gap-1">
+                  <PartialAverageWarning
+                    tooltip={
+                      filteredData.plusMinusPerGame !== null &&
+                      filteredData.gamesWithPlusMinusData > 0 &&
+                      filteredData.gamesWithPlusMinusData < filteredData.gamesPlayed
+                        ? `Average uses only games that recorded +/- (${filteredData.gamesWithPlusMinusData} of ${filteredData.gamesPlayed} games in this view).`
+                        : undefined
+                    }
+                  />
+                  {filteredData.plusMinusPerGame !== null ? (
+                    <Badge variant={filteredData.plusMinusPerGame >= 0 ? "default" : "destructive"}>
+                      {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
+                      {filteredData.plusMinusPerGame.toFixed(1)}
                     </Badge>
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Game Score (GmSc)
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right">
-                    <Badge variant={filteredData.advanced.gameScore >= 15 ? "default" : "secondary"}>
-                      {(filteredData.advanced.gameScore / (filteredData.gamesPlayed || 1)).toFixed(1)}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Plus/Minus
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right">
-                    <span className="inline-flex items-center justify-end gap-1">
-                      <PartialAverageWarning
-                        tooltip={
-                          filteredData.plusMinusPerGame !== null &&
-                          filteredData.gamesWithPlusMinusData > 0 &&
-                          filteredData.gamesWithPlusMinusData < filteredData.gamesPlayed
-                            ? `Average uses only games that recorded +/- (${filteredData.gamesWithPlusMinusData} of ${filteredData.gamesPlayed} games in this view).`
-                            : undefined
-                        }
-                      />
-                      {filteredData.plusMinusPerGame !== null ? (
-                        <Badge variant={filteredData.plusMinusPerGame >= 0 ? "default" : "destructive"}>
-                          {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
-                          {filteredData.plusMinusPerGame.toFixed(1)}
-                        </Badge>
-                      ) : (
-                        <OptionalStatBadge value={null} />
-                      )}
-                    </span>
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Games Played
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
-                    {filteredData.gamesPlayed}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Minutes
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
-                    {filteredData.averages.minutes_played > 0
-                      ? filteredData.averages.minutes_played.toFixed(1)
-                      : '-'}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Turnovers
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
-                    {filteredData.averages.turnovers.toFixed(1)}
-                  </TableCell>
-                </TableRow>
-                <TableRow>
-                  <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                    Personal Fouls
-                  </TableCell>
-                  <TableCell className="px-2 py-1.5 text-right">
-                    <span className="inline-flex items-center justify-end gap-1">
-                      <PartialAverageWarning
-                        tooltip={
-                          filteredData.personalFoulsPerGame !== null &&
-                          filteredData.gamesWithPersonalFoulsData > 0 &&
-                          filteredData.gamesWithPersonalFoulsData < filteredData.gamesPlayed
-                            ? `Average uses only games that recorded personal fouls (${filteredData.gamesWithPersonalFoulsData} of ${filteredData.gamesPlayed} games in this view).`
-                            : undefined
-                        }
-                      />
-                      <OptionalStatText
-                        value={filteredData.personalFoulsPerGame}
-                        decimals={1}
-                        className="text-sm font-mono font-semibold tabular-nums"
-                      />
-                    </span>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+                  ) : (
+                    <OptionalStatBadge value={null} />
+                  )}
+                </span>
+              </li>
+              <li className="flex items-center border-b px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Games Played
+                </span>
+                <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                  {filteredData.gamesPlayed}
+                </span>
+              </li>
+              <li className="flex items-center border-b px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Minutes
+                </span>
+                <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                  {filteredData.averages.minutes_played > 0
+                    ? filteredData.averages.minutes_played.toFixed(1)
+                    : '-'}
+                </span>
+              </li>
+              <li className="flex items-center border-b px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Turnovers
+                </span>
+                <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                  {filteredData.averages.turnovers.toFixed(1)}
+                </span>
+              </li>
+              <li className="flex items-center px-2 py-1.5">
+                <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                  Personal Fouls
+                </span>
+                <span className="flex w-20 shrink-0 items-center justify-end gap-1">
+                  <PartialAverageWarning
+                    tooltip={
+                      filteredData.personalFoulsPerGame !== null &&
+                      filteredData.gamesWithPersonalFoulsData > 0 &&
+                      filteredData.gamesWithPersonalFoulsData < filteredData.gamesPlayed
+                        ? `Average uses only games that recorded personal fouls (${filteredData.gamesWithPersonalFoulsData} of ${filteredData.gamesPlayed} games in this view).`
+                        : undefined
+                    }
+                  />
+                  <OptionalStatText
+                    value={filteredData.personalFoulsPerGame}
+                    decimals={1}
+                    className="text-sm font-mono font-semibold tabular-nums"
+                  />
+                </span>
+              </li>
+            </ul>
           </CardContent>
         </Card>
         </div>
