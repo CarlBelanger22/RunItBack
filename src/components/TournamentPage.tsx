@@ -1688,7 +1688,7 @@ export function TournamentPage({
                             {fixture.status === 'postponed' ? (
                               <Badge
                                 variant="destructive"
-                                className="text-xs bg-red-600 hover:bg-red-600 text-white border-transparent"
+                                className="text-xs border-transparent bg-red-500 text-white hover:bg-red-500"
                               >
                                 Postponed
                               </Badge>
