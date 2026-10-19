@@ -1188,86 +1188,96 @@ export function PlayerPage({
       return map;
     }, [careerHighGames]);
     
+
     return (
       <div className="space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle>Career Highs</CardTitle>
-            <p className="text-sm text-muted-foreground font-normal">
-              Single-game highs for this format
-              {isAllTournamentsSelected(
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-base">Career Highs</CardTitle>
+            <p className="text-xs text-muted-foreground font-normal">
+              Single-game highs
+              {!isAllTournamentsSelected(
                 selectedTournamentIds,
                 tournamentFilterAvailableIds
               )
-                ? ''
-                : ' and tournament selection'}
+                ? ' in this tournament selection'
+                : ''}
               . Friendlies excluded.
             </p>
           </CardHeader>
-          <CardContent>
+          <CardContent className="px-4 pb-4 pt-0">
             {careerHighs.scalars.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No completed games in this scope.
               </p>
             ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-                  {careerHighs.scalars.map((row) => {
-                    const highGame = careerHighGameById.get(row.gameId);
-                    const ctx = highGame
-                      ? getGameTeamContext(highGame)
-                      : null;
-                    const matchup =
-                      ctx?.opponent?.abbreviation || ctx?.opponent?.name
-                        ? `${ctx.isHome ? 'vs' : '@'} ${
-                            ctx.opponent.abbreviation || ctx.opponent.name
-                          }`
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="h-8 w-16 px-2 text-xs">Stat</TableHead>
+                      <TableHead className="h-8 w-20 px-2 text-right text-xs">
+                        High
+                      </TableHead>
+                      <TableHead className="h-8 px-2 text-xs">Game</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {careerHighs.scalars.map((row) => {
+                      const highGame = careerHighGameById.get(row.gameId);
+                      const ctx = highGame
+                        ? getGameTeamContext(highGame)
                         : null;
-                    const dateLabel = highGame
-                      ? new Date(highGame.date).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          year: 'numeric',
-                        })
-                      : row.gameDate;
-                    return (
-                      <button
-                        key={row.key}
-                        type="button"
-                        className="flex items-center justify-between gap-3 rounded-md px-2 py-2 text-left hover:bg-muted/50 transition-colors"
-                        onClick={() => onNavigateToGame(row.gameId)}
-                      >
-                        <span className="text-sm text-muted-foreground w-12 shrink-0">
-                          {row.label}
-                        </span>
-                        <span className="min-w-0 flex-1 flex items-baseline justify-end gap-2">
-                          <span className="text-sm font-mono font-semibold tabular-nums">
+                      const matchup =
+                        ctx?.opponent?.abbreviation || ctx?.opponent?.name
+                          ? `${ctx.isHome ? 'vs' : '@'} ${
+                              ctx.opponent.abbreviation || ctx.opponent.name
+                            }`
+                          : null;
+                      const dateLabel = highGame
+                        ? new Date(highGame.date).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            year: 'numeric',
+                          })
+                        : row.gameDate;
+                      return (
+                        <TableRow
+                          key={row.key}
+                          className="cursor-pointer"
+                          onClick={() => onNavigateToGame(row.gameId)}
+                        >
+                          <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                            {row.label}
+                          </TableCell>
+                          <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
                             {formatCareerHighValue(row.key, row.value)}
-                          </span>
-                          <span className="text-xs text-muted-foreground truncate">
+                          </TableCell>
+                          <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
                             {dateLabel}
                             {matchup ? ` · ${matchup}` : ''}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-                <div className="grid grid-cols-2 gap-3 border-t pt-3">
-                  <div className="flex items-center justify-between px-2">
-                    <span className="text-sm text-muted-foreground">DD</span>
-                    <span className="text-sm font-mono font-semibold tabular-nums">
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+                <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 border-t pt-3 text-sm">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-muted-foreground">DD</span>
+                    <span className="font-mono font-semibold tabular-nums">
                       {careerHighs.doubleDoubles}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between px-2">
-                    <span className="text-sm text-muted-foreground">TD</span>
-                    <span className="text-sm font-mono font-semibold tabular-nums">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-muted-foreground">TD</span>
+                    <span className="font-mono font-semibold tabular-nums">
                       {careerHighs.tripleDoubles}
                     </span>
                   </div>
                 </div>
-              </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -1278,7 +1288,7 @@ export function PlayerPage({
             <CardTitle>Advanced Metrics</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 gap-6">
               <div className="space-y-4">
                 <h4 className="font-medium">Efficiency Metrics</h4>
                 <div className="space-y-3">
@@ -1362,6 +1372,7 @@ export function PlayerPage({
             </div>
           </CardContent>
         </Card>
+        </div>
 
         {/* Defensive Stats */}
         <Card>
@@ -1476,6 +1487,7 @@ export function PlayerPage({
       </div>
     );
   };
+
 
   return (
     <div className="space-y-6">

@@ -12,8 +12,6 @@ export type CareerHighScalarKey =
   | 'fgm'
   | 'tpm'
   | 'ftm'
-  | 'pf'
-  | 'to'
   | 'gmsc';
 
 export type CareerHighScalar = {
@@ -47,8 +45,6 @@ const SCALAR_DEFS: Array<{
   { key: 'fgm', label: 'FGM', value: (s) => s.fg_made },
   { key: 'tpm', label: '3PM', value: (s) => s.three_made },
   { key: 'ftm', label: 'FTM', value: (s) => s.ft_made },
-  { key: 'pf', label: 'PF', value: (s) => s.fouls },
-  { key: 'to', label: 'TO', value: (s) => s.turnovers },
   {
     key: 'gmsc',
     label: 'GmSc',

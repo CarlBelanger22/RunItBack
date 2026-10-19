@@ -1685,9 +1685,18 @@ export function TournamentPage({
                               </>
                             ) : null}
                             <span>•</span>
-                            <Badge variant="secondary" className="text-xs">
-                              Upcoming
-                            </Badge>
+                            {fixture.status === 'postponed' ? (
+                              <Badge
+                                variant="destructive"
+                                className="text-xs bg-red-600 hover:bg-red-600 text-white border-transparent"
+                              >
+                                Postponed
+                              </Badge>
+                            ) : (
+                              <Badge variant="secondary" className="text-xs">
+                                Upcoming
+                              </Badge>
+                            )}
                             {stageTag ? (
                               <>
                                 <span>•</span>

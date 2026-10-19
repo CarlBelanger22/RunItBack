@@ -37,6 +37,8 @@ export interface TournamentFixtureRow extends GroupMatchRow {
   roundName?: string;
   /** Club-vs-club league fixture (not seed codes). */
   teamMatchup?: boolean;
+  /** From `GroupTeamMatchup.status` when set. */
+  status?: 'postponed';
 }
 
 /** Default 3-team placing pool (Sunig-style: A3, B3, B4). */
@@ -313,6 +315,7 @@ export function buildTeamFixtureRows(
           stageId: stage.id,
           groupId: group.id,
           teamMatchup: true,
+          status: matchup.status === 'postponed' ? 'postponed' : undefined,
         });
       }
     }

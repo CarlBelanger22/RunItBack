@@ -45,6 +45,8 @@ export interface GroupTeamMatchup {
   date?: string;
   startTime?: string;
   gameId?: string;
+  /** One-off schedule state (e.g. rain delay) — optional. */
+  status?: 'postponed';
 }
 
 export type BracketFromOutcome = 'winner' | 'loser';
@@ -173,9 +175,11 @@ function normalizeTeamMatchup(raw: unknown): GroupTeamMatchup | null {
   const date = asString(row.date);
   const startTime = asString(row.startTime);
   const gameId = asString(row.gameId);
+  const statusRaw = asString(row.status)?.toLowerCase();
   if (date) matchup.date = date;
   if (startTime) matchup.startTime = startTime;
   if (gameId) matchup.gameId = gameId;
+  if (statusRaw === 'postponed') matchup.status = 'postponed';
   return matchup;
 }
 
