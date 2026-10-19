@@ -1191,122 +1191,148 @@ export function PlayerPage({
 
     return (
       <div className="space-y-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <Card>
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-base">Career Highs</CardTitle>
-            <p className="text-xs text-muted-foreground font-normal">
-              Single-game highs
-              {!isAllTournamentsSelected(
-                selectedTournamentIds,
-                tournamentFilterAvailableIds
-              )
-                ? ' in this tournament selection'
-                : ''}
-              . Friendlies excluded.
-            </p>
-          </CardHeader>
-          <CardContent className="px-4 pb-4 pt-0">
-            {careerHighs.scalars.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                No completed games in this scope.
-              </p>
-            ) : (
-              <>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="h-8 w-16 px-2 text-xs">Stat</TableHead>
-                      <TableHead className="h-8 w-20 px-2 text-right text-xs">
-                        High
-                      </TableHead>
-                      <TableHead className="h-8 px-2 text-xs">Game</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {careerHighs.scalars.map((row) => {
-                      const highGame = careerHighGameById.get(row.gameId);
-                      const ctx = highGame
-                        ? getGameTeamContext(highGame)
-                        : null;
-                      const matchup =
-                        ctx?.opponent?.abbreviation || ctx?.opponent?.name
-                          ? `${ctx.isHome ? 'vs' : '@'} ${
-                              ctx.opponent.abbreviation || ctx.opponent.name
-                            }`
-                          : null;
-                      const dateLabel = highGame
-                        ? new Date(highGame.date).toLocaleDateString('en-US', {
-                            month: 'short',
-                            day: 'numeric',
-                            year: 'numeric',
-                          })
-                        : row.gameDate;
-                      return (
-                        <TableRow
-                          key={row.key}
-                          className="cursor-pointer"
-                          onClick={() => onNavigateToGame(row.gameId)}
-                        >
-                          <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                            {row.label}
-                          </TableCell>
-                          <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
-                            {formatCareerHighValue(row.key, row.value)}
-                          </TableCell>
-                          <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                            {dateLabel}
-                            {matchup ? ` · ${matchup}` : ''}
-                          </TableCell>
+        {/*
+          One card; on lg, flex row stretch makes both columns the same height.
+          Advanced Metrics grows its rows (`flex-1` + `justify-between`) so the
+          last metric sits on the same baseline as the Career Highs footer.
+        */}
+        <Card className="gap-0 overflow-hidden py-0">
+          <div className="flex flex-col lg:flex-row lg:items-stretch">
+            <div className="border-b lg:w-1/2 lg:border-b-0 lg:border-r">
+              <div className="space-y-1.5 px-4 py-3">
+                <h4 className="text-base font-semibold leading-none">Career Highs</h4>
+                <p className="text-xs font-normal text-muted-foreground">
+                  Single-game highs
+                  {!isAllTournamentsSelected(
+                    selectedTournamentIds,
+                    tournamentFilterAvailableIds
+                  )
+                    ? ' in this tournament selection'
+                    : ''}
+                  . Friendlies excluded.
+                </p>
+              </div>
+              <div className="px-4 pb-4 pt-0">
+                {careerHighs.scalars.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    No completed games in this scope.
+                  </p>
+                ) : (
+                  <>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="h-8 w-16 px-2 text-xs">Stat</TableHead>
+                          <TableHead className="h-8 w-20 px-2 text-right text-xs">
+                            High
+                          </TableHead>
+                          <TableHead className="h-8 px-2 text-xs">Game</TableHead>
                         </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-                <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 border-t pt-3 text-sm">
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-muted-foreground">DD</span>
-                    <span className="font-mono font-semibold tabular-nums">
-                      {careerHighs.doubleDoubles}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-2">
-                    <span className="text-muted-foreground">TD</span>
-                    <span className="font-mono font-semibold tabular-nums">
-                      {careerHighs.tripleDoubles}
-                    </span>
-                  </div>
-                </div>
-              </>
-            )}
-          </CardContent>
-        </Card>
+                      </TableHeader>
+                      <TableBody>
+                        {careerHighs.scalars.map((row) => {
+                          const highGame = careerHighGameById.get(row.gameId);
+                          const ctx = highGame
+                            ? getGameTeamContext(highGame)
+                            : null;
+                          const matchup =
+                            ctx?.opponent?.abbreviation || ctx?.opponent?.name
+                              ? `${ctx.isHome ? 'vs' : '@'} ${
+                                  ctx.opponent.abbreviation || ctx.opponent.name
+                                }`
+                              : null;
+                          const dateLabel = highGame
+                            ? new Date(highGame.date).toLocaleDateString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                year: 'numeric',
+                              })
+                            : row.gameDate;
+                          return (
+                            <TableRow
+                              key={row.key}
+                              className="cursor-pointer"
+                              onClick={() => onNavigateToGame(row.gameId)}
+                            >
+                              <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                                {row.label}
+                              </TableCell>
+                              <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
+                                {formatCareerHighValue(row.key, row.value)}
+                              </TableCell>
+                              <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                                {dateLabel}
+                                {matchup ? ` · ${matchup}` : ''}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                    <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-1 border-t pt-3 text-sm">
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-muted-foreground">DD</span>
+                        <span className="font-mono font-semibold tabular-nums">
+                          {careerHighs.doubleDoubles}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-muted-foreground">TD</span>
+                        <span className="font-mono font-semibold tabular-nums">
+                          {careerHighs.tripleDoubles}
+                        </span>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
 
-        {/* Advanced Metrics */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Advanced Metrics</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 gap-6">
-              <div className="space-y-4">
-                <h4 className="font-medium">Efficiency Metrics</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Efficiency (EFF)</span>
-                    <Badge variant={filteredData.advanced.efficiency >= 15 ? "default" : "secondary"}>
-                      {(filteredData.advanced.efficiency / (filteredData.gamesPlayed || 1)).toFixed(1)}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Game Score (GmSc)</span>
-                    <Badge variant={filteredData.advanced.gameScore >= 15 ? "default" : "secondary"}>
-                      {(filteredData.advanced.gameScore / (filteredData.gamesPlayed || 1)).toFixed(1)}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Plus/Minus</span>
-                    <span className="flex items-center gap-1">
+            <div className="flex min-h-0 flex-col lg:w-1/2">
+              <div className="shrink-0 space-y-1.5 px-4 py-3">
+                <h4 className="text-base font-semibold leading-none">Advanced Metrics</h4>
+                <p className="text-xs font-normal text-muted-foreground">
+                  Per-game averages for this view
+                  {!isAllTournamentsSelected(
+                    selectedTournamentIds,
+                    tournamentFilterAvailableIds
+                  )
+                    ? ' in this tournament selection'
+                    : ''}
+                  .
+                </p>
+              </div>
+              <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
+                <div className="flex h-8 shrink-0 items-center border-b px-2 text-xs font-medium text-muted-foreground">
+                  <span className="min-w-0 flex-1">Metric</span>
+                  <span className="w-20 shrink-0 text-right">Value</span>
+                </div>
+                <ul className="flex min-h-0 flex-1 flex-col justify-between">
+                  <li className="flex items-center border-b px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Efficiency (EFF)
+                    </span>
+                    <span className="flex w-20 shrink-0 justify-end">
+                      <Badge variant={filteredData.advanced.efficiency >= 15 ? "default" : "secondary"}>
+                        {(filteredData.advanced.efficiency / (filteredData.gamesPlayed || 1)).toFixed(1)}
+                      </Badge>
+                    </span>
+                  </li>
+                  <li className="flex items-center border-b px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Game Score (GmSc)
+                    </span>
+                    <span className="flex w-20 shrink-0 justify-end">
+                      <Badge variant={filteredData.advanced.gameScore >= 15 ? "default" : "secondary"}>
+                        {(filteredData.advanced.gameScore / (filteredData.gamesPlayed || 1)).toFixed(1)}
+                      </Badge>
+                    </span>
+                  </li>
+                  <li className="flex items-center border-b px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Plus/Minus
+                    </span>
+                    <span className="flex w-20 shrink-0 items-center justify-end gap-1">
                       <PartialAverageWarning
                         tooltip={
                           filteredData.plusMinusPerGame !== null &&
@@ -1325,32 +1351,38 @@ export function PlayerPage({
                         <OptionalStatBadge value={null} />
                       )}
                     </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <h4 className="font-medium">Per Game Averages</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Games Played</span>
-                    <span className="text-sm font-mono">{filteredData.gamesPlayed}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Minutes</span>
-                    <span className="text-sm font-mono">
+                  </li>
+                  <li className="flex items-center border-b px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Games Played
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                      {filteredData.gamesPlayed}
+                    </span>
+                  </li>
+                  <li className="flex items-center border-b px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Minutes
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
                       {filteredData.averages.minutes_played > 0
                         ? filteredData.averages.minutes_played.toFixed(1)
                         : '-'}
                     </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Turnovers</span>
-                    <span className="text-sm font-mono">{filteredData.averages.turnovers.toFixed(1)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm">Personal Fouls</span>
-                    <span className="flex items-center gap-1">
+                  </li>
+                  <li className="flex items-center border-b px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Turnovers
+                    </span>
+                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                      {filteredData.averages.turnovers.toFixed(1)}
+                    </span>
+                  </li>
+                  <li className="flex items-center px-2 py-1.5">
+                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                      Personal Fouls
+                    </span>
+                    <span className="flex w-20 shrink-0 items-center justify-end gap-1">
                       <PartialAverageWarning
                         tooltip={
                           filteredData.personalFoulsPerGame !== null &&
@@ -1363,16 +1395,15 @@ export function PlayerPage({
                       <OptionalStatText
                         value={filteredData.personalFoulsPerGame}
                         decimals={1}
-                        className="text-sm font-mono"
+                        className="text-sm font-mono font-semibold tabular-nums"
                       />
                     </span>
-                  </div>
-                </div>
+                  </li>
+                </ul>
               </div>
             </div>
-          </CardContent>
+          </div>
         </Card>
-        </div>
 
         {/* Defensive Stats */}
         <Card>
