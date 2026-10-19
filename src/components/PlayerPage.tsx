@@ -1276,289 +1276,285 @@ export function PlayerPage({
     return (
       <div className="space-y-6">
         {/*
-          One card; on lg, flex row stretch makes both columns the same height.
-          Advanced Metrics grows its rows (`flex-1` + `justify-between`) so the
-          last metric sits on the same baseline as the Career Highs footer.
+          Two separate cards; lg stretch makes them equal height.
+          Advanced Metrics rows use flex-1 + justify-between to fill the taller Career Highs card.
         */}
-        <Card className="gap-0 overflow-hidden py-0">
-          <div className="flex flex-col lg:flex-row lg:items-stretch">
-            <div className="flex min-h-0 flex-col border-b lg:w-1/2 lg:border-b-0 lg:border-r">
-              <div className="shrink-0 space-y-1.5 px-4 py-3">
-                <h4 className="text-base font-semibold leading-none">Career Highs</h4>
-                <p className="text-xs font-normal text-muted-foreground">
-                  Single-game highs
-                  {!isAllTournamentsSelected(
-                    selectedTournamentIds,
-                    tournamentFilterAvailableIds
-                  )
-                    ? ' in this tournament selection'
-                    : ''}
-                  . Friendlies excluded.
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+          <Card className="flex h-full flex-col gap-0 py-0">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-base">Career Highs</CardTitle>
+              <p className="text-xs text-muted-foreground font-normal">
+                Single-game highs
+                {!isAllTournamentsSelected(
+                  selectedTournamentIds,
+                  tournamentFilterAvailableIds
+                )
+                  ? ' in this tournament selection'
+                  : ''}
+                . Friendlies excluded.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-1 flex-col px-4 pb-4 pt-0">
+              {careerHighs.scalars.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No completed games in this scope.
                 </p>
-              </div>
-              <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
-                {careerHighs.scalars.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    No completed games in this scope.
-                  </p>
-                ) : (
-                  <>
-                    <Table>
-                      <TableHeader className="[&_tr]:border-b-0">
-                        <TableRow className="border-b-0 hover:bg-transparent">
-                          <TableHead className="h-8 w-16 px-2 text-xs">Stat</TableHead>
-                          <TableHead className="h-8 w-20 px-2 text-right text-xs">
-                            High
-                          </TableHead>
-                          <TableHead className="h-8 px-2 text-xs">Game</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {careerHighs.scalars.map((row) => {
-                          const highGame = careerHighGameById.get(row.gameId);
-                          const ctx = highGame
-                            ? getGameTeamContext(highGame)
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader className="[&_tr]:border-b-0">
+                      <TableRow className="border-b-0 hover:bg-transparent">
+                        <TableHead className="h-8 w-16 px-2 text-xs">Stat</TableHead>
+                        <TableHead className="h-8 w-20 px-2 text-right text-xs">
+                          High
+                        </TableHead>
+                        <TableHead className="h-8 px-2 text-xs">Game</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {careerHighs.scalars.map((row) => {
+                        const highGame = careerHighGameById.get(row.gameId);
+                        const ctx = highGame
+                          ? getGameTeamContext(highGame)
+                          : null;
+                        const matchup =
+                          ctx?.opponent?.abbreviation || ctx?.opponent?.name
+                            ? `${ctx.isHome ? 'vs' : '@'} ${
+                                ctx.opponent.abbreviation || ctx.opponent.name
+                              }`
                             : null;
-                          const matchup =
-                            ctx?.opponent?.abbreviation || ctx?.opponent?.name
-                              ? `${ctx.isHome ? 'vs' : '@'} ${
-                                  ctx.opponent.abbreviation || ctx.opponent.name
-                                }`
-                              : null;
-                          const dateLabel = highGame
-                            ? new Date(highGame.date).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                year: 'numeric',
-                              })
-                            : row.gameDate;
-                          return (
-                            <TableRow
-                              key={row.key}
-                              className="cursor-pointer border-b-0 hover:bg-muted/50"
-                              onClick={() => onNavigateToGame(row.gameId)}
-                            >
-                              <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                                {row.label}
-                              </TableCell>
-                              <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
-                                {formatCareerHighValue(row.key, row.value)}
-                              </TableCell>
-                              <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
-                                {dateLabel}
-                                {matchup ? ` · ${matchup}` : ''}
-                              </TableCell>
-                            </TableRow>
-                          );
-                        })}
-                      </TableBody>
-                    </Table>
-                    <div className="mt-auto flex flex-wrap items-center justify-center space-x-8 border-t pt-3 text-sm">
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-muted-foreground">Double-Doubles</span>
-                        <span className="font-mono font-semibold tabular-nums">
-                          {careerHighs.doubleDoubles}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline gap-2">
-                        <span className="text-muted-foreground">Triple-Doubles</span>
-                        <span className="font-mono font-semibold tabular-nums">
-                          {careerHighs.tripleDoubles}
-                        </span>
-                      </div>
+                        const dateLabel = highGame
+                          ? new Date(highGame.date).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: 'numeric',
+                            })
+                          : row.gameDate;
+                        return (
+                          <TableRow
+                            key={row.key}
+                            className="cursor-pointer border-b-0 hover:bg-muted/50"
+                            onClick={() => onNavigateToGame(row.gameId)}
+                          >
+                            <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {row.label}
+                            </TableCell>
+                            <TableCell className="px-2 py-1.5 text-right text-sm font-mono font-semibold tabular-nums">
+                              {formatCareerHighValue(row.key, row.value)}
+                            </TableCell>
+                            <TableCell className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {dateLabel}
+                              {matchup ? ` · ${matchup}` : ''}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                  <div className="mt-auto flex flex-wrap items-center justify-center space-x-8 border-t pt-3 text-sm">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-muted-foreground">Double-Doubles</span>
+                      <span className="font-mono font-semibold tabular-nums">
+                        {careerHighs.doubleDoubles}
+                      </span>
                     </div>
-                  </>
-                )}
-              </div>
-            </div>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-muted-foreground">Triple-Doubles</span>
+                      <span className="font-mono font-semibold tabular-nums">
+                        {careerHighs.tripleDoubles}
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
 
-            <div className="flex min-h-0 flex-col lg:w-1/2">
-              <div className="shrink-0 space-y-1.5 px-4 py-3">
-                <h4 className="text-base font-semibold leading-none">Advanced Metrics</h4>
-                <p className="text-xs font-normal text-muted-foreground">
-                  Rates and composites for this view
-                  {!isAllTournamentsSelected(
-                    selectedTournamentIds,
-                    tournamentFilterAvailableIds
-                  )
-                    ? ' in this tournament selection'
-                    : ''}
-                  .
-                </p>
+          <Card className="flex h-full flex-col gap-0 py-0">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-base">Advanced Metrics</CardTitle>
+              <p className="text-xs text-muted-foreground font-normal">
+                Rates and composites for this view
+                {!isAllTournamentsSelected(
+                  selectedTournamentIds,
+                  tournamentFilterAvailableIds
+                )
+                  ? ' in this tournament selection'
+                  : ''}
+                .
+              </p>
+            </CardHeader>
+            <CardContent className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
+              <div className="flex h-8 shrink-0 items-center px-2 text-xs font-medium text-muted-foreground">
+                <span className="min-w-0 flex-1">Metric</span>
+                <span className="w-20 shrink-0 text-right">Value</span>
               </div>
-              <div className="flex min-h-0 flex-1 flex-col px-4 pb-4 pt-0">
-                <div className="flex h-8 shrink-0 items-center px-2 text-xs font-medium text-muted-foreground">
-                  <span className="min-w-0 flex-1">Metric</span>
-                  <span className="w-20 shrink-0 text-right">Value</span>
-                </div>
-                <ul className="flex min-h-0 flex-1 flex-col justify-between">
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      True Shooting (TS%)
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {advancedRates.trueShootingPct != null
-                        ? `${advancedRates.trueShootingPct.toFixed(1)}%`
-                        : '—'}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Effective FG (eFG%)
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {advancedRates.effectiveFgPct != null
-                        ? `${advancedRates.effectiveFgPct.toFixed(1)}%`
-                        : '—'}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Game Score (GmSc)
-                    </span>
-                    <span className="flex w-20 shrink-0 justify-end">
-                      {gmscPerGame != null ? (
-                        <Badge
-                          variant={gmscPerGame >= 15 ? 'default' : 'secondary'}
-                        >
-                          {gmscPerGame.toFixed(1)}
-                        </Badge>
-                      ) : (
-                        <span className="text-sm font-mono font-semibold tabular-nums">
-                          —
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Efficiency (EFF)
-                    </span>
-                    <span className="flex w-20 shrink-0 justify-end">
-                      {effPerGame != null ? (
-                        <Badge
-                          variant={effPerGame >= 15 ? 'default' : 'secondary'}
-                        >
-                          {effPerGame.toFixed(1)}
-                        </Badge>
-                      ) : (
-                        <span className="text-sm font-mono font-semibold tabular-nums">
-                          —
-                        </span>
-                      )}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Plus/Minus
-                    </span>
-                    <span className="flex w-20 shrink-0 items-center justify-end gap-1">
-                      <PartialAverageWarning
-                        tooltip={
-                          filteredData.plusMinusPerGame !== null &&
-                          filteredData.gamesWithPlusMinusData > 0 &&
-                          filteredData.gamesWithPlusMinusData <
-                            filteredData.gamesPlayed
-                            ? `Average uses only games that recorded +/- (${filteredData.gamesWithPlusMinusData} of ${filteredData.gamesPlayed} games in this view).`
-                            : undefined
+              <ul className="flex min-h-0 flex-1 flex-col justify-between">
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    True Shooting (TS%)
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                    {advancedRates.trueShootingPct != null
+                      ? `${advancedRates.trueShootingPct.toFixed(1)}%`
+                      : '—'}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Effective FG (eFG%)
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                    {advancedRates.effectiveFgPct != null
+                      ? `${advancedRates.effectiveFgPct.toFixed(1)}%`
+                      : '—'}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Game Score (GmSc)
+                  </span>
+                  <span className="flex w-20 shrink-0 justify-end">
+                    {gmscPerGame != null ? (
+                      <Badge
+                        variant={gmscPerGame >= 15 ? 'default' : 'secondary'}
+                      >
+                        {gmscPerGame.toFixed(1)}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm font-mono font-semibold tabular-nums">
+                        —
+                      </span>
+                    )}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Efficiency (EFF)
+                  </span>
+                  <span className="flex w-20 shrink-0 justify-end">
+                    {effPerGame != null ? (
+                      <Badge
+                        variant={effPerGame >= 15 ? 'default' : 'secondary'}
+                      >
+                        {effPerGame.toFixed(1)}
+                      </Badge>
+                    ) : (
+                      <span className="text-sm font-mono font-semibold tabular-nums">
+                        —
+                      </span>
+                    )}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Plus/Minus
+                  </span>
+                  <span className="flex w-20 shrink-0 items-center justify-end gap-1">
+                    <PartialAverageWarning
+                      tooltip={
+                        filteredData.plusMinusPerGame !== null &&
+                        filteredData.gamesWithPlusMinusData > 0 &&
+                        filteredData.gamesWithPlusMinusData <
+                          filteredData.gamesPlayed
+                          ? `Average uses only games that recorded +/- (${filteredData.gamesWithPlusMinusData} of ${filteredData.gamesPlayed} games in this view).`
+                          : undefined
+                      }
+                    />
+                    {filteredData.plusMinusPerGame !== null ? (
+                      <Badge
+                        variant={
+                          filteredData.plusMinusPerGame >= 0
+                            ? 'default'
+                            : 'destructive'
                         }
-                      />
-                      {filteredData.plusMinusPerGame !== null ? (
-                        <Badge
-                          variant={
-                            filteredData.plusMinusPerGame >= 0
-                              ? 'default'
-                              : 'destructive'
-                          }
-                        >
-                          {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
-                          {filteredData.plusMinusPerGame.toFixed(1)}
-                        </Badge>
-                      ) : (
-                        <OptionalStatBadge value={null} />
-                      )}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      AST/TO
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {advancedRates.assistToTurnover != null
-                        ? advancedRates.assistToTurnover.toFixed(2)
-                        : '—'}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Free Throw Rate
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {advancedRates.freeThrowRatePct != null
-                        ? `${advancedRates.freeThrowRatePct.toFixed(1)}%`
-                        : '—'}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Three-Point Rate
-                    </span>
-                    <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
-                      {advancedRates.threePointRatePct != null
-                        ? `${advancedRates.threePointRatePct.toFixed(1)}%`
-                        : '—'}
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Points in the Paint
-                    </span>
-                    <span className="flex w-20 shrink-0 items-center justify-end gap-1">
-                      <PartialAverageWarning
-                        tooltip={
-                          shotChartAverages.paintPerGame !== null &&
-                          shotChartAverages.gamesWithShotData > 0 &&
-                          shotChartAverages.gamesWithShotData <
-                            filteredData.gamesPlayed
-                            ? `Average uses only games with shot locations (${shotChartAverages.gamesWithShotData} of ${filteredData.gamesPlayed} games in this view).`
-                            : undefined
-                        }
-                      />
-                      <OptionalStatText
-                        value={shotChartAverages.paintPerGame}
-                        decimals={1}
-                        className="text-sm font-mono font-semibold tabular-nums"
-                      />
-                    </span>
-                  </li>
-                  <li className="flex items-center px-2 py-1.5">
-                    <span className="min-w-0 flex-1 text-sm text-muted-foreground">
-                      Fast Break Points
-                    </span>
-                    <span className="flex w-20 shrink-0 items-center justify-end gap-1">
-                      <PartialAverageWarning
-                        tooltip={
-                          shotChartAverages.fastbreakPerGame !== null &&
-                          shotChartAverages.gamesWithShotData > 0 &&
-                          shotChartAverages.gamesWithShotData <
-                            filteredData.gamesPlayed
-                            ? `Average uses only games with shot locations (${shotChartAverages.gamesWithShotData} of ${filteredData.gamesPlayed} games in this view).`
-                            : undefined
-                        }
-                      />
-                      <OptionalStatText
-                        value={shotChartAverages.fastbreakPerGame}
-                        decimals={1}
-                        className="text-sm font-mono font-semibold tabular-nums"
-                      />
-                    </span>
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </Card>
-
+                      >
+                        {filteredData.plusMinusPerGame >= 0 ? '+' : ''}
+                        {filteredData.plusMinusPerGame.toFixed(1)}
+                      </Badge>
+                    ) : (
+                      <OptionalStatBadge value={null} />
+                    )}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    AST/TO
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                    {advancedRates.assistToTurnover != null
+                      ? advancedRates.assistToTurnover.toFixed(2)
+                      : '—'}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Free Throw Rate
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                    {advancedRates.freeThrowRatePct != null
+                      ? `${advancedRates.freeThrowRatePct.toFixed(1)}%`
+                      : '—'}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Three-Point Rate
+                  </span>
+                  <span className="w-20 shrink-0 text-right text-sm font-mono font-semibold tabular-nums">
+                    {advancedRates.threePointRatePct != null
+                      ? `${advancedRates.threePointRatePct.toFixed(1)}%`
+                      : '—'}
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Points in the Paint
+                  </span>
+                  <span className="flex w-20 shrink-0 items-center justify-end gap-1">
+                    <PartialAverageWarning
+                      tooltip={
+                        shotChartAverages.paintPerGame !== null &&
+                        shotChartAverages.gamesWithShotData > 0 &&
+                        shotChartAverages.gamesWithShotData <
+                          filteredData.gamesPlayed
+                          ? `Average uses only games with shot locations (${shotChartAverages.gamesWithShotData} of ${filteredData.gamesPlayed} games in this view).`
+                          : undefined
+                      }
+                    />
+                    <OptionalStatText
+                      value={shotChartAverages.paintPerGame}
+                      decimals={1}
+                      className="text-sm font-mono font-semibold tabular-nums"
+                    />
+                  </span>
+                </li>
+                <li className="flex items-center px-2 py-1.5">
+                  <span className="min-w-0 flex-1 text-sm text-muted-foreground">
+                    Fast Break Points
+                  </span>
+                  <span className="flex w-20 shrink-0 items-center justify-end gap-1">
+                    <PartialAverageWarning
+                      tooltip={
+                        shotChartAverages.fastbreakPerGame !== null &&
+                        shotChartAverages.gamesWithShotData > 0 &&
+                        shotChartAverages.gamesWithShotData <
+                          filteredData.gamesPlayed
+                          ? `Average uses only games with shot locations (${shotChartAverages.gamesWithShotData} of ${filteredData.gamesPlayed} games in this view).`
+                          : undefined
+                      }
+                    />
+                    <OptionalStatText
+                      value={shotChartAverages.fastbreakPerGame}
+                      decimals={1}
+                      className="text-sm font-mono font-semibold tabular-nums"
+                    />
+                  </span>
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
 
         {/* Defensive Stats */}
         <Card>
