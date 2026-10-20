@@ -29,7 +29,7 @@ const LEGEND_COLUMNS = 3;
 const FOOTER_CLEARANCE = 36;
 
 const COMMON_COLUMN_WIDTHS = {
-  rank: 12,
+  jersey: 12,
   player: 64,
   position: 16,
   gamesPlayed: 14,
@@ -55,7 +55,7 @@ function buildStatsTableColumnStyles(
 ): Record<number, { cellWidth: number; halign: 'left' | 'center' }> {
   const tableWidth = pageWidth - PAGE_MARGIN * 2;
   const fixedTotal =
-    COMMON_COLUMN_WIDTHS.rank +
+    COMMON_COLUMN_WIDTHS.jersey +
     COMMON_COLUMN_WIDTHS.player +
     COMMON_COLUMN_WIDTHS.position +
     COMMON_COLUMN_WIDTHS.gamesPlayed +
@@ -64,7 +64,7 @@ function buildStatsTableColumnStyles(
 
   const styles: Record<number, { cellWidth: number; halign: 'left' | 'center' }> =
     {
-      0: { cellWidth: COMMON_COLUMN_WIDTHS.rank, halign: 'center' },
+      0: { cellWidth: COMMON_COLUMN_WIDTHS.jersey, halign: 'center' },
       1: { cellWidth: COMMON_COLUMN_WIDTHS.player, halign: 'left' },
       2: { cellWidth: COMMON_COLUMN_WIDTHS.position, halign: 'center' },
       3: { cellWidth: COMMON_COLUMN_WIDTHS.gamesPlayed, halign: 'center' },

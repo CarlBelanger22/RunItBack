@@ -138,17 +138,22 @@ export function buildTeamStatsTournamentFilenameScope(
     .join('_');
 }
 
-function buildCommonPlayerStatsCells(
-  row: PlayerSeasonRow,
-  rank: number
-): string[] {
+/** Jersey # for PDF/export; `-` when missing. `0` is a valid number. */
+export function formatTeamStatsJerseyNumber(
+  number: number | null | undefined
+): string {
+  if (number == null || Number.isNaN(number)) return '-';
+  return String(number);
+}
+
+function buildCommonPlayerStatsCells(row: PlayerSeasonRow): string[] {
   const mpg =
     row.gamesPlayed > 0
       ? formatDecimalMinutes(row.totalStats.minutes_played / row.gamesPlayed)
       : '-';
 
   return [
-    String(rank),
+    formatTeamStatsJerseyNumber(row.player.number),
     row.player.name,
     row.player.position ?? '',
     String(row.gamesPlayed),
@@ -156,23 +161,19 @@ function buildCommonPlayerStatsCells(
   ];
 }
 
-export function buildTeamStatsStandardRow(
-  row: PlayerSeasonRow,
-  rank: number
-): string[] {
+export function buildTeamStatsStandardRow(row: PlayerSeasonRow): string[] {
   return [
-    ...buildCommonPlayerStatsCells(row, rank),
+    ...buildCommonPlayerStatsCells(row),
     ...formatStandardPlayerStatsRow(row),
   ];
 }
 
 export function buildTeamStatsAdvancedRow(
   row: PlayerSeasonRow,
-  rank: number,
   foulStatCoverage?: FoulStatCoverage
 ): string[] {
   return [
-    ...buildCommonPlayerStatsCells(row, rank),
+    ...buildCommonPlayerStatsCells(row),
     ...formatAdvancedPlayerStatsRow(row, foulStatCoverage),
   ];
 }
@@ -202,11 +203,9 @@ export function buildTeamStatsReportModel(
   const standardHeaders = [...TEAM_STATS_STANDARD_HEADERS];
   const advancedHeaders = [...TEAM_STATS_ADVANCED_HEADERS];
 
-  const standardBody = sortedRows.map((row, index) =>
-    buildTeamStatsStandardRow(row, index + 1)
-  );
-  const advancedBody = sortedRows.map((row, index) =>
-    buildTeamStatsAdvancedRow(row, index + 1, foulStatCoverage)
+  const standardBody = sortedRows.map((row) => buildTeamStatsStandardRow(row));
+  const advancedBody = sortedRows.map((row) =>
+    buildTeamStatsAdvancedRow(row, foulStatCoverage)
   );
 
   const tournamentScopeSlug = buildTeamStatsTournamentFilenameScope(

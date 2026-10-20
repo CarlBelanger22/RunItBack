@@ -33,6 +33,7 @@ import {
   formatAdvancedPlayerStatsRow,
   formatStandardPlayerStatsRow,
 } from '../utils/playerStatsDisplay';
+import { formatTeamStatsJerseyNumber } from '../utils/teamStatsReportModel';
 
 type StatsView = 'standard' | 'advanced';
 
@@ -287,6 +288,7 @@ export function PlayerStatsTable({
     ? 'player-stats-sticky-player player-stats-sticky-player--flush'
     : 'player-stats-sticky-player';
   const stickyRankHeadClass = 'player-stats-sticky-rank';
+  const stickyJerseyHeadClass = 'player-stats-sticky-jersey';
 
   const stickyPlayerCellClass = (
     field: PlayerStatsSortField,
@@ -303,6 +305,9 @@ export function PlayerStatsTable({
 
   const stickyRankCellClass = (isSummaryRow: boolean) =>
     `player-stats-sticky-rank text-sm${isSummaryRow ? ' is-summary' : ''}`;
+
+  const stickyJerseyCellClass = (isSummaryRow: boolean) =>
+    `player-stats-sticky-jersey text-sm${isSummaryRow ? ' is-summary' : ''}`;
 
   return (
     <div className="space-y-3">
@@ -348,6 +353,13 @@ export function PlayerStatsTable({
                   label="#"
                   tooltip={COLUMN_TOOLTIPS['#']}
                   className={`${stickyRankHeadClass} text-center`}
+                />
+              )}
+              {!isBreakdown && (
+                <StatTooltipHead
+                  label="No."
+                  tooltip={COLUMN_TOOLTIPS.No}
+                  className={`${stickyJerseyHeadClass} text-center`}
                 />
               )}
               {isBreakdown ? (
@@ -520,6 +532,15 @@ export function PlayerStatsTable({
                       {!isBreakdown && (
                         <TableCell className={stickyRankCellClass(isSummaryRow)}>
                           {index + 1}
+                        </TableCell>
+                      )}
+                      {!isBreakdown && (
+                        <TableCell
+                          className={stickyJerseyCellClass(isSummaryRow)}
+                        >
+                          {formatTeamStatsJerseyNumber(
+                            playerData.player.number
+                          )}
                         </TableCell>
                       )}
                       {isBreakdown ? (

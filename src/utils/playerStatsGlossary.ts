@@ -2,6 +2,7 @@
 
 export const PLAYER_STATS_COLUMN_TOOLTIPS: Record<string, string> = {
   '#': 'Row number for the current sort order',
+  No: 'Jersey number',
   Tournament: 'Tournament name',
   Scope: 'Tournament or summary scope',
   Player: 'Player name',
@@ -47,6 +48,7 @@ export const PLAYER_STATS_COLUMN_TOOLTIPS: Record<string, string> = {
 
 /** Order used in team stats PDF legend (roster table columns). */
 export const TEAM_STATS_PDF_GLOSSARY_ABBREVS = [
+  '#',
   'GP',
   'MPG',
   'PPG',
@@ -80,6 +82,11 @@ export const TEAM_STATS_PDF_GLOSSARY_ABBREVS = [
   'UF',
 ] as const;
 
+/** PDF `#` is jersey (UI `#` remains sort rank). */
+const TEAM_STATS_PDF_TOOLTIP_OVERRIDES: Record<string, string> = {
+  '#': 'Jersey number',
+};
+
 export const TEAM_STATS_PDF_GLOSSARY_NOTE =
   '— (dash) means the stat was not recorded for games in this view.';
 
@@ -89,6 +96,9 @@ export function getTeamStatsPdfGlossaryEntries(): Array<{
 }> {
   return TEAM_STATS_PDF_GLOSSARY_ABBREVS.map((abbrev) => ({
     abbrev,
-    description: PLAYER_STATS_COLUMN_TOOLTIPS[abbrev] ?? abbrev,
+    description:
+      TEAM_STATS_PDF_TOOLTIP_OVERRIDES[abbrev] ??
+      PLAYER_STATS_COLUMN_TOOLTIPS[abbrev] ??
+      abbrev,
   }));
 }

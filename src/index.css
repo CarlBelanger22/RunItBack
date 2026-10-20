@@ -5906,6 +5906,7 @@ html {
 }
 
 .player-stats-sticky-rank,
+.player-stats-sticky-jersey,
 .player-stats-sticky-player {
   position: sticky;
   z-index: 10;
@@ -5919,23 +5920,32 @@ html {
   text-align: center;
 }
 
-.player-stats-sticky-player {
+.player-stats-sticky-jersey {
   left: 3rem;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  text-align: center;
+}
+
+.player-stats-sticky-player {
+  left: 5.75rem;
   min-width: 9rem;
 }
 
-/* Breakdown layout: no # column — Player/Tournament sticks at left edge */
+/* Breakdown layout: no # / No. columns — Player/Tournament sticks at left edge */
 .player-stats-sticky-player--flush {
   left: 0;
 }
 
-/* Must beat `.player-stats-scroll tbody td` so #/Player match header. */
+/* Must beat `.player-stats-scroll tbody td` so #/No./Player match header. */
 .player-stats-scroll td.player-stats-sticky-rank,
+.player-stats-scroll td.player-stats-sticky-jersey,
 .player-stats-scroll td.player-stats-sticky-player {
   background-color: var(--background);
 }
 
 .player-stats-scroll thead th.player-stats-sticky-rank,
+.player-stats-scroll thead th.player-stats-sticky-jersey,
 .player-stats-scroll thead th.player-stats-sticky-player {
   z-index: 40;
   top: 0;
@@ -5947,6 +5957,7 @@ html {
 }
 
 .player-stats-scroll td.player-stats-sticky-rank.is-summary,
+.player-stats-scroll td.player-stats-sticky-jersey.is-summary,
 .player-stats-scroll td.player-stats-sticky-player.is-summary {
   background-color: color-mix(in oklab, var(--muted) 35%, var(--background));
 }
@@ -5956,6 +5967,7 @@ html {
 }
 
 .player-stats-scroll tbody tr:hover td.player-stats-sticky-rank,
+.player-stats-scroll tbody tr:hover td.player-stats-sticky-jersey,
 .player-stats-scroll tbody tr:hover td.player-stats-sticky-player {
   background-color: color-mix(in oklab, var(--muted) 45%, var(--background));
 }
