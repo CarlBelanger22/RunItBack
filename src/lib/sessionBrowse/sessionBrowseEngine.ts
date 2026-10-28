@@ -105,6 +105,34 @@ export class SessionBrowseEngine {
     return this.checkIdleOrMidnight(now);
   }
 
+  /**
+   * Non-destructive peek of the current session as a flush payload.
+   * Does not end or reset the session. Used to stash a local draft
+   * in case Chrome quits without a reliable pagehide.
+   */
+  snapshotFlush(now: number): SessionFlush | null {
+    if (this.sessionStartedAt == null) return null;
+    this.accrueActive(now);
+
+    const blocks = [...this.closedBlocks];
+    const openBlock = this.peekOpenPageBlock();
+    if (openBlock) blocks.push(openBlock);
+
+    if (
+      this.activeDurationMs < MIN_SESSION_ACTIVE_MS ||
+      blocks.length === 0
+    ) {
+      return null;
+    }
+
+    return {
+      clientSessionId: this.clientSessionId,
+      startedAt: new Date(this.sessionStartedAt),
+      activeDurationMs: this.activeDurationMs,
+      blocks,
+    };
+  }
+
   /** Sign-out or unmount. */
   forceEnd(now: number): SessionFlush | null {
     return this.endSession(now);
@@ -266,6 +294,37 @@ export class SessionBrowseEngine {
     }
 
     return null;
+  }
+
+  /** Build a page block from the open page without closing it. */
+  private peekOpenPageBlock(): SessionPageBlock | null {
+    const page = this.openPage;
+    if (!page) return null;
+
+    const tabs: SessionTabDwell[] = [...page.tabs];
+    if (page.openTab && page.openTab.accruedMs >= MIN_SEGMENT_MS) {
+      tabs.push({
+        tabKey: page.openTab.tabKey,
+        label: page.openTab.label,
+        durationMs: page.openTab.accruedMs,
+      });
+    }
+
+    if (page.accruedMs < MIN_SEGMENT_MS && tabs.length === 0) return null;
+
+    const durationMs = Math.max(
+      page.accruedMs,
+      tabs.reduce((n, t) => n + t.durationMs, 0)
+    );
+    if (durationMs < MIN_SEGMENT_MS && tabs.length === 0) return null;
+
+    return {
+      key: page.groupKey,
+      title: page.title,
+      durationMs,
+      tabs,
+      filterNote: page.filterNote,
+    };
   }
 
   private endSession(now: number): SessionFlush | null {

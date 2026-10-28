@@ -6,8 +6,10 @@ import { isAdminEmail } from '../auth/adminAllowlist';
 import { SessionBrowseEngine } from './sessionBrowseEngine';
 import type { EntityLookup } from './types';
 import {
+  flushLocalSessionSummaryDrafts,
   notifySessionSummary,
   notifySessionSummaryKeepalive,
+  persistSessionFlushDraft,
   retryPendingSessionSummaries,
 } from './notifySessionSummary';
 
@@ -27,7 +29,7 @@ export type SessionBrowseTrackerProps = {
 
 /**
  * Tracks signed-in prod browse sessions and Telegram-summarizes on idle/midnight/unmount.
- * Tab close uses fetch keepalive so the POST can finish after unload.
+ * Tab close: sync local draft, then fetch keepalive (draft recovers full Chrome quit).
  * Renders nothing.
  */
 export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
@@ -74,14 +76,17 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
 
     const eng = new SessionBrowseEngine(lookup);
     engineRef.current = eng;
-    void retryPendingSessionSummaries(user);
+    // Local drafts first (full-quit recovery), then DB pending Telegram retries
+    void flushLocalSessionSummaryDrafts(user).then(() =>
+      retryPendingSessionSummaries(user)
+    );
 
-    const flushAlive = () => {
+    const maybeSnapshotDraft = () => {
       const u = userRef.current;
       const e = engineRef.current;
       if (!u || !e) return;
-      const flush = e.forceEnd(Date.now());
-      if (flush) void notifySessionSummary(u, flush);
+      const snap = e.snapshotFlush(Date.now());
+      if (snap) persistSessionFlushDraft(u, snap);
     };
 
     const flushUnload = () => {
@@ -89,7 +94,7 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
       const e = engineRef.current;
       const token = accessTokenRef.current;
       if (!u || !e) return;
-      // End session once; keepalive so close-tab can complete the POST
+      // End session once; draft then keepalive so close-tab / full-quit can recover
       const flush = e.forceEnd(Date.now());
       engineRef.current = null;
       if (flush) notifySessionSummaryKeepalive(u, flush, token);
@@ -104,6 +109,7 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
         Date.now()
       );
       if (flush) void notifySessionSummary(u, flush);
+      else maybeSnapshotDraft();
     };
 
     const interval = window.setInterval(() => {
@@ -112,6 +118,7 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
       if (!e || !u) return;
       const flush = e.tick(Date.now());
       if (flush) void notifySessionSummary(u, flush);
+      else maybeSnapshotDraft();
     }, 60_000);
 
     document.addEventListener('visibilitychange', onVis);
@@ -143,7 +150,12 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
     const u = userRef.current;
     if (!eng || !u) return;
     const flush = eng.notePath(location.pathname, location.search, Date.now());
-    if (flush) void notifySessionSummary(u, flush);
+    if (flush) {
+      void notifySessionSummary(u, flush);
+      return;
+    }
+    const snap = eng.snapshotFlush(Date.now());
+    if (snap) persistSessionFlushDraft(u, snap);
   }, [enabled, location.pathname, location.search]);
 
   return null;
