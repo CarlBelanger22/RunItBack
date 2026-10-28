@@ -232,6 +232,7 @@
             "test:tournament-all-defensive": "tsx scripts/test-tournament-all-defensive.ts",
             "test:tournament-progression": "tsx scripts/test-tournament-progression.ts",
             "test:home-standings-display": "tsx scripts/test-home-standings-display.ts",
-            "test:tournament-award-scoring": "tsx scripts/test-tournament-award-scoring.ts"
+            "test:tournament-award-scoring": "tsx scripts/test-tournament-award-scoring.ts",
+            "test:session-browse-summary": "tsx scripts/test-session-browse-summary.ts"
       }
 }

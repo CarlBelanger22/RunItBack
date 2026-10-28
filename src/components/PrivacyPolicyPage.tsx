@@ -63,8 +63,11 @@ export function PrivacyPolicyPage() {
           <li>
             <span className="text-foreground">Usage signals for operators</span> in
             production: limited notices that a signed-in user signed up or opened
-            the app (name, email, event type, and timestamp), sent to our private
-            admin channel so we can understand who is using the product.
+            the app (name, email, event type, and timestamp), and after an online
+            session ends, a concise summary of which signed-in pages and tabs were
+            viewed and for how long (for example tournament, team, player, or game
+            pages). These notices are sent only to our private admin channel so we
+            can understand how the product is used — not for advertising to you.
           </li>
           <li>
             <span className="text-foreground">Basketball content</span> entered by
@@ -105,8 +108,9 @@ export function PrivacyPolicyPage() {
           <li>Display public league information that operators choose to publish.</li>
           <li>Receive and handle content-removal or privacy requests.</li>
           <li>
-            Let the operator know about new sign-ups and daily app use in
-            production (admin notifications only; not for advertising to you).
+            Let the operator know about new sign-ups, daily app use, and
+            end-of-session page/tab browse summaries in production (admin
+            notifications only; not for advertising to you).
           </li>
         </ul>
         <p className="text-muted-foreground">
@@ -130,7 +134,8 @@ export function PrivacyPolicyPage() {
           </li>
           <li>
             <span className="text-foreground">Telegram</span> — delivery of the
-            private admin signup / app-open notices described above.
+            private admin signup / app-open / session-browse notices described
+            above.
           </li>
           <li>
             Hosting providers that serve the website (for example the platform

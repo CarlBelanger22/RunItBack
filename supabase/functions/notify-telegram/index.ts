@@ -1,22 +1,36 @@
 /**
- * Telegram notify for RunItBack auth/visit events.
+ * Telegram notify for RunItBack auth/visit + session browse summaries.
  *
  * Secrets (Supabase Dashboard → Edge Functions → Secrets):
  *   TELEGRAM_BOT_TOKEN
  *   TELEGRAM_CHAT_ID          (group chat id, usually negative)
  *   ADMIN_NOTIFY_SKIP_EMAILS  (comma-separated, lowercase ok)
  *
- * Body: { eventType: "signup" | "app_open" }
+ * Body:
+ *   { eventType: "signup" | "app_open" }
+ *   { eventType: "session_summary", clientSessionId, summaryText,
+ *     sessionStartedAt?, activeDurationMs? }
+ *   { eventType: "session_summary_retry" }
+ *
  * Auth: caller JWT (verify_jwt). Fail-open: always 200 with { ok/skipped/error }.
  */
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const SIGNUP_DAY_SENTINEL = '1970-01-01';
+const PENDING_RETRY_LIMIT = 10;
 
-type EventType = 'signup' | 'app_open';
+type EventType =
+  | 'signup'
+  | 'app_open'
+  | 'session_summary'
+  | 'session_summary_retry';
 
 interface Body {
   eventType?: string;
+  clientSessionId?: string;
+  summaryText?: string;
+  sessionStartedAt?: string;
+  activeDurationMs?: number;
 }
 
 function json(status: number, body: Record<string, unknown>): Response {
@@ -84,22 +98,66 @@ function isRecentSignup(createdAt: string | undefined, maxAgeMs: number): boolea
 async function sendTelegram(
   token: string,
   chatId: string,
-  text: string
+  text: string,
+  parseMode?: 'HTML'
 ): Promise<void> {
+  const payload: Record<string, unknown> = {
+    chat_id: chatId,
+    text,
+    disable_web_page_preview: true,
+  };
+  if (parseMode) payload.parse_mode = parseMode;
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: chatId,
-      text,
-      parse_mode: 'HTML',
-      disable_web_page_preview: true,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`Telegram API ${res.status}: ${body}`);
   }
+}
+
+async function flushPendingSummaries(
+  admin: SupabaseClient,
+  botToken: string,
+  chatId: string,
+  userId: string
+): Promise<number> {
+  const { data: rows, error } = await admin
+    .from('telegram_session_summaries')
+    .select('id, summary_text')
+    .eq('user_id', userId)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: true })
+    .limit(PENDING_RETRY_LIMIT);
+  if (error) {
+    console.error('[notify-telegram] pending select', error);
+    return 0;
+  }
+  let sent = 0;
+  for (const row of rows ?? []) {
+    try {
+      await sendTelegram(botToken, chatId, row.summary_text as string);
+      await admin
+        .from('telegram_session_summaries')
+        .update({
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          last_error: null,
+        })
+        .eq('id', row.id);
+      sent += 1;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'send_failed';
+      await admin
+        .from('telegram_session_summaries')
+        .update({ status: 'pending', last_error: msg })
+        .eq('id', row.id);
+      console.error('[notify-telegram] pending send', msg);
+    }
+  }
+  return sent;
 }
 
 Deno.serve(async (req) => {
@@ -154,7 +212,13 @@ Deno.serve(async (req) => {
     }
 
     const eventType = body.eventType as EventType;
-    if (eventType !== 'signup' && eventType !== 'app_open') {
+    const allowed: EventType[] = [
+      'signup',
+      'app_open',
+      'session_summary',
+      'session_summary_retry',
+    ];
+    if (!allowed.includes(eventType)) {
       return json(200, { ok: false, error: 'bad_event' });
     }
 
@@ -164,9 +228,82 @@ Deno.serve(async (req) => {
       return json(200, { ok: true, skipped: true, reason: 'admin' });
     }
 
-    // Signup only if account was created recently (avoids false signup on first deploy open).
+    const admin = createClient(supabaseUrl, serviceKey);
+
+    // --- Session summary / retry ---
+    if (
+      eventType === 'session_summary' ||
+      eventType === 'session_summary_retry'
+    ) {
+      if (eventType === 'session_summary') {
+        const clientSessionId = (body.clientSessionId ?? '').trim();
+        const summaryText = (body.summaryText ?? '').trim();
+        if (!clientSessionId || !summaryText) {
+          return json(200, { ok: false, error: 'missing_summary_fields' });
+        }
+
+        const { data: existing } = await admin
+          .from('telegram_session_summaries')
+          .select('id, status')
+          .eq('user_id', user.id)
+          .eq('client_session_id', clientSessionId)
+          .maybeSingle();
+
+        if (existing?.status === 'sent') {
+          const retried = await flushPendingSummaries(
+            admin,
+            botToken,
+            chatId,
+            user.id
+          );
+          return json(200, {
+            ok: true,
+            skipped: true,
+            reason: 'already_sent',
+            retried,
+          });
+        }
+
+        if (!existing) {
+          const { error: insErr } = await admin
+            .from('telegram_session_summaries')
+            .insert({
+              user_id: user.id,
+              client_session_id: clientSessionId,
+              summary_text: summaryText,
+              session_started_at: body.sessionStartedAt ?? null,
+              active_duration_ms: body.activeDurationMs ?? null,
+              status: 'pending',
+            });
+          if (insErr) {
+            console.error('[notify-telegram] summary insert', insErr);
+            return json(200, { ok: false, error: 'summary_insert_failed' });
+          }
+        } else {
+          await admin
+            .from('telegram_session_summaries')
+            .update({ summary_text: summaryText, status: 'pending' })
+            .eq('id', existing.id);
+        }
+      }
+
+      const retried = await flushPendingSummaries(
+        admin,
+        botToken,
+        chatId,
+        user.id
+      );
+      return json(200, {
+        ok: true,
+        sent: retried > 0,
+        retried,
+        eventType,
+      });
+    }
+
+    // --- Signup / app_open (unchanged behavior) ---
     if (eventType === 'signup') {
-      const maxAgeMs = 30 * 60 * 1000; // 30 minutes
+      const maxAgeMs = 30 * 60 * 1000;
       if (!isRecentSignup(user.created_at, maxAgeMs)) {
         return json(200, { ok: true, skipped: true, reason: 'not_recent_signup' });
       }
@@ -175,7 +312,6 @@ Deno.serve(async (req) => {
     const daySgt =
       eventType === 'signup' ? SIGNUP_DAY_SENTINEL : sgtDateString();
 
-    const admin = createClient(supabaseUrl, serviceKey);
     const { error: insertErr } = await admin.from('telegram_notify_dedupe').insert({
       user_id: user.id,
       event_type: eventType,
@@ -183,7 +319,6 @@ Deno.serve(async (req) => {
     });
 
     if (insertErr) {
-      // Unique violation → already notified
       if (insertErr.code === '23505') {
         return json(200, { ok: true, skipped: true, reason: 'deduped' });
       }
@@ -200,8 +335,17 @@ Deno.serve(async (req) => {
       escapeHtml(sgtTimestampLabel()),
     ].join('\n');
 
-    await sendTelegram(botToken, chatId, text);
-    return json(200, { ok: true, sent: true, eventType });
+    await sendTelegram(botToken, chatId, text, 'HTML');
+
+    // Opportunistic retry of any pending session summaries for this user
+    const retried = await flushPendingSummaries(
+      admin,
+      botToken,
+      chatId,
+      user.id
+    );
+
+    return json(200, { ok: true, sent: true, eventType, retried });
   } catch (e) {
     console.error('[notify-telegram]', e);
     return json(200, {

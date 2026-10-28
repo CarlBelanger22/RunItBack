@@ -4,4 +4,4 @@ export {
 } from './contentRemoval';
 
 /** Shown on the public Privacy Policy page. */
-export const PRIVACY_POLICY_LAST_UPDATED = '23 September 2026';
+export const PRIVACY_POLICY_LAST_UPDATED = '28 October 2026';

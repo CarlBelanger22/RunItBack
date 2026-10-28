@@ -19,6 +19,8 @@ import { TeamBadge } from './components/TeamBadge';
 import { TournamentBadge } from './components/TournamentBadge';
 import { isSupabaseConfigured } from './lib/supabase';
 import { useAuthCapabilities } from './lib/auth/useAuthCapabilities';
+import { SessionBrowseTracker } from './lib/sessionBrowse/SessionBrowseTracker';
+import type { EntityLookup } from './lib/sessionBrowse/types';
 import { completedGameStatusLabel, type GameClockSettings } from './utils/gameClock';
 import type { TournamentStructure } from './utils/tournamentStructure';
 import {
@@ -2998,6 +3000,35 @@ export default function App() {
     });
   }, [searchQuery, tournaments, teams, games, orphanPlayers]);
 
+  const sessionBrowseLookup = useMemo((): EntityLookup => {
+    const tournamentById = new Map(tournaments.map((t) => [t.id, t.name]));
+    const teamById = new Map(teams.map((t) => [t.id, t.name]));
+    const playerById = new Map<string, string>();
+    for (const team of teams) {
+      for (const p of team.players ?? []) {
+        playerById.set(p.id, p.name);
+      }
+    }
+    for (const p of orphanPlayers) {
+      playerById.set(p.id, p.name);
+    }
+    const gameById = new Map(
+      games.map((g) => {
+        const home =
+          teams.find((t) => t.id === g.homeTeamId)?.name ?? g.homeTeamId;
+        const away =
+          teams.find((t) => t.id === g.awayTeamId)?.name ?? g.awayTeamId;
+        return [g.id, `${home} vs ${away}`] as const;
+      })
+    );
+    return {
+      tournamentName: (id) => tournamentById.get(id),
+      teamName: (id) => teamById.get(id),
+      playerName: (id) => playerById.get(id),
+      gameMatchup: (id) => gameById.get(id),
+    };
+  }, [tournaments, teams, games, orphanPlayers]);
+
   if (isDataLoading) {
     return (
       <div className="min-h-screen bg-background text-foreground dark flex items-center justify-center">
@@ -3008,6 +3039,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-background text-foreground dark">
+      <SessionBrowseTracker lookup={sessionBrowseLookup} />
       {!isSupabaseConfigured && import.meta.env.PROD && (
         <div className="bg-amber-500/15 text-amber-200 text-sm text-center py-2 px-4">
           Cloud database not connected (missing env vars in this deploy). Data is from this browser only.
