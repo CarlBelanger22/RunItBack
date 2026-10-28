@@ -44,6 +44,7 @@ function sgtDateString(d = new Date()): string {
   return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Singapore' });
 }
 
+/** e.g. "28 Oct 2026, 3:40 PM SGT" */
 function sgtTimestampLabel(d = new Date()): string {
   const date = d.toLocaleDateString('en-GB', {
     timeZone: 'Asia/Singapore',
@@ -51,11 +52,11 @@ function sgtTimestampLabel(d = new Date()): string {
     month: 'short',
     year: 'numeric',
   });
-  const time = d.toLocaleTimeString('en-GB', {
+  const time = d.toLocaleTimeString('en-US', {
     timeZone: 'Asia/Singapore',
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
-    hour12: false,
+    hour12: true,
   });
   return `${date}, ${time} SGT`;
 }
@@ -138,7 +139,13 @@ async function flushPendingSummaries(
   let sent = 0;
   for (const row of rows ?? []) {
     try {
-      await sendTelegram(botToken, chatId, row.summary_text as string);
+      // Summaries include <b> titles; always HTML
+      await sendTelegram(
+        botToken,
+        chatId,
+        row.summary_text as string,
+        'HTML'
+      );
       await admin
         .from('telegram_session_summaries')
         .update({
@@ -327,11 +334,11 @@ Deno.serve(async (req) => {
     }
 
     const name = displayNameFromUser(user);
-    const label = eventType === 'signup' ? 'signup' : 'app open';
+    const title = eventType === 'signup' ? 'Sign Up' : 'Login';
     const text = [
-      `<b>${escapeHtml(name)}</b>`,
+      `<b>${title}</b>`,
+      escapeHtml(name),
       escapeHtml(email || '(no email)'),
-      escapeHtml(label),
       escapeHtml(sgtTimestampLabel()),
     ].join('\n');
 

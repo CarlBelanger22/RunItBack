@@ -1,6 +1,6 @@
 import type { SessionPageBlock, SessionSummaryInput } from './types';
 
-/** Telegram practical max; leave headroom for HTML entities if used later. */
+/** Telegram practical max; leave headroom for HTML entities. */
 export const TELEGRAM_SOFT_LIMIT = 3900;
 
 export function formatDurationMmSs(ms: number): string {
@@ -10,6 +10,7 @@ export function formatDurationMmSs(ms: number): string {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
+/** e.g. "28 Oct 2026, 3:40 PM SGT" */
 export function formatSgtTimestamp(d: Date): string {
   const date = d.toLocaleDateString('en-GB', {
     timeZone: 'Asia/Singapore',
@@ -17,13 +18,20 @@ export function formatSgtTimestamp(d: Date): string {
     month: 'short',
     year: 'numeric',
   });
-  const time = d.toLocaleTimeString('en-GB', {
+  const time = d.toLocaleTimeString('en-US', {
     timeZone: 'Asia/Singapore',
-    hour: '2-digit',
+    hour: 'numeric',
     minute: '2-digit',
-    hour12: false,
+    hour12: true,
   });
   return `${date}, ${time} SGT`;
+}
+
+export function escapeTelegramHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function sgtDateString(d: Date): string {
@@ -36,13 +44,21 @@ export function isDifferentSgtDay(a: Date, b: Date): boolean {
 
 function renderBlock(block: SessionPageBlock): string[] {
   const lines: string[] = [
-    `${block.title} (${formatDurationMmSs(block.durationMs)})`,
+    escapeTelegramHtml(
+      `${block.title} (${formatDurationMmSs(block.durationMs)})`
+    ),
   ];
   for (const tab of block.tabs) {
-    lines.push(`- ${tab.label} (${formatDurationMmSs(tab.durationMs)})`);
+    lines.push(
+      escapeTelegramHtml(
+        `- ${tab.label} (${formatDurationMmSs(tab.durationMs)})`
+      )
+    );
   }
   if (block.filterNote) {
-    lines.push(`  filters: ${block.filterNote}`);
+    lines.push(
+      escapeTelegramHtml(`  filters: ${block.filterNote}`)
+    );
   }
   return lines;
 }
@@ -93,7 +109,6 @@ export function truncateSessionBlocks(
   while (next.length > 1 && measure(next) > softLimit) {
     const dropped = next.length - 1;
     next = next.slice(1);
-    // Annotate first remaining block that older content was dropped
     if (next[0] && !next[0].title.startsWith('…')) {
       next = [
         {
@@ -104,25 +119,30 @@ export function truncateSessionBlocks(
         },
         ...next,
       ];
-      // Avoid infinite loop if annotation itself is huge — only once
       break;
     }
   }
 
-  // If still too long, keep collapsing / dropping
   while (next.length > 1 && measure(next) > softLimit) {
     next = next.slice(1);
   }
   return next;
 }
 
+/** HTML-formatted session summary for Telegram parse_mode HTML. */
 export function formatSessionSummaryText(input: SessionSummaryInput): string {
   const header = [
-    input.displayName,
-    input.email || '(no email)',
-    `Logged in ${formatSgtTimestamp(input.startedAt)} · active ${formatDurationMmSs(input.activeDurationMs)}`,
+    '<b>Session Summary</b>',
+    escapeTelegramHtml(input.displayName),
+    escapeTelegramHtml(input.email || '(no email)'),
+    escapeTelegramHtml(formatSgtTimestamp(input.startedAt)),
+    `<b>Total ${formatDurationMmSs(input.activeDurationMs)}</b>`,
   ];
-  const blocks = truncateSessionBlocks(input.blocks, TELEGRAM_SOFT_LIMIT, header);
+  const blocks = truncateSessionBlocks(
+    input.blocks,
+    TELEGRAM_SOFT_LIMIT,
+    header
+  );
   const body = blocks.flatMap(renderBlock);
   return [...header, ...body, 'Session end.'].join('\n');
 }
