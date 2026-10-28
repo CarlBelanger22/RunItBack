@@ -38,3 +38,7 @@ export function requireSupabase(): SupabaseClient {
 }
 
 export const isSupabaseConfigured = Boolean(supabase);
+
+/** Raw env (for keepalive fetch outside the JS client). */
+export const supabaseUrl = hasUrl ? url!.trim() : null;
+export const supabasePublishableKey = hasKey ? publishableKey!.trim() : null;

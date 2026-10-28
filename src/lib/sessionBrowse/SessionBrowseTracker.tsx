@@ -7,6 +7,7 @@ import { SessionBrowseEngine } from './sessionBrowseEngine';
 import type { EntityLookup } from './types';
 import {
   notifySessionSummary,
+  notifySessionSummaryKeepalive,
   retryPendingSessionSummaries,
 } from './notifySessionSummary';
 
@@ -26,14 +27,17 @@ export type SessionBrowseTrackerProps = {
 
 /**
  * Tracks signed-in prod browse sessions and Telegram-summarizes on idle/midnight/unmount.
+ * Tab close uses fetch keepalive so the POST can finish after unload.
  * Renders nothing.
  */
 export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
-  const { user, isLoading } = useAuth();
+  const { user, session, isLoading } = useAuth();
   const location = useLocation();
   const engineRef = useRef<SessionBrowseEngine | null>(null);
   const userRef = useRef<User | null>(null);
+  const accessTokenRef = useRef<string | null>(null);
   userRef.current = user;
+  accessTokenRef.current = session?.access_token ?? null;
 
   const enabled = useMemo(() => {
     if (isLoading || !user) return false;
@@ -47,6 +51,11 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
     engineRef.current?.setLookup(lookup);
   }, [lookup]);
 
+  // Keep token fresh if session object identity changes
+  useEffect(() => {
+    accessTokenRef.current = session?.access_token ?? null;
+  }, [session]);
+
   // Create / tear down engine with auth
   useEffect(() => {
     if (!enabled || !user) {
@@ -55,7 +64,10 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
       engineRef.current = null;
       if (eng && prevUser) {
         const flush = eng.forceEnd(Date.now());
-        if (flush) void notifySessionSummary(prevUser, flush);
+        if (flush) {
+          // Auth teardown while tab alive — normal invoke OK
+          void notifySessionSummary(prevUser, flush);
+        }
       }
       return;
     }
@@ -64,7 +76,7 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
     engineRef.current = eng;
     void retryPendingSessionSummaries(user);
 
-    const flushIfAny = () => {
+    const flushAlive = () => {
       const u = userRef.current;
       const e = engineRef.current;
       if (!u || !e) return;
@@ -72,16 +84,26 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
       if (flush) void notifySessionSummary(u, flush);
     };
 
+    const flushUnload = () => {
+      const u = userRef.current;
+      const e = engineRef.current;
+      const token = accessTokenRef.current;
+      if (!u || !e) return;
+      // End session once; keepalive so close-tab can complete the POST
+      const flush = e.forceEnd(Date.now());
+      engineRef.current = null;
+      if (flush) notifySessionSummaryKeepalive(u, flush, token);
+    };
+
     const onVis = () => {
       const e = engineRef.current;
       const u = userRef.current;
       if (!e || !u) return;
-      const flush = e.noteVisibility(document.visibilityState === 'visible', Date.now());
+      const flush = e.noteVisibility(
+        document.visibilityState === 'visible',
+        Date.now()
+      );
       if (flush) void notifySessionSummary(u, flush);
-    };
-
-    const onPageHide = () => {
-      flushIfAny();
     };
 
     const interval = window.setInterval(() => {
@@ -93,15 +115,16 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
     }, 60_000);
 
     document.addEventListener('visibilitychange', onVis);
-    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pagehide', flushUnload);
 
     // Seed current location
     eng.notePath(location.pathname, location.search, Date.now());
 
     return () => {
       document.removeEventListener('visibilitychange', onVis);
-      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('pagehide', flushUnload);
       window.clearInterval(interval);
+      // React Strict Mode / route remount while still on page — use alive path
       const e = engineRef.current;
       engineRef.current = null;
       if (e && userRef.current) {
