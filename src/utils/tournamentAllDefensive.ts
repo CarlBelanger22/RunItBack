@@ -285,7 +285,7 @@ export function buildAllDefensiveTeams(input: {
     (includePm ? `; + 0.07×+/−/g when tracked` : '') +
     `) + 40% team defense (35% opponent eFG% + 25% DRtg + 25% steals+blocks/g + 15% DRB/g) ` +
     `+ 10% team success index. ` +
-    `Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
+    `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
     `Each team is the top 5 eligible by Score (no position seats). ` +
     `Max 2 from the same club per 1st/2nd Team; max 3 across both (overflow spills to honourable mentions). ` +
     `Honourable mentions uncapped. ` +

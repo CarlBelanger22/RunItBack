@@ -12,7 +12,8 @@ import type { TeamProgressionPlace } from './tournamentProgression';
 /** Same weight as legacy DPOY box (+/− term). */
 export const DPOY_PLUS_MINUS_WEIGHT = 0.07;
 
-export const MVP_TSI_WEIGHT = 0.3;
+/** MVP: 65% OV (GmSc) + 35% TSI. */
+export const MVP_TSI_WEIGHT = 0.35;
 export const SIXTH_TSI_WEIGHT = 0.12;
 /** DPOY + All-Defensive shared blend. */
 export const DPOY_DV_WEIGHT = 0.5;
@@ -31,9 +32,9 @@ export type AwardRateRow = {
   plusMinusGames: number;
   plusMinusTotal: number;
 };
-/** Same blend shape as MVP (30% TSI on 1st); steps down for lower teams. */
+/** Same blend shape as MVP (35% TSI on 1st); steps down for lower teams. */
 export const ALL_TEAM_TSI_ALPHA = {
-  first: 0.3,
+  first: 0.35,
   second: 0.2,
   third: 0.1,
   hm: 0.1,
@@ -41,6 +42,17 @@ export const ALL_TEAM_TSI_ALPHA = {
 
 /** Finish ladder exponent inside TSI: linear=1, squared=2. Current: 1.5. */
 export const TSI_FINISH_EXPONENT = 1.5;
+
+/**
+ * TSI when finish place is known (Designer 2026-10-29): emphasize placement
+ * over win% / net so soft schedules do not erase a better tournament finish.
+ */
+export const TSI_FINISH_WEIGHT = 0.8;
+export const TSI_WIN_PCT_WEIGHT = 0.1;
+export const TSI_NET_WEIGHT = 0.1;
+/** When no progression place: win% / net only. */
+export const TSI_NO_PLACE_WIN_PCT_WEIGHT = 0.55;
+export const TSI_NO_PLACE_NET_WEIGHT = 0.45;
 
 /**
  * TeamDef01 blend P (DPOY + All-Defensive). Revised Designer 2026-10-29.
@@ -164,7 +176,7 @@ function finish01(place: number, nTeams: number): number {
 
 /**
  * Build TSI ∈ [0,1] per team.
- * With any progression places: 0.70 Finish^1.5 + 0.15 Win% + 0.15 Net01.
+ * With progression place: 0.80 Finish^1.5 + 0.10 Win% + 0.10 Net01.
  * Else: 0.55 Win% + 0.45 Net01.
  */
 export function buildTeamSuccessIndexMap(input: {
@@ -217,12 +229,16 @@ export function buildTeamSuccessIndexMap(input: {
     let tsi: number;
     if (hasProg && prog) {
       tsi =
-        0.7 * finish01(prog.place, n) + 0.15 * w + 0.15 * net01;
+        TSI_FINISH_WEIGHT * finish01(prog.place, n) +
+        TSI_WIN_PCT_WEIGHT * w +
+        TSI_NET_WEIGHT * net01;
     } else if (hasProg) {
       // Team not in progression map — W% + net only
-      tsi = 0.55 * w + 0.45 * net01;
+      tsi =
+        TSI_NO_PLACE_WIN_PCT_WEIGHT * w + TSI_NO_PLACE_NET_WEIGHT * net01;
     } else {
-      tsi = 0.55 * w + 0.45 * net01;
+      tsi =
+        TSI_NO_PLACE_WIN_PCT_WEIGHT * w + TSI_NO_PLACE_NET_WEIGHT * net01;
     }
     out.set(t.id, Math.min(1, Math.max(0, tsi)));
   }
@@ -238,8 +254,10 @@ export function buildTeamSuccessIndexMap(input: {
     const prog = input.progression.get(id);
     const tsi =
       hasProg && prog
-        ? 0.7 * finish01(prog.place, n) + 0.15 * w + 0.15 * net01
-        : 0.55 * w + 0.45 * net01;
+        ? TSI_FINISH_WEIGHT * finish01(prog.place, n) +
+          TSI_WIN_PCT_WEIGHT * w +
+          TSI_NET_WEIGHT * net01
+        : TSI_NO_PLACE_WIN_PCT_WEIGHT * w + TSI_NO_PLACE_NET_WEIGHT * net01;
     out.set(id, Math.min(1, Math.max(0, tsi)));
   }
 
@@ -262,10 +280,21 @@ export function tsiFromWinAndProgression(input: {
   if (input.progression.size > 0 && prog) {
     return Math.min(
       1,
-      Math.max(0, 0.7 * finish01(prog.place, n) + 0.15 * w + 0.15 * 0.5)
+      Math.max(
+        0,
+        TSI_FINISH_WEIGHT * finish01(prog.place, n) +
+          TSI_WIN_PCT_WEIGHT * w +
+          TSI_NET_WEIGHT * 0.5
+      )
     );
   }
-  return Math.min(1, Math.max(0, 0.55 * w + 0.45 * 0.5));
+  return Math.min(
+    1,
+    Math.max(
+      0,
+      TSI_NO_PLACE_WIN_PCT_WEIGHT * w + TSI_NO_PLACE_NET_WEIGHT * 0.5
+    )
+  );
 }
 
 type TeamDefBoxAgg = {
@@ -464,10 +493,10 @@ export function toAwardPoints(unitScore: number): number {
 
 /**
  * Per team-game missed: multiplicative wither schedule.
- * 1st miss −5%, 2nd −4%, 3rd and later −3% each.
- * e.g. 3 misses → ×0.95 × 0.96 × 0.97 ≈ 0.8846.
+ * 1st miss −2% (symbolic), 2nd −4% (real cut), 3rd and later −3% each.
+ * e.g. 2 misses → ×0.98 × 0.96 ≈ 0.9408; 3 → ×0.97 ≈ 0.9126.
  */
-export const AWARD_MISS_PENALTY_SCHEDULE = [0.05, 0.04, 0.03] as const;
+export const AWARD_MISS_PENALTY_SCHEDULE = [0.02, 0.04, 0.03] as const;
 
 /** @deprecated First-miss rate only; use AWARD_MISS_PENALTY_SCHEDULE. */
 export const AWARD_MISS_PENALTY = AWARD_MISS_PENALTY_SCHEDULE[0];

@@ -442,8 +442,8 @@ export function buildAllTournamentTeams(input: {
   const tooltip =
     `Stats-only All-${shortName} (same ingredients as MVP): Game Score/g ` +
     `scaled 0–100% vs the eligible field min/max; ` +
-    `then + team success (1st 30%, 2nd 20%, 3rd/HM 10%; TSI uses Finish^1.5); ` +
-    `then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
+    `then + team success (1st 35%, 2nd 20%, 3rd/HM 10%; TSI = 80% Finish^1.5 + 10% win% + 10% net when place known); ` +
+    `then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
     `Each team is the top 5 eligible by Score (no position seats). ` +
     `Max 2 from the same club per 1st/2nd/3rd Team; max 5 across those three squads (overflow spills to honourable mentions). ` +
     `Honourable mentions uncapped. ` +

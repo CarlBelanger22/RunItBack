@@ -388,7 +388,7 @@ export function awardContextMultiplier(
 
 /**
  * MVP-style score for a single row given a pool (for tests).
- * NBA blend: 0.70×OV01 + 0.30×TSI within the provided pool.
+ * NBA blend: 0.65×OV01 + 0.35×TSI within the provided pool.
  */
 export function mvpStyleScore(
   row: AwardPlayerAggregate,
@@ -510,9 +510,9 @@ export function buildTournamentAwardSections(
     id: 'mvp',
     title: 'MVP',
     tooltip:
-      'NBA-style: 70% Game Score/g (scaled 0–100% vs eligible min/max) + 30% team success index ' +
-      '(finish place when known, else win% / net rating). ' +
-      'Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
+      'NBA-style: 65% Game Score/g (scaled 0–100% vs eligible min/max) + 35% team success index ' +
+      '(when place known: 80% Finish^1.5 + 10% win% + 10% net; else win% / net). ' +
+      'Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
       'Eligible: ≥55% of team games. Ties: EFF/g, then PPG.',
     contenders: topBy(majors, mvpScore, (a, b) => {
       const eff =
@@ -558,7 +558,7 @@ export function buildTournamentAwardSections(
       `(1.5×STL + 1.5×BLK + 0.3×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
       `+ 40% team defense (35% opponent eFG% rank + 25% DRtg rank + 25% team steals+blocks/g + 15% team DRB/g) ` +
       `+ 10% team success index. ` +
-      `Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
+      `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
       `Eligible: ≥55% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,
     contenders: topBy(majors, dpoyScoreFn, (a, b) => {
       const stocks =
@@ -587,7 +587,7 @@ export function buildTournamentAwardSections(
     title: 'Sixth Man',
     tooltip:
       'NBA-style: 88% Game Score/g (scaled 0–100% vs bench-eligible min/max) + 12% team success index. ' +
-      'Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
+      'Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
       'Must come off the bench more than start (games with empty starter lists skipped for that ratio). ' +
       'Eligible: ≥55% of team games.',
     contenders: topBy(sixth, sixthScore),
