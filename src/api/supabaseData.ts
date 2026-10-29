@@ -1361,6 +1361,21 @@ export async function saveTeamsToSupabase(
   return iconPrepared.teams;
 }
 
+/**
+ * Upsert player profiles + club roster links from in-memory teams.
+ * Used by Update player so name/position/vitals hit `players` immediately
+ * (unlike saveTeamsToSupabase, which only writes team rows).
+ */
+export async function savePlayerProfilesAndClubLinksToSupabase(
+  teams: Team[],
+  leagueId = DEFAULT_LEAGUE_ID,
+  options?: SaveAppDataOptions
+): Promise<void> {
+  if (!supabase) return;
+  const schema = await detectPlayerStorageSchema();
+  await savePlayersWithSchema(dedupeTeamsById(teams), leagueId, schema, options);
+}
+
 export async function saveAppDataToSupabase(
   teams: Team[],
   tournaments: Tournament[],

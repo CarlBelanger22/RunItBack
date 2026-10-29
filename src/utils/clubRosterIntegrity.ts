@@ -264,6 +264,25 @@ export function mergePlayerRosterUnion(base: Player, incoming: Player): Player {
   };
 }
 
+/**
+ * Prefer local profile fields when both sides have values.
+ * Used after cloud revalidate when the user edited during sync so renames stick.
+ */
+export function mergePlayerPreferLocal(local: Player, cloud: Player): Player {
+  return {
+    id: local.id || cloud.id,
+    name: pickNonEmptyString(local.name, cloud.name),
+    number: local.number || cloud.number,
+    position: pickNonEmptyString(local.position, cloud.position),
+    secondaryPosition: local.secondaryPosition ?? cloud.secondaryPosition,
+    picture: local.picture ?? cloud.picture,
+    height: pickNonEmptyString(local.height, cloud.height),
+    weight: pickNonEmptyString(local.weight, cloud.weight),
+    age: local.age ?? cloud.age,
+    dateOfBirth: local.dateOfBirth ?? cloud.dateOfBirth,
+  };
+}
+
 export function mergeTeamRostersUnion(base: Team[], incoming: Team[]): Team[] {
   const incomingById = new Map(incoming.map((t) => [t.id, t]));
   const allIds = new Set([...base.map((t) => t.id), ...incoming.map((t) => t.id)]);
@@ -289,6 +308,51 @@ export function mergeTeamRostersUnion(base: Team[], incoming: Team[]): Team[] {
       description:
         b.description !== undefined ? b.description : a.description,
       icon: b.icon !== undefined ? b.icon : a.icon,
+      players: [...byPlayerId.values()].sort(
+        (x, y) => x.number - y.number || x.name.localeCompare(y.name)
+      ),
+    };
+  });
+}
+
+/**
+ * Union club rosters like mergeTeamRostersUnion, but when the same player exists
+ * on both sides, keep local name/position/vitals over cloud.
+ */
+export function mergeTeamRostersPreferLocalProfiles(
+  localTeams: Team[],
+  cloudTeams: Team[]
+): Team[] {
+  const cloudById = new Map(cloudTeams.map((t) => [t.id, t]));
+  const allIds = new Set([
+    ...localTeams.map((t) => t.id),
+    ...cloudTeams.map((t) => t.id),
+  ]);
+
+  return [...allIds].map((teamId) => {
+    const local = localTeams.find((t) => t.id === teamId);
+    const cloud = cloudById.get(teamId);
+    if (!local && cloud) return cloud;
+    if (local && !cloud) return local;
+    if (!local || !cloud) return local ?? cloud!;
+
+    const byPlayerId = new Map<string, Player>();
+    for (const p of local.players ?? []) byPlayerId.set(p.id, p);
+    for (const p of cloud.players ?? []) {
+      const existing = byPlayerId.get(p.id);
+      byPlayerId.set(
+        p.id,
+        existing ? mergePlayerPreferLocal(existing, p) : p
+      );
+    }
+
+    return {
+      ...cloud,
+      name: cloud.name?.trim() || local.name,
+      abbreviation: cloud.abbreviation?.trim() || local.abbreviation,
+      description:
+        cloud.description !== undefined ? cloud.description : local.description,
+      icon: cloud.icon !== undefined ? cloud.icon : local.icon,
       players: [...byPlayerId.values()].sort(
         (x, y) => x.number - y.number || x.name.localeCompare(y.name)
       ),

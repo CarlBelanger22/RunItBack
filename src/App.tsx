@@ -31,6 +31,7 @@ import {
   loadAppDataFromSupabase,
   saveAppDataToSupabase,
   saveGameToSupabase,
+  savePlayerProfilesAndClubLinksToSupabase,
   saveTeamsToSupabase,
   saveTournamentRostersToSupabase,
   MIGRATION_002_HINT,
@@ -119,6 +120,7 @@ import {
   acknowledgeRosterDeletes,
   dedupeRosterDeletes,
   findRosterRemovals,
+  mergeTeamRostersPreferLocalProfiles,
   mergeTeamRostersUnion,
 } from './utils/clubRosterIntegrity';
 import { ensureGameQuarterStats } from './utils/quarterScoring';
@@ -450,6 +452,9 @@ export interface Game {
    */
   courtSidesFlippedAtTip?: boolean;
 }
+
+/** Initial cloud revalidate budget — avoid infinite “Updating league data…”. */
+const CLOUD_LOAD_TIMEOUT_MS = 30_000;
 
 export interface SetupRosterChange {
   teamId: string;
@@ -1587,7 +1592,11 @@ export default function App() {
       let cloudApplied = false;
       let pendingSaveKind: CloudSaveKind | null = null;
 
-      loadAppDataFromSupabase()
+      withTimeout(
+        loadAppDataFromSupabase(),
+        CLOUD_LOAD_TIMEOUT_MS,
+        'Cloud league load'
+      )
         .then((data) => {
           if (cancelled) return;
           const processed = processLoadedAppData(data);
@@ -1646,7 +1655,10 @@ export default function App() {
               );
             }
             const mergedTeams = mergeTeamIconMetadata(
-              mergeTeamRostersUnion(teamsRef.current, processed.teams),
+              mergeTeamRostersPreferLocalProfiles(
+                teamsRef.current,
+                processed.teams
+              ),
               teamsRef.current,
               prevTeamsRef.current,
               processed.teams
@@ -2794,28 +2806,24 @@ export default function App() {
       });
 
       queueMicrotask(() => {
-        void saveTeamsToSupabase(teamsRef.current)
-          .then((saved) => {
-            if (!saved) return;
-            const current = teamsRef.current;
-            const iconChanged = saved.some((row) => {
-              const local = current.find((t) => t.id === row.id);
-              return (local?.icon ?? '') !== (row.icon ?? '');
-            });
-            if (!iconChanged) return;
-            const teamsWithIcons = mergeTeamIconMetadata(
-              current,
-              saved,
-              prevTeamsRef.current
+        if (!canEditLeagueRef.current) {
+          if (import.meta.env.DEV) {
+            console.info(
+              '[RunItBack] skip player profile cloud save (not Admin)'
             );
-            setTeams(teamsWithIcons);
-            teamsRef.current = teamsWithIcons;
+          }
+          return;
+        }
+        // Names/vitals live on `players` — must not use saveTeamsToSupabase here.
+        void savePlayerProfilesAndClubLinksToSupabase(teamsRef.current)
+          .then(() => {
+            setSaveError(null);
           })
           .catch((err: Error) => {
             console.error('Player profile save failed:', err);
             setSaveError(formatCloudSaveError(err.message));
           });
-        if (tournamentJerseyUpdates.length > 0 && !skipSaveRef.current) {
+        if (tournamentJerseyUpdates.length > 0) {
           void persistCurrentAppData('rosters-only');
         }
       });
