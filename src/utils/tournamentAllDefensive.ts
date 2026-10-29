@@ -281,9 +281,9 @@ export function buildAllDefensiveTeams(input: {
   const tooltip =
     `Stats-only All-Defensive (same formula as Defensive Player): ` +
     `50% defense box (scaled 0–100% vs eligible min/max; ` +
-    `(1.5×STL + 1.5×BLK + 0.5×DRB − 0.25×PF) / GP` +
+    `(1.5×STL + 1.5×BLK + 0.3×DRB − 0.25×PF) / GP` +
     (includePm ? `; + 0.07×+/−/g when tracked` : '') +
-    `) + 40% team defense (35% opponent eFG% + 25% DRtg + 20% steals+blocks/g + 20% DRB/g) ` +
+    `) + 40% team defense (35% opponent eFG% + 25% DRtg + 25% steals+blocks/g + 15% DRB/g) ` +
     `+ 10% team success index. ` +
     `Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
     `Each team is the top 5 eligible by Score (no position seats). ` +

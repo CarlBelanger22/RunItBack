@@ -43,13 +43,17 @@ export const ALL_TEAM_TSI_ALPHA = {
 export const TSI_FINISH_EXPONENT = 1.5;
 
 /**
- * TeamDef01 blend P (DPOY + All-Defensive). Locked Designer 2026-10-12.
+ * TeamDef01 blend P (DPOY + All-Defensive). Revised Designer 2026-10-29.
  * Prevention (eFG + DRtg) + activity (stocks + DRB). No team +/− / net (those are TSI).
+ * Weights: 0.35·OppEfg + 0.25·DRtg + 0.25·Stocks + 0.15·DRB.
  */
 export const TEAM_DEF_OPP_EFG_WEIGHT = 0.35;
 export const TEAM_DEF_DRTG_WEIGHT = 0.25;
-export const TEAM_DEF_STOCKS_WEIGHT = 0.2;
-export const TEAM_DEF_DRB_WEIGHT = 0.2;
+export const TEAM_DEF_STOCKS_WEIGHT = 0.25;
+export const TEAM_DEF_DRB_WEIGHT = 0.15;
+
+/** Personal DV DRB coefficient inside defenseValueRaw (STL/BLK stay 1.5). */
+export const DPOY_DV_DRB_COEFF = 0.3;
 
 /** Soft-prefer band on the 0–100 score scale (±2 points). */
 export const FIRST_TEAM_SOFT_PREFER_EPS = 2;
@@ -124,7 +128,11 @@ export function defenseValueRaw(
   if (gp <= 0) return 0;
   const s = row.totalStats;
   let raw =
-    (1.5 * s.steals + 1.5 * s.blocks + 0.5 * s.drb - 0.25 * s.fouls) / gp;
+    (1.5 * s.steals +
+      1.5 * s.blocks +
+      DPOY_DV_DRB_COEFF * s.drb -
+      0.25 * s.fouls) /
+    gp;
   if (includePlusMinus && row.plusMinusGames > 0) {
     raw += DPOY_PLUS_MINUS_WEIGHT * (row.plusMinusTotal / row.plusMinusGames);
   }
@@ -289,7 +297,7 @@ function possessionEstimate(input: {
 
 /**
  * TeamDef01 ∈ [0,1] among teams with box data:
- * 0.35·OppEfg01 + 0.25·DRtg01 + 0.20·Stocks01 + 0.20·DRB01.
+ * 0.35·OppEfg01 + 0.25·DRtg01 + 0.25·Stocks01 + 0.15·DRB01.
  * Lower opp eFG / DRtg better; higher stocks / DRB better.
  * No box → 0.5.
  */
