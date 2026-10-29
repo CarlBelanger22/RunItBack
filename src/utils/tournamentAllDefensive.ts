@@ -1,5 +1,5 @@
 /**
- * Stats-only All-Defensive 1st / 2nd Team (+ 3 HM).
+ * Stats-only All-Defensive 1st / 2nd Team (+ 5 HM).
  * Score: same as DPOY — 50% DV01 + 40% TeamDef01 + 10% TSI.
  * TeamDef01 = Blend P: 0.35·opp eFG + 0.25·DRtg + 0.20·stocks + 0.20·DRB.
  */
@@ -45,7 +45,7 @@ export interface AllDefensiveTeamsResult {
   tooltip: string;
 }
 
-const HONORABLE_MENTION_N = 3;
+const HONORABLE_MENTION_N = 5;
 const SQUAD_SIZE = 5;
 /** Max players from one club on a single named squad (1st/2nd). */
 const MAX_PER_SQUAD = 2;
@@ -290,7 +290,7 @@ export function buildAllDefensiveTeams(input: {
     `Max 2 from the same club per 1st/2nd Team; max 3 across both (overflow spills to honourable mentions). ` +
     `Honourable mentions uncapped. ` +
     `Eligible: ≥55% of team games. ` +
-    `Honourable mentions = next 3 by Score who missed 1st/2nd. ` +
+    `Honourable mentions = next 5 by Score who missed 1st/2nd. ` +
     `Independent of All-${shortName} (players may appear on both).`;
 
   return {

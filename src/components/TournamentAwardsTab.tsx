@@ -1,7 +1,8 @@
 /**
  * Admin-only tournament Awards tab: individual + All-Teams + All-Defensive.
  */
-import { HelpCircle } from 'lucide-react';
+import { useState } from 'react';
+import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
 import type { Game, Team } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { TournamentStructure } from '../utils/tournamentStructure';
@@ -86,6 +87,35 @@ function formatPlusMinusInt(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return '—';
   const n = Math.round(value);
   return `${n >= 0 ? '+' : ''}${n}`;
+}
+
+/** Thin chevron row under an award table: expand / collapse extra ranks. */
+function AwardExpandToggle({
+  expanded,
+  onToggle,
+  expandLabel,
+  collapseLabel,
+}: {
+  expanded: boolean;
+  onToggle: () => void;
+  expandLabel: string;
+  collapseLabel: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-label={expanded ? collapseLabel : expandLabel}
+      className="flex w-full items-center justify-center py-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors"
+    >
+      {expanded ? (
+        <ChevronUp className="h-3.5 w-3.5" aria-hidden />
+      ) : (
+        <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+      )}
+    </button>
+  );
 }
 
 /** Single-game Finals MVP: box-score totals (not per-game averages). */
@@ -334,6 +364,16 @@ function AwardBlock({
   section: TournamentAwardSection;
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
 }) {
+  const isFmvp = section.id === 'finals_mvp';
+  const collapsedN = isFmvp ? 3 : 5;
+  const expandedN = isFmvp ? 5 : 10;
+  const [expanded, setExpanded] = useState(false);
+  const visible = section.contenders.slice(
+    0,
+    expanded ? expandedN : collapsedN
+  );
+  const canExpand = section.contenders.length > collapsedN;
+
   return (
     <section className="space-y-3">
       <div className="flex items-center gap-2">
@@ -353,18 +393,32 @@ function AwardBlock({
           </TooltipContent>
         </Tooltip>
       </div>
-      {section.id === 'finals_mvp' ? (
-        <FinalsMvpBoxTable
-          contenders={section.contenders}
-          onNavigateToPlayer={onNavigateToPlayer}
-        />
-      ) : (
-        <ContenderTable
-          contenders={section.contenders}
-          onNavigateToPlayer={onNavigateToPlayer}
-          showAstTo={section.id === 'playmaker'}
-        />
-      )}
+      <div>
+        {isFmvp ? (
+          <FinalsMvpBoxTable
+            contenders={visible}
+            onNavigateToPlayer={onNavigateToPlayer}
+          />
+        ) : (
+          <ContenderTable
+            contenders={visible}
+            onNavigateToPlayer={onNavigateToPlayer}
+            showAstTo={section.id === 'playmaker'}
+          />
+        )}
+        {canExpand && (
+          <AwardExpandToggle
+            expanded={expanded}
+            onToggle={() => setExpanded((v) => !v)}
+            expandLabel={
+              isFmvp ? 'Show top 5 Finals MVP' : `Show top ${expandedN}`
+            }
+            collapseLabel={
+              isFmvp ? 'Show top 3 Finals MVP' : `Show top ${collapsedN}`
+            }
+          />
+        )}
+      </div>
     </section>
   );
 }

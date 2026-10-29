@@ -59,12 +59,12 @@ export interface AllTournamentTeamsResult {
   first: AllTeamMember[];
   second: AllTeamMember[];
   third: AllTeamMember[];
-  /** Next 3 eligible by AllTeamScore who missed First/Second/Third. */
+  /** Next 5 eligible by AllTeamScore who missed First/Second/Third. */
   honorableMentions: AllTeamMember[];
   tooltip: string;
 }
 
-const HONORABLE_MENTION_N = 3;
+const HONORABLE_MENTION_N = 5;
 const SQUAD_SIZE = 5;
 /** Max players from one club on a single named squad (1st/2nd/3rd). */
 const MAX_PER_SQUAD = 2;

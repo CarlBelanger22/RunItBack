@@ -37,7 +37,8 @@ export interface FinalsMvpContender {
 export const FMVP_GMSC_WEIGHT = 0.85;
 export const FMVP_PLUS_MINUS_WEIGHT = 0.15;
 export const FMVP_LOSER_MARGIN = 5;
-export const FMVP_TOP_N = 3;
+/** Max FMVP contenders returned; Awards UI shows 3 collapsed / 5 expanded. */
+export const FMVP_TOP_N = 5;
 
 export function finalsMvpScore(
   stats: GameStats,

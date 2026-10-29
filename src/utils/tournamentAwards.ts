@@ -1,5 +1,6 @@
 /**
- * Admin Awards tab: top-5 contenders per stats-only award for one tournament.
+ * Admin Awards tab: top contenders per stats-only award for one tournament.
+ * Scoring returns up to 10; UI defaults to showing 5 (expand to 10).
  * Completed games only. Majors (MVP/DPOY/Sixth Man) ≥55% team GP;
  * other awards ≥50% (same as Home leaders).
  */
@@ -100,7 +101,8 @@ export interface TournamentAwardSection {
   contenders: AwardContender[];
 }
 
-const TOP_N = 5;
+/** Max contenders returned; Awards UI shows 5 collapsed / 10 expanded. */
+const TOP_N = 10;
 
 function emptyStats(playerId: string): GameStats {
   return MetricsCalculator.getEmptyStats(playerId);
@@ -480,7 +482,7 @@ export function buildTournamentAwardSections(
         'Championship Final only: 85% Game Score + 15% +/− in that game ' +
         '(100% GmSc when +/− is not tracked). #1 is the best player on the winning team ' +
         'unless the best loser beats them by 5+ on this score. Top 3 shown.',
-      contenders: options.finalsMvpContenders.slice(0, 3),
+      contenders: options.finalsMvpContenders.slice(0, 5),
     });
   }
 
