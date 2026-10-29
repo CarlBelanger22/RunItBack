@@ -1,6 +1,6 @@
 /**
  * Admin Awards tab: top-5 contenders per stats-only award for one tournament.
- * Completed games only. Majors (MVP/DPOY/Sixth Man) ≥60% team GP;
+ * Completed games only. Majors (MVP/DPOY/Sixth Man) ≥55% team GP;
  * other awards ≥50% (same as Home leaders).
  */
 import type { Game, GameStats, Player, Team } from '../App';
@@ -284,7 +284,7 @@ function eligibleBase(rows: AwardPlayerAggregate[]): AwardPlayerAggregate[] {
   );
 }
 
-/** MVP / DPOY / Sixth Man: ≥60% team GP. */
+/** MVP / DPOY / Sixth Man: ≥55% team GP. */
 function eligibleMajors(rows: AwardPlayerAggregate[]): AwardPlayerAggregate[] {
   return rows.filter((r) =>
     meetsTournamentMajorAwardGamesFloor(r.gamesPlayed, r.teamGames)
@@ -513,7 +513,7 @@ export function buildTournamentAwardSections(
       'NBA-style: 70% Game Score/g (scaled 0–100% vs eligible min/max) + 30% team success index ' +
       '(finish place when known, else win% / net rating). ' +
       'Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
-      'Eligible: ≥60% of team games. Ties: EFF/g, then PPG.',
+      'Eligible: ≥55% of team games. Ties: EFF/g, then PPG.',
     contenders: topBy(majors, mvpScore, (a, b) => {
       const eff =
         MetricsCalculator.calculateEfficiency(b.totalStats) / b.gamesPlayed -
@@ -559,7 +559,7 @@ export function buildTournamentAwardSections(
       `+ 40% team defense (35% opponent eFG% rank + 25% DRtg rank + 20% team steals+blocks/g + 20% team DRB/g) ` +
       `+ 10% team success index. ` +
       `Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
-      `Eligible: ≥60% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,
+      `Eligible: ≥55% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,
     contenders: topBy(majors, dpoyScoreFn, (a, b) => {
       const stocks =
         (b.totalStats.steals + b.totalStats.blocks) / b.gamesPlayed -
@@ -589,7 +589,7 @@ export function buildTournamentAwardSections(
       'NBA-style: 88% Game Score/g (scaled 0–100% vs bench-eligible min/max) + 12% team success index. ' +
       'Then miss wither: −5% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ' +
       'Must come off the bench more than start (games with empty starter lists skipped for that ratio). ' +
-      'Eligible: ≥60% of team games.',
+      'Eligible: ≥55% of team games.',
     contenders: topBy(sixth, sixthScore),
   });
 

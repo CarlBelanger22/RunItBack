@@ -289,7 +289,7 @@ export function buildAllDefensiveTeams(input: {
     `Each team is the top 5 eligible by Score (no position seats). ` +
     `Max 2 from the same club per 1st/2nd Team; max 3 across both (overflow spills to honourable mentions). ` +
     `Honourable mentions uncapped. ` +
-    `Eligible: ≥60% of team games. ` +
+    `Eligible: ≥55% of team games. ` +
     `Honourable mentions = next 3 by Score who missed 1st/2nd. ` +
     `Independent of All-${shortName} (players may appear on both).`;
 

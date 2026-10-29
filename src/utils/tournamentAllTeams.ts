@@ -447,7 +447,7 @@ export function buildAllTournamentTeams(input: {
     `Each team is the top 5 eligible by Score (no position seats). ` +
     `Max 2 from the same club per 1st/2nd/3rd Team; max 5 across those three squads (overflow spills to honourable mentions). ` +
     `Honourable mentions uncapped. ` +
-    `Eligible: ≥60% of team games.`;
+    `Eligible: ≥55% of team games.`;
 
   return {
     shortName,

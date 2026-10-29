@@ -433,7 +433,7 @@ function AllTeamsPanel({
     return (
       <p className="text-sm text-muted-foreground">
         No eligible All-{result.shortName} players yet (need completed games and
-        ≥60% team GP for majors).
+        ≥55% team GP for majors).
       </p>
     );
   }
@@ -547,7 +547,7 @@ function AllDefensivePanel({
   if (!anyMembers) {
     return (
       <p className="text-sm text-muted-foreground">
-        No eligible All-Defensive players yet (need completed games and ≥60%
+        No eligible All-Defensive players yet (need completed games and ≥55%
         team GP for majors).
       </p>
     );
