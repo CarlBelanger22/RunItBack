@@ -236,19 +236,53 @@ export function collectTournamentRosterRemovals(
     }));
 }
 
+/** True when cloud-relevant fields match (key + jersey/position). */
+export function tournamentRosterEntryCloudEqual(
+  a: TournamentRosterEntry,
+  b: TournamentRosterEntry
+): boolean {
+  return (
+    a.tournamentId === b.tournamentId &&
+    a.teamId === b.teamId &&
+    a.playerId === b.playerId &&
+    a.number === b.number &&
+    (a.position || '') === (b.position || '') &&
+    (a.secondaryPosition || '') === (b.secondaryPosition || '')
+  );
+}
+
 /**
  * Upsert client rows; delete only explicit removals.
  * Never plan a tournament-scoped wipe of rows the client does not hold.
+ *
+ * When `baseline` is provided (last successfully acked cloud set), only upsert
+ * rows that are new or changed — avoids full-league rewrite on small edits.
+ * Pass `forceFullUpsert: true` (or omit baseline) for a full sync.
  */
 export function planTournamentRosterCloudWrite(args: {
   clientRows: TournamentRosterEntry[];
   pendingDeletes?: TournamentRosterDelete[];
+  baseline?: TournamentRosterEntry[] | null;
+  forceFullUpsert?: boolean;
 }): TournamentRosterCloudWritePlan {
   const pendingDeletes = args.pendingDeletes ?? [];
   const deleteKeys = new Set(pendingDeletes.map(tournamentRosterDeleteKey));
-  const upsert = args.clientRows.filter(
+  const candidates = args.clientRows.filter(
     (row) => !deleteKeys.has(tournamentRosterEntryKey(row))
   );
+
+  if (args.forceFullUpsert || args.baseline == null) {
+    return { upsert: candidates, deletes: pendingDeletes };
+  }
+
+  const baselineByKey = new Map(
+    args.baseline.map((row) => [tournamentRosterEntryKey(row), row])
+  );
+  const upsert = candidates.filter((row) => {
+    const prev = baselineByKey.get(tournamentRosterEntryKey(row));
+    if (!prev) return true;
+    return !tournamentRosterEntryCloudEqual(prev, row);
+  });
   return { upsert, deletes: pendingDeletes };
 }
 

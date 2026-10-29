@@ -1200,6 +1200,7 @@ export default function App() {
     prevGamesRef.current = processed.games;
     prevDarkModeRef.current = true;
     prevTournamentRostersRef.current = processed.tournamentRosters;
+    ackedTournamentRostersCloudRef.current = processed.tournamentRosters;
 
     // Keep refs in sync before any queued persist microtasks (BD-3).
     teamsRef.current = teamsWithIcons;
@@ -1221,7 +1222,7 @@ export default function App() {
   }, []);
 
   const runCloudPersist = useCallback(
-    (kind: CloudSaveKind) => {
+    (kind: CloudSaveKind, options?: { urgent?: boolean }) => {
       // RLS already blocks non-Admin writes; skip the round-trip (and error banners).
       if (!canEditLeagueRef.current) {
         if (import.meta.env.DEV) {
@@ -1326,8 +1327,11 @@ export default function App() {
       const tournamentRosterDeletesAfterSanitize = remapTournamentRosterDeletes([
         ...pendingTournamentRosterDeletesRef.current,
       ]);
+      // Cloud-acked baseline (not UI dirty ref) so reconcile≠local does not dirty all rows.
+      const rosterBaseline = ackedTournamentRostersCloudRef.current;
 
-      return enqueueCloudSave(async () => {
+      return enqueueCloudSave(
+        async () => {
         let savedTeams = teamsToSave;
         let savedTournaments = tournamentsToSave;
 
@@ -1338,12 +1342,15 @@ export default function App() {
               rostersToSave,
               gamesToSave,
               teamsToSave,
-              tournamentRosterDeletesAfterSanitize.length > 0
-                ? {
-                    tournamentRosterDeletes:
-                      tournamentRosterDeletesAfterSanitize,
-                  }
-                : undefined
+              {
+                ...(tournamentRosterDeletesAfterSanitize.length > 0
+                  ? {
+                      tournamentRosterDeletes:
+                        tournamentRosterDeletesAfterSanitize,
+                    }
+                  : {}),
+                baseline: rosterBaseline,
+              }
             );
             pendingTournamentRosterDeletesRef.current =
               acknowledgeRosterDeletes(
@@ -1395,8 +1402,9 @@ export default function App() {
         });
 
         if (kind === 'rosters-only') {
-          // Never replace newer optimistic rosters with the in-flight snapshot.
-          prevTournamentRostersRef.current = rostersToSave;
+          // Ack what we wrote; keep UI dirty-ref on local so autosave does not loop.
+          ackedTournamentRostersCloudRef.current = rostersToSave;
+          prevTournamentRostersRef.current = tournamentRostersRef.current;
           saveAppDataSnapshot({
             teams: teamsRef.current,
             tournaments: tournamentsRef.current,
@@ -1409,8 +1417,6 @@ export default function App() {
             queueMicrotask(() => {
               void runCloudPersist('rosters-only');
             });
-          } else {
-            prevTournamentRostersRef.current = tournamentRostersRef.current;
           }
           return;
         }
@@ -1443,7 +1449,8 @@ export default function App() {
         prevTournamentsRef.current = tournamentsToSave;
         prevGamesRef.current = gamesToSave;
         prevDarkModeRef.current = darkModeToSave;
-        prevTournamentRostersRef.current = rostersToSave;
+        prevTournamentRostersRef.current = tournamentRostersRef.current;
+        ackedTournamentRostersCloudRef.current = rostersToSave;
 
         if (diverged) {
           queueMicrotask(() => {
@@ -1459,7 +1466,9 @@ export default function App() {
           // leave them queued for the next persist attempt.
           throw err;
         }
-      }).catch((err: Error) => {
+      },
+        { urgent: options?.urgent === true }
+      ).catch((err: Error) => {
         console.error('Supabase save failed:', err);
         setSaveError(formatCloudSaveError(err.message));
         return false;
@@ -1469,12 +1478,25 @@ export default function App() {
   );
 
   const persistCurrentAppData = useCallback(
-    (kind: CloudSaveKind = 'full') => runCloudPersist(kind),
+    (kind: CloudSaveKind = 'full', options?: { urgent?: boolean }) =>
+      runCloudPersist(kind, options),
     [runCloudPersist]
   );
 
+  /** While Team page Edit Players is open, skip autosave of TR-only changes. */
+  const deferTournamentRosterAutosaveRef = useRef(false);
+
+  const handleTournamentRosterEditModeChange = useCallback(
+    (editing: boolean) => {
+      deferTournamentRosterAutosaveRef.current = editing;
+    },
+    []
+  );
+
   const handleFlushTournamentRosterSave = useCallback(async () => {
-    return persistCurrentAppData('rosters-only');
+    // Exit defer so a failed flush can still be retried by autosave.
+    deferTournamentRosterAutosaveRef.current = false;
+    return persistCurrentAppData('rosters-only', { urgent: true });
   }, [persistCurrentAppData]);
 
   const runCloudLoadSideEffects = useCallback(
@@ -1641,9 +1663,10 @@ export default function App() {
             }
             mergedRosters = reconciledMerged;
           }
+          const cloudRostersSnapshot = processed.tournamentRosters;
           const rostersAheadOfCloud = !tournamentRosterSetsEqual(
             mergedRosters,
-            processed.tournamentRosters
+            cloudRostersSnapshot
           );
           processed.tournamentRosters = mergedRosters;
           let gamesAheadOfCloud = false;
@@ -1677,6 +1700,10 @@ export default function App() {
             setTournamentRosters(mergedRosters);
             tournamentRostersRef.current = mergedRosters;
             prevTournamentRostersRef.current = mergedRosters;
+            // Delta baseline = what cloud already has when local is ahead.
+            ackedTournamentRostersCloudRef.current = rostersAheadOfCloud
+              ? cloudRostersSnapshot
+              : mergedRosters;
 
             const mergedGames = mergeCloudGamesWithFresherLocal(
               processed.games,
@@ -1803,6 +1830,8 @@ export default function App() {
   const prevGamesRef = useRef(games);
   const prevDarkModeRef = useRef(darkMode);
   const prevTournamentRostersRef = useRef(tournamentRosters);
+  /** Last successfully written TR set (reconciled) — delta baseline for rosters-only. */
+  const ackedTournamentRostersCloudRef = useRef(tournamentRosters);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const idleCallbackRef = useRef<number | null>(null);
 
@@ -1846,6 +1875,10 @@ export default function App() {
         !tournamentsChanged &&
         !gamesChanged &&
         !darkModeChanged;
+      // Edit Players mode: local snapshot only until Done flush (R2).
+      if (onlyRostersChanged && deferTournamentRosterAutosaveRef.current) {
+        return;
+      }
       const saveKind: CloudSaveKind = onlyRostersChanged
         ? 'rosters-only'
         : 'full';
@@ -2734,12 +2767,10 @@ export default function App() {
         return next;
       });
       setSaveError(null);
-      // Intentional UI persist — do not wait for cloud revalidate (skipSaveRef).
-      queueMicrotask(() => {
-        void persistCurrentAppData('rosters-only');
-      });
+      // Edit Players: cloud write on Done (urgent flush). Snapshot already local.
+      // Outside edit mode (e.g. profile jersey cascade), autosave / caller persists.
     },
-    [persistCurrentAppData]
+    []
   );
 
   const handleUpdatePlayerProfile = useCallback(
@@ -3343,6 +3374,7 @@ export default function App() {
           onUpdateTeam={handleUpdateTeam}
           onUpdateTournamentRosters={handleUpdateTournamentRosters}
           onFlushTournamentRosterSave={handleFlushTournamentRosterSave}
+          onTournamentRosterEditModeChange={handleTournamentRosterEditModeChange}
           onUpdatePlayerProfile={handleUpdatePlayerProfile}
           onDeleteTeam={handleDeleteTeam}
           onDeletePlayer={handleDeletePlayer}

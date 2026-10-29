@@ -68,6 +68,7 @@ export interface AppRoutesProps {
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
   onFlushTournamentRosterSave: () => Promise<boolean>;
+  onTournamentRosterEditModeChange?: (editing: boolean) => void;
   onUpdatePlayerProfile: (
     playerId: string,
     profilePatch: Pick<
@@ -210,6 +211,7 @@ function TeamDetailRoute({
   onUpdateTeam,
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
+  onTournamentRosterEditModeChange,
   onDeleteTeam,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
@@ -277,6 +279,7 @@ function TeamDetailRoute({
         onUpdateTeam={onUpdateTeam}
         onUpdateTournamentRosters={onUpdateTournamentRosters}
         onFlushTournamentRosterSave={onFlushTournamentRosterSave}
+        onTournamentRosterEditModeChange={onTournamentRosterEditModeChange}
         onDeleteTeam={(teamId) => {
           onDeleteTeam(teamId);
           navigate(paths.teams);

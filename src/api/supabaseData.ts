@@ -483,12 +483,32 @@ async function deleteTeamPlayerLinks(
   }
 }
 
+async function runPool<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>
+): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const runners = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    async () => {
+      while (next < items.length) {
+        const index = next;
+        next += 1;
+        await worker(items[index]);
+      }
+    }
+  );
+  await Promise.all(runners);
+}
+
 async function deleteTournamentRosterRows(
   deletes: TournamentRosterDelete[]
 ): Promise<void> {
   if (!supabase || deletes.length === 0) return;
-  for (const row of deletes) {
-    const { error } = await supabase
+  await runPool(deletes, 10, async (row) => {
+    const { error } = await supabase!
       .from('tournament_rosters')
       .delete()
       .eq('tournament_id', row.tournamentId)
@@ -499,7 +519,7 @@ async function deleteTournamentRosterRows(
         `tournament_rosters delete ${row.tournamentId}/${row.teamId}/${row.playerId}: ${error.message}`
       );
     }
-  }
+  });
 }
 
 /** Clear stale other-club rows the client may not know about (unique on tournament+player). */
@@ -507,8 +527,8 @@ async function deleteOtherTeamTournamentRosterRows(
   keeps: Array<{ tournamentId: string; playerId: string; keepTeamId: string }>
 ): Promise<void> {
   if (!supabase || keeps.length === 0) return;
-  for (const row of keeps) {
-    const { error } = await supabase
+  await runPool(keeps, 10, async (row) => {
+    const { error } = await supabase!
       .from('tournament_rosters')
       .delete()
       .eq('tournament_id', row.tournamentId)
@@ -519,16 +539,22 @@ async function deleteOtherTeamTournamentRosterRows(
         `tournament_rosters clear-other-team ${row.tournamentId}/${row.playerId}: ${error.message}`
       );
     }
-  }
+  });
 }
 
 async function persistTournamentRosterEntries(
   tournamentRosters: TournamentRosterEntry[],
   games: Game[],
   teams: Team[],
-  pendingDeletes: TournamentRosterDelete[] = []
+  pendingDeletes: TournamentRosterDelete[] = [],
+  options?: {
+    /** Last successfully persisted set — enables delta upsert. */
+    baseline?: TournamentRosterEntry[] | null;
+    forceFullUpsert?: boolean;
+  }
 ): Promise<void> {
   if (!supabase) return;
+  const startedAt = performance.now();
   // Profile owns position — never persist a forked tournament copy.
   const positioned = syncTournamentRosterPositionsFromProfiles(
     tournamentRosters,
@@ -566,17 +592,52 @@ async function persistTournamentRosterEntries(
       ...pendingDeletes,
       ...autoRemoves,
     ]),
+    baseline: options?.baseline,
+    forceFullUpsert: options?.forceFullUpsert,
   });
+  const otherTeamKeeps = collectUpsertKeepTeams(plan.upsert);
+
+  if (plan.deletes.length === 0 && plan.upsert.length === 0) {
+    if (import.meta.env.DEV) {
+      console.info('[RunItBack] tournament_rosters persist skipped (no delta)', {
+        clientRows: deduped.length,
+        totalMs: Math.round(performance.now() - startedAt),
+      });
+    }
+    return;
+  }
+
+  const deleteStarted = performance.now();
   await deleteTournamentRosterRows(plan.deletes);
-  // Must run even when client never held the other-club row (Leyang UNI vs RGN).
-  await deleteOtherTeamTournamentRosterRows(
-    collectUpsertKeepTeams(plan.upsert)
-  );
+  const deleteMs = Math.round(performance.now() - deleteStarted);
+
+  // Only clear other-team rows for pairs we are writing this job (delta keeps),
+  // not every league player — that was O(N) sequential HTTP and hung Done.
+  const otherStarted = performance.now();
+  await deleteOtherTeamTournamentRosterRows(otherTeamKeeps);
+  const otherTeamMs = Math.round(performance.now() - otherStarted);
+
+  const upsertStarted = performance.now();
   await upsertChunks(
     'tournament_rosters',
     plan.upsert.map(tournamentRosterEntryToDbRow),
     'tournament_id,team_id,player_id'
   );
+  const upsertMs = Math.round(performance.now() - upsertStarted);
+
+  if (import.meta.env.DEV) {
+    console.info('[RunItBack] tournament_rosters persist', {
+      clientRows: deduped.length,
+      deletes: plan.deletes.length,
+      otherTeamKeeps: otherTeamKeeps.length,
+      upserts: plan.upsert.length,
+      delta: options?.baseline != null && !options?.forceFullUpsert,
+      deleteMs,
+      otherTeamMs,
+      upsertMs,
+      totalMs: Math.round(performance.now() - startedAt),
+    });
+  }
 }
 
 async function replaceTeamPlayerRosters(teamIds: string[]): Promise<void> {
@@ -1327,7 +1388,12 @@ export async function saveTournamentRostersToSupabase(
   tournamentRosters: TournamentRosterEntry[],
   games: Game[] = [],
   teams: Team[] = [],
-  options?: { tournamentRosterDeletes?: TournamentRosterDelete[] }
+  options?: {
+    tournamentRosterDeletes?: TournamentRosterDelete[];
+    /** Last acked set — delta upsert + scoped other-team clears. */
+    baseline?: TournamentRosterEntry[] | null;
+    forceFullUpsert?: boolean;
+  }
 ): Promise<void> {
   if (!supabase) return;
 
@@ -1336,7 +1402,11 @@ export async function saveTournamentRostersToSupabase(
     tournamentRosters.filter((entry) => leagueTournamentIds.has(entry.tournamentId)),
     games,
     teams,
-    options?.tournamentRosterDeletes ?? []
+    options?.tournamentRosterDeletes ?? [],
+    {
+      baseline: options?.baseline,
+      forceFullUpsert: options?.forceFullUpsert,
+    }
   );
 }
 
@@ -1467,13 +1537,15 @@ export async function saveAppDataToSupabase(
   }
   await upsertChunks('tournament_teams', junctionRows, 'tournament_id,team_id');
 
+  // Full app save: rewrite all TR rows (baseline unknown / may have drifted).
   await persistTournamentRosterEntries(
     tournamentRosters.filter((entry) =>
       reconciledTournaments.some((t) => t.id === entry.tournamentId)
     ),
     games,
     teamsForSave,
-    options?.tournamentRosterDeletes ?? []
+    options?.tournamentRosterDeletes ?? [],
+    { forceFullUpsert: true }
   );
 
   const existingGameStats = await loadExistingGameStatsById(games.map((g) => g.id));

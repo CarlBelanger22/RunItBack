@@ -307,6 +307,8 @@ interface TeamPageProps {
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
   onFlushTournamentRosterSave: () => Promise<boolean>;
+  /** True while Edit Players is open — App defers TR-only autosave until Done. */
+  onTournamentRosterEditModeChange?: (editing: boolean) => void;
   onDeleteTeam: (teamId: string) => void;
 }
 
@@ -326,6 +328,7 @@ export function TeamPage({
   onUpdateTeam,
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
+  onTournamentRosterEditModeChange,
   onDeleteTeam,
 }: TeamPageProps) {
   const { canViewDetailedStats, canEditLeague, canExport } = useAuthCapabilities();
@@ -351,6 +354,20 @@ export function TeamPage({
   const [isEditPlayersMode, setIsEditPlayersMode] = useState(false);
   const [isFlushingTournamentRosters, setIsFlushingTournamentRosters] =
     useState(false);
+  const isEditPlayersModeRef = useRef(false);
+  isEditPlayersModeRef.current = isEditPlayersMode;
+
+  // Leaving the page mid-edit: clear defer + best-effort cloud flush (Done normally does this).
+  useEffect(() => {
+    return () => {
+      if (isEditPlayersModeRef.current) {
+        onTournamentRosterEditModeChange?.(false);
+        void onFlushTournamentRosterSave();
+      } else {
+        onTournamentRosterEditModeChange?.(false);
+      }
+    };
+  }, [onTournamentRosterEditModeChange, onFlushTournamentRosterSave]);
   const [tournamentAddError, setTournamentAddError] = useState<string | null>(null);
   const [tournamentRemoveTarget, setTournamentRemoveTarget] = useState<{
     player: Player;
@@ -1232,6 +1249,7 @@ export function TeamPage({
                 }
                 onClick={() => {
                   if (!isEditPlayersMode) {
+                    onTournamentRosterEditModeChange?.(true);
                     setIsEditPlayersMode(true);
                     return;
                   }
@@ -1242,6 +1260,10 @@ export function TeamPage({
                         setRemovePlayerTarget(null);
                         setTournamentAddError(null);
                         setIsEditPlayersMode(false);
+                        onTournamentRosterEditModeChange?.(false);
+                      } else {
+                        // Stay in edit mode; keep defer so we don't pile autosaves.
+                        onTournamentRosterEditModeChange?.(true);
                       }
                     })
                     .finally(() => {
