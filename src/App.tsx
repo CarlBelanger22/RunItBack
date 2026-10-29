@@ -32,7 +32,7 @@ import {
   saveAppDataToSupabase,
   saveGameToSupabase,
   savePlayerProfilesAndClubLinksToSupabase,
-  saveTeamsToSupabase,
+  saveTeamsAndClubRostersToSupabase,
   saveTournamentRostersToSupabase,
   MIGRATION_002_HINT,
   MIGRATION_003_HINT,
@@ -2496,10 +2496,34 @@ export default function App() {
         return next;
       });
       queueMicrotask(() => {
-        void saveTeamsToSupabase(teamsRef.current).catch((err: Error) => {
-          console.error('Create team save failed:', err);
-          setSaveError(formatCloudSaveError(err.message));
-        });
+        if (!canEditLeagueRef.current) {
+          if (import.meta.env.DEV) {
+            console.info('[RunItBack] skip create-team cloud save (not Admin)');
+          }
+          return;
+        }
+        void saveTeamsAndClubRostersToSupabase(teamsRef.current)
+          .then((saved) => {
+            setSaveError(null);
+            if (!saved) return;
+            const current = teamsRef.current;
+            const iconChanged = saved.some((row) => {
+              const local = current.find((t) => t.id === row.id);
+              return (local?.icon ?? '') !== (row.icon ?? '');
+            });
+            if (!iconChanged) return;
+            const teamsWithIcons = mergeTeamIconMetadata(
+              current,
+              saved,
+              prevTeamsRef.current
+            );
+            setTeams(teamsWithIcons);
+            teamsRef.current = teamsWithIcons;
+          })
+          .catch((err: Error) => {
+            console.error('Create team save failed:', err);
+            setSaveError(formatCloudSaveError(err.message));
+          });
       });
 
       if (tournamentIds.length > 0) {
@@ -2637,8 +2661,26 @@ export default function App() {
       return newTeams;
     });
     queueMicrotask(() => {
-      void saveTeamsToSupabase(teamsRef.current)
+      if (!canEditLeagueRef.current) {
+        if (import.meta.env.DEV) {
+          console.info('[RunItBack] skip update-team cloud save (not Admin)');
+        }
+        return;
+      }
+      const rosterDeletes = dedupeRosterDeletes([
+        ...pendingRosterDeletesRef.current,
+      ]);
+      void saveTeamsAndClubRostersToSupabase(teamsRef.current, undefined, {
+        ...(rosterDeletes.length > 0 ? { rosterDeletes } : {}),
+      })
         .then((saved) => {
+          setSaveError(null);
+          if (rosterDeletes.length > 0) {
+            pendingRosterDeletesRef.current = acknowledgeRosterDeletes(
+              pendingRosterDeletesRef.current,
+              rosterDeletes
+            );
+          }
           if (!saved) return;
           const current = teamsRef.current;
           const iconChanged = saved.some((row) => {
@@ -2655,7 +2697,7 @@ export default function App() {
           teamsRef.current = teamsWithIcons;
         })
         .catch((err: Error) => {
-          console.error('Team metadata save failed:', err);
+          console.error('Team / club roster save failed:', err);
           setSaveError(formatCloudSaveError(err.message));
         });
     });
@@ -2692,13 +2734,12 @@ export default function App() {
         return next;
       });
       setSaveError(null);
-      if (!skipSaveRef.current && !isDataLoading) {
-        queueMicrotask(() => {
-          void persistCurrentAppData('rosters-only');
-        });
-      }
+      // Intentional UI persist — do not wait for cloud revalidate (skipSaveRef).
+      queueMicrotask(() => {
+        void persistCurrentAppData('rosters-only');
+      });
     },
-    [isDataLoading, persistCurrentAppData]
+    [persistCurrentAppData]
   );
 
   const handleUpdatePlayerProfile = useCallback(

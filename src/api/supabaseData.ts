@@ -1376,6 +1376,26 @@ export async function savePlayerProfilesAndClubLinksToSupabase(
   await savePlayersWithSchema(dedupeTeamsById(teams), leagueId, schema, options);
 }
 
+/**
+ * Upsert team rows + player profiles + club links (and optional roster deletes).
+ * Use for Create/Update team and any UI action that changes club rosters —
+ * not `saveTeamsToSupabase` alone (that skips `players` / `team_players`).
+ */
+export async function saveTeamsAndClubRostersToSupabase(
+  teams: Team[],
+  leagueId = DEFAULT_LEAGUE_ID,
+  options?: SaveAppDataOptions
+): Promise<Team[] | void> {
+  if (!supabase) return;
+  const savedTeams = await saveTeamsToSupabase(teams, leagueId);
+  await savePlayerProfilesAndClubLinksToSupabase(
+    savedTeams ?? teams,
+    leagueId,
+    options
+  );
+  return savedTeams;
+}
+
 export async function saveAppDataToSupabase(
   teams: Team[],
   tournaments: Tournament[],
