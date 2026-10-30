@@ -12,7 +12,6 @@ import { supabase } from '../supabase';
 import { getAuthRedirectTo } from './authRedirect';
 import {
   getUserDisplayName,
-  resolveAppAuthRole,
   type AppAuthRole,
   type AuthState,
 } from './authTypes';
@@ -71,8 +70,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const userId = user.id;
     syncingUserIdRef.current = userId;
 
-    // Optimistic role from allowlist while DB sync runs.
-    setRole(resolveAppAuthRole(user.email, true));
+    // Role comes only from league_members (server allowlist). No client email list.
+    setRole(null);
 
     syncLeagueMemberForUser(supabase, user)
       .then((syncedRole) => {
@@ -80,20 +79,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setRole(syncedRole);
         if (import.meta.env.DEV) {
           console.info('[RunItBack] league_members synced', {
-            email: user.email,
             role: syncedRole,
           });
         }
-        void maybeNotifyTelegramVisit(user);
+        void maybeNotifyTelegramVisit(user, {
+          isAdmin: syncedRole === 'admin',
+        });
       })
       .catch((err) => {
         if (cancelled) return;
         console.warn(
-          '[RunItBack] league_members sync failed; using allowlist role:',
+          '[RunItBack] league_members sync failed; treating as non-admin until retry:',
           err instanceof Error ? err.message : err
         );
-        setRole(resolveAppAuthRole(user.email, true));
-        void maybeNotifyTelegramVisit(user);
+        setRole('user');
+        void maybeNotifyTelegramVisit(user, { isAdmin: false });
       });
 
     return () => {
@@ -127,16 +127,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<AuthState>(() => {
     const user: User | null = session?.user ?? null;
     const isAuthenticated = Boolean(user);
-    const resolvedRole =
-      role ??
-      (isAuthenticated ? resolveAppAuthRole(user?.email, true) : null);
     return {
       isLoading,
       session,
       user,
-      role: resolvedRole,
+      role,
       isAuthenticated,
-      isAdmin: resolvedRole === 'admin',
+      isAdmin: role === 'admin',
       signInWithGoogle,
       signOut,
     };

@@ -1,5 +1,4 @@
 import type { User } from '@supabase/supabase-js';
-import { isAdminEmail } from './adminAllowlist';
 import { supabase } from '../supabase';
 
 function isProductionClient(): boolean {
@@ -17,10 +16,15 @@ function isProductionClient(): boolean {
  * - signup: only if account created recently + never notified (server dedupe)
  * - app_open: once per user per SGT calendar day (server dedupe)
  * Never throws; never blocks auth UX.
+ * Admins skipped via synced role (not a client email allowlist).
+ * Edge `ADMIN_NOTIFY_SKIP_EMAILS` remains a server-side backstop.
  */
-export async function maybeNotifyTelegramVisit(user: User): Promise<void> {
+export async function maybeNotifyTelegramVisit(
+  user: User,
+  options?: { isAdmin?: boolean }
+): Promise<void> {
   if (!supabase || !isProductionClient()) return;
-  if (isAdminEmail(user.email)) return;
+  if (options?.isAdmin) return;
 
   try {
     // Signup attempt first (Edge Function no-ops unless recent + not yet logged).

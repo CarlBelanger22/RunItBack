@@ -1,5 +1,4 @@
 import type { User } from '@supabase/supabase-js';
-import { isAdminEmail } from '../auth/adminAllowlist';
 import {
   supabase,
   supabasePublishableKey,
@@ -14,6 +13,12 @@ import {
   saveSessionSummaryDraft,
   type DraftStoreOptions,
 } from './sessionSummaryDraftStore';
+
+/**
+ * Admin skip is enforced by SessionBrowseTracker (role === admin).
+ * These helpers must not compare emails — that would ship admin addresses in JS.
+ * Edge `ADMIN_NOTIFY_SKIP_EMAILS` is the server backstop.
+ */
 
 function isProductionClient(): boolean {
   if (!import.meta.env.PROD) return false;
@@ -106,7 +111,6 @@ export function persistSessionFlushDraft(
   opts?: DraftStoreOptions
 ): void {
   if (!isProductionClient()) return;
-  if (isAdminEmail(user.email)) return;
   const body = buildSessionSummaryNotifyBody(user, flush);
   persistNotifyBodyAsDraft(user.id, body, opts);
 }
@@ -121,7 +125,6 @@ export async function notifySessionSummary(
   flush: SessionFlush
 ): Promise<void> {
   if (!supabase || !isProductionClient()) return;
-  if (isAdminEmail(user.email)) return;
 
   const body = buildSessionSummaryNotifyBody(user, flush);
   try {
@@ -150,7 +153,6 @@ export function notifySessionSummaryKeepalive(
   opts?: { draftStorage?: Storage }
 ): void {
   if (!isProductionClient()) return;
-  if (isAdminEmail(user.email)) return;
 
   const body = buildSessionSummaryNotifyBody(user, flush);
   // Sync write before network — survives full quit if pagehide ran
@@ -190,8 +192,6 @@ export async function flushLocalSessionSummaryDrafts(
   user: User,
   opts?: FlushLocalDraftsOptions
 ): Promise<number> {
-  if (isAdminEmail(user.email)) return 0;
-
   const send =
     opts?.send ??
     (async (body: SessionSummaryNotifyBody) => {
@@ -233,7 +233,6 @@ export async function flushLocalSessionSummaryDrafts(
 /** Ask Edge Function to retry any pending summaries for this user. */
 export async function retryPendingSessionSummaries(user: User): Promise<void> {
   if (!supabase || !isProductionClient()) return;
-  if (isAdminEmail(user.email)) return;
   try {
     await supabase.functions.invoke('notify-telegram', {
       body: { eventType: 'session_summary_retry' },

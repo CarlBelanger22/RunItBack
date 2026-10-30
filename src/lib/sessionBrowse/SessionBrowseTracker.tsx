@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import type { User } from '@supabase/supabase-js';
 import { useAuth } from '../auth/AuthProvider';
-import { isAdminEmail } from '../auth/adminAllowlist';
 import { SessionBrowseEngine } from './sessionBrowseEngine';
 import type { EntityLookup } from './types';
 import {
@@ -33,7 +32,7 @@ export type SessionBrowseTrackerProps = {
  * Renders nothing.
  */
 export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
-  const { user, session, isLoading } = useAuth();
+  const { user, session, isLoading, isAdmin, role } = useAuth();
   const location = useLocation();
   const engineRef = useRef<SessionBrowseEngine | null>(null);
   const userRef = useRef<User | null>(null);
@@ -43,10 +42,12 @@ export function SessionBrowseTracker({ lookup }: SessionBrowseTrackerProps) {
 
   const enabled = useMemo(() => {
     if (isLoading || !user) return false;
+    // Wait for league_members sync so we never track admins by email string.
+    if (role == null) return false;
+    if (isAdmin) return false;
     if (!isProductionClient()) return false;
-    if (isAdminEmail(user.email)) return false;
     return true;
-  }, [isLoading, user]);
+  }, [isLoading, user, role, isAdmin]);
 
   // Keep lookup fresh
   useEffect(() => {

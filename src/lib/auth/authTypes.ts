@@ -1,5 +1,4 @@
 import type { Session, User } from '@supabase/supabase-js';
-import { isAdminEmail } from './adminAllowlist';
 
 export type AppAuthRole = 'admin' | 'user' | null;
 
@@ -8,20 +7,15 @@ export interface AuthState {
   isLoading: boolean;
   session: Session | null;
   user: User | null;
-  /** From league_members after sync; allowlist used as fallback. */
+  /**
+   * From `league_members` after sync. Null while anonymous or sync pending.
+   * Never derived from a client email allowlist (emails must not ship in JS).
+   */
   role: AppAuthRole;
   isAuthenticated: boolean;
   isAdmin: boolean;
   signInWithGoogle: () => Promise<void>;
   signOut: () => Promise<void>;
-}
-
-export function resolveAppAuthRole(
-  email: string | null | undefined,
-  authenticated: boolean
-): AppAuthRole {
-  if (!authenticated) return null;
-  return isAdminEmail(email) ? 'admin' : 'user';
 }
 
 export function getUserDisplayName(user: User | null): string {

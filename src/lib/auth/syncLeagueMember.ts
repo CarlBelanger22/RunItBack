@@ -1,15 +1,10 @@
 import type { SupabaseClient, User } from '@supabase/supabase-js';
-import { isAdminEmail } from './adminAllowlist';
 import type { AppAuthRole } from './authTypes';
 
 /** Matches `DEFAULT_LEAGUE_ID` in supabaseData (keep in sync). */
 const LEAGUE_ID = 'league-default';
 
 export type DbLeagueMemberRole = 'admin' | 'member';
-
-export function dbRoleFromEmail(email: string | null | undefined): DbLeagueMemberRole {
-  return isAdminEmail(email) ? 'admin' : 'member';
-}
 
 export function appRoleFromDbRole(
   dbRole: string | null | undefined
@@ -21,9 +16,9 @@ export function appRoleFromDbRole(
 
 /**
  * Upsert the signed-in user into league_members.
- * Client sends an allowlist-derived role for UX, but migration 008’s
+ * Client always requests `member`; migration 008’s
  * `league_members_enforce_role` trigger overwrites role from
- * `admin_email_allowlist` (client cannot self-promote).
+ * server-side `admin_email_allowlist` (client cannot self-promote).
  */
 export async function syncLeagueMemberForUser(
   client: SupabaseClient,
@@ -31,7 +26,6 @@ export async function syncLeagueMemberForUser(
   leagueId: string = LEAGUE_ID
 ): Promise<AppAuthRole> {
   const email = user.email ?? null;
-  const role = dbRoleFromEmail(email);
 
   const { data, error } = await client
     .from('league_members')
@@ -40,7 +34,7 @@ export async function syncLeagueMemberForUser(
         league_id: leagueId,
         user_id: user.id,
         email,
-        role,
+        role: 'member' satisfies DbLeagueMemberRole,
       },
       { onConflict: 'league_id,user_id' }
     )
@@ -51,5 +45,5 @@ export async function syncLeagueMemberForUser(
     throw new Error(`league_members sync: ${error.message}`);
   }
 
-  return appRoleFromDbRole(data?.role) ?? (role === 'admin' ? 'admin' : 'user');
+  return appRoleFromDbRole(data?.role) ?? 'user';
 }
