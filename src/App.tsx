@@ -214,6 +214,11 @@ export interface Tournament {
   month: string; // e.g., "Jul", "Aug"
   /** Defaults to 5v5 when unset. */
   gameFormat?: '5v5' | '3x3';
+  /**
+   * When true, omit from non-admin Tournaments list / Dashboard.
+   * Still reachable by id (player badges, games, direct URL).
+   */
+  hiddenFromList?: boolean;
   teams: string[]; // Team IDs
   games: string[]; // Game IDs associated with this tournament
   standings: TournamentStanding[];

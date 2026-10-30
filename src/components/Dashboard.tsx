@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
+import { filterTournamentsForBrowseList } from '../utils/tournamentVisibility';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Trophy, Users, Calendar, ChevronRight } from 'lucide-react';
@@ -9,6 +10,7 @@ import { TournamentBadge } from './TournamentBadge';
 import { DashboardStatCard } from './dashboard/DashboardStatCard';
 import { DashboardGamePreview } from './dashboard/DashboardGamePreview';
 import { partitionTeams } from '../utils/ghostTeams';
+import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
 
 const DASHBOARD_PREVIEW_LIMIT = 3;
 
@@ -46,14 +48,26 @@ export function Dashboard({
   onNavigateToTeam,
   onNavigateToRecentGames,
 }: DashboardProps) {
+  const { canEditLeague } = useAuthCapabilities();
   const { realTeams, ghostTeams } = useMemo(
     () => partitionTeams(teams),
     [teams]
   );
   const ghostTeamCount = ghostTeams.length;
+  const browseTournaments = useMemo(
+    () =>
+      filterTournamentsForBrowseList(tournaments, {
+        isAdmin: canEditLeague,
+      }),
+    [tournaments, canEditLeague]
+  );
   const recentTournaments = useMemo(
-    () => sortTournamentsByDateDesc(tournaments).slice(0, DASHBOARD_PREVIEW_LIMIT),
-    [tournaments]
+    () =>
+      sortTournamentsByDateDesc(browseTournaments).slice(
+        0,
+        DASHBOARD_PREVIEW_LIMIT
+      ),
+    [browseTournaments]
   );
   const recentTeams = useMemo(
     () =>
@@ -82,9 +96,11 @@ export function Dashboard({
         <DashboardStatCard
           icon={Trophy}
           title="Tournaments"
-          count={tournaments.length}
+          count={browseTournaments.length}
           countLabel={
-            tournaments.length === 1 ? 'Active Tournament' : 'Active Tournaments'
+            browseTournaments.length === 1
+              ? 'Active Tournament'
+              : 'Active Tournaments'
           }
           onClick={onNavigateToTournaments}
         >

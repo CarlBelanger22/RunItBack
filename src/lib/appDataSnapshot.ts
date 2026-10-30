@@ -208,6 +208,9 @@ export function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
     standings: [],
     structure: normalizeTournamentStructure(tournament.structure),
     gameFormat: tournament.gameFormat,
+    ...(tournament.hiddenFromList === true
+      ? { hiddenFromList: true as const }
+      : {}),
   }));
 }
 

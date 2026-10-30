@@ -179,6 +179,7 @@ interface DbTournament {
   month: string;
   standings: Tournament['standings'];
   structure?: Tournament['structure'] | null;
+  hidden_from_list?: boolean | null;
   created_at?: string;
 }
 
@@ -1290,6 +1291,7 @@ export async function loadAppDataFromSupabase(
       description: row.description ?? undefined,
       year: row.year,
       month: row.month,
+      hiddenFromList: row.hidden_from_list === true ? true : undefined,
       teams: teamsByTournament.get(row.id) ?? [],
       games: gameIds,
       standings: row.standings ?? [],
@@ -1507,6 +1509,7 @@ export async function saveAppDataToSupabase(
       month: t.month,
       standings: t.standings ?? [],
       structure: normalizeTournamentStructure(t.structure) ?? null,
+      hidden_from_list: t.hiddenFromList === true,
     };
     if (t.icon !== undefined) row.icon = t.icon ?? null;
     if (t.description !== undefined) row.description = t.description ?? null;

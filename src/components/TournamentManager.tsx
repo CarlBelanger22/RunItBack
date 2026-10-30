@@ -16,8 +16,9 @@ import {
 import { Badge } from './ui/badge';
 import { Tournament, Team, Game } from '../App';
 import type { TournamentUpdate } from '../App';
-import { Plus, Trophy, Users, Calendar, ArrowLeft, Trash2, Edit } from 'lucide-react';
+import { Plus, Trophy, Users, Calendar, ArrowLeft, Trash2, Edit, Eye, EyeOff } from 'lucide-react';
 import { sortTournamentsByDateDesc } from '../utils/tournamentSort';
+import { filterTournamentsForBrowseList } from '../utils/tournamentVisibility';
 import { TournamentBadge } from './TournamentBadge';
 import {
   filterGamesForTournament,
@@ -95,9 +96,28 @@ export function TournamentManager({
     setEditingTournament(tournament);
   };
 
+  const handleToggleHiddenFromList = useCallback(
+    (tournament: Tournament) => {
+      const nextHidden = tournament.hiddenFromList !== true;
+      onUpdateTournament({
+        id: tournament.id,
+        patch: (prev) => ({
+          ...prev,
+          hiddenFromList: nextHidden ? true : undefined,
+        }),
+      });
+    },
+    [onUpdateTournament]
+  );
+
   const sortedTournaments = useMemo(
-    () => sortTournamentsByDateDesc(tournaments),
-    [tournaments]
+    () =>
+      sortTournamentsByDateDesc(
+        filterTournamentsForBrowseList(tournaments, {
+          isAdmin: canEditLeague,
+        })
+      ),
+    [tournaments, canEditLeague]
   );
 
   return (
@@ -211,7 +231,13 @@ export function TournamentManager({
             const description = tournament.description?.trim();
 
             return (
-            <Card key={tournament.id} className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" onClick={() => onNavigateToTournament(tournament.id)}>
+            <Card
+              key={tournament.id}
+              className={`overflow-hidden hover:shadow-lg transition-shadow cursor-pointer${
+                tournament.hiddenFromList === true ? ' opacity-70' : ''
+              }`}
+              onClick={() => onNavigateToTournament(tournament.id)}
+            >
               <CardHeader className="pb-3">
                 <div className="flex items-start gap-3 min-w-0">
                   <TournamentBadge
@@ -221,7 +247,14 @@ export function TournamentManager({
                     className="mt-0.5 shrink-0"
                   />
                   <div className="space-y-1 min-w-0">
-                    <CardTitle className="text-lg truncate">{tournament.name}</CardTitle>
+                    <CardTitle className="text-lg truncate flex items-center gap-2">
+                      <span className="truncate">{tournament.name}</span>
+                      {canEditLeague && tournament.hiddenFromList === true ? (
+                        <Badge variant="secondary" className="text-[10px] shrink-0">
+                          Hidden
+                        </Badge>
+                      ) : null}
+                    </CardTitle>
                     <CardDescription className="flex items-center gap-1">
                       <Calendar className="h-3 w-3" />
                       {tournament.month} {tournament.year}
@@ -231,6 +264,28 @@ export function TournamentManager({
                 {canEditLeague ? (
                   <CardAction>
                     <div className="flex space-x-1" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleToggleHiddenFromList(tournament)}
+                        className="h-8 w-8 p-0"
+                        aria-label={
+                          tournament.hiddenFromList === true
+                            ? 'Show tournament on list'
+                            : 'Hide tournament from list'
+                        }
+                        title={
+                          tournament.hiddenFromList === true
+                            ? 'Show on tournaments list'
+                            : 'Hide from tournaments list'
+                        }
+                      >
+                        {tournament.hiddenFromList === true ? (
+                          <Eye className="h-3 w-3" />
+                        ) : (
+                          <EyeOff className="h-3 w-3" />
+                        )}
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"

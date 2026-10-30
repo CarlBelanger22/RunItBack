@@ -95,6 +95,8 @@
             "db:migrate:007": "tsx scripts/apply-migration-007.ts",
             "db:migrate:008": "tsx scripts/apply-migration-008.ts",
             "db:migrate:009": "tsx scripts/apply-migration-009.ts",
+            "db:migrate:013": "tsx scripts/apply-migration-013.ts",
+            "test:tournament-visibility": "tsx scripts/test-tournament-visibility.ts",
             "backfill:tournament-rosters": "tsx scripts/backfill-tournament-rosters.ts",
             "backfill:team-coach": "tsx scripts/backfill-team-coach-stats.ts",
             "patch:asg2019-team-coach": "tsx scripts/patch-asg2019-team-coach.ts",
