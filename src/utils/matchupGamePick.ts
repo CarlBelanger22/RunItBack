@@ -20,21 +20,39 @@ export function compareGamesByDate(a: Game, b: Game): number {
   return a.id.localeCompare(b.id);
 }
 
+export type PickGameForMatchupOptions = {
+  /**
+   * When set, only games on this calendar day (YYYY-MM-DD) are eligible.
+   * Used so a knockout slot with a tip date does not absorb an earlier RR rematch.
+   */
+  onDate?: string | null;
+};
+
+function sameCalendarDay(gameDate: string | undefined, onDate: string): boolean {
+  const g = (gameDate ?? '').slice(0, 10);
+  const d = onDate.slice(0, 10);
+  return g.length === 10 && d.length === 10 && g === d;
+}
+
 /**
  * Among games featuring both teams, pick earliest or latest by date.
  * `excludeIds` skips already-linked games.
+ * Optional `onDate` restricts to that scheduled day (KO / fixture tips).
  */
 export function pickGameForMatchup(
   games: Game[],
   teamA: string,
   teamB: string,
   prefer: MatchupDatePrefer,
-  excludeIds?: Set<string>
+  excludeIds?: Set<string>,
+  options?: PickGameForMatchupOptions
 ): Game | undefined {
+  const onDate = options?.onDate ? options.onDate.slice(0, 10) : null;
   const candidates = games.filter(
     (g) =>
       gameHasTeams(g, teamA, teamB) &&
-      !(excludeIds && excludeIds.has(g.id))
+      !(excludeIds && excludeIds.has(g.id)) &&
+      (!onDate || sameCalendarDay(g.date, onDate))
   );
   if (candidates.length === 0) return undefined;
   const sorted = [...candidates].sort(compareGamesByDate);

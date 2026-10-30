@@ -1,12 +1,10 @@
 /**
- * LE-114 — Finalize group seedings: freeze places, fill bracket slots, auto-link.
+ * LE-114 — Finalize group seedings: freeze places, fill bracket seed teams.
+ * Does NOT attach games to knockout slots (RR rematches must not fill KO tips).
  */
 
 import type { Game, Team } from '../App';
 import { resolveSeedTeamId } from './autoLinkIubitBracket';
-import { linkGameToBracketSlot } from './bracketGameLink';
-import { autoLinkBracketByResolvedTeams } from './resolveBracketFeeders';
-import { pickGameForMatchup } from './matchupGamePick';
 import { computeGroupFinishPlaces, retagTournamentGames } from './retagTournamentGames';
 import {
   roundRobinStages,
@@ -156,8 +154,9 @@ function fillSeedTeamsOnStructure(
 }
 
 /**
- * Lock group places into seedSnapshot, fill seed-based bracket slots with
- * team ids, and auto-link existing games that match those teams.
+ * Lock group places into seedSnapshot and fill seed-based bracket slots with
+ * team ids. Never attaches a gameId — KO tips stay empty until a game is
+ * played/imported on the slot date (auto-link) or linked manually.
  * LE-147 — optional stageId finalizes one RR stage (default: first RR stage).
  */
 export function finalizeGroupSeedings(
@@ -228,59 +227,9 @@ export function finalizeGroupSeedings(
   );
   report.slotsFilled = filled.slotsFilled;
   nextStructure = filled.structure;
+  // Keep existing slot.gameId values untouched; never invent new links here.
   let nextGames = allGames;
 
-  const usedGameIds = new Set<string>();
-  for (const stage of nextStructure.stages) {
-    for (const round of stage.bracket?.rounds ?? []) {
-      for (const slot of round.slots) {
-        if (slot.gameId) usedGameIds.add(slot.gameId);
-      }
-    }
-  }
-
-  for (const stage of nextStructure.stages) {
-    if (stage.kind !== 'classification' || !stage.bracket) continue;
-    for (const round of stage.bracket.rounds) {
-      for (const slot of round.slots) {
-        if (slot.gameId || !slot.homeTeamId || !slot.awayTeamId) continue;
-        const match = pickGameForMatchup(
-          tournamentGames,
-          slot.homeTeamId,
-          slot.awayTeamId,
-          'latest',
-          usedGameIds
-        );
-        if (!match) continue;
-        const linked = linkGameToBracketSlot(
-          nextStructure,
-          nextGames,
-          slot.id,
-          match.id
-        );
-        nextStructure = linked.structure;
-        nextGames = linked.games;
-        usedGameIds.add(match.id);
-        report.gamesLinked += 1;
-        report.details.push(`Linked ${match.id} → ${slot.label ?? slot.id}`);
-      }
-    }
-  }
-
-  // LE-116 / LE-115 — feeder sides (Winner/Loser) resolve in memory; link those too
-  const feederLinked = autoLinkBracketByResolvedTeams(
-    nextStructure,
-    nextGames,
-    tournamentId
-  );
-  nextStructure = feederLinked.structure;
-  nextGames = feederLinked.games;
-  report.gamesLinked += feederLinked.report.linked;
-  for (const line of feederLinked.report.details) {
-    if (line.startsWith('Linked')) report.details.push(line);
-  }
-
-  // Re-tag RR vs rematch after links (earliest stays group)
   const { games: retagged, report: retagReport } = retagTournamentGames(
     nextGames,
     tournamentId,

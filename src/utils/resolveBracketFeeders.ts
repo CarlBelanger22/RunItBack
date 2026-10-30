@@ -138,7 +138,9 @@ export function resolveBracketSlotTeamIds(
 /**
  * Link empty slots when both sides resolve to team ids and a matching
  * tournament game exists (generic — Format A, custom placement, etc.).
- * LE-116: when teams met more than once, prefer the **latest** game (KO rematch).
+ * LE-116: when teams met more than once, prefer the **latest** game.
+ * When the slot has a scheduled `date`, only that calendar day is eligible
+ * (so a league rematch cannot fill a future knockout tip).
  */
 export function autoLinkBracketByResolvedTeams(
   structureInput: TournamentStructure | undefined,
@@ -184,6 +186,7 @@ export function autoLinkBracketByResolvedTeams(
         for (const slot of round.slots) {
           let homeTeamId: string | null = null;
           let awayTeamId: string | null = null;
+          const onDate = slot.date ?? null;
 
           if (slot.gameId) {
             const current = gameById.get(slot.gameId);
@@ -197,7 +200,8 @@ export function autoLinkBracketByResolvedTeams(
                 homeTeamId,
                 awayTeamId,
                 'latest',
-                excludeForUpgrade
+                excludeForUpgrade,
+                { onDate }
               );
               if (latest && latest.id !== slot.gameId) {
                 usedGameIds.delete(slot.gameId);
@@ -232,11 +236,14 @@ export function autoLinkBracketByResolvedTeams(
             homeTeamId,
             awayTeamId,
             'latest',
-            usedGameIds
+            usedGameIds,
+            { onDate }
           );
           if (!match) {
             report.details.push(
-              `No game for ${slot.label ?? slot.id} (${homeTeamId} vs ${awayTeamId})`
+              onDate
+                ? `No game on ${onDate} for ${slot.label ?? slot.id} (${homeTeamId} vs ${awayTeamId})`
+                : `No game for ${slot.label ?? slot.id} (${homeTeamId} vs ${awayTeamId})`
             );
             continue;
           }
