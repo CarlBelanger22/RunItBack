@@ -24,6 +24,7 @@ import {
 } from '../utils/tournamentRosters';
 import type { Team, Tournament, Game, GameStats, Player } from '../App';
 import { shouldPreserveExistingGameStats } from '../utils/gameStatsIntegrity';
+import { applyPreservedPbpToDbRow } from '../utils/gamePbpPreserve';
 import { reconcileTournamentsFromGames } from '../utils/tournamentEnrollment';
 import { normalizeTournamentStructure } from '../utils/tournamentStructure';
 import { applyResolvedPossessionArrow } from '../liveEntry/possessionArrow';
@@ -1007,6 +1008,34 @@ async function loadExistingGameStatsById(
   return map;
 }
 
+async function loadExistingGamePbpById(
+  gameIds: string[]
+): Promise<
+  Map<string, { events: unknown; shots: unknown; lineup_stints: unknown }>
+> {
+  const map = new Map<
+    string,
+    { events: unknown; shots: unknown; lineup_stints: unknown }
+  >();
+  if (!supabase || gameIds.length === 0) return map;
+
+  const { data, error } = await supabase
+    .from('games')
+    .select('id, events, shots, lineup_stints')
+    .in('id', gameIds);
+
+  if (error) throw new Error(`games fetch for PBP preserve: ${error.message}`);
+
+  for (const row of data ?? []) {
+    map.set(row.id as string, {
+      events: row.events ?? [],
+      shots: row.shots ?? [],
+      lineup_stints: row.lineup_stints ?? [],
+    });
+  }
+  return map;
+}
+
 async function upsertChunks<T extends Record<string, unknown>>(
   table: string,
   rows: T[],
@@ -1365,8 +1394,12 @@ export async function saveGameToSupabase(
 ): Promise<void> {
   if (!supabase) return;
   const existingTimes = await loadExistingStartTimesById([game.id]);
+  const existingPbp = await loadExistingGamePbpById([game.id]);
   const toSave = applyPreservedStartTime(game, existingTimes.get(game.id));
-  const row = gameToDbRow(toSave, leagueId);
+  const row = applyPreservedPbpToDbRow(
+    gameToDbRow(toSave, leagueId),
+    existingPbp.get(game.id)
+  );
   const { error } = await supabase.from('games').upsert(row, { onConflict: 'id' });
   if (error) throw new Error(`games: ${error.message}`);
 }
@@ -1551,22 +1584,32 @@ export async function saveAppDataToSupabase(
     { forceFullUpsert: true }
   );
 
-  const existingGameStats = await loadExistingGameStatsById(games.map((g) => g.id));
-  const existingStartTimes = await loadExistingStartTimesById(games.map((g) => g.id));
+  const gameIds = games.map((g) => g.id);
+  const existingGameStats = await loadExistingGameStatsById(gameIds);
+  const existingStartTimes = await loadExistingStartTimesById(gameIds);
+  const existingPbp = await loadExistingGamePbpById(gameIds);
   let preservedGameStats = 0;
   let preservedStartTimes = 0;
+  let preservedPbp = 0;
   const gameRows = games.map((g) => {
     const withStart = applyPreservedStartTime(g, existingStartTimes.get(g.id));
     if (!g.startTime?.trim() && withStart.startTime) preservedStartTimes++;
     const existingStats = existingGameStats.get(withStart.id);
+    let row;
     if (shouldPreserveExistingGameStats(withStart, existingStats)) {
       preservedGameStats++;
-      return gameToDbRow(
+      row = gameToDbRow(
         { ...withStart, gameStats: existingStats ?? [] },
         leagueId
       );
+    } else {
+      row = gameToDbRow(withStart, leagueId);
     }
-    return gameToDbRow(withStart, leagueId);
+    const beforeEvents = Array.isArray(row.events) ? row.events.length : 0;
+    row = applyPreservedPbpToDbRow(row, existingPbp.get(withStart.id));
+    const afterEvents = Array.isArray(row.events) ? row.events.length : 0;
+    if (afterEvents > beforeEvents) preservedPbp++;
+    return row;
   });
   if (preservedGameStats > 0 && import.meta.env.DEV) {
     console.warn(
@@ -1576,6 +1619,11 @@ export async function saveAppDataToSupabase(
   if (preservedStartTimes > 0 && import.meta.env.DEV) {
     console.warn(
       `[RunItBack] Preserved DB tip times for ${preservedStartTimes} game(s) (incoming startTime missing).`
+    );
+  }
+  if (preservedPbp > 0 && import.meta.env.DEV) {
+    console.warn(
+      `[RunItBack] Preserved DB PBP/shots for ${preservedPbp} game(s) (incoming events/shots were empty).`
     );
   }
   await upsertChunks('games', gameRows, 'id');

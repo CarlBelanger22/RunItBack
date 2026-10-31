@@ -1,6 +1,7 @@
 import type { Game } from '../App';
 import { mergeGamesPreferCompleted } from './completedGamePersist';
 import { shouldPersistLiveSession } from '../utils/activeGame';
+import { withRicherPbp } from '../utils/gamePbpPreserve';
 
 /** Measurable progress for an in-progress game (events weigh heaviest). */
 export function incompleteGameProgressScore(game: Game): number {
@@ -75,11 +76,15 @@ export function mergeCloudGamesWithFresherLocal(
       continue;
     }
     if (cloud.isCompleted && local.isCompleted) {
-      merged.push(cloud);
+      // Prefer cloud as source of truth, but never drop the richer PBP copy.
+      merged.push(withRicherPbp(cloud, local));
       continue;
     }
     if (cloud.isCompleted || local.isCompleted) {
-      merged.push(mergeGamesPreferCompleted([cloud], [local])[0]!);
+      const preferred = mergeGamesPreferCompleted([cloud], [local])[0]!;
+      const other = preferred === local ? cloud : local;
+      // Local completed+empty must not beat cloud live+full events (ITE–NYP wipe).
+      merged.push(withRicherPbp(preferred, other));
       continue;
     }
     merged.push(preferFresherIncompleteGame(local, cloud));
