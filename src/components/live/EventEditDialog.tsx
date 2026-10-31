@@ -18,6 +18,7 @@ import {
 } from '../ui/select';
 import { Switch } from '../ui/switch';
 import { canEditShotFields } from '../../liveEntry/eventEditGuards';
+import { formatPbpScoreAfter } from '../../liveEntry/pbpDisplay';
 
 const NONE = '__none__';
 const TEAM_ORB = '__team_orb__';
@@ -463,6 +464,8 @@ export function EventEditDialog({
   const reboundPlayers =
     reboundType === 'offensive' || reboundType === 'defensive' ? allPlayers : [];
 
+  const scoreAfter = formatPbpScoreAfter(event, homeTeam, awayTeam);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-sm max-h-[90vh] overflow-y-auto">
@@ -471,8 +474,18 @@ export function EventEditDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-2">
-          <div className="text-sm text-muted-foreground capitalize">
-            {event.type.replace('_', ' ')} · {event.gameTime} · {periodLabel}
+          <div className="flex items-start justify-between gap-3">
+            <div className="text-sm text-muted-foreground capitalize">
+              {event.type.replace('_', ' ')} · {event.gameTime} · {periodLabel}
+            </div>
+            {scoreAfter ? (
+              <div
+                className="shrink-0 text-sm font-mono font-semibold tabular-nums"
+                title="Score after this event"
+              >
+                {scoreAfter}
+              </div>
+            ) : null}
           </div>
 
           {isShot && (

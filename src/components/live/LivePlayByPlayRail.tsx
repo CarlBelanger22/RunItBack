@@ -6,6 +6,7 @@ import {
   buildPbpRows,
   buildPbpStatSnapshots,
   formatPbpAction,
+  formatPbpScoreAfter,
   pbpRowSourceEvent,
   type PbpRow,
 } from '../../liveEntry/pbpDisplay';
@@ -61,6 +62,9 @@ function LogCard({
     away: 'var(--live-away)',
   });
 
+  // Block / double-foul partner rows share the parent event's after-score.
+  const scoreAfter = formatPbpScoreAfter(event, homeTeam, awayTeam);
+
   const labelColor =
     row.kind === 'block' || row.kind === 'double_foul_partner'
       ? color
@@ -86,6 +90,14 @@ function LogCard({
         <span className="live-font-mono live-pbp-meta">
           {(event.period <= 4 ? `Q${event.period}` : `OT${event.period - 4}`)} · {event.gameTime}
         </span>
+        {scoreAfter ? (
+          <span
+            className="live-font-mono live-pbp-score"
+            title="Score after this event"
+          >
+            {scoreAfter}
+          </span>
+        ) : null}
       </div>
       <div
         className="live-font-mono live-pbp-team-badge"

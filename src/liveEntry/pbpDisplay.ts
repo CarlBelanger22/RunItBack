@@ -280,6 +280,25 @@ export function pbpRowSourceEvent(row: PbpRow): GameEvent {
   }
 }
 
+/**
+ * Score after an event for PBP cards (home left – away right).
+ * Uses team abbreviations (short names on the scoreboard).
+ * Block / double-foul partner rows should pass the parent event (same after-score).
+ */
+export function formatPbpScoreAfter(
+  event: Pick<GameEvent, 'homeScore' | 'awayScore'> | null | undefined,
+  homeTeam: Pick<Team, 'abbreviation' | 'name'>,
+  awayTeam: Pick<Team, 'abbreviation' | 'name'>
+): string | null {
+  if (!event) return null;
+  const home = Number(event.homeScore);
+  const away = Number(event.awayScore);
+  if (!Number.isFinite(home) || !Number.isFinite(away)) return null;
+  const homeLabel = (homeTeam.abbreviation || homeTeam.name || 'HOME').trim();
+  const awayLabel = (awayTeam.abbreviation || awayTeam.name || 'AWAY').trim();
+  return `${homeLabel} ${home} – ${awayLabel} ${away}`;
+}
+
 function foulPlayerLine(stats: GameStats, event: GameEvent): string {
   const category = (event.details.foulCategory as string) ?? 'personal';
   const foulType = (event.details.foulType as string) ?? '';

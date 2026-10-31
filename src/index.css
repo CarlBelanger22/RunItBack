@@ -3954,8 +3954,8 @@ html {
 .live-pbp-card {
   display: flex;
   flex-shrink: 0;
-  min-width: 148px;
-  max-width: 172px;
+  min-width: 168px;
+  max-width: 200px;
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
@@ -3986,11 +3986,23 @@ html {
 .live-pbp-card-top {
   display: flex;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .live-pbp-meta {
   font-size: 9px;
   color: var(--muted-foreground);
+  flex-shrink: 0;
+}
+
+.live-pbp-score {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--foreground);
+  text-align: right;
+  line-height: 1.25;
+  max-width: 7.5rem;
 }
 
 .live-pbp-team-badge {

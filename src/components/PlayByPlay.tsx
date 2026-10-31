@@ -3,6 +3,7 @@ import { GameEvent, Team, Player } from '../App';
 import { ScrollArea } from './ui/scroll-area';
 import { Badge } from './ui/badge';
 import { cn } from './ui/utils';
+import { formatPbpScoreAfter } from '../liveEntry/pbpDisplay';
 import { 
   Target, 
   Activity, 
@@ -18,6 +19,9 @@ interface PlayByPlayProps {
   events: GameEvent[];
   ourTeam: Team;
   opponentTeam: Team;
+  /** True home/away for score-after labels (default: ourTeam=home). */
+  homeTeam?: Team;
+  awayTeam?: Team;
   className?: string;
   maxEvents?: number;
 }
@@ -25,12 +29,16 @@ interface PlayByPlayProps {
 export function PlayByPlay({ 
   events, 
   ourTeam, 
-  opponentTeam, 
+  opponentTeam,
+  homeTeam,
+  awayTeam,
   className,
   maxEvents 
 }: PlayByPlayProps) {
   const allPlayers = [...ourTeam.players, ...opponentTeam.players];
   const displayEvents = maxEvents ? events.slice(-maxEvents).reverse() : [...events].reverse();
+  const scoreHome = homeTeam ?? ourTeam;
+  const scoreAway = awayTeam ?? opponentTeam;
 
   const getPlayerName = (playerId?: string) => {
     if (!playerId) return null;
@@ -125,6 +133,7 @@ export function PlayByPlay({
             const isOurTeam = event.teamId === ourTeam.id;
             const isScoring = (event.type === 'shot_attempt' && event.details.made) || 
                              (event.type === 'free_throw' && event.details.attempts?.some((a: boolean) => a));
+            const scoreAfter = formatPbpScoreAfter(event, scoreHome, scoreAway);
 
             return (
               <div 
@@ -146,9 +155,14 @@ export function PlayByPlay({
                     <span>•</span>
                     <span>{event.period <= 4 ? `Q${event.period}` : `OT${event.period - 4}`}</span>
                   </div>
-                  <div className="font-mono bg-background px-1.5 py-0.5 rounded border shadow-sm text-foreground">
-                    {event.homeScore}-{event.awayScore}
-                  </div>
+                  {scoreAfter ? (
+                    <div
+                      className="font-mono bg-background px-1.5 py-0.5 rounded border shadow-sm text-foreground normal-case tracking-normal"
+                      title="Score after this event"
+                    >
+                      {scoreAfter}
+                    </div>
+                  ) : null}
                 </div>
                 
                 <div className="text-sm font-medium leading-tight">
