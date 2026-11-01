@@ -11,7 +11,12 @@ import type {
   TournamentStructure,
 } from './tournamentStructure';
 import { normalizeTournamentStructure } from './tournamentStructure';
-import { findGroupStage, resolveGroupStandingsTeams, resolveGroupTeamIds } from './groupMembers';
+import {
+  findGroupStage,
+  resolveGroupStandingsTeams,
+  resolveGroupTeamIds,
+  seedLetterForGroup,
+} from './groupMembers';
 import { sortStandingRowsWithH2h } from './standingsTiebreak';
 import { matchupGamesSorted } from './matchupGamePick';
 
@@ -138,6 +143,78 @@ export function filterRoundRobinGames(
   return games.filter(
     (game) => !isExcludedFromGroupRoundRobin(game, structure, linkedIds)
   );
+}
+
+/** Finalize locked seedSnapshot into an authoritative place order. */
+export function isGroupStageSeedingsLocked(
+  structure: TournamentStructure | undefined
+): boolean {
+  const normalized = normalizeTournamentStructure(structure);
+  if (!normalized || normalized.groupStageLocked !== true) return false;
+  const snap = normalized.seedSnapshot;
+  return Boolean(snap && Object.keys(snap).length > 0);
+}
+
+function compareSeedCodes(a: string, b: string): number {
+  const ma = /^([A-Za-z]+)(\d+)$/.exec(a);
+  const mb = /^([A-Za-z]+)(\d+)$/.exec(b);
+  if (ma && mb) {
+    const letterCmp = ma[1]!.toUpperCase().localeCompare(mb[1]!.toUpperCase());
+    if (letterCmp !== 0) return letterCmp;
+    return Number(ma[2]) - Number(mb[2]);
+  }
+  return a.localeCompare(b);
+}
+
+/**
+ * Map teamId → finish place from seedSnapshot.
+ * When `group` is set, only that group's letter (A1… / L1…) applies.
+ */
+export function seedPlaceByTeamId(
+  structure: TournamentStructure | undefined,
+  group?: TournamentGroup
+): Map<string, number> {
+  const places = new Map<string, number>();
+  const normalized = normalizeTournamentStructure(structure);
+  const snap = normalized?.seedSnapshot;
+  if (!snap) return places;
+
+  const letter = group ? seedLetterForGroup(group) : null;
+  const codes = Object.keys(snap)
+    .filter((code) => {
+      if (!letter) return true;
+      return code.toUpperCase().startsWith(letter.toUpperCase());
+    })
+    .sort(compareSeedCodes);
+
+  for (const code of codes) {
+    const teamId = snap[code];
+    if (!teamId) continue;
+    const m = /^[A-Za-z]+(\d+)$/.exec(code);
+    const place = m ? Number(m[1]) : places.size + 1;
+    if (!places.has(teamId)) places.set(teamId, place);
+  }
+  return places;
+}
+
+/**
+ * F1 — When seedings are locked, pin row order to seedSnapshot places.
+ * W–L / PF stats are unchanged (caller still uses RR-only games).
+ * Unlocked → return standings as-is (live W–L sort).
+ */
+export function orderStandingsBySeedSnapshot<T extends StandingRow>(
+  standings: T[],
+  structure: TournamentStructure | undefined,
+  group?: TournamentGroup
+): T[] {
+  if (!isGroupStageSeedingsLocked(structure)) return standings;
+  const places = seedPlaceByTeamId(structure, group);
+  if (places.size === 0) return standings;
+
+  return standings
+    .map((row, index) => ({ row, index, place: places.get(row.team.id) ?? 10_000 }))
+    .sort((a, b) => a.place - b.place || a.index - b.index)
+    .map((x) => x.row);
 }
 
 function sortStandings(rows: StandingRow[]): StandingRow[] {
@@ -435,10 +512,11 @@ export function buildGroupStandingsTables(
         structure,
         stage.id
       );
-      const standings = withExtendedShootingStats(
+      const live = withExtendedShootingStats(
         calculateTeamStandings(teams, groupGames, { h2hTiebreak: true }),
         groupGames
       );
+      const standings = orderStandingsBySeedSnapshot(live, structure, group);
       tables.push({ stage, group, standings });
     }
   }

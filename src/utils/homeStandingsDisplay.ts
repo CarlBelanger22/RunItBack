@@ -48,7 +48,7 @@ export function buildHomeStandingDisplayRows(input: {
   structure: TournamentStructure | null | undefined;
   games: Game[];
   teams: Team[];
-  /** All-games W–L standings (current Home calculateHomeStandings). */
+  /** W–L standings for the Home card (RR/league only when structure exists). */
   standings: StandingRow[];
 }): HomeStandingDisplayRow[] {
   const progression = buildTeamProgressionPlaces({

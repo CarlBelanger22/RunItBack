@@ -206,6 +206,7 @@
             "test:resolve-bracket-feeders": "tsx scripts/test-resolve-bracket-feeders.ts",
             "test:matchup-game-pick": "tsx scripts/test-matchup-game-pick.ts",
             "test:bracket-places": "tsx scripts/test-bracket-places.ts",
+            "test:bracket-layout-pairs": "tsx scripts/test-bracket-layout-pairs.ts",
             "test:bracket-legs": "tsx scripts/test-bracket-legs.ts",
             "test:iubit-2026-structure": "tsx scripts/test-iubit-2026-structure.ts",
             "test:game-sort": "tsx scripts/test-game-sort.ts",

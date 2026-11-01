@@ -63,6 +63,7 @@ import {
   bracketPlaceholderSides,
   isLoserPlacementLabel,
 } from '../utils/bracketPlaceholderSides';
+import { pairFirstRoundByFeeders } from '../utils/bracketLayoutPairs';
 import { TeamBadge } from './TeamBadge';
 import { MoreHorizontal } from 'lucide-react';
 
@@ -904,14 +905,16 @@ function FirstRoundPairColumn({
   stackRef: React.MutableRefObject<HTMLDivElement | null>;
   boxRefs: React.MutableRefObject<Array<HTMLDivElement | null>>;
   a: BracketSlot;
-  b: BracketSlot;
+  b?: BracketSlot;
   next: BracketSlot;
   nextBoxRef?: (el: HTMLDivElement | null) => void;
   matchProps: (slot: BracketSlot) => React.ComponentProps<typeof MatchBox>;
 }) {
   const sourceOnlyRef = useRef<HTMLDivElement | null>(null);
   const targetRef = useRef<HTMLDivElement | null>(null);
-  const active = [a, b].filter((s) => !isSlotInactive(s));
+  const active = [a, b].filter(
+    (s): s is BracketSlot => Boolean(s) && !isSlotInactive(s)
+  );
 
   const setNextRef = (el: HTMLDivElement | null) => {
     targetRef.current = el;
@@ -1403,6 +1406,9 @@ function EightTeamBracketTree({
   const { championship, consolation } = splitFinalsSlots(finalsRound.slots);
   const qf = qfRound.slots;
   const sf = sfRound.slots;
+  const qfSfPairs = pairFirstRoundByFeeders(qf, sf);
+  const pair0 = qfSfPairs[0];
+  const pair1 = qfSfPairs[1];
 
   useLayoutEffect(() => {
     if (!finalsGeom || !finalWrapRef.current) {
@@ -1440,33 +1446,37 @@ function EightTeamBracketTree({
 
         <div className="classification-bracket-eight-body">
           <div className="classification-bracket-eight-pairs" ref={pairsRef}>
-            <div className="classification-bracket-semis-row classification-bracket-semis-row--eight">
-              <FirstRoundPairColumn
-                stackRef={qfPair0Stack}
-                boxRefs={qfPair0Boxes}
-                a={qf[0]}
-                b={qf[1]}
-                next={sf[0]}
-                nextBoxRef={(el) => {
-                  sfBoxRefs.current[0] = el;
-                }}
-                matchProps={matchProps}
-              />
-            </div>
+            {pair0?.a ? (
+              <div className="classification-bracket-semis-row classification-bracket-semis-row--eight">
+                <FirstRoundPairColumn
+                  stackRef={qfPair0Stack}
+                  boxRefs={qfPair0Boxes}
+                  a={pair0.a}
+                  b={pair0.b}
+                  next={pair0.next}
+                  nextBoxRef={(el) => {
+                    sfBoxRefs.current[0] = el;
+                  }}
+                  matchProps={matchProps}
+                />
+              </div>
+            ) : null}
 
-            <div className="classification-bracket-semis-row classification-bracket-semis-row--eight">
-              <FirstRoundPairColumn
-                stackRef={qfPair1Stack}
-                boxRefs={qfPair1Boxes}
-                a={qf[2]}
-                b={qf[3]}
-                next={sf[1]}
-                nextBoxRef={(el) => {
-                  sfBoxRefs.current[1] = el;
-                }}
-                matchProps={matchProps}
-              />
-            </div>
+            {pair1?.a ? (
+              <div className="classification-bracket-semis-row classification-bracket-semis-row--eight">
+                <FirstRoundPairColumn
+                  stackRef={qfPair1Stack}
+                  boxRefs={qfPair1Boxes}
+                  a={pair1.a}
+                  b={pair1.b}
+                  next={pair1.next}
+                  nextBoxRef={(el) => {
+                    sfBoxRefs.current[1] = el;
+                  }}
+                  matchProps={matchProps}
+                />
+              </div>
+            ) : null}
           </div>
 
           <BracketJoin

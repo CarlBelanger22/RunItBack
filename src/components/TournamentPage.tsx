@@ -58,6 +58,8 @@ import {
   buildGroupStandingsTables,
   filterGamesForGroup,
   filterRoundRobinGames,
+  isGroupStageSeedingsLocked,
+  orderStandingsBySeedSnapshot,
   withExtendedShootingStats,
   calculateTeamStandings,
   type ExtendedStandingRow,
@@ -173,17 +175,28 @@ export function TournamentPage({
   const tournamentTeams = filterTeamsForTournament(tournament, games, teams);
   const tournamentGames = filterGamesForTournament(tournament, games);
 
+  const seedingsLocked = isGroupStageSeedingsLocked(tournament.structure);
+
   // Home + unstructured Standings: RR/group games only when structure exists
   // (exclude KO so Standings tab matches Group tables — LE-131).
   const calculateStandings = () =>
-    calculateTeamStandings(
-      tournamentTeams,
-      filterRoundRobinGames(tournamentGames, tournament.structure)
+    orderStandingsBySeedSnapshot(
+      calculateTeamStandings(
+        tournamentTeams,
+        filterRoundRobinGames(tournamentGames, tournament.structure)
+      ),
+      tournament.structure
     );
 
-  // Home Standings card only: count every completed tournament game (incl. KO).
+  // Home Standings card: same RR/league games as Standings tab (R1 — KO excluded).
   const calculateHomeStandings = () =>
-    calculateTeamStandings(tournamentTeams, tournamentGames);
+    orderStandingsBySeedSnapshot(
+      calculateTeamStandings(
+        tournamentTeams,
+        filterRoundRobinGames(tournamentGames, tournament.structure)
+      ),
+      tournament.structure
+    );
   
   // Get tournament leaders
   const getTournamentLeaders = () => {
@@ -345,9 +358,12 @@ export function TournamentPage({
 
   // Calculate additional team stats for standings
   const calculateStandingsWithExtendedStats = () =>
-    withExtendedShootingStats(
-      standings,
-      filterRoundRobinGames(tournamentGames, tournament.structure)
+    orderStandingsBySeedSnapshot(
+      withExtendedShootingStats(
+        standings,
+        filterRoundRobinGames(tournamentGames, tournament.structure)
+      ),
+      tournament.structure
     );
   
   const standings = applyRektS3StandingsOrder(
@@ -1129,9 +1145,12 @@ export function TournamentPage({
             return (
               <Card key={group.id}>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
+                  <CardTitle className="flex items-center gap-2 text-base flex-wrap">
                     {group.leagueTable ? 'Tournament Standings' : group.name}
                     <Badge variant="secondary">{memberCount} teams</Badge>
+                    {seedingsLocked ? (
+                      <Badge variant="outline">Seedings locked</Badge>
+                    ) : null}
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
@@ -1142,6 +1161,13 @@ export function TournamentPage({
                         showH2h: true,
                         rankBase: 1,
                       })}
+                      {seedingsLocked ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Seedings locked — knockout games do not count in
+                          this table. Place order is fixed until seedings are
+                          unlocked.
+                        </p>
+                      ) : null}
                       {s3StandingsFootnote ? (
                         <p className="mt-3 text-xs text-muted-foreground">
                           {s3StandingsFootnote}
@@ -1160,6 +1186,13 @@ export function TournamentPage({
                         showH2h: true,
                         rankBase,
                       })}
+                      {seedingsLocked ? (
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Seedings locked — knockout games do not count in
+                          this table. Place order is fixed until seedings are
+                          unlocked.
+                        </p>
+                      ) : null}
                       {s3StandingsFootnote &&
                       groupRows.some((r) =>
                         isRektS3DemotedTeam(tournament.id, r.team.id)
@@ -1338,10 +1371,21 @@ export function TournamentPage({
       ) : (
         <Card>
           <CardHeader>
-            <CardTitle>Tournament Standings</CardTitle>
+            <CardTitle className="flex items-center gap-2 flex-wrap">
+              Tournament Standings
+              {seedingsLocked ? (
+                <Badge variant="outline">Seedings locked</Badge>
+              ) : null}
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {renderStandingsTable(extendedStandings)}
+            {seedingsLocked ? (
+              <p className="mt-3 text-xs text-muted-foreground">
+                Seedings locked — knockout games do not count in this table.
+                Place order is fixed until seedings are unlocked.
+              </p>
+            ) : null}
             {s3StandingsFootnote ? (
               <p className="mt-3 text-xs text-muted-foreground">
                 {s3StandingsFootnote}

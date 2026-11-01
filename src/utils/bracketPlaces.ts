@@ -26,12 +26,21 @@ export function formatFinishPlace(place: number): string {
 /**
  * Infer winner/loser places from a display label when places are not stored.
  * Handles "13th Place", "5th", "3rd Place", "Final", "13/14", "13th–14th", etc.
+ * Seed matchups ("1st vs 8th", "4th vs 5th", "L2 vs L7") are not places.
  */
 export function inferPlacesFromLabel(
   label: string | undefined
 ): { winner: number; loser: number } | null {
   const t = (label ?? '').toLowerCase().trim();
   if (!t) return null;
+
+  // League / KO seed cards — ordinals name seeds, not finish medals.
+  if (
+    /\b\d+(?:st|nd|rd|th)\s+vs\s+\d+(?:st|nd|rd|th)\b/.test(t) ||
+    /\bl\d+\s+vs\s+l\d+\b/.test(t)
+  ) {
+    return null;
+  }
 
   // "13th–14th" / "13th-14th Placement"
   const band = t.match(
