@@ -47,6 +47,7 @@ import {
 import { stripPossessionContext } from './eventEditGuards';
 import { isValidSubstitutionClock } from '../utils/gameClock';
 import { isOppUnitOffense, isSingleTeamLive } from './singleTeamFlow';
+import { withRicherPbp } from '../utils/gamePbpPreserve';
 
 function resolveOnCourt(game: Game, side: 'home' | 'away'): string[] {
   const starters = side === 'home' ? game.homeStarters : game.awayStarters;
@@ -99,7 +100,7 @@ export function useLiveGameSession(
   entryStateRef.current = entryState;
 
   useEffect(() => {
-    const base =
+    let base =
       rosterContext != null
         ? normalizeGameTeamRosters(
             game,
@@ -107,6 +108,13 @@ export function useLiveGameSession(
             rosterContext.tournamentRosters
           )
         : game;
+    // Never let a shorter App/cloud prop wipe richer in-session PBP (TP–ITE).
+    if (
+      currentGameRef.current.id === base.id &&
+      (currentGameRef.current.events?.length ?? 0) > (base.events?.length ?? 0)
+    ) {
+      base = withRicherPbp(base, currentGameRef.current);
+    }
     const replayed = replayMinutesOntoGame(base);
     const synced = GameLogic.syncTrackedTeamTotalsFromPlayers(replayed.game);
     const courtSidesFlipped =

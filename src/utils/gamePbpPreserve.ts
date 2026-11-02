@@ -5,15 +5,29 @@ export function pbpArrayLength(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+export interface PreservePbpOptions {
+  /**
+   * When false (default), keep DB PBP if incoming is empty OR strictly shorter
+   * (stale tab / completed shell). Live single-game saves pass true so Undo can sync.
+   */
+  allowShrink?: boolean;
+}
+
 /**
- * Keep DB / richer PBP when an incoming write would wipe it with [].
+ * Keep DB / richer PBP when an incoming write would wipe or (by default) shrink it.
  * Mirrors shouldPreserveExistingGameStats for events/shots.
  */
 export function shouldPreserveExistingPbpArray(
   incoming: unknown,
-  existing: unknown
+  existing: unknown,
+  options?: PreservePbpOptions
 ): boolean {
-  return pbpArrayLength(existing) > 0 && pbpArrayLength(incoming) === 0;
+  const existingLen = pbpArrayLength(existing);
+  if (existingLen <= 0) return false;
+  const incomingLen = pbpArrayLength(incoming);
+  if (incomingLen === 0) return true;
+  if (!options?.allowShrink && incomingLen < existingLen) return true;
+  return false;
 }
 
 export interface GamePbpColumns {
@@ -22,23 +36,25 @@ export interface GamePbpColumns {
   lineup_stints?: unknown;
 }
 
-/** Apply preserve rules onto a DB-shaped game row (mutates a shallow copy). */
+/** Apply preserve rules onto a DB-shaped game row (shallow copy). */
 export function applyPreservedPbpToDbRow<T extends GamePbpColumns>(
   row: T,
-  existing: GamePbpColumns | undefined
+  existing: GamePbpColumns | undefined,
+  options?: PreservePbpOptions
 ): T {
   if (!existing) return row;
   const next = { ...row };
-  if (shouldPreserveExistingPbpArray(row.events, existing.events)) {
+  if (shouldPreserveExistingPbpArray(row.events, existing.events, options)) {
     next.events = existing.events;
   }
-  if (shouldPreserveExistingPbpArray(row.shots, existing.shots)) {
+  if (shouldPreserveExistingPbpArray(row.shots, existing.shots, options)) {
     next.shots = existing.shots;
   }
   if (
     shouldPreserveExistingPbpArray(
       row.lineup_stints ?? [],
-      existing.lineup_stints ?? []
+      existing.lineup_stints ?? [],
+      options
     )
   ) {
     next.lineup_stints = existing.lineup_stints;

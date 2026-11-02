@@ -739,6 +739,8 @@ type GameSetupMeta = {
   possessionArrowTeamId?: string | null;
   /** Shared lead changes / times tied (imports or live applyGameFlow). */
   gameFlow?: Game['gameFlow'];
+  /** Hide Game flow comparison section for this game. */
+  hideGameFlow?: boolean;
   /** Mid-session park — free live slot without orphan-deleting progress. */
   isPaused?: boolean;
 };
@@ -767,6 +769,7 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
     Boolean(game.bracketSlotId) ||
     game.courtSidesFlippedAtTip !== undefined ||
     hasGameFlow ||
+    game.hideGameFlow === true ||
     liveSession;
   if (hasMeta) {
     payload[TEAM_STATS_META_KEY] = {
@@ -795,6 +798,7 @@ function serializeTeamStats(game: Game): PersistedTeamStats {
             timesTied: game.gameFlow!.timesTied ?? null,
           }
         : undefined,
+      hideGameFlow: game.hideGameFlow === true ? true : undefined,
       isPaused: game.isPaused === true ? true : undefined,
     };
   }
@@ -839,6 +843,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
   gameDayRosterIds?: { home: string[]; away: string[] };
   possessionArrowTeamId?: string | null;
   gameFlow?: Game['gameFlow'];
+  hideGameFlow?: boolean;
   isPaused?: boolean;
 } {
   const raw = row as PersistedTeamStats;
@@ -863,6 +868,7 @@ function parseTeamStats(row: DbGame['team_stats']): {
     gameDayRosterIds: meta?.gameDayRosterIds,
     possessionArrowTeamId: meta?.possessionArrowTeamId ?? undefined,
     gameFlow: parseGameFlowMeta(meta?.gameFlow),
+    hideGameFlow: meta?.hideGameFlow === true ? true : undefined,
     isPaused: meta?.isPaused === true ? true : undefined,
   };
 }
@@ -922,6 +928,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     gameDayRosterIds,
     possessionArrowTeamId,
     gameFlow,
+    hideGameFlow,
     isPaused,
   } = parseTeamStats(row.team_stats);
 
@@ -938,6 +945,7 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     gameStats: row.game_stats ?? [],
     teamStats,
     gameFlow,
+    hideGameFlow,
     setupCreatedTeamIds,
     setupRosterChanges,
     shots: row.shots ?? [],
@@ -1385,12 +1393,16 @@ export async function deleteGamesFromSupabase(gameIds: string[]): Promise<void> 
 }
 
 /**
- * Upsert a single game row (End Game / Complete). Avoids rewriting the full
- * games table so completion is not blocked on ~all-league payload size.
+ * Upsert a single game row (live autosave / End Game). Avoids rewriting the
+ * full games table so PBP is not blocked on ~all-league payload size.
+ *
+ * `allowPbpShrink`: live Undo may shorten events vs DB — pass true for live
+ * single-game saves. End Game / full league leave default false (reject shrink).
  */
 export async function saveGameToSupabase(
   game: Game,
-  leagueId = DEFAULT_LEAGUE_ID
+  leagueId = DEFAULT_LEAGUE_ID,
+  options?: { allowPbpShrink?: boolean }
 ): Promise<void> {
   if (!supabase) return;
   const existingTimes = await loadExistingStartTimesById([game.id]);
@@ -1398,7 +1410,8 @@ export async function saveGameToSupabase(
   const toSave = applyPreservedStartTime(game, existingTimes.get(game.id));
   const row = applyPreservedPbpToDbRow(
     gameToDbRow(toSave, leagueId),
-    existingPbp.get(game.id)
+    existingPbp.get(game.id),
+    { allowShrink: options?.allowPbpShrink === true }
   );
   const { error } = await supabase.from('games').upsert(row, { onConflict: 'id' });
   if (error) throw new Error(`games: ${error.message}`);

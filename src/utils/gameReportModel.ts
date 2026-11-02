@@ -464,6 +464,8 @@ function blankComparisonRow(
 }
 
 function gameFlowComparisonRows(game: Game): GameReportComparisonRow[] {
+  if (game.hideGameFlow === true) return [];
+
   const flow = resolveGameFlowStats(game);
   const teamRow = (
     label: string,

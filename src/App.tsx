@@ -64,6 +64,12 @@ import {
   mergeGamesPreferCompleted,
 } from './lib/completedGamePersist';
 import {
+  LIVE_GAME_CLOUD_SAVE_DEBOUNCE_MS,
+  liveGamesToPersist,
+  pickFreshestLiveGame,
+  resolveLiveCloudSaveMode,
+} from './lib/liveGameCloudPersist';
+import {
   incompleteGameProgressScore,
   mergeCloudGamesWithFresherLocal,
 } from './lib/liveGameFreshness';
@@ -403,6 +409,11 @@ export interface Game {
     leadChanges: number | null;
     timesTied: number | null;
   };
+  /**
+   * When true, hide the Game flow comparison block (bad/truncated PBP).
+   * Persisted in team_stats.__meta.
+   */
+  hideGameFlow?: boolean;
   shots: Shot[];
   events: GameEvent[]; // Complete event log
   lineupStints: LineupStint[]; // For tracking minutes and plus/minus
@@ -1839,6 +1850,58 @@ export default function App() {
   const ackedTournamentRostersCloudRef = useRef(tournamentRosters);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const idleCallbackRef = useRef<number | null>(null);
+  const liveGameSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const pendingLiveGameSaveIdsRef = useRef<Set<string>>(new Set());
+
+  const flushLiveGamesToCloud = useCallback((reason: string) => {
+    const ids = [...pendingLiveGameSaveIdsRef.current];
+    for (const g of liveGamesToPersist(gamesRef.current)) {
+      if (!ids.includes(g.id)) ids.push(g.id);
+    }
+    pendingLiveGameSaveIdsRef.current.clear();
+    if (liveGameSaveTimeoutRef.current) {
+      clearTimeout(liveGameSaveTimeoutRef.current);
+      liveGameSaveTimeoutRef.current = null;
+    }
+    if (ids.length === 0) return;
+
+    if (import.meta.env.DEV) {
+      console.info('[RunItBack] live game cloud save', { reason, ids });
+    }
+
+    void enqueueCloudSave(async () => {
+      for (const id of ids) {
+        const freshest = pickFreshestLiveGame(
+          id,
+          gamesRef.current,
+          currentGameRef.current
+        );
+        if (!freshest || !shouldPersistLiveSession(freshest)) continue;
+        await saveGameToSupabase(freshest, undefined, { allowPbpShrink: true });
+      }
+      // Ack games baseline so we do not immediately re-full-save the same live row.
+      prevGamesRef.current = gamesRef.current;
+    });
+  }, []);
+
+  const scheduleLiveGamesCloudSave = useCallback(
+    (gamesList: Game[], reason: string) => {
+      for (const g of liveGamesToPersist(gamesList)) {
+        pendingLiveGameSaveIdsRef.current.add(g.id);
+      }
+      if (pendingLiveGameSaveIdsRef.current.size === 0) return;
+      if (liveGameSaveTimeoutRef.current) {
+        clearTimeout(liveGameSaveTimeoutRef.current);
+      }
+      liveGameSaveTimeoutRef.current = setTimeout(() => {
+        liveGameSaveTimeoutRef.current = null;
+        flushLiveGamesToCloud(reason);
+      }, LIVE_GAME_CLOUD_SAVE_DEBOUNCE_MS);
+    },
+    [flushLiveGamesToCloud]
+  );
 
   // Persist data (Supabase or localStorage) when state changes
   useEffect(() => {
@@ -1884,6 +1947,27 @@ export default function App() {
       if (onlyRostersChanged && deferTournamentRosterAutosaveRef.current) {
         return;
       }
+
+      const nonGameChanged =
+        teamsChanged ||
+        tournamentsChanged ||
+        darkModeChanged ||
+        tournamentRostersChanged;
+      const mode = resolveLiveCloudSaveMode({
+        games,
+        gamesChanged,
+        nonGameChanged,
+      });
+
+      if (mode === 'live-game-only') {
+        // Priority during live entry: current game PBP only — not full league.
+        scheduleLiveGamesCloudSave(games, 'autosave');
+        return;
+      }
+      if (mode === 'skip') {
+        return;
+      }
+
       const saveKind: CloudSaveKind = onlyRostersChanged
         ? 'rosters-only'
         : 'full';
@@ -1906,9 +1990,18 @@ export default function App() {
         cancelIdleCallback(idleCallbackRef.current);
       }
     };
-  }, [teams, tournaments, games, darkMode, isDataLoading, tournamentRosters, runCloudPersist]);
+  }, [
+    teams,
+    tournaments,
+    games,
+    darkMode,
+    isDataLoading,
+    tournamentRosters,
+    runCloudPersist,
+    scheduleLiveGamesCloudSave,
+  ]);
 
-  // Flush durable local (+ best-effort cloud) when tab hides / page is frozen for sleep.
+  // Flush durable local (+ single-game cloud) when tab hides / page is frozen.
   useEffect(() => {
     const flushLiveDurability = (reason: string) => {
       if (skipSaveRef.current || isDataLoading) return;
@@ -1925,6 +2018,7 @@ export default function App() {
       }
 
       liveLocalSnapshotAtRef.current = Date.now();
+      const liveOverlay = currentGameRef.current;
       saveAppDataSnapshot({
         teams: teamsRef.current,
         tournaments: tournamentsRef.current,
@@ -1932,10 +2026,10 @@ export default function App() {
           gamesRef.current.filter(
             (g) => !pendingDeletedGameIdsRef.current.has(g.id)
           ),
-          active?.isActive &&
-            !active.isCompleted &&
-            !pendingDeletedGameIdsRef.current.has(active.id)
-            ? [active]
+          liveOverlay &&
+            shouldPersistLiveSession(liveOverlay) &&
+            !pendingDeletedGameIdsRef.current.has(liveOverlay.id)
+            ? [liveOverlay]
             : []
         ),
         darkMode: true,
@@ -1946,12 +2040,8 @@ export default function App() {
       if (import.meta.env.DEV) {
         console.info('[RunItBack] live durability flush', { reason });
       }
-      // Q3=2: never start a competing full save while another write is in flight.
-      if (isCloudSaveQueueIdle()) {
-        void runCloudPersist('full');
-      } else if (import.meta.env.DEV) {
-        console.info('[RunItBack] skip hide cloud flush (queue busy)');
-      }
+      // Single-game only while live — never kick a competing full-league save.
+      flushLiveGamesToCloud(`hide:${reason}`);
     };
 
     const onVisibility = () => {
@@ -1967,7 +2057,7 @@ export default function App() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onPageHide);
     };
-  }, [isDataLoading, runCloudPersist]);
+  }, [isDataLoading, flushLiveGamesToCloud]);
 
   const handleGameStart = useCallback(
     (game: Game): boolean => {

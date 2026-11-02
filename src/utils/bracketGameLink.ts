@@ -28,7 +28,9 @@ function updateSlotGameId(
   slotId: string,
   gameId: string | null
 ): TournamentStructure {
+  // Preserve top-level fields (groupStageLocked, seedSnapshot, etc.)
   return {
+    ...structure,
     stages: structure.stages.map((stage) => {
       if (!stage.bracket) return stage;
       return {
@@ -50,7 +52,9 @@ function clearSlotIfGame(
   structure: TournamentStructure,
   gameId: string
 ): TournamentStructure {
+  // Preserve top-level fields (groupStageLocked, seedSnapshot, etc.)
   return {
+    ...structure,
     stages: structure.stages.map((stage) => {
       if (!stage.bracket) return stage;
       return {

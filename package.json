@@ -195,6 +195,7 @@
             "test:shot-lateral-canonical": "tsx scripts/test-shot-lateral-canonical.ts",
             "test:live-game-freshness": "tsx scripts/test-live-game-freshness.ts",
             "test:game-pbp-preserve": "tsx scripts/test-game-pbp-preserve.ts",
+            "test:live-game-cloud-persist": "tsx scripts/test-live-game-cloud-persist.ts",
             "test:player-shot-chart": "tsx scripts/test-player-shot-chart.ts",
             "test:quarter-scoring": "tsx scripts/test-quarter-scoring.ts",
             "test:game-team-rosters": "tsx scripts/test-game-team-rosters.ts",

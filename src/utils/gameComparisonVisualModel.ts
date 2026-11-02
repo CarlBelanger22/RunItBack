@@ -161,6 +161,8 @@ export function filterPresentGameFlowRows(
 }
 
 export function buildGameFlowComparisonRows(game: Game): GameFlowTableRow[] {
+  if (game.hideGameFlow === true) return [];
+
   const flow = resolveGameFlowStats(game);
   const rows: GameFlowTableRow[] = [
     {
