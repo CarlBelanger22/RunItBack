@@ -295,6 +295,26 @@ function meanOf(values: Array<number | null | undefined>): number | null {
   return count === 0 ? null : sum / count;
 }
 
+/** Sum of finite numbers; nulls/NaN skipped. */
+function sumOf(values: Array<number | null | undefined>): number {
+  let sum = 0;
+  for (const v of values) {
+    if (v == null || !Number.isFinite(v)) continue;
+    sum += v;
+  }
+  return sum;
+}
+
+/** NBA/FIBA-style league %: Σ made ÷ Σ attempted (null if no attempts). */
+function volumePct(
+  madeValues: Array<number | null | undefined>,
+  attemptedValues: Array<number | null | undefined>
+): number | null {
+  const made = sumOf(madeValues);
+  const attempted = sumOf(attemptedValues);
+  return attempted > 0 ? (made / attempted) * 100 : null;
+}
+
 function fmtSignedDiff(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return NO_STAT;
   const n = Number(value.toFixed(1));
@@ -316,7 +336,7 @@ function teamsWithGames(rows: TournamentTeamSeasonRow[]): TournamentTeamSeasonRo
 
 /**
  * League average cells for Standard Team Stats (equal weight per team with GP > 0).
- * W-L is always `—`. Shooting % = mean of each team's %.
+ * W-L is always `—`. Shooting % = Σ made ÷ Σ attempted (NBA/FIBA volume-weighted).
  */
 export function formatStandardLeagueAverageTournamentTeamStatsRow(
   rows: TournamentTeamSeasonRow[]
@@ -337,20 +357,21 @@ export function formatStandardLeagueAverageTournamentTeamStatsRow(
     fmt(meanOf(sample.map((r) => r.derived.spg))),
     fmt(meanOf(sample.map((r) => r.derived.bpg))),
     fmtPct(
-      meanOf(
-        sample.map((r) => pct(r.totals.fg_made, r.totals.fg_attempted))
+      volumePct(
+        sample.map((r) => r.totals.fg_made),
+        sample.map((r) => r.totals.fg_attempted)
       )
     ),
     fmtPct(
-      meanOf(
-        sample.map((r) =>
-          pct(r.totals.three_made, r.totals.three_attempted)
-        )
+      volumePct(
+        sample.map((r) => r.totals.three_made),
+        sample.map((r) => r.totals.three_attempted)
       )
     ),
     fmtPct(
-      meanOf(
-        sample.map((r) => pct(r.totals.ft_made, r.totals.ft_attempted))
+      volumePct(
+        sample.map((r) => r.totals.ft_made),
+        sample.map((r) => r.totals.ft_attempted)
       )
     ),
     fmt(meanOf(sample.map((r) => r.derived.topg))),
@@ -359,9 +380,21 @@ export function formatStandardLeagueAverageTournamentTeamStatsRow(
   ];
 }
 
+/** Points for TS% pooling: prefer scored PPG × GP, else box totals. */
+function teamScoringPointsForLeagueAvg(row: TournamentTeamSeasonRow): number {
+  if (row.derived.gamesWithScore > 0) {
+    return row.ppg * row.derived.gamesWithScore;
+  }
+  if (row.gamesPlayed > 0) {
+    return row.ppg * row.gamesPlayed;
+  }
+  return row.totals.points;
+}
+
 /**
  * League average cells for Advanced Team Stats (equal weight per team with GP > 0).
- * FG/3PT/FT = mean makes / mean attempts.
+ * FG/3PT/FT = mean makes / mean attempts (ratio ≡ Σ/Σ).
+ * TS% / eFG% / 2P% = volume-weighted from summed team totals.
  */
 export function formatAdvancedLeagueAverageTournamentTeamStatsRow(
   rows: TournamentTeamSeasonRow[]
@@ -370,6 +403,28 @@ export function formatAdvancedLeagueAverageTournamentTeamStatsRow(
   if (sample.length === 0) {
     return ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS.map(() => NO_STAT);
   }
+
+  const fgMade = sumOf(sample.map((r) => r.totals.fg_made));
+  const fgAttempted = sumOf(sample.map((r) => r.totals.fg_attempted));
+  const threeMade = sumOf(sample.map((r) => r.totals.three_made));
+  const threeAttempted = sumOf(sample.map((r) => r.totals.three_attempted));
+  const ftAttempted = sumOf(sample.map((r) => r.totals.ft_attempted));
+  const twoMade = fgMade - threeMade;
+  const twoAttempted = fgAttempted - threeAttempted;
+  const scoringPoints = sumOf(sample.map(teamScoringPointsForLeagueAvg));
+  const tsDenom = fgAttempted + 0.44 * ftAttempted;
+
+  const efgPct =
+    fgAttempted > 0
+      ? ((fgMade + 0.5 * threeMade) / fgAttempted) * 100
+      : null;
+  const twoPtPct = twoAttempted > 0 ? (twoMade / twoAttempted) * 100 : null;
+  const tsPct =
+    tsDenom > 0 && scoringPoints > 0
+      ? (scoringPoints / (2 * tsDenom)) * 100
+      : tsDenom > 0 && scoringPoints === 0
+        ? 0
+        : null;
 
   return [
     fmtMakesAttempts(
@@ -392,9 +447,9 @@ export function formatAdvancedLeagueAverageTournamentTeamStatsRow(
     fmt(meanOf(sample.map((r) => r.derived.secondChancePpg))),
     fmt(meanOf(sample.map((r) => r.derived.pointsOffTurnoversPpg))),
     fmt(meanOf(sample.map((r) => r.perGame.bench_points))),
-    fmtPct(meanOf(sample.map((r) => r.derived.tsPct))),
-    fmtPct(meanOf(sample.map((r) => r.derived.efgPct))),
-    fmtPct(meanOf(sample.map((r) => r.derived.twoPtPct))),
+    fmtPct(tsPct),
+    fmtPct(efgPct),
+    fmtPct(twoPtPct),
   ];
 }
 
