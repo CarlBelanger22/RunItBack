@@ -4,6 +4,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -17,7 +18,9 @@ import {
   STANDARD_TOURNAMENT_TEAM_STATS_FIELDS,
   TOURNAMENT_TEAM_STATS_NO_VALUE,
   defaultSortOrderForTeamField,
+  formatAdvancedLeagueAverageTournamentTeamStatsRow,
   formatAdvancedTournamentTeamStatsRow,
+  formatStandardLeagueAverageTournamentTeamStatsRow,
   formatStandardTournamentTeamStatsRow,
   sortTournamentTeamSeasonRows,
   type TournamentTeamSeasonRow,
@@ -106,6 +109,14 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
     [rows, sortField, sortOrder]
   );
 
+  const leagueAverageValues = useMemo(
+    () =>
+      view === 'standard'
+        ? formatStandardLeagueAverageTournamentTeamStatsRow(rows)
+        : formatAdvancedLeagueAverageTournamentTeamStatsRow(rows),
+    [rows, view]
+  );
+
   const activeFields =
     view === 'standard'
       ? STANDARD_TOURNAMENT_TEAM_STATS_FIELDS
@@ -113,6 +124,32 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
 
   const cellHighlight = (field: TournamentTeamStatsSortField) =>
     sortField === field ? 'bg-muted/40' : '';
+
+  const renderStatCell = (
+    field: (typeof activeFields)[number],
+    value: string
+  ) => {
+    const isDiff = field === 'DIFF';
+    if (value === TOURNAMENT_TEAM_STATS_NO_VALUE) {
+      return <NoStatRecorded />;
+    }
+    if (isDiff) {
+      return (
+        <span
+          className={
+            value.startsWith('+')
+              ? 'text-green-400'
+              : value.startsWith('-')
+                ? 'text-red-400'
+                : undefined
+          }
+        >
+          {value}
+        </span>
+      );
+    }
+    return value;
+  };
 
   return (
     <div className="space-y-3">
@@ -200,39 +237,36 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
                             )}
                           </div>
                         </TableCell>
-                        {activeFields.map((field, index) => {
-                          const value = values[index] ?? '';
-                          const isDiff = field === 'DIFF';
-                          return (
-                            <TableCell
-                              key={field}
-                              className={`${numericCellClass} ${cellHighlight(field)}`}
-                            >
-                              {value === TOURNAMENT_TEAM_STATS_NO_VALUE ? (
-                                <NoStatRecorded />
-                              ) : isDiff ? (
-                                <span
-                                  className={
-                                    value.startsWith('+')
-                                      ? 'text-green-400'
-                                      : value.startsWith('-')
-                                        ? 'text-red-400'
-                                        : undefined
-                                  }
-                                >
-                                  {value}
-                                </span>
-                              ) : (
-                                value
-                              )}
-                            </TableCell>
-                          );
-                        })}
+                        {activeFields.map((field, index) => (
+                          <TableCell
+                            key={field}
+                            className={`${numericCellClass} ${cellHighlight(field)}`}
+                          >
+                            {renderStatCell(field, values[index] ?? '')}
+                          </TableCell>
+                        ))}
                       </TableRow>
                     );
                   })
                 )}
               </TableBody>
+              {sorted.length > 0 ? (
+                <TableFooter>
+                  <TableRow className="hover:bg-muted/50">
+                    <TableCell className="sticky left-0 z-10 bg-muted min-w-[10rem] font-medium text-sm">
+                      League Average
+                    </TableCell>
+                    {activeFields.map((field, index) => (
+                      <TableCell
+                        key={field}
+                        className={`${numericCellClass} font-medium`}
+                      >
+                        {renderStatCell(field, leagueAverageValues[index] ?? '')}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                </TableFooter>
+              ) : null}
             </Table>
           </div>
         </CardContent>

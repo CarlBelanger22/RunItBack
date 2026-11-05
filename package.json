@@ -179,6 +179,7 @@
             "test:tournament-selection": "tsx scripts/test-tournament-selection.ts",
             "test:team-season-aggregate": "tsx scripts/test-team-season-aggregate.ts",
             "test:tournament-team-season-stats": "tsx scripts/test-tournament-team-season-stats.ts",
+            "test:tournament-team-league-average": "tsx scripts/test-tournament-team-league-average.ts",
             "test:nbl-d1-team-stats-table": "tsx scripts/test-nbl-d1-team-stats-table.ts",
             "test:game-report-model": "tsx scripts/test-game-report-model.ts",
             "test:game-report-pdf": "tsx scripts/test-game-report-pdf.ts",

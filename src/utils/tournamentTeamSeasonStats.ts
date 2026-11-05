@@ -283,4 +283,119 @@ export function formatAdvancedTournamentTeamStatsRow(
   ];
 }
 
+/** Equal-weight mean of finite numbers; nulls/NaN skipped. */
+function meanOf(values: Array<number | null | undefined>): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const v of values) {
+    if (v == null || !Number.isFinite(v)) continue;
+    sum += v;
+    count += 1;
+  }
+  return count === 0 ? null : sum / count;
+}
+
+function fmtSignedDiff(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return NO_STAT;
+  const n = Number(value.toFixed(1));
+  return `${n >= 0 ? '+' : ''}${n.toFixed(1)}`;
+}
+
+function fmtMakesAttempts(
+  made: number | null,
+  attempted: number | null
+): string {
+  if (made == null || attempted == null) return NO_STAT;
+  return `${fmt(made)}/${fmt(attempted)}`;
+}
+
+/** Teams with at least one completed scored game (zeros do not dilute league means). */
+function teamsWithGames(rows: TournamentTeamSeasonRow[]): TournamentTeamSeasonRow[] {
+  return rows.filter((r) => r.gamesPlayed > 0);
+}
+
+/**
+ * League average cells for Standard Team Stats (equal weight per team with GP > 0).
+ * W-L is always `—`. Shooting % = mean of each team's %.
+ */
+export function formatStandardLeagueAverageTournamentTeamStatsRow(
+  rows: TournamentTeamSeasonRow[]
+): string[] {
+  const sample = teamsWithGames(rows);
+  if (sample.length === 0) {
+    return STANDARD_TOURNAMENT_TEAM_STATS_FIELDS.map(() => NO_STAT);
+  }
+
+  return [
+    fmt(meanOf(sample.map((r) => r.gamesPlayed))),
+    NO_STAT,
+    fmt(meanOf(sample.map((r) => r.ppg))),
+    fmt(meanOf(sample.map((r) => r.papg))),
+    fmtSignedDiff(meanOf(sample.map((r) => r.pointsDiff))),
+    fmt(meanOf(sample.map((r) => r.derived.rpg))),
+    fmt(meanOf(sample.map((r) => r.derived.apg))),
+    fmt(meanOf(sample.map((r) => r.derived.spg))),
+    fmt(meanOf(sample.map((r) => r.derived.bpg))),
+    fmtPct(
+      meanOf(
+        sample.map((r) => pct(r.totals.fg_made, r.totals.fg_attempted))
+      )
+    ),
+    fmtPct(
+      meanOf(
+        sample.map((r) =>
+          pct(r.totals.three_made, r.totals.three_attempted)
+        )
+      )
+    ),
+    fmtPct(
+      meanOf(
+        sample.map((r) => pct(r.totals.ft_made, r.totals.ft_attempted))
+      )
+    ),
+    fmt(meanOf(sample.map((r) => r.derived.topg))),
+    fmt(meanOf(sample.map((r) => r.derived.fpg))),
+    fmt(meanOf(sample.map((r) => r.derived.astTo))),
+  ];
+}
+
+/**
+ * League average cells for Advanced Team Stats (equal weight per team with GP > 0).
+ * FG/3PT/FT = mean makes / mean attempts.
+ */
+export function formatAdvancedLeagueAverageTournamentTeamStatsRow(
+  rows: TournamentTeamSeasonRow[]
+): string[] {
+  const sample = teamsWithGames(rows);
+  if (sample.length === 0) {
+    return ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS.map(() => NO_STAT);
+  }
+
+  return [
+    fmtMakesAttempts(
+      meanOf(sample.map((r) => r.totals.fg_made)),
+      meanOf(sample.map((r) => r.totals.fg_attempted))
+    ),
+    fmtMakesAttempts(
+      meanOf(sample.map((r) => r.totals.three_made)),
+      meanOf(sample.map((r) => r.totals.three_attempted))
+    ),
+    fmtMakesAttempts(
+      meanOf(sample.map((r) => r.totals.ft_made)),
+      meanOf(sample.map((r) => r.totals.ft_attempted))
+    ),
+    fmt(meanOf(sample.map((r) => r.perGame.orb))),
+    fmt(meanOf(sample.map((r) => r.perGame.drb))),
+    fmt(meanOf(sample.map((r) => r.derived.fdpg))),
+    fmt(meanOf(sample.map((r) => r.derived.paintPpg))),
+    fmt(meanOf(sample.map((r) => r.derived.fastbreakPpg))),
+    fmt(meanOf(sample.map((r) => r.derived.secondChancePpg))),
+    fmt(meanOf(sample.map((r) => r.derived.pointsOffTurnoversPpg))),
+    fmt(meanOf(sample.map((r) => r.perGame.bench_points))),
+    fmtPct(meanOf(sample.map((r) => r.derived.tsPct))),
+    fmtPct(meanOf(sample.map((r) => r.derived.efgPct))),
+    fmtPct(meanOf(sample.map((r) => r.derived.twoPtPct))),
+  ];
+}
+
 export const TOURNAMENT_TEAM_STATS_NO_VALUE = NO_STAT;
