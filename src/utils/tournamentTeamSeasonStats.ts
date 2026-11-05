@@ -336,7 +336,7 @@ function teamsWithGames(rows: TournamentTeamSeasonRow[]): TournamentTeamSeasonRo
 
 /**
  * League average cells for Standard Team Stats (equal weight per team with GP > 0).
- * W-L is always `—`. Shooting % = Σ made ÷ Σ attempted (NBA/FIBA volume-weighted).
+ * GP and W-L are always `—`. Shooting % = Σ made ÷ Σ attempted (NBA/FIBA volume-weighted).
  */
 export function formatStandardLeagueAverageTournamentTeamStatsRow(
   rows: TournamentTeamSeasonRow[]
@@ -347,8 +347,8 @@ export function formatStandardLeagueAverageTournamentTeamStatsRow(
   }
 
   return [
-    fmt(meanOf(sample.map((r) => r.gamesPlayed))),
-    NO_STAT,
+    NO_STAT, // GP — no meaningful league average
+    NO_STAT, // W-L
     fmt(meanOf(sample.map((r) => r.ppg))),
     fmt(meanOf(sample.map((r) => r.papg))),
     fmtSignedDiff(meanOf(sample.map((r) => r.pointsDiff))),
