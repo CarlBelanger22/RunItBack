@@ -7,7 +7,10 @@
  */
 
 import type { Game, Tournament } from '../App';
-import { meetsTournamentMajorAwardGamesFloor } from './tournamentLeaders';
+import {
+  meetsTournamentMajorAwardGamesFloor,
+  meetsTournamentMipPriorGamesFloor,
+} from './tournamentLeaders';
 import {
   applyMissPenalty,
   blendScore,
@@ -56,11 +59,20 @@ export function isMostImprovedEligible(input: {
   return input.meetsCurrentGpFloor && input.meetsPriorGpFloor;
 }
 
+/** Current-season MIP / ROTY majors floor (≥55% + min 2 GP). */
 export function meetsRookieMipGamesFloor(
   gamesPlayed: number,
   teamGames: number
 ): boolean {
   return meetsTournamentMajorAwardGamesFloor(gamesPlayed, teamGames);
+}
+
+/** Prior-season MIP compare floor (≥40% + min 2 GP). */
+export function meetsMipPriorGamesFloor(
+  gamesPlayed: number,
+  teamGames: number
+): boolean {
+  return meetsTournamentMipPriorGamesFloor(gamesPlayed, teamGames);
 }
 
 /**
@@ -79,8 +91,8 @@ export function earlierSeriesTournaments(
 }
 
 /**
- * Prior season for MIP: latest earlier series tournament where the player
- * meets the majors GP floor.
+ * Prior season for MIP: walk back earlier series seasons (newest first);
+ * first where the player meets the ≥40% prior GP floor.
  */
 export function pickPriorSeasonForMip(input: {
   current: Pick<Tournament, 'id' | 'year' | 'createdAt' | 'awardSeriesId'>;
@@ -96,7 +108,7 @@ export function pickPriorSeasonForMip(input: {
     const t = earlier[i]!;
     const gp = input.playerSeasonGp.get(t.id);
     if (!gp) continue;
-    if (meetsRookieMipGamesFloor(gp.gamesPlayed, gp.teamGames)) return t;
+    if (meetsMipPriorGamesFloor(gp.gamesPlayed, gp.teamGames)) return t;
   }
   return null;
 }

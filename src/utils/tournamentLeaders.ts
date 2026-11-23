@@ -15,8 +15,10 @@
 export const TOURNAMENT_LEADER_MIN_GAMES = 2;
 /** Home leaders + non-major awards (scoring, shooting, etc.). */
 export const TOURNAMENT_LEADER_MIN_TEAM_GAME_FRACTION = 0.5;
-/** MVP, DPOY, Sixth Man, All-Teams. */
+/** MVP, DPOY, Sixth Man, All-Teams; MIP current-season floor. */
 export const TOURNAMENT_MAJOR_AWARD_MIN_TEAM_GAME_FRACTION = 0.55;
+/** MIP compare-to (prior) season floor — walk-back until met. */
+export const TOURNAMENT_MIP_PRIOR_MIN_TEAM_GAME_FRACTION = 0.4;
 export const TOURNAMENT_LEADER_MIN_FGA_PER_GAME = 4;
 export const TOURNAMENT_LEADER_MIN_3PA_PER_GAME = 1.5;
 export const TOURNAMENT_LEADER_MIN_FTA_PER_GAME = 2;
@@ -53,6 +55,18 @@ export function meetsTournamentMajorAwardGamesFloor(
     gamesPlayed,
     teamGamesInTournament,
     TOURNAMENT_MAJOR_AWARD_MIN_TEAM_GAME_FRACTION
+  );
+}
+
+/** >= 2 GP and at least 40% of the club's tournament games (MIP prior). */
+export function meetsTournamentMipPriorGamesFloor(
+  gamesPlayed: number,
+  teamGamesInTournament: number
+): boolean {
+  return meetsGamesFloor(
+    gamesPlayed,
+    teamGamesInTournament,
+    TOURNAMENT_MIP_PRIOR_MIN_TEAM_GAME_FRACTION
   );
 }
 

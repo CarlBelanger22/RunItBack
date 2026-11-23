@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   meetsTournamentLeaderGamesFloor,
   meetsTournamentMajorAwardGamesFloor,
+  meetsTournamentMipPriorGamesFloor,
 } from './tournamentLeaders';
 
 describe('tournamentLeaders games floor', () => {
@@ -22,5 +23,11 @@ describe('tournamentLeaders games floor', () => {
     expect(meetsTournamentMajorAwardGamesFloor(5, 9)).toBe(true); // ~56%
     expect(meetsTournamentMajorAwardGamesFloor(4, 8)).toBe(false); // 50%
     expect(meetsTournamentMajorAwardGamesFloor(7, 13)).toBe(false); // ~54%
+  });
+
+  it('MIP prior @40%: includes 4/10, excludes 3/10; still min 2 GP', () => {
+    expect(meetsTournamentMipPriorGamesFloor(4, 10)).toBe(true);
+    expect(meetsTournamentMipPriorGamesFloor(3, 10)).toBe(false);
+    expect(meetsTournamentMipPriorGamesFloor(1, 2)).toBe(false);
   });
 });

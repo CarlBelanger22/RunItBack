@@ -1,8 +1,22 @@
 /**
  * Admin-only tournament Awards tab: individual + All-Teams + All-Defensive.
  */
-import { startTransition, useCallback, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, HelpCircle, Pencil } from 'lucide-react';
+import {
+  Fragment,
+  startTransition,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  HelpCircle,
+  Pencil,
+} from 'lucide-react';
 import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { TournamentStructure } from '../utils/tournamentStructure';
@@ -18,6 +32,7 @@ import {
 import {
   buildTournamentAwardsForGames,
   type AwardContender,
+  type MipPriorSeasonSnapshot,
   type TournamentAwardSection,
 } from '../utils/tournamentAwards';
 import {
@@ -264,18 +279,91 @@ function FinalsMvpBoxTable({
   );
 }
 
+function ContenderStatCells({
+  gp,
+  mpg,
+  plusMinusPerGame,
+  gmscPerGame,
+  totalStats: s,
+  showAstTo,
+  scoreCell,
+}: {
+  gp: number;
+  mpg: number | null;
+  plusMinusPerGame: number | null;
+  gmscPerGame: number;
+  totalStats: AwardContender['totalStats'];
+  showAstTo: boolean;
+  scoreCell: ReactNode;
+}) {
+  return (
+    <>
+      <TableCell className="text-center">{gp}</TableCell>
+      <TableCell className="text-center">
+        {mpg != null ? mpg.toFixed(1) : '—'}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatAvg(s.points, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatAvg(s.orb + s.drb, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatAvg(s.assists, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatAvg(s.steals, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatAvg(s.blocks, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatPct(s.fg_made, s.fg_attempted)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatPct(s.three_made, s.three_attempted)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatPct(s.ft_made, s.ft_attempted)}
+      </TableCell>
+      <TableCell className="text-center">
+        {showAstTo
+          ? formatAstTo(s.assists, s.turnovers)
+          : formatAvg(s.orb, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {formatAvg(s.turnovers, gp)}
+      </TableCell>
+      <TableCell className="text-center">
+        {plusMinusPerGame != null
+          ? `${plusMinusPerGame >= 0 ? '+' : ''}${plusMinusPerGame.toFixed(1)}`
+          : '—'}
+      </TableCell>
+      <TableCell className="text-center">{gmscPerGame.toFixed(1)}</TableCell>
+      <TableCell className="text-center font-medium">{scoreCell}</TableCell>
+    </>
+  );
+}
+
 function ContenderTable({
   contenders,
   onNavigateToPlayer,
   showAllTeamScore = false,
   showAstTo = false,
+  enableMipPriorExpand = false,
 }: {
   contenders: AwardContender[] | AllTeamMember[];
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
   showAllTeamScore?: boolean;
   /** Playmaker: show AST/TO ratio instead of ORPG. */
   showAstTo?: boolean;
+  /** Most Improved: chevron expands compare-to season row. */
+  enableMipPriorExpand?: boolean;
 }) {
+  const [openPriorIds, setOpenPriorIds] = useState<ReadonlySet<string>>(
+    () => new Set()
+  );
+
   if (contenders.length === 0) {
     return (
       <p className="text-sm text-muted-foreground px-1 py-2">
@@ -283,6 +371,15 @@ function ContenderTable({
       </p>
     );
   }
+
+  const togglePrior = (playerId: string) => {
+    setOpenPriorIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(playerId)) next.delete(playerId);
+      else next.add(playerId);
+      return next;
+    });
+  };
 
   return (
     <div className="overflow-x-auto rounded-md border">
@@ -320,68 +417,83 @@ function ContenderTable({
               c.jerseyNumber != null && Number.isFinite(c.jerseyNumber)
                 ? String(c.jerseyNumber)
                 : '—';
+            const prior: MipPriorSeasonSnapshot | undefined =
+              enableMipPriorExpand && 'mipPriorSeason' in c
+                ? c.mipPriorSeason
+                : undefined;
+            const priorOpen = prior ? openPriorIds.has(c.playerId) : false;
             return (
-              <TableRow
-                key={c.playerId}
-                className="cursor-pointer hover:bg-muted/50"
-                onClick={() => onNavigateToPlayer(c.playerId, c.team.id)}
-              >
-                <TableCell className="text-center font-mono text-muted-foreground">
-                  {jersey}
-                </TableCell>
-                <TableCell className="font-medium">{c.player.name}</TableCell>
-                <TableCell>{c.team.abbreviation || c.team.name}</TableCell>
-                <TableCell>{c.player.position || '—'}</TableCell>
-                <TableCell className="text-center">{gp}</TableCell>
-                <TableCell className="text-center">
-                  {c.mpg != null ? c.mpg.toFixed(1) : '—'}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatAvg(s.points, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatAvg(s.orb + s.drb, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatAvg(s.assists, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatAvg(s.steals, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatAvg(s.blocks, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatPct(s.fg_made, s.fg_attempted)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatPct(s.three_made, s.three_attempted)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatPct(s.ft_made, s.ft_attempted)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {showAstTo
-                    ? formatAstTo(s.assists, s.turnovers)
-                    : formatAvg(s.orb, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {formatAvg(s.turnovers, gp)}
-                </TableCell>
-                <TableCell className="text-center">
-                  {c.plusMinusPerGame != null
-                    ? `${c.plusMinusPerGame >= 0 ? '+' : ''}${c.plusMinusPerGame.toFixed(1)}`
-                    : '—'}
-                </TableCell>
-                <TableCell className="text-center">
-                  {c.gmscPerGame.toFixed(1)}
-                </TableCell>
-                <TableCell className="text-center font-medium">
-                  {showAllTeamScore
-                    ? (c as AllTeamMember).allTeamScore.toFixed(1)
-                    : formatAwardScore(c.sortValue)}
-                </TableCell>
-              </TableRow>
+              <Fragment key={c.playerId}>
+                <TableRow
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => onNavigateToPlayer(c.playerId, c.team.id)}
+                >
+                  <TableCell className="text-center font-mono text-muted-foreground">
+                    {jersey}
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    <span className="inline-flex items-center gap-1">
+                      {c.player.name}
+                      {prior ? (
+                        <button
+                          type="button"
+                          className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          aria-expanded={priorOpen}
+                          aria-label={
+                            priorOpen
+                              ? `Hide ${prior.tournamentName} stats`
+                              : `Show ${prior.tournamentName} stats`
+                          }
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            togglePrior(c.playerId);
+                          }}
+                        >
+                          {priorOpen ? (
+                            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                          ) : (
+                            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                          )}
+                        </button>
+                      ) : null}
+                    </span>
+                  </TableCell>
+                  <TableCell>{c.team.abbreviation || c.team.name}</TableCell>
+                  <TableCell>{c.player.position || '—'}</TableCell>
+                  <ContenderStatCells
+                    gp={gp}
+                    mpg={c.mpg}
+                    plusMinusPerGame={c.plusMinusPerGame}
+                    gmscPerGame={c.gmscPerGame}
+                    totalStats={s}
+                    showAstTo={showAstTo}
+                    scoreCell={
+                      showAllTeamScore
+                        ? (c as AllTeamMember).allTeamScore.toFixed(1)
+                        : formatAwardScore(c.sortValue)
+                    }
+                  />
+                </TableRow>
+                {prior && priorOpen ? (
+                  <TableRow className="bg-muted/30 text-muted-foreground hover:bg-muted/40">
+                    <TableCell
+                      colSpan={4}
+                      className="text-sm font-medium text-muted-foreground"
+                    >
+                      {prior.tournamentName}
+                    </TableCell>
+                    <ContenderStatCells
+                      gp={prior.gamesPlayed}
+                      mpg={prior.mpg}
+                      plusMinusPerGame={prior.plusMinusPerGame}
+                      gmscPerGame={prior.gmscPerGame}
+                      totalStats={prior.totalStats}
+                      showAstTo={showAstTo}
+                      scoreCell="—"
+                    />
+                  </TableRow>
+                ) : null}
+              </Fragment>
             );
           })}
         </TableBody>
@@ -437,6 +549,7 @@ function AwardBlock({
             contenders={visible}
             onNavigateToPlayer={onNavigateToPlayer}
             showAstTo={section.id === 'playmaker'}
+            enableMipPriorExpand={section.id === 'most_improved'}
           />
         )}
         {canExpand && (

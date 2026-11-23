@@ -51,6 +51,7 @@ import {
   earlierSeriesTournaments,
   isMostImprovedEligible,
   isRookieOfYearEligible,
+  meetsMipPriorGamesFloor,
   pickPriorSeasonForMip,
   playerHasPriorSeriesGames,
   scoreMipPool,
@@ -95,6 +96,21 @@ export interface AwardPlayerAggregate {
   plusMinusTotal: number;
 }
 
+/**
+ * MIP compare-to season snapshot (same season Score uses).
+ * Expand row renders GP→GmSc from these fields; label = tournamentName.
+ */
+export interface MipPriorSeasonSnapshot {
+  tournamentId: string;
+  tournamentName: string;
+  gamesPlayed: number;
+  teamGames: number;
+  totalStats: GameStats;
+  mpg: number | null;
+  plusMinusPerGame: number | null;
+  gmscPerGame: number;
+}
+
 export interface AwardContender {
   playerId: string;
   player: Player;
@@ -108,6 +124,8 @@ export interface AwardContender {
   mpg: number | null;
   plusMinusPerGame: number | null;
   gmscPerGame: number;
+  /** Most Improved only — prior season used for Δ / expand. */
+  mipPriorSeason?: MipPriorSeasonSnapshot;
 }
 
 export interface TournamentAwardSection {
@@ -158,6 +176,27 @@ function toContender(
     plusMinusPerGame:
       row.plusMinusGames > 0 ? row.plusMinusTotal / row.plusMinusGames : null,
     gmscPerGame: gmscPerGame(row.totalStats, gp),
+  };
+}
+
+function toMipPriorSeasonSnapshot(
+  priorTournament: Pick<Tournament, 'id' | 'name'>,
+  priorRow: AwardPlayerAggregate
+): MipPriorSeasonSnapshot {
+  const gp = priorRow.gamesPlayed;
+  const minutes = priorRow.totalStats.minutes_played;
+  return {
+    tournamentId: priorTournament.id,
+    tournamentName: priorTournament.name,
+    gamesPlayed: gp,
+    teamGames: priorRow.teamGames,
+    totalStats: priorRow.totalStats,
+    mpg: minutes > 0 && gp > 0 ? minutes / gp : null,
+    plusMinusPerGame:
+      priorRow.plusMinusGames > 0
+        ? priorRow.plusMinusTotal / priorRow.plusMinusGames
+        : null,
+    gmscPerGame: gmscPerGame(priorRow.totalStats, gp),
   };
 }
 
@@ -856,6 +895,7 @@ export function buildRookieAndMostImprovedSections(input: {
   if (showMip) {
     const mipRows: MipScoreRow[] = [];
     const mipAggs: AwardPlayerAggregate[] = [];
+    const mipPriorByPlayer = new Map<string, MipPriorSeasonSnapshot>();
     for (const r of majors) {
       const gpMap = gpMapFor(r.playerId);
       const isRookie = rookieEligibleIds.has(r.playerId);
@@ -877,10 +917,7 @@ export function buildRookieAndMostImprovedSections(input: {
         ),
         meetsPriorGpFloor: !!(
           priorGp &&
-          meetsTournamentMajorAwardGamesFloor(
-            priorGp.gamesPlayed,
-            priorGp.teamGames
-          )
+          meetsMipPriorGamesFloor(priorGp.gamesPlayed, priorGp.teamGames)
         ),
         isRookieEligibleThisSeason: isRookie,
       });
@@ -890,6 +927,10 @@ export function buildRookieAndMostImprovedSections(input: {
         priorTsiByTournament.get(prior.id)?.get(priorRow.team.id) ?? 0.5;
       const curTsi = input.currentTsiByTeamId.get(r.team.id) ?? 0.5;
       mipAggs.push(r);
+      mipPriorByPlayer.set(
+        r.playerId,
+        toMipPriorSeasonSnapshot(prior, priorRow)
+      );
       mipRows.push({
         playerId: r.playerId,
         deltaGmsc: gmscPerGameRaw(r) - gmscPerGameRaw(priorRow),
@@ -900,15 +941,23 @@ export function buildRookieAndMostImprovedSections(input: {
     }
     if (mipAggs.length > 0) {
       const scores = scoreMipPool(mipRows);
+      const contenders = topBy(
+        mipAggs,
+        (row) => scores.get(row.playerId) ?? 0
+      ).map((c) => {
+        const prior = mipPriorByPlayer.get(c.playerId);
+        return prior ? { ...c, mipPriorSeason: prior } : c;
+      });
       sections.push({
         id: 'most_improved',
         title: 'Most Improved',
         tooltip:
           '88% Δ Game Score/g + 12% Δ team success index (each scaled within MIP pool), ' +
-          'then miss wither on this season. Needs a prior season in the same award series ' +
-          'with ≥55% GP both years. Excludes Rookie of the Year pool. ' +
+          'then miss wither on this season. This season ≥55% GP; compare-to season is the ' +
+          'newest earlier series season with ≥40% GP (walk back if needed). ' +
+          'Excludes Rookie of the Year pool. ' +
           'Omitted when standalone or no earlier series season in the app.',
-        contenders: topBy(mipAggs, (row) => scores.get(row.playerId) ?? 0),
+        contenders,
       });
     }
   }
