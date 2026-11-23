@@ -308,6 +308,7 @@ interface TeamPageProps {
   ) => void;
   onFlushTournamentRosterSave: (options?: {
     rookieFlagsOnly?: boolean;
+    tournamentId?: string;
   }) => Promise<boolean>;
   /** True while Edit Players is open — App defers TR-only autosave until Done. */
   onTournamentRosterEditModeChange?: (editing: boolean) => void;

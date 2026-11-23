@@ -1523,11 +1523,57 @@ export default function App() {
   );
 
   const handleFlushTournamentRosterSave = useCallback(
-    async (options?: { rookieFlagsOnly?: boolean }) => {
+    async (options?: { rookieFlagsOnly?: boolean; tournamentId?: string }) => {
       // Exit defer so a failed flush can still be retried by autosave.
       deferTournamentRosterAutosaveRef.current = false;
 
-      // One snapshot after a deferred edit session (skipped per-toggle while open).
+      // Eligibility: never stringify the full league snapshot and never fall
+      // back to sanitize/reconcile — that path Aw Snaps on NBL-scale data.
+      if (options?.rookieFlagsOnly) {
+        const plan = planRookieFlagOnlyFlush({
+          local: tournamentRostersRef.current,
+          baseline: ackedTournamentRostersCloudRef.current,
+          tournamentId: options.tournamentId,
+        });
+        console.info('[RunItBack] Eligibility light flush', {
+          mode: plan.mode,
+          upserts: plan.upsert.length,
+          skippedNonRookieDrift: plan.skippedNonRookieDrift,
+          snapshot: 'skipped',
+        });
+        if (plan.upsert.length === 0) {
+          return true;
+        }
+        if (!canEditLeagueRef.current) {
+          return true;
+        }
+        try {
+          await enqueueCloudSave(
+            async () => {
+              await saveTournamentRosterRowsDeltaToSupabase(plan.upsert);
+              ackedTournamentRostersCloudRef.current =
+                mergeTournamentRosterAckBaseline(
+                  ackedTournamentRostersCloudRef.current,
+                  plan.upsert
+                );
+              prevTournamentRostersRef.current = tournamentRostersRef.current;
+              setSaveError(null);
+            },
+            { urgent: true }
+          );
+          return true;
+        } catch (err) {
+          console.error('Eligibility light roster save failed:', err);
+          setSaveError(
+            formatCloudSaveError(
+              err instanceof Error ? err.message : String(err)
+            )
+          );
+          return false;
+        }
+      }
+
+      // Team Edit Players Done (and other callers): one snapshot + full rostersonly.
       saveAppDataSnapshot({
         teams: teamsRef.current,
         tournaments: tournamentsRef.current,
@@ -1536,51 +1582,6 @@ export default function App() {
         orphanPlayers: loadedOrphanPlayersRef.current,
         tournamentRosters: tournamentRostersRef.current,
       });
-
-      if (options?.rookieFlagsOnly) {
-        const plan = planRookieFlagOnlyFlush({
-          local: tournamentRostersRef.current,
-          baseline: ackedTournamentRostersCloudRef.current,
-          pendingDeletes: pendingTournamentRosterDeletesRef.current,
-        });
-        if (plan.ok) {
-          if (plan.upsert.length === 0) {
-            return true;
-          }
-          if (!canEditLeagueRef.current) {
-            return true;
-          }
-          try {
-            await enqueueCloudSave(
-              async () => {
-                await saveTournamentRosterRowsDeltaToSupabase(plan.upsert);
-                ackedTournamentRostersCloudRef.current =
-                  mergeTournamentRosterAckBaseline(
-                    ackedTournamentRostersCloudRef.current,
-                    plan.upsert
-                  );
-                prevTournamentRostersRef.current = tournamentRostersRef.current;
-                setSaveError(null);
-              },
-              { urgent: true }
-            );
-            return true;
-          } catch (err) {
-            console.error('Eligibility light roster save failed:', err);
-            setSaveError(
-              formatCloudSaveError(
-                err instanceof Error ? err.message : String(err)
-              )
-            );
-            // Fall through to full rosters-only persist.
-          }
-        } else if (import.meta.env.DEV) {
-          console.info(
-            '[RunItBack] Eligibility light flush unavailable; full rostersonly',
-            { reason: plan.reason }
-          );
-        }
-      }
 
       return persistCurrentAppData('rosters-only', { urgent: true });
     },

@@ -277,63 +277,67 @@ export function tournamentRosterEntryMembershipEqual(
   );
 }
 
-export type RookieFlagOnlyFlushPlan =
-  | { ok: false; reason: string }
-  | { ok: true; upsert: TournamentRosterEntry[] };
+export type RookieFlagOnlyFlushPlan = {
+  upsert: TournamentRosterEntry[];
+  /** How dirty rows were chosen. */
+  mode: 'delta' | 'tagged-only' | 'empty';
+  /** Rows skipped because jersey/position drifted vs baseline (not written). */
+  skippedNonRookieDrift: number;
+};
 
 /**
- * When local vs baseline differs only in `isRookie` (same keys, no deletes),
- * return those dirty rows for a light upsert — skip sanitize/reconcile.
+ * Eligibility light flush — always returns a plan (never "reject → full persist").
+ *
+ * With baseline: among shared keys with matching membership fields, upsert
+ * rows whose `isRookie` differs. Size/key drift is ignored (not a hard fail).
+ *
+ * Without baseline: upsert `isRookie === true` rows for `tournamentId` only.
  */
 export function planRookieFlagOnlyFlush(args: {
   local: TournamentRosterEntry[];
   baseline: TournamentRosterEntry[] | null | undefined;
-  pendingDeletes?: TournamentRosterDelete[];
+  /** Used when baseline is missing — best-effort tagged-only upsert. */
+  tournamentId?: string;
 }): RookieFlagOnlyFlushPlan {
-  const pendingDeletes = args.pendingDeletes ?? [];
-  if (pendingDeletes.length > 0) {
-    return { ok: false, reason: 'pending-deletes' };
-  }
   if (args.baseline == null) {
-    return { ok: false, reason: 'no-baseline' };
-  }
-  if (args.local.length !== args.baseline.length) {
-    return { ok: false, reason: 'membership-size' };
+    const tournamentId = args.tournamentId?.trim();
+    if (!tournamentId) {
+      return { upsert: [], mode: 'empty', skippedNonRookieDrift: 0 };
+    }
+    const upsert = args.local.filter(
+      (row) =>
+        row.tournamentId === tournamentId && tournamentRosterRookieFlag(row)
+    );
+    return {
+      upsert,
+      mode: upsert.length > 0 ? 'tagged-only' : 'empty',
+      skippedNonRookieDrift: 0,
+    };
   }
 
   const baselineByKey = new Map(
     args.baseline.map((row) => [tournamentRosterEntryKey(row), row])
   );
-  if (baselineByKey.size !== args.baseline.length) {
-    return { ok: false, reason: 'baseline-dup-keys' };
-  }
-
   const upsert: TournamentRosterEntry[] = [];
-  const seen = new Set<string>();
+  let skippedNonRookieDrift = 0;
 
   for (const row of args.local) {
-    const key = tournamentRosterEntryKey(row);
-    if (seen.has(key)) {
-      return { ok: false, reason: 'local-dup-keys' };
-    }
-    seen.add(key);
-    const prev = baselineByKey.get(key);
-    if (!prev) {
-      return { ok: false, reason: 'new-or-moved-row' };
-    }
+    const prev = baselineByKey.get(tournamentRosterEntryKey(row));
+    if (!prev) continue;
     if (!tournamentRosterEntryMembershipEqual(prev, row)) {
-      return { ok: false, reason: 'non-rookie-field-changed' };
+      skippedNonRookieDrift += 1;
+      continue;
     }
     if (tournamentRosterRookieFlag(prev) !== tournamentRosterRookieFlag(row)) {
       upsert.push(row);
     }
   }
 
-  if (seen.size !== baselineByKey.size) {
-    return { ok: false, reason: 'missing-baseline-rows' };
-  }
-
-  return { ok: true, upsert };
+  return {
+    upsert,
+    mode: upsert.length > 0 ? 'delta' : 'empty',
+    skippedNonRookieDrift,
+  };
 }
 
 /** Overlay upserted rows onto a baseline ack set (by entry key). */

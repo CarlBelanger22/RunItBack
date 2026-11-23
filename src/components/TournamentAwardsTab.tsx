@@ -73,6 +73,7 @@ interface TournamentAwardsTabProps {
   ) => void;
   onFlushTournamentRosterSave?: (options?: {
     rookieFlagsOnly?: boolean;
+    tournamentId?: string;
   }) => Promise<boolean>;
   /** Same as Team Edit Players — defer TR autosave while Eligibility is open. */
   onTournamentRosterEditModeChange?: (editing: boolean) => void;
@@ -727,10 +728,11 @@ export function TournamentAwardsTab({
         setAwardsRosterSnapshot(null);
       });
     };
+    // Long idle — never thaw on the same turn as flush (Aw Snap risk).
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      window.requestIdleCallback(() => run(), { timeout: 1500 });
+      window.requestIdleCallback(() => run(), { timeout: 12000 });
     } else {
-      window.setTimeout(run, 0);
+      window.setTimeout(run, 8000);
     }
   }, []);
 
@@ -758,6 +760,7 @@ export function TournamentAwardsTab({
               ok =
                 (await onFlushTournamentRosterSave({
                   rookieFlagsOnly: true,
+                  tournamentId,
                 })) !== false;
             } else {
               onTournamentRosterEditModeChange?.(false);
@@ -771,9 +774,9 @@ export function TournamentAwardsTab({
           if (eligibilitySaveGenRef.current !== gen) return;
 
           setEligibilitySaveStatus(ok ? 'saved' : 'error');
-          thawAwardsRankings();
-
+          // Rankings stay frozen until long idle / leaving Awards tab.
           if (ok) {
+            thawAwardsRankings();
             window.setTimeout(() => {
               if (eligibilitySaveGenRef.current === gen) {
                 setEligibilitySaveStatus('idle');
@@ -784,6 +787,7 @@ export function TournamentAwardsTab({
       }, 0);
     },
     [
+      tournamentId,
       tournamentRosters,
       onTournamentRosterEditModeChange,
       onFlushTournamentRosterSave,

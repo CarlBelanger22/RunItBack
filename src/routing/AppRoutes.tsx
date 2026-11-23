@@ -69,6 +69,7 @@ export interface AppRoutesProps {
   ) => void;
   onFlushTournamentRosterSave: (options?: {
     rookieFlagsOnly?: boolean;
+    tournamentId?: string;
   }) => Promise<boolean>;
   onTournamentRosterEditModeChange?: (editing: boolean) => void;
   onUpdatePlayerProfile: (
