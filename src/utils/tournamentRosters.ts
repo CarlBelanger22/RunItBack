@@ -338,16 +338,16 @@ export function mergeTournamentRosters(
     const key = tournamentRosterEntryKey(entry);
     const existing = byKey.get(key);
     if (existing) {
-      // Stored wins for jersey/position and for manual ROTY `isRookie`.
-      // Spreading only jersey fields used to drop isRookie for anyone who
-      // appeared in games — tags looked saved then vanished on refresh.
+      // Jersey/position: stored overlays game/cloud row.
+      // isRookie: OR — either side tagged stays tagged. Stale local snapshots
+      // without the flag must not wipe cloud tags on reopen (Carl 2026-11-23).
       const merged: TournamentRosterEntry = {
         ...existing,
         number: entry.number ?? existing.number,
         position: entry.position || existing.position,
         secondaryPosition: entry.secondaryPosition ?? existing.secondaryPosition,
       };
-      if (entry.isRookie === true) {
+      if (entry.isRookie === true || existing.isRookie === true) {
         merged.isRookie = true;
       } else {
         delete merged.isRookie;

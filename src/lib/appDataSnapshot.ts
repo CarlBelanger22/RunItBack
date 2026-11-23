@@ -611,6 +611,46 @@ export function saveAppDataSnapshot(payload: {
   }
 }
 
+/**
+ * Replace only `tournamentRosters` on an existing cache snapshot (no games rebuild).
+ * Used after Eligibility light flush so reopen paints tags without a full stringify storm mid-tag.
+ */
+export function patchAppDataSnapshotTournamentRosters(
+  tournamentRosters: TournamentRosterEntry[],
+  leagueId = DEFAULT_LEAGUE_ID
+): boolean {
+  const existing = readAppDataSnapshot(leagueId);
+  if (!existing) return false;
+  try {
+    const next: AppDataSnapshot = {
+      ...existing,
+      savedAt: Date.now(),
+      tournamentRosters,
+    };
+    const serialized = JSON.stringify(next);
+    if (serialized.length > MAX_SNAPSHOT_CHARS) {
+      console.warn(
+        '[RunItBack] Roster patch snapshot too large; leaving prior snapshot.',
+        { chars: serialized.length, max: MAX_SNAPSHOT_CHARS }
+      );
+      return false;
+    }
+    localStorage.setItem(STORAGE_KEY, serialized);
+    if (import.meta.env?.DEV) {
+      console.info('[RunItBack] snapshot tournamentRosters patched', {
+        chars: serialized.length,
+        tournamentRosters: tournamentRosters.length,
+        taggedRookies: tournamentRosters.filter((r) => r.isRookie === true)
+          .length,
+      });
+    }
+    return true;
+  } catch (err) {
+    console.warn('[RunItBack] Could not patch snapshot rosters:', err);
+    return false;
+  }
+}
+
 export function snapshotToLoadedAppData(snapshot: AppDataSnapshot): LoadedAppData {
   const games = hydrateSnapshotGames(snapshot.games, snapshot.teams);
   return {

@@ -47,6 +47,7 @@ import {
   processLoadedAppData,
   readAppDataSnapshot,
   saveAppDataSnapshot,
+  patchAppDataSnapshotTournamentRosters,
   mergeTeamIconMetadata,
   mergeTournamentCloudMetadata,
   snapshotToLoadedAppData,
@@ -1561,6 +1562,17 @@ export default function App() {
             },
             { urgent: true }
           );
+          // Patch cache rosters so tab reopen paints tags (full snapshot skipped
+          // during Eligibility to avoid Aw Snap). Idle — do not block Saved.
+          const rostersForPatch = tournamentRostersRef.current;
+          const patch = () => {
+            patchAppDataSnapshotTournamentRosters(rostersForPatch);
+          };
+          if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+            window.requestIdleCallback(() => patch(), { timeout: 4000 });
+          } else {
+            window.setTimeout(patch, 0);
+          }
           return true;
         } catch (err) {
           console.error('Eligibility light roster save failed:', err);

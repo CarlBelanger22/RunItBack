@@ -288,75 +288,63 @@ export type RookieFlagOnlyFlushPlan = {
 /**
  * Eligibility light flush — always returns a plan (never "reject → full persist").
  *
- * Prefer delta vs baseline for this tournament. Jersey/position drift does not
- * block the write — we still upsert the local row when `isRookie` differs.
- *
- * Without baseline (or no tournamentId filter overlap): upsert every tagged
- * row for `tournamentId`.
+ * Writes **every current tag** for the tournament (not only baseline deltas) so
+ * a wrong/empty ack baseline cannot report Saved while skipping most rows.
+ * Also upserts clears (baseline tagged, local untagged).
  */
 export function planRookieFlagOnlyFlush(args: {
   local: TournamentRosterEntry[];
   baseline: TournamentRosterEntry[] | null | undefined;
-  /** Scope dirty collect / tagged-only fallback to one tournament. */
+  /** Required to scope tags/clears to one tournament. */
   tournamentId?: string;
 }): RookieFlagOnlyFlushPlan {
   const tournamentId = args.tournamentId?.trim();
-  const inScope = (row: TournamentRosterEntry) =>
-    !tournamentId || row.tournamentId === tournamentId;
-
-  if (args.baseline == null) {
-    if (!tournamentId) {
-      return { upsert: [], mode: 'empty', skippedNonRookieDrift: 0 };
-    }
-    const upsert = args.local.filter(
-      (row) => inScope(row) && tournamentRosterRookieFlag(row)
-    );
-    return {
-      upsert,
-      mode: upsert.length > 0 ? 'tagged-only' : 'empty',
-      skippedNonRookieDrift: 0,
-    };
+  if (!tournamentId) {
+    return { upsert: [], mode: 'empty', skippedNonRookieDrift: 0 };
   }
 
-  const baselineByKey = new Map(
-    args.baseline.map((row) => [tournamentRosterEntryKey(row), row])
+  const inScope = (row: TournamentRosterEntry) =>
+    row.tournamentId === tournamentId;
+  const localByKey = new Map(
+    args.local.filter(inScope).map((row) => [tournamentRosterEntryKey(row), row])
   );
-  const upsert: TournamentRosterEntry[] = [];
+  const byKey = new Map<string, TournamentRosterEntry>();
   let skippedNonRookieDrift = 0;
 
-  for (const row of args.local) {
-    if (!inScope(row)) continue;
-    const prev = baselineByKey.get(tournamentRosterEntryKey(row));
-    const prevFlag = prev ? tournamentRosterRookieFlag(prev) : false;
-    const nextFlag = tournamentRosterRookieFlag(row);
-    if (prevFlag === nextFlag) continue;
-    if (prev && !tournamentRosterEntryMembershipEqual(prev, row)) {
-      skippedNonRookieDrift += 1;
-    }
-    // Still write — membership drift must not drop ROTY tags.
-    upsert.push(row);
+  for (const row of localByKey.values()) {
+    if (!tournamentRosterRookieFlag(row)) continue;
+    byKey.set(tournamentRosterEntryKey(row), row);
   }
 
-  // If baseline had no overlap (ack empty/wrong), still push all current tags.
-  if (upsert.length === 0 && tournamentId) {
-    const tagged = args.local.filter(
-      (row) => inScope(row) && tournamentRosterRookieFlag(row)
-    );
-    const anyBaselineTagged = args.baseline.some(
-      (row) => inScope(row) && tournamentRosterRookieFlag(row)
-    );
-    if (tagged.length > 0 && !anyBaselineTagged) {
-      return {
-        upsert: tagged,
-        mode: 'tagged-only',
-        skippedNonRookieDrift,
-      };
+  const baseline = args.baseline ?? [];
+  for (const prev of baseline) {
+    if (!inScope(prev) || !tournamentRosterRookieFlag(prev)) continue;
+    const key = tournamentRosterEntryKey(prev);
+    const local = localByKey.get(key);
+    if (local && tournamentRosterRookieFlag(local)) continue;
+    // Cleared (or row missing locally) — upsert without isRookie.
+    if (local) {
+      if (!tournamentRosterEntryMembershipEqual(prev, local)) {
+        skippedNonRookieDrift += 1;
+      }
+      const { isRookie: _drop, ...rest } = local;
+      byKey.set(key, rest);
+    } else {
+      const { isRookie: _drop, ...rest } = prev;
+      byKey.set(key, rest);
     }
   }
 
+  const upsert = [...byKey.values()];
+  const anyClear = upsert.some((row) => !tournamentRosterRookieFlag(row));
   return {
     upsert,
-    mode: upsert.length > 0 ? 'delta' : 'empty',
+    mode:
+      upsert.length === 0
+        ? 'empty'
+        : anyClear || (args.baseline != null && args.baseline.length > 0)
+          ? 'delta'
+          : 'tagged-only',
     skippedNonRookieDrift,
   };
 }
