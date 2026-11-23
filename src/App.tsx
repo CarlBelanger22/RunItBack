@@ -34,6 +34,7 @@ import {
   savePlayerProfilesAndClubLinksToSupabase,
   saveTeamsAndClubRostersToSupabase,
   saveTournamentRostersToSupabase,
+  saveTournamentRosterRowsDeltaToSupabase,
   MIGRATION_002_HINT,
   MIGRATION_003_HINT,
   MIGRATION_006_HINT,
@@ -76,6 +77,8 @@ import {
 import {
   collectTournamentRosterRemovals,
   mergeLocalAndCloudTournamentRosters,
+  mergeTournamentRosterAckBaseline,
+  planRookieFlagOnlyFlush,
   remapTournamentRosterDeletes,
   resolvePostRevalidateSaveGate,
   sanitizeTournamentRostersForCloud,
@@ -1519,11 +1522,70 @@ export default function App() {
     []
   );
 
-  const handleFlushTournamentRosterSave = useCallback(async () => {
-    // Exit defer so a failed flush can still be retried by autosave.
-    deferTournamentRosterAutosaveRef.current = false;
-    return persistCurrentAppData('rosters-only', { urgent: true });
-  }, [persistCurrentAppData]);
+  const handleFlushTournamentRosterSave = useCallback(
+    async (options?: { rookieFlagsOnly?: boolean }) => {
+      // Exit defer so a failed flush can still be retried by autosave.
+      deferTournamentRosterAutosaveRef.current = false;
+
+      // One snapshot after a deferred edit session (skipped per-toggle while open).
+      saveAppDataSnapshot({
+        teams: teamsRef.current,
+        tournaments: tournamentsRef.current,
+        games: gamesRef.current,
+        darkMode: true,
+        orphanPlayers: loadedOrphanPlayersRef.current,
+        tournamentRosters: tournamentRostersRef.current,
+      });
+
+      if (options?.rookieFlagsOnly) {
+        const plan = planRookieFlagOnlyFlush({
+          local: tournamentRostersRef.current,
+          baseline: ackedTournamentRostersCloudRef.current,
+          pendingDeletes: pendingTournamentRosterDeletesRef.current,
+        });
+        if (plan.ok) {
+          if (plan.upsert.length === 0) {
+            return true;
+          }
+          if (!canEditLeagueRef.current) {
+            return true;
+          }
+          try {
+            await enqueueCloudSave(
+              async () => {
+                await saveTournamentRosterRowsDeltaToSupabase(plan.upsert);
+                ackedTournamentRostersCloudRef.current =
+                  mergeTournamentRosterAckBaseline(
+                    ackedTournamentRostersCloudRef.current,
+                    plan.upsert
+                  );
+                prevTournamentRostersRef.current = tournamentRostersRef.current;
+                setSaveError(null);
+              },
+              { urgent: true }
+            );
+            return true;
+          } catch (err) {
+            console.error('Eligibility light roster save failed:', err);
+            setSaveError(
+              formatCloudSaveError(
+                err instanceof Error ? err.message : String(err)
+              )
+            );
+            // Fall through to full rosters-only persist.
+          }
+        } else if (import.meta.env.DEV) {
+          console.info(
+            '[RunItBack] Eligibility light flush unavailable; full rostersonly',
+            { reason: plan.reason }
+          );
+        }
+      }
+
+      return persistCurrentAppData('rosters-only', { urgent: true });
+    },
+    [persistCurrentAppData]
+  );
 
   const runCloudLoadSideEffects = useCallback(
     (
@@ -2861,18 +2923,22 @@ export default function App() {
           ];
         }
         tournamentRostersRef.current = next;
-        saveAppDataSnapshot({
-          teams: teamsRef.current,
-          tournaments: tournamentsRef.current,
-          games: gamesRef.current,
-          darkMode: true,
-          orphanPlayers: loadedOrphanPlayersRef.current,
-          tournamentRosters: next,
-        });
+        // While Edit Players / Eligibility is open, skip full-league JSON snapshot
+        // per toggle (hang/OOM risk). Flush/Done writes once.
+        if (!deferTournamentRosterAutosaveRef.current) {
+          saveAppDataSnapshot({
+            teams: teamsRef.current,
+            tournaments: tournamentsRef.current,
+            games: gamesRef.current,
+            darkMode: true,
+            orphanPlayers: loadedOrphanPlayersRef.current,
+            tournamentRosters: next,
+          });
+        }
         return next;
       });
       setSaveError(null);
-      // Edit Players: cloud write on Done (urgent flush). Snapshot already local.
+      // Edit Players: cloud write on Done (urgent flush). Snapshot on flush.
       // Outside edit mode (e.g. profile jersey cascade), autosave / caller persists.
     },
     []

@@ -154,7 +154,9 @@ interface TournamentPageProps {
       | TournamentRosterEntry[]
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
-  onFlushTournamentRosterSave?: () => Promise<boolean>;
+  onFlushTournamentRosterSave?: (options?: {
+    rookieFlagsOnly?: boolean;
+  }) => Promise<boolean>;
   onTournamentRosterEditModeChange?: (editing: boolean) => void;
 }
 

@@ -236,8 +236,34 @@ export function collectTournamentRosterRemovals(
     }));
 }
 
-/** True when cloud-relevant fields match (key + jersey/position). */
+/** Normalize optional rookie flag for cloud compare (missing === false). */
+export function tournamentRosterRookieFlag(entry: {
+  isRookie?: boolean;
+}): boolean {
+  return entry.isRookie === true;
+}
+
+/** True when cloud-relevant fields match (key + jersey/position + isRookie). */
 export function tournamentRosterEntryCloudEqual(
+  a: TournamentRosterEntry,
+  b: TournamentRosterEntry
+): boolean {
+  return (
+    a.tournamentId === b.tournamentId &&
+    a.teamId === b.teamId &&
+    a.playerId === b.playerId &&
+    a.number === b.number &&
+    (a.position || '') === (b.position || '') &&
+    (a.secondaryPosition || '') === (b.secondaryPosition || '') &&
+    tournamentRosterRookieFlag(a) === tournamentRosterRookieFlag(b)
+  );
+}
+
+/**
+ * Membership + jersey/position only — ignores isRookie.
+ * Used to decide whether Eligibility can take the light flush path.
+ */
+export function tournamentRosterEntryMembershipEqual(
   a: TournamentRosterEntry,
   b: TournamentRosterEntry
 ): boolean {
@@ -249,6 +275,80 @@ export function tournamentRosterEntryCloudEqual(
     (a.position || '') === (b.position || '') &&
     (a.secondaryPosition || '') === (b.secondaryPosition || '')
   );
+}
+
+export type RookieFlagOnlyFlushPlan =
+  | { ok: false; reason: string }
+  | { ok: true; upsert: TournamentRosterEntry[] };
+
+/**
+ * When local vs baseline differs only in `isRookie` (same keys, no deletes),
+ * return those dirty rows for a light upsert — skip sanitize/reconcile.
+ */
+export function planRookieFlagOnlyFlush(args: {
+  local: TournamentRosterEntry[];
+  baseline: TournamentRosterEntry[] | null | undefined;
+  pendingDeletes?: TournamentRosterDelete[];
+}): RookieFlagOnlyFlushPlan {
+  const pendingDeletes = args.pendingDeletes ?? [];
+  if (pendingDeletes.length > 0) {
+    return { ok: false, reason: 'pending-deletes' };
+  }
+  if (args.baseline == null) {
+    return { ok: false, reason: 'no-baseline' };
+  }
+  if (args.local.length !== args.baseline.length) {
+    return { ok: false, reason: 'membership-size' };
+  }
+
+  const baselineByKey = new Map(
+    args.baseline.map((row) => [tournamentRosterEntryKey(row), row])
+  );
+  if (baselineByKey.size !== args.baseline.length) {
+    return { ok: false, reason: 'baseline-dup-keys' };
+  }
+
+  const upsert: TournamentRosterEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const row of args.local) {
+    const key = tournamentRosterEntryKey(row);
+    if (seen.has(key)) {
+      return { ok: false, reason: 'local-dup-keys' };
+    }
+    seen.add(key);
+    const prev = baselineByKey.get(key);
+    if (!prev) {
+      return { ok: false, reason: 'new-or-moved-row' };
+    }
+    if (!tournamentRosterEntryMembershipEqual(prev, row)) {
+      return { ok: false, reason: 'non-rookie-field-changed' };
+    }
+    if (tournamentRosterRookieFlag(prev) !== tournamentRosterRookieFlag(row)) {
+      upsert.push(row);
+    }
+  }
+
+  if (seen.size !== baselineByKey.size) {
+    return { ok: false, reason: 'missing-baseline-rows' };
+  }
+
+  return { ok: true, upsert };
+}
+
+/** Overlay upserted rows onto a baseline ack set (by entry key). */
+export function mergeTournamentRosterAckBaseline(
+  baseline: TournamentRosterEntry[],
+  upserted: TournamentRosterEntry[]
+): TournamentRosterEntry[] {
+  if (upserted.length === 0) return baseline;
+  const byKey = new Map(
+    baseline.map((row) => [tournamentRosterEntryKey(row), row])
+  );
+  for (const row of upserted) {
+    byKey.set(tournamentRosterEntryKey(row), row);
+  }
+  return [...byKey.values()];
 }
 
 /**

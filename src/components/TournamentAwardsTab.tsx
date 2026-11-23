@@ -71,7 +71,9 @@ interface TournamentAwardsTabProps {
       | TournamentRosterEntry[]
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
-  onFlushTournamentRosterSave?: () => Promise<boolean>;
+  onFlushTournamentRosterSave?: (options?: {
+    rookieFlagsOnly?: boolean;
+  }) => Promise<boolean>;
   /** Same as Team Edit Players — defer TR autosave while Eligibility is open. */
   onTournamentRosterEditModeChange?: (editing: boolean) => void;
 }
@@ -753,7 +755,10 @@ export function TournamentAwardsTab({
           let ok = true;
           try {
             if (onFlushTournamentRosterSave) {
-              ok = (await onFlushTournamentRosterSave()) !== false;
+              ok =
+                (await onFlushTournamentRosterSave({
+                  rookieFlagsOnly: true,
+                })) !== false;
             } else {
               onTournamentRosterEditModeChange?.(false);
             }

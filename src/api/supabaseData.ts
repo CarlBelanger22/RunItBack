@@ -1477,6 +1477,28 @@ export async function saveTournamentRostersToSupabase(
   );
 }
 
+/**
+ * Light Eligibility flush: upsert known dirty rows only.
+ * Skips sanitize / reconcile / other-team clears (caller must ensure membership is unchanged).
+ */
+export async function saveTournamentRosterRowsDeltaToSupabase(
+  rows: TournamentRosterEntry[]
+): Promise<void> {
+  if (!supabase || rows.length === 0) return;
+  const startedAt = performance.now();
+  await upsertChunks(
+    'tournament_rosters',
+    rows.map(tournamentRosterEntryToDbRow),
+    'tournament_id,team_id,player_id'
+  );
+  if (import.meta.env.DEV) {
+    console.info('[RunItBack] tournament_rosters light delta', {
+      upserts: rows.length,
+      totalMs: Math.round(performance.now() - startedAt),
+    });
+  }
+}
+
 /** Upsert team rows only (name/description/icon). Does not touch games. */
 export async function saveTeamsToSupabase(
   teams: Team[],
