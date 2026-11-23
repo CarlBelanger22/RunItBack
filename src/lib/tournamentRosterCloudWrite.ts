@@ -288,25 +288,28 @@ export type RookieFlagOnlyFlushPlan = {
 /**
  * Eligibility light flush — always returns a plan (never "reject → full persist").
  *
- * With baseline: among shared keys with matching membership fields, upsert
- * rows whose `isRookie` differs. Size/key drift is ignored (not a hard fail).
+ * Prefer delta vs baseline for this tournament. Jersey/position drift does not
+ * block the write — we still upsert the local row when `isRookie` differs.
  *
- * Without baseline: upsert `isRookie === true` rows for `tournamentId` only.
+ * Without baseline (or no tournamentId filter overlap): upsert every tagged
+ * row for `tournamentId`.
  */
 export function planRookieFlagOnlyFlush(args: {
   local: TournamentRosterEntry[];
   baseline: TournamentRosterEntry[] | null | undefined;
-  /** Used when baseline is missing — best-effort tagged-only upsert. */
+  /** Scope dirty collect / tagged-only fallback to one tournament. */
   tournamentId?: string;
 }): RookieFlagOnlyFlushPlan {
+  const tournamentId = args.tournamentId?.trim();
+  const inScope = (row: TournamentRosterEntry) =>
+    !tournamentId || row.tournamentId === tournamentId;
+
   if (args.baseline == null) {
-    const tournamentId = args.tournamentId?.trim();
     if (!tournamentId) {
       return { upsert: [], mode: 'empty', skippedNonRookieDrift: 0 };
     }
     const upsert = args.local.filter(
-      (row) =>
-        row.tournamentId === tournamentId && tournamentRosterRookieFlag(row)
+      (row) => inScope(row) && tournamentRosterRookieFlag(row)
     );
     return {
       upsert,
@@ -322,14 +325,32 @@ export function planRookieFlagOnlyFlush(args: {
   let skippedNonRookieDrift = 0;
 
   for (const row of args.local) {
+    if (!inScope(row)) continue;
     const prev = baselineByKey.get(tournamentRosterEntryKey(row));
-    if (!prev) continue;
-    if (!tournamentRosterEntryMembershipEqual(prev, row)) {
+    const prevFlag = prev ? tournamentRosterRookieFlag(prev) : false;
+    const nextFlag = tournamentRosterRookieFlag(row);
+    if (prevFlag === nextFlag) continue;
+    if (prev && !tournamentRosterEntryMembershipEqual(prev, row)) {
       skippedNonRookieDrift += 1;
-      continue;
     }
-    if (tournamentRosterRookieFlag(prev) !== tournamentRosterRookieFlag(row)) {
-      upsert.push(row);
+    // Still write — membership drift must not drop ROTY tags.
+    upsert.push(row);
+  }
+
+  // If baseline had no overlap (ack empty/wrong), still push all current tags.
+  if (upsert.length === 0 && tournamentId) {
+    const tagged = args.local.filter(
+      (row) => inScope(row) && tournamentRosterRookieFlag(row)
+    );
+    const anyBaselineTagged = args.baseline.some(
+      (row) => inScope(row) && tournamentRosterRookieFlag(row)
+    );
+    if (tagged.length > 0 && !anyBaselineTagged) {
+      return {
+        upsert: tagged,
+        mode: 'tagged-only',
+        skippedNonRookieDrift,
+      };
     }
   }
 
