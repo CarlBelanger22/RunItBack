@@ -211,7 +211,7 @@ export function shouldShowMostImprovedAward(input: {
   return input.earlierSeriesTournamentCount > 0;
 }
 
-/** Prior series season that already used a manual rookie year (tag + GP > 0). */
+/** Prior series season where this player already appeared (GP > 0). */
 export type PriorManualRookieLock = {
   tournamentId: string;
   tournamentName: string;
@@ -242,28 +242,14 @@ export function buildPlayerCompletedGpByTournament(
   return out;
 }
 
-function playerWasTaggedRookieInTournament(
-  playerId: string,
-  tournamentId: string,
-  tournamentRosters: TournamentRosterEntry[]
-): boolean {
-  return tournamentRosters.some(
-    (r) =>
-      r.tournamentId === tournamentId &&
-      r.playerId === playerId &&
-      r.isRookie === true
-  );
-}
-
 /**
- * Most recent earlier series season where this player was tagged rookie AND
- * had GP > 0. Tag + 0 GP does not lock (rookie year unused).
+ * Most recent earlier series season with completed GP > 0.
+ * Prior rookie tags are irrelevant — any recorded appearance locks Eligibility.
  */
 export function getPriorSeriesManualRookieLock(input: {
   playerId: string;
   current: Pick<Tournament, 'id' | 'year' | 'createdAt' | 'awardSeriesId'>;
   allTournaments: Tournament[];
-  tournamentRosters: TournamentRosterEntry[];
   playerGpByTournament: Map<string, Map<string, number>>;
 }): PriorManualRookieLock | null {
   const earlier = earlierSeriesTournaments(
@@ -273,15 +259,6 @@ export function getPriorSeriesManualRookieLock(input: {
   const gpMap = input.playerGpByTournament.get(input.playerId);
   for (let i = earlier.length - 1; i >= 0; i -= 1) {
     const prior = earlier[i]!;
-    if (
-      !playerWasTaggedRookieInTournament(
-        input.playerId,
-        prior.id,
-        input.tournamentRosters
-      )
-    ) {
-      continue;
-    }
     const gp = gpMap?.get(prior.id) ?? 0;
     if (gp <= 0) continue;
     return { tournamentId: prior.id, tournamentName: prior.name };
@@ -294,7 +271,6 @@ export function buildPriorSeriesManualRookieLockByPlayer(input: {
   playerIds: string[];
   current: Pick<Tournament, 'id' | 'year' | 'createdAt' | 'awardSeriesId'>;
   allTournaments: Tournament[];
-  tournamentRosters: TournamentRosterEntry[];
   playerGpByTournament: Map<string, Map<string, number>>;
 }): Map<string, PriorManualRookieLock> {
   const out = new Map<string, PriorManualRookieLock>();
@@ -303,7 +279,6 @@ export function buildPriorSeriesManualRookieLockByPlayer(input: {
       playerId,
       current: input.current,
       allTournaments: input.allTournaments,
-      tournamentRosters: input.tournamentRosters,
       playerGpByTournament: input.playerGpByTournament,
     });
     if (lock) out.set(playerId, lock);
@@ -312,7 +287,7 @@ export function buildPriorSeriesManualRookieLockByPlayer(input: {
 }
 
 /**
- * Strip current-tournament isRookie for players locked by a prior used year.
+ * Strip current-tournament isRookie for players locked by a prior series appearance.
  */
 export function clearCurrentRookieTagsForLockedPlayers(input: {
   tournamentId: string;

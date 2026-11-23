@@ -95,7 +95,6 @@ export function MarkRookiesCard({
       playerIds,
       current: currentMeta,
       allTournaments,
-      tournamentRosters,
       playerGpByTournament,
     });
   }, [
@@ -272,7 +271,7 @@ export function MarkRookiesCard({
         <p className="text-xs text-muted-foreground">
           Pick a team, then tag rookies. {taggedCount} tagged total.
           {locksByPlayer.size > 0
-            ? ' Grey names already used a rookie year in this series.'
+            ? ' Grey names already played in an earlier season of this series.'
             : null}
         </p>
         <ul className="rounded-md border divide-y max-h-[55vh] overflow-y-auto">
