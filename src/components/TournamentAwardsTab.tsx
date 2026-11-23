@@ -10,13 +10,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import {
-  ChevronDown,
-  ChevronRight,
-  ChevronUp,
-  HelpCircle,
-  Pencil,
-} from 'lucide-react';
+import { ChevronDown, ChevronUp, HelpCircle, Pencil } from 'lucide-react';
 import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { TournamentStructure } from '../utils/tournamentStructure';
@@ -450,9 +444,9 @@ function ContenderTable({
                           }}
                         >
                           {priorOpen ? (
-                            <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                            <ChevronUp className="h-[0.4375rem] w-[0.4375rem]" aria-hidden />
                           ) : (
-                            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                            <ChevronDown className="h-[0.4375rem] w-[0.4375rem]" aria-hidden />
                           )}
                         </button>
                       ) : null}
