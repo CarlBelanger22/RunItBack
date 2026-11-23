@@ -6,7 +6,7 @@
  * Standalone (no series) → omit both (caller).
  */
 
-import type { Tournament } from '../App';
+import type { Game, Tournament } from '../App';
 import { meetsTournamentMajorAwardGamesFloor } from './tournamentLeaders';
 import {
   applyMissPenalty,
@@ -19,6 +19,9 @@ import {
   compareTournamentsChronological,
   tournamentsInAwardSeries,
 } from './tournamentAwardSeries';
+import { isGameCompleted } from './scheduledGames';
+import type { TournamentRosterEntry } from './tournamentRosters';
+import { setTournamentRosterRookieFlag } from './tournamentRosters';
 
 /** Same light TSI weight for ROTY and MIP (Designer: match ROTY 88/12). */
 export const ROTY_TSI_WEIGHT = 0.12;
@@ -206,4 +209,129 @@ export function shouldShowMostImprovedAward(input: {
 }): boolean {
   if (!input.awardSeriesId?.trim()) return false;
   return input.earlierSeriesTournamentCount > 0;
+}
+
+/** Prior series season that already used a manual rookie year (tag + GP > 0). */
+export type PriorManualRookieLock = {
+  tournamentId: string;
+  tournamentName: string;
+};
+
+/**
+ * Completed GP per player per tournament (from box rows).
+ * playerId → tournamentId → gamesPlayed
+ */
+export function buildPlayerCompletedGpByTournament(
+  games: Game[]
+): Map<string, Map<string, number>> {
+  const out = new Map<string, Map<string, number>>();
+  for (const game of games) {
+    if (!isGameCompleted(game) || !game.tournamentId) continue;
+    const seen = new Set<string>();
+    for (const stat of game.gameStats ?? []) {
+      if (!stat.playerId || seen.has(stat.playerId)) continue;
+      seen.add(stat.playerId);
+      let byT = out.get(stat.playerId);
+      if (!byT) {
+        byT = new Map();
+        out.set(stat.playerId, byT);
+      }
+      byT.set(game.tournamentId, (byT.get(game.tournamentId) ?? 0) + 1);
+    }
+  }
+  return out;
+}
+
+function playerWasTaggedRookieInTournament(
+  playerId: string,
+  tournamentId: string,
+  tournamentRosters: TournamentRosterEntry[]
+): boolean {
+  return tournamentRosters.some(
+    (r) =>
+      r.tournamentId === tournamentId &&
+      r.playerId === playerId &&
+      r.isRookie === true
+  );
+}
+
+/**
+ * Most recent earlier series season where this player was tagged rookie AND
+ * had GP > 0. Tag + 0 GP does not lock (rookie year unused).
+ */
+export function getPriorSeriesManualRookieLock(input: {
+  playerId: string;
+  current: Pick<Tournament, 'id' | 'year' | 'createdAt' | 'awardSeriesId'>;
+  allTournaments: Tournament[];
+  tournamentRosters: TournamentRosterEntry[];
+  playerGpByTournament: Map<string, Map<string, number>>;
+}): PriorManualRookieLock | null {
+  const earlier = earlierSeriesTournaments(
+    input.current,
+    input.allTournaments
+  );
+  const gpMap = input.playerGpByTournament.get(input.playerId);
+  for (let i = earlier.length - 1; i >= 0; i -= 1) {
+    const prior = earlier[i]!;
+    if (
+      !playerWasTaggedRookieInTournament(
+        input.playerId,
+        prior.id,
+        input.tournamentRosters
+      )
+    ) {
+      continue;
+    }
+    const gp = gpMap?.get(prior.id) ?? 0;
+    if (gp <= 0) continue;
+    return { tournamentId: prior.id, tournamentName: prior.name };
+  }
+  return null;
+}
+
+/** playerId → lock for Eligibility UI. */
+export function buildPriorSeriesManualRookieLockByPlayer(input: {
+  playerIds: string[];
+  current: Pick<Tournament, 'id' | 'year' | 'createdAt' | 'awardSeriesId'>;
+  allTournaments: Tournament[];
+  tournamentRosters: TournamentRosterEntry[];
+  playerGpByTournament: Map<string, Map<string, number>>;
+}): Map<string, PriorManualRookieLock> {
+  const out = new Map<string, PriorManualRookieLock>();
+  for (const playerId of input.playerIds) {
+    const lock = getPriorSeriesManualRookieLock({
+      playerId,
+      current: input.current,
+      allTournaments: input.allTournaments,
+      tournamentRosters: input.tournamentRosters,
+      playerGpByTournament: input.playerGpByTournament,
+    });
+    if (lock) out.set(playerId, lock);
+  }
+  return out;
+}
+
+/**
+ * Strip current-tournament isRookie for players locked by a prior used year.
+ */
+export function clearCurrentRookieTagsForLockedPlayers(input: {
+  tournamentId: string;
+  tournamentRosters: TournamentRosterEntry[];
+  lockedPlayerIds: ReadonlySet<string>;
+}): TournamentRosterEntry[] {
+  let next = input.tournamentRosters;
+  let changed = false;
+  for (const row of input.tournamentRosters) {
+    if (row.tournamentId !== input.tournamentId) continue;
+    if (row.isRookie !== true) continue;
+    if (!input.lockedPlayerIds.has(row.playerId)) continue;
+    next = setTournamentRosterRookieFlag(next, {
+      tournamentId: row.tournamentId,
+      teamId: row.teamId,
+      playerId: row.playerId,
+      isRookie: false,
+    });
+    changed = true;
+  }
+  return changed ? next : input.tournamentRosters;
 }

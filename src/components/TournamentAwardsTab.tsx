@@ -917,8 +917,11 @@ export function TournamentAwardsTab({
               key="rookie-eligibility"
               embedded
               tournamentId={tournamentId}
+              tournament={tournament}
               teams={teams}
               tournamentRosters={tournamentRosters}
+              allGames={allGames ?? games}
+              allTournaments={allTournaments ?? []}
               onUpdateTournamentRosters={onUpdateTournamentRosters!}
             />
           ) : null}

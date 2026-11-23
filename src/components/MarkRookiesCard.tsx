@@ -1,13 +1,26 @@
 /**
  * Admin: mark manual ROTY-eligible players — team list, then players for one team.
  */
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
-import type { Team } from '../App';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
+import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import {
   findPlayerProfile,
   setTournamentRosterRookieFlag,
 } from '../utils/tournamentRosters';
+import {
+  buildPlayerCompletedGpByTournament,
+  buildPriorSeriesManualRookieLockByPlayer,
+  clearCurrentRookieTagsForLockedPlayers,
+  type PriorManualRookieLock,
+} from '../utils/tournamentRookieMipAwards';
 import { Checkbox } from './ui/checkbox';
 import { Label } from './ui/label';
 import { TeamBadge } from './TeamBadge';
@@ -15,8 +28,16 @@ import { ArrowLeft, ChevronRight } from 'lucide-react';
 
 interface MarkRookiesCardProps {
   tournamentId: string;
+  /** Current tournament metadata for series lock. */
+  tournament?: Pick<
+    Tournament,
+    'id' | 'year' | 'createdAt' | 'awardSeriesId' | 'name'
+  >;
   teams: Team[];
   tournamentRosters: TournamentRosterEntry[];
+  /** League games — GP for prior-series lock. */
+  allGames?: Game[];
+  allTournaments?: Tournament[];
   onUpdateTournamentRosters: (
     entriesOrUpdater:
       | TournamentRosterEntry[]
@@ -33,12 +54,78 @@ type TeamGroup = {
 
 export function MarkRookiesCard({
   tournamentId,
+  tournament,
   teams,
   tournamentRosters,
+  allGames = [],
+  allTournaments = [],
   onUpdateTournamentRosters,
   embedded = false,
 }: MarkRookiesCardProps) {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const clearedLocksRef = useRef(false);
+
+  const currentMeta = useMemo(
+    () =>
+      tournament ?? {
+        id: tournamentId,
+        year: 0,
+        awardSeriesId: undefined,
+      },
+    [tournament, tournamentId]
+  );
+
+  const playerGpByTournament = useMemo(
+    () => buildPlayerCompletedGpByTournament(allGames),
+    [allGames]
+  );
+
+  const locksByPlayer = useMemo(() => {
+    if (!currentMeta.awardSeriesId?.trim()) {
+      return new Map<string, PriorManualRookieLock>();
+    }
+    const playerIds = [
+      ...new Set(
+        tournamentRosters
+          .filter((r) => r.tournamentId === tournamentId)
+          .map((r) => r.playerId)
+      ),
+    ];
+    return buildPriorSeriesManualRookieLockByPlayer({
+      playerIds,
+      current: currentMeta,
+      allTournaments,
+      tournamentRosters,
+      playerGpByTournament,
+    });
+  }, [
+    allTournaments,
+    currentMeta,
+    playerGpByTournament,
+    tournamentId,
+    tournamentRosters,
+  ]);
+
+  // Auto-clear illegal current-season tags for locked players (once per open).
+  useEffect(() => {
+    if (clearedLocksRef.current) return;
+    if (locksByPlayer.size === 0) return;
+    const lockedIds = new Set(locksByPlayer.keys());
+    const next = clearCurrentRookieTagsForLockedPlayers({
+      tournamentId,
+      tournamentRosters,
+      lockedPlayerIds: lockedIds,
+    });
+    clearedLocksRef.current = true;
+    if (next !== tournamentRosters) {
+      onUpdateTournamentRosters(next);
+    }
+  }, [
+    locksByPlayer,
+    onUpdateTournamentRosters,
+    tournamentId,
+    tournamentRosters,
+  ]);
 
   const groups = useMemo((): TeamGroup[] => {
     const teamById = new Map(teams.map((t) => [t.id, t]));
@@ -69,10 +156,14 @@ export function MarkRookiesCard({
   const taggedCount = useMemo(
     () =>
       groups.reduce(
-        (n, g) => n + g.entries.filter((e) => e.isRookie === true).length,
+        (n, g) =>
+          n +
+          g.entries.filter(
+            (e) => e.isRookie === true && !locksByPlayer.has(e.playerId)
+          ).length,
         0
       ),
-    [groups]
+    [groups, locksByPlayer]
   );
 
   const selectedGroup = useMemo(
@@ -82,6 +173,7 @@ export function MarkRookiesCard({
 
   const handleToggle = useCallback(
     (entry: TournamentRosterEntry, checked: boolean) => {
+      if (locksByPlayer.has(entry.playerId)) return;
       // Local only while Eligibility dialog is open — parent flushes once on close.
       onUpdateTournamentRosters((prev) =>
         setTournamentRosterRookieFlag(prev, {
@@ -92,7 +184,7 @@ export function MarkRookiesCard({
         })
       );
     },
-    [onUpdateTournamentRosters]
+    [locksByPlayer, onUpdateTournamentRosters]
   );
 
   if (groups.length === 0) {
@@ -108,7 +200,7 @@ export function MarkRookiesCard({
 
   if (selectedGroup) {
     const teamTagged = selectedGroup.entries.filter(
-      (e) => e.isRookie === true
+      (e) => e.isRookie === true && !locksByPlayer.has(e.playerId)
     ).length;
     body = (
       <div className="space-y-2">
@@ -133,25 +225,40 @@ export function MarkRookiesCard({
           {selectedGroup.entries.map((entry) => {
             const player = findPlayerProfile(entry.playerId, teams);
             const name = player?.name ?? entry.playerId;
+            const lock = locksByPlayer.get(entry.playerId);
+            const locked = !!lock;
             const id = `rookie-${entry.teamId}-${entry.playerId}`;
             return (
               <li
                 key={tournamentRosterRowKey(entry)}
-                className="flex items-center gap-2.5 px-2.5 py-1.5"
+                className={`flex items-center gap-2.5 px-2.5 py-1.5 ${
+                  locked ? 'opacity-50' : ''
+                }`}
               >
                 <Checkbox
                   id={id}
-                  checked={entry.isRookie === true}
+                  checked={locked ? false : entry.isRookie === true}
+                  disabled={locked}
                   onCheckedChange={(v) => handleToggle(entry, v === true)}
                 />
                 <Label
-                  htmlFor={id}
-                  className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 font-normal"
+                  htmlFor={locked ? undefined : id}
+                  className={`flex min-w-0 flex-1 items-center gap-2 font-normal ${
+                    locked ? 'cursor-default' : 'cursor-pointer'
+                  }`}
                 >
                   <span className="w-7 shrink-0 font-mono text-xs text-muted-foreground">
                     #{entry.number}
                   </span>
-                  <span className="truncate text-sm">{name}</span>
+                  <span className="truncate text-sm">
+                    {name}
+                    {lock ? (
+                      <span className="text-muted-foreground">
+                        {' '}
+                        ({lock.tournamentName})
+                      </span>
+                    ) : null}
+                  </span>
                 </Label>
               </li>
             );
@@ -164,10 +271,15 @@ export function MarkRookiesCard({
       <div className="space-y-2">
         <p className="text-xs text-muted-foreground">
           Pick a team, then tag rookies. {taggedCount} tagged total.
+          {locksByPlayer.size > 0
+            ? ' Grey names already used a rookie year in this series.'
+            : null}
         </p>
         <ul className="rounded-md border divide-y max-h-[55vh] overflow-y-auto">
           {groups.map(({ team, entries }) => {
-            const teamTagged = entries.filter((e) => e.isRookie === true).length;
+            const teamTagged = entries.filter(
+              (e) => e.isRookie === true && !locksByPlayer.has(e.playerId)
+            ).length;
             return (
               <li key={team.id}>
                 <button
