@@ -772,7 +772,7 @@ export function TournamentAwardsTab({
       </div>
 
       <Dialog open={eligibilityOpen} onOpenChange={setEligibilityOpen}>
-        <DialogContent className="sm:max-w-sm gap-3 p-4">
+        <DialogContent className="w-[min(100%-2rem,20rem)] max-w-[20rem] sm:max-w-[20rem] gap-3 p-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-base">Rookie eligibility</DialogTitle>
             <DialogDescription className="text-xs">
