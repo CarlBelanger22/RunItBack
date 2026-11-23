@@ -431,7 +431,7 @@ function ContenderTable({
                       {prior ? (
                         <button
                           type="button"
-                          className="inline-flex size-3 shrink-0 items-center justify-center rounded-sm p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-sm p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
                           aria-expanded={priorOpen}
                           aria-label={
                             priorOpen
@@ -443,18 +443,11 @@ function ContenderTable({
                             togglePrior(c.playerId);
                           }}
                         >
+                          {/* size prop — compiled index.css lacks size-3 / arbitrary scale */}
                           {priorOpen ? (
-                            <ChevronUp
-                              className="size-3 origin-center scale-[0.45]"
-                              strokeWidth={2.5}
-                              aria-hidden
-                            />
+                            <ChevronUp size={8} strokeWidth={2.5} aria-hidden />
                           ) : (
-                            <ChevronDown
-                              className="size-3 origin-center scale-[0.45]"
-                              strokeWidth={2.5}
-                              aria-hidden
-                            />
+                            <ChevronDown size={8} strokeWidth={2.5} aria-hidden />
                           )}
                         </button>
                       ) : null}
