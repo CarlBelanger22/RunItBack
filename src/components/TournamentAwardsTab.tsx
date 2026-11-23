@@ -1,12 +1,20 @@
 /**
  * Admin-only tournament Awards tab: individual + All-Teams + All-Defensive.
  */
-import { useState } from 'react';
-import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, HelpCircle, Pencil } from 'lucide-react';
 import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { TournamentStructure } from '../utils/tournamentStructure';
 import { MarkRookiesCard } from './MarkRookiesCard';
+import { Button } from './ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
 import {
   buildTournamentAwardsForGames,
   type AwardContender,
@@ -688,10 +696,17 @@ export function TournamentAwardsTab({
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
 }: TournamentAwardsTabProps) {
+  const [eligibilityOpen, setEligibilityOpen] = useState(false);
   const showMarkRookies =
     !!tournament?.awardSeriesId &&
     tournament.rookieMode === 'manual' &&
     typeof onUpdateTournamentRosters === 'function';
+  const taggedRookieCount = useMemo(() => {
+    if (!showMarkRookies) return 0;
+    return tournamentRosters.filter(
+      (r) => r.tournamentId === tournamentId && r.isRookie === true
+    ).length;
+  }, [showMarkRookies, tournamentRosters, tournamentId]);
   const sections = buildTournamentAwardsForGames({
     tournamentId,
     games,
@@ -730,12 +745,53 @@ export function TournamentAwardsTab({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold">Awards contenders</h2>
-        <p className="text-sm text-muted-foreground mt-1">
-          Admin preview — formulas from completed games only. Not final awards.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">Awards contenders</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Admin preview — formulas from completed games only. Not final awards.
+          </p>
+        </div>
+        {showMarkRookies ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0"
+            onClick={() => setEligibilityOpen(true)}
+          >
+            <Pencil className="h-3.5 w-3.5 mr-1.5" />
+            Eligibility
+            {taggedRookieCount > 0 ? (
+              <span className="ml-1.5 text-muted-foreground tabular-nums">
+                ({taggedRookieCount})
+              </span>
+            ) : null}
+          </Button>
+        ) : null}
       </div>
+
+      <Dialog open={eligibilityOpen} onOpenChange={setEligibilityOpen}>
+        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Rookie eligibility</DialogTitle>
+            <DialogDescription>
+              Mark who counts for Rookie of the Year in this series season.
+              Changes save as you check.
+            </DialogDescription>
+          </DialogHeader>
+          {showMarkRookies ? (
+            <MarkRookiesCard
+              embedded
+              tournamentId={tournamentId}
+              teams={teams}
+              tournamentRosters={tournamentRosters}
+              onUpdateTournamentRosters={onUpdateTournamentRosters!}
+              onFlushTournamentRosterSave={onFlushTournamentRosterSave}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <Tabs defaultValue="individual">
         <TabsList>
@@ -747,15 +803,6 @@ export function TournamentAwardsTab({
         </TabsList>
 
         <TabsContent value="individual" className="space-y-10 mt-6">
-          {showMarkRookies ? (
-            <MarkRookiesCard
-              tournamentId={tournamentId}
-              teams={teams}
-              tournamentRosters={tournamentRosters}
-              onUpdateTournamentRosters={onUpdateTournamentRosters!}
-              onFlushTournamentRosterSave={onFlushTournamentRosterSave}
-            />
-          ) : null}
           {sections.map((section) => (
             <AwardBlock
               key={section.id}
