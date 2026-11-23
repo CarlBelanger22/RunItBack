@@ -3,9 +3,10 @@
  */
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, HelpCircle } from 'lucide-react';
-import type { Game, Team } from '../App';
+import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import type { TournamentStructure } from '../utils/tournamentStructure';
+import { MarkRookiesCard } from './MarkRookiesCard';
 import {
   buildTournamentAwardsForGames,
   type AwardContender,
@@ -39,11 +40,30 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 interface TournamentAwardsTabProps {
   tournamentId: string;
   tournamentName: string;
+  tournament?: Pick<
+    Tournament,
+    | 'id'
+    | 'year'
+    | 'createdAt'
+    | 'awardSeriesId'
+    | 'rookieMode'
+    | 'structure'
+  >;
   games: Game[];
+  /** League-wide games for prior-season MIP. */
+  allGames?: Game[];
   teams: Team[];
+  /** All league tournaments for award-series linking. */
+  allTournaments?: Tournament[];
   tournamentRosters: TournamentRosterEntry[];
   structure?: TournamentStructure | null;
   onNavigateToPlayer: (playerId: string, teamId?: string) => void;
+  onUpdateTournamentRosters?: (
+    entriesOrUpdater:
+      | TournamentRosterEntry[]
+      | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
+  ) => void;
+  onFlushTournamentRosterSave?: () => Promise<boolean>;
 }
 
 function formatPct(made: number, attempted: number): string {
@@ -657,18 +677,39 @@ function AllDefensivePanel({
 export function TournamentAwardsTab({
   tournamentId,
   tournamentName,
+  tournament,
   games,
+  allGames,
   teams,
+  allTournaments,
   tournamentRosters,
   structure,
   onNavigateToPlayer,
+  onUpdateTournamentRosters,
+  onFlushTournamentRosterSave,
 }: TournamentAwardsTabProps) {
+  const showMarkRookies =
+    !!tournament?.awardSeriesId &&
+    tournament.rookieMode === 'manual' &&
+    typeof onUpdateTournamentRosters === 'function';
   const sections = buildTournamentAwardsForGames({
     tournamentId,
     games,
     teams,
     tournamentRosters,
     structure,
+    tournament: tournament
+      ? {
+          id: tournament.id ?? tournamentId,
+          year: tournament.year ?? 0,
+          createdAt: tournament.createdAt,
+          awardSeriesId: tournament.awardSeriesId,
+          rookieMode: tournament.rookieMode,
+          structure: tournament.structure ?? structure,
+        }
+      : undefined,
+    allTournaments,
+    allGames: allGames ?? games,
   });
   const allTeams = buildAllTournamentTeamsForGames({
     tournamentId,
@@ -706,6 +747,15 @@ export function TournamentAwardsTab({
         </TabsList>
 
         <TabsContent value="individual" className="space-y-10 mt-6">
+          {showMarkRookies ? (
+            <MarkRookiesCard
+              tournamentId={tournamentId}
+              teams={teams}
+              tournamentRosters={tournamentRosters}
+              onUpdateTournamentRosters={onUpdateTournamentRosters!}
+              onFlushTournamentRosterSave={onFlushTournamentRosterSave}
+            />
+          ) : null}
           {sections.map((section) => (
             <AwardBlock
               key={section.id}

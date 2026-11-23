@@ -4,7 +4,7 @@
  * Completed games only. Majors (MVP/DPOY/Sixth Man) ≥55% team GP;
  * other awards ≥50% (same as Home leaders).
  */
-import type { Game, GameStats, Player, Team } from '../App';
+import type { Game, GameStats, Player, Team, Tournament } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import { isGameCompleted } from './scheduledGames';
 import { gameRecordsStat } from './statRecordingCoverage';
@@ -46,6 +46,20 @@ import {
   tsiFromWinAndProgression,
 } from './tournamentAwardScoring';
 import { buildFinalsMvpContenders } from './tournamentFinalsMvp';
+import { filterGamesForTournament } from './tournamentEnrollment';
+import {
+  earlierSeriesTournaments,
+  isMostImprovedEligible,
+  isRookieOfYearEligible,
+  pickPriorSeasonForMip,
+  playerHasPriorSeriesGames,
+  scoreMipPool,
+  scoreRookiePool,
+  shouldShowMostImprovedAward,
+  shouldShowRookieAward,
+  type MipScoreRow,
+  type RookieScoreRow,
+} from './tournamentRookieMipAwards';
 
 /** Re-export for callers/tests that imported from awards. */
 export const DPOY_PLUS_MINUS_WEIGHT = DPOY_PM_WEIGHT;
@@ -55,6 +69,8 @@ export type TournamentAwardId =
   | 'mvp'
   | 'dpoy'
   | 'sixth_man'
+  | 'rookie'
+  | 'most_improved'
   | 'clutch'
   | 'scoring'
   | 'playmaker'
@@ -679,12 +695,256 @@ export function buildTournamentAwardSections(
   return sections;
 }
 
+function buildTsiMapForTournamentGames(input: {
+  games: Game[];
+  teams: Team[];
+  structure?: TournamentStructure | null;
+}): Map<string, number> {
+  const progressionByTeamId = buildTeamProgressionPlaces({
+    structure: input.structure,
+    games: input.games,
+    teams: input.teams,
+  });
+  const nTeamsForProgression = countTournamentTeamsForProgression(
+    input.teams,
+    input.games,
+    progressionByTeamId
+  );
+  const teamWinPctByTeamId = buildAwardTeamWinPctMap(input.games, input.teams);
+  return buildTeamSuccessIndexMap({
+    games: input.games,
+    teams: input.teams,
+    progression: progressionByTeamId,
+    nTeams: nTeamsForProgression,
+    winPctByTeamId: teamWinPctByTeamId,
+  });
+}
+
+/**
+ * ROTY + MIP sections (after Sixth Man). Empty when standalone / off / no pool.
+ */
+export function buildRookieAndMostImprovedSections(input: {
+  current: Pick<
+    Tournament,
+    'id' | 'year' | 'createdAt' | 'awardSeriesId' | 'rookieMode'
+  >;
+  allTournaments: Tournament[];
+  /** League-wide games (filtered per series tournament). */
+  allGames: Game[];
+  teams: Team[];
+  tournamentRosters: TournamentRosterEntry[];
+  currentPlayers: AwardPlayerAggregate[];
+  currentTsiByTeamId: Map<string, number>;
+}): TournamentAwardSection[] {
+  const sections: TournamentAwardSection[] = [];
+  const earlier = earlierSeriesTournaments(
+    input.current,
+    input.allTournaments
+  );
+  const showRookie = shouldShowRookieAward({
+    awardSeriesId: input.current.awardSeriesId,
+    rookieMode: input.current.rookieMode,
+  });
+  const showMip = shouldShowMostImprovedAward({
+    awardSeriesId: input.current.awardSeriesId,
+    earlierSeriesTournamentCount: earlier.length,
+  });
+  if (!showRookie && !showMip) return sections;
+
+  const majors = eligibleMajors(input.currentPlayers);
+  const taggedRookies = new Set(
+    input.tournamentRosters
+      .filter(
+        (r) =>
+          r.tournamentId === input.current.id && r.isRookie === true
+      )
+      .map((r) => r.playerId)
+  );
+
+  const priorAggByTournament = new Map<string, AwardPlayerAggregate[]>();
+  const priorTsiByTournament = new Map<string, Map<string, number>>();
+  for (const prior of earlier) {
+    const priorGames = filterGamesForTournament(prior, input.allGames);
+    priorAggByTournament.set(
+      prior.id,
+      aggregateTournamentAwardPlayers({
+        tournamentId: prior.id,
+        games: priorGames,
+        teams: input.teams,
+        tournamentRosters: input.tournamentRosters,
+      })
+    );
+    priorTsiByTournament.set(
+      prior.id,
+      buildTsiMapForTournamentGames({
+        games: priorGames,
+        teams: input.teams,
+        structure: prior.structure,
+      })
+    );
+  }
+
+  const playerSeasonGpCache = new Map<
+    string,
+    Map<string, { gamesPlayed: number; teamGames: number }>
+  >();
+  const gpMapFor = (playerId: string) => {
+    let map = playerSeasonGpCache.get(playerId);
+    if (map) return map;
+    map = new Map();
+    const cur = input.currentPlayers.find((p) => p.playerId === playerId);
+    if (cur) {
+      map.set(input.current.id, {
+        gamesPlayed: cur.gamesPlayed,
+        teamGames: cur.teamGames,
+      });
+    }
+    for (const [tid, rows] of priorAggByTournament) {
+      const row = rows.find((p) => p.playerId === playerId);
+      if (row) {
+        map.set(tid, {
+          gamesPlayed: row.gamesPlayed,
+          teamGames: row.teamGames,
+        });
+      }
+    }
+    playerSeasonGpCache.set(playerId, map);
+    return map;
+  };
+
+  const rookieEligibleIds = new Set<string>();
+  if (showRookie) {
+    const rookieRows: RookieScoreRow[] = [];
+    const rookieAggs: AwardPlayerAggregate[] = [];
+    for (const r of majors) {
+      const gpMap = gpMapFor(r.playerId);
+      const eligible = isRookieOfYearEligible({
+        rookieMode: input.current.rookieMode,
+        hasPriorSeriesGames: playerHasPriorSeriesGames({
+          current: input.current,
+          allTournaments: input.allTournaments,
+          playerSeasonGp: gpMap,
+        }),
+        isTaggedRookie: taggedRookies.has(r.playerId),
+      });
+      if (!eligible) continue;
+      rookieEligibleIds.add(r.playerId);
+      rookieAggs.push(r);
+      rookieRows.push({
+        playerId: r.playerId,
+        gmscPerGame: gmscPerGameRaw(r),
+        tsi: input.currentTsiByTeamId.get(r.team.id) ?? 0.5,
+        gamesPlayed: r.gamesPlayed,
+        teamGames: r.teamGames,
+      });
+    }
+    if (rookieAggs.length > 0) {
+      const scores = scoreRookiePool(rookieRows);
+      sections.push({
+        id: 'rookie',
+        title: 'Rookie of the Year',
+        tooltip:
+          '88% Game Score/g (scaled within rookies) + 12% team success index, then miss wither. ' +
+          'Eligible: ≥55% team games. Manual series: tagged rookies only. ' +
+          'Auto series: first appearance in this award series in RunItBack. ' +
+          'Omitted when standalone or Rookie awards = Off.',
+        contenders: topBy(rookieAggs, (row) => scores.get(row.playerId) ?? 0),
+      });
+    }
+  }
+
+  if (showMip) {
+    const mipRows: MipScoreRow[] = [];
+    const mipAggs: AwardPlayerAggregate[] = [];
+    for (const r of majors) {
+      const gpMap = gpMapFor(r.playerId);
+      const isRookie = rookieEligibleIds.has(r.playerId);
+      const prior = pickPriorSeasonForMip({
+        current: input.current,
+        allTournaments: input.allTournaments,
+        playerSeasonGp: gpMap,
+      });
+      if (!prior) continue;
+      const priorRow = priorAggByTournament
+        .get(prior.id)
+        ?.find((p) => p.playerId === r.playerId);
+      if (!priorRow) continue;
+      const priorGp = gpMap.get(prior.id);
+      const eligible = isMostImprovedEligible({
+        meetsCurrentGpFloor: meetsTournamentMajorAwardGamesFloor(
+          r.gamesPlayed,
+          r.teamGames
+        ),
+        meetsPriorGpFloor: !!(
+          priorGp &&
+          meetsTournamentMajorAwardGamesFloor(
+            priorGp.gamesPlayed,
+            priorGp.teamGames
+          )
+        ),
+        isRookieEligibleThisSeason: isRookie,
+      });
+      if (!eligible) continue;
+
+      const priorTsi =
+        priorTsiByTournament.get(prior.id)?.get(priorRow.team.id) ?? 0.5;
+      const curTsi = input.currentTsiByTeamId.get(r.team.id) ?? 0.5;
+      mipAggs.push(r);
+      mipRows.push({
+        playerId: r.playerId,
+        deltaGmsc: gmscPerGameRaw(r) - gmscPerGameRaw(priorRow),
+        deltaTsi: curTsi - priorTsi,
+        gamesPlayed: r.gamesPlayed,
+        teamGames: r.teamGames,
+      });
+    }
+    if (mipAggs.length > 0) {
+      const scores = scoreMipPool(mipRows);
+      sections.push({
+        id: 'most_improved',
+        title: 'Most Improved',
+        tooltip:
+          '88% Δ Game Score/g + 12% Δ team success index (each scaled within MIP pool), ' +
+          'then miss wither on this season. Needs a prior season in the same award series ' +
+          'with ≥55% GP both years. Excludes Rookie of the Year pool. ' +
+          'Omitted when standalone or no earlier series season in the app.',
+        contenders: topBy(mipAggs, (row) => scores.get(row.playerId) ?? 0),
+      });
+    }
+  }
+
+  return sections;
+}
+
+function spliceAfterSixthMan(
+  sections: TournamentAwardSection[],
+  extra: TournamentAwardSection[]
+): TournamentAwardSection[] {
+  if (extra.length === 0) return sections;
+  const idx = sections.findIndex((s) => s.id === 'sixth_man');
+  if (idx < 0) return [...sections, ...extra];
+  return [
+    ...sections.slice(0, idx + 1),
+    ...extra,
+    ...sections.slice(idx + 1),
+  ];
+}
+
 export function buildTournamentAwardsForGames(input: {
   tournamentId: string;
   games: Game[];
   teams: Team[];
   tournamentRosters: TournamentRosterEntry[];
   structure?: TournamentStructure | null;
+  /** Current tournament metadata for ROTY/MIP series. */
+  tournament?: Pick<
+    Tournament,
+    'id' | 'year' | 'createdAt' | 'awardSeriesId' | 'rookieMode' | 'structure'
+  >;
+  /** All league tournaments (series siblings). */
+  allTournaments?: Tournament[];
+  /** All league games (for prior-season MIP boxes). */
+  allGames?: Game[];
 }): TournamentAwardSection[] {
   const players = aggregateTournamentAwardPlayers(input);
   const progressionByTeamId = buildTeamProgressionPlaces({
@@ -712,7 +972,7 @@ export function buildTournamentAwardsForGames(input: {
     teams: input.teams,
     tournamentRosters: input.tournamentRosters,
   });
-  return buildTournamentAwardSections(players, {
+  const sections = buildTournamentAwardSections(players, {
     includePlusMinus: tournamentHasPlusMinusCoverage(input.games),
     includeClutch,
     clutchByPlayerId: includeClutch
@@ -729,4 +989,21 @@ export function buildTournamentAwardsForGames(input: {
     nTeamsForProgression,
     finalsMvpContenders,
   });
+
+  const currentMeta = input.tournament ?? {
+    id: input.tournamentId,
+    year: 0,
+    awardSeriesId: undefined,
+    rookieMode: undefined,
+  };
+  const rookieMip = buildRookieAndMostImprovedSections({
+    current: currentMeta,
+    allTournaments: input.allTournaments ?? [],
+    allGames: input.allGames ?? input.games,
+    teams: input.teams,
+    tournamentRosters: input.tournamentRosters,
+    currentPlayers: players,
+    currentTsiByTeamId: tsiByTeamId,
+  });
+  return spliceAfterSixthMan(sections, rookieMip);
 }

@@ -225,6 +225,16 @@ export interface Tournament {
    * Still reachable by id (player badges, games, direct URL).
    */
   hiddenFromList?: boolean;
+  /**
+   * Shared id for progressive seasons of one league variant (ROTY / MIP).
+   * Omit / undefined = standalone → no ROTY/MIP.
+   */
+  awardSeriesId?: string;
+  /**
+   * ROTY eligibility for this series season: off | manual | auto.
+   * Omit when standalone.
+   */
+  rookieMode?: 'off' | 'manual' | 'auto';
   teams: string[]; // Team IDs
   games: string[]; // Game IDs associated with this tournament
   standings: TournamentStanding[];

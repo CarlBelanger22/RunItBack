@@ -28,8 +28,9 @@ import { ClassificationVisualEditor } from './ClassificationVisualEditor';
 import { TeamBadge } from './TeamBadge';
 import { TournamentBadge } from './TournamentBadge';
 import { TeamForm } from './forms/TeamForm';
-import { TournamentForm } from './forms/TournamentForm';
+import { TournamentForm, type TournamentFormSubmitData } from './forms/TournamentForm';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { withAwardSeriesFields } from '../utils/tournamentAwardSeries';
 import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage, getPersonalFoulsCoverage } from '../utils/playerSeasonStats';
 import { aggregateTournamentTeamSeasonStats } from '../utils/tournamentTeamSeasonStats';
@@ -128,6 +129,8 @@ import {
 import { bracketFixtureStageTag } from '../utils/bracketPlaceholderSides';
 interface TournamentPageProps {
   tournament: Tournament;
+  /** All league tournaments — needed for Continue-series picker on edit. */
+  tournaments: Tournament[];
   teams: Team[];
   games: Game[];
   tournamentRosters: TournamentRosterEntry[];
@@ -146,10 +149,17 @@ interface TournamentPageProps {
   onUpdateTournament: (update: TournamentUpdate) => void;
   onDeleteTournament: (tournamentId: string) => void;
   onGamesUpdate: (games: Game[]) => void;
+  onUpdateTournamentRosters?: (
+    entriesOrUpdater:
+      | TournamentRosterEntry[]
+      | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
+  ) => void;
+  onFlushTournamentRosterSave?: () => Promise<boolean>;
 }
 
 export function TournamentPage({ 
-  tournament, 
+  tournament,
+  tournaments,
   teams, 
   games,
   tournamentRosters,
@@ -167,6 +177,8 @@ export function TournamentPage({
   onUpdateTeam,
   onUpdateTournament,
   onDeleteTournament,
+  onUpdateTournamentRosters,
+  onFlushTournamentRosterSave,
   onGamesUpdate,
 }: TournamentPageProps) {
   const { canViewDetailedStats, canEditLeague } = useAuthCapabilities();
@@ -451,14 +463,7 @@ export function TournamentPage({
   }, []);
 
   const handleTournamentFormSubmit = useCallback(
-    (data: {
-      name: string;
-      description: string;
-      year: number;
-      month: string;
-      teams: string[];
-      icon?: string;
-    }) => {
+    (data: TournamentFormSubmitData) => {
       const newlyAdded = data.teams.filter((id) => !tournament.teams.includes(id));
 
       for (const teamId of newlyAdded) {
@@ -477,15 +482,33 @@ export function TournamentPage({
       }
 
       setEditTournamentError(null);
-      onUpdateTournament({
-        ...tournament,
-        name: data.name,
-        description: data.description,
-        year: data.year,
-        month: data.month,
-        teams: data.teams,
-        icon: data.icon,
-      });
+      if (data.bootstrapSeriesOntoTournamentId && data.awardSeriesId) {
+        const priorId = data.bootstrapSeriesOntoTournamentId;
+        const seriesId = data.awardSeriesId;
+        const mode = data.rookieMode;
+        onUpdateTournament({
+          id: priorId,
+          patch: (prev) =>
+            withAwardSeriesFields(prev, {
+              awardSeriesId: seriesId,
+              rookieMode: mode,
+            }),
+        });
+      }
+      onUpdateTournament(
+        withAwardSeriesFields(
+          {
+            ...tournament,
+            name: data.name,
+            description: data.description,
+            year: data.year,
+            month: data.month,
+            teams: data.teams,
+            icon: data.icon,
+          },
+          data
+        )
+      );
       setIsEditTournamentDialogOpen(false);
     },
     [tournament, teams, onUpdateTournament]
@@ -2065,11 +2088,16 @@ export function TournamentPage({
             <TournamentAwardsTab
               tournamentId={tournament.id}
               tournamentName={tournament.name}
+              tournament={tournament}
               games={tournamentGames}
+              allGames={games}
               teams={teams}
+              allTournaments={tournaments}
               tournamentRosters={tournamentRosters}
               structure={tournament.structure}
               onNavigateToPlayer={onNavigateToPlayer}
+              onUpdateTournamentRosters={onUpdateTournamentRosters}
+              onFlushTournamentRosterSave={onFlushTournamentRosterSave}
             />
           </TabsContent>
         )}
@@ -2207,9 +2235,12 @@ export function TournamentPage({
                   month: tournament.month,
                   selectedTeams: tournament.teams,
                   icon: tournament.icon,
+                  awardSeriesId: tournament.awardSeriesId,
+                  rookieMode: tournament.rookieMode,
                 }}
                 tournamentId={tournament.id}
                 teams={teams}
+                tournaments={tournaments}
                 onSubmit={handleTournamentFormSubmit}
                 onCancel={handleTournamentFormCancel}
                 isEditing

@@ -110,6 +110,12 @@ export const MIGRATION_006_HINT =
 export const MIGRATION_007_HINT =
   'Run supabase/migrations/007_tournament_structure.sql in Supabase SQL Editor (adds tournaments.structure jsonb for LE-95).';
 
+export const MIGRATION_015_HINT =
+  'Run supabase/migrations/015_tournament_award_series.sql in Supabase SQL Editor, or: npm run db:migrate:015';
+
+export const MIGRATION_016_HINT =
+  'Run supabase/migrations/016_tournament_roster_is_rookie.sql in Supabase SQL Editor, or: npm run db:migrate:016';
+
 export type { TournamentRosterEntry };
 
 export interface LoadedAppData {
@@ -181,6 +187,8 @@ interface DbTournament {
   standings: Tournament['standings'];
   structure?: Tournament['structure'] | null;
   hidden_from_list?: boolean | null;
+  award_series_id?: string | null;
+  rookie_mode?: string | null;
   created_at?: string;
 }
 
@@ -196,6 +204,7 @@ interface DbTournamentRoster {
   number: number;
   position: string;
   secondary_position: string | null;
+  is_rookie?: boolean | null;
 }
 
 interface DbGame {
@@ -264,6 +273,7 @@ function dbTournamentRosterToEntry(row: DbTournamentRoster): TournamentRosterEnt
     number: row.number,
     position: row.position ?? '',
     secondaryPosition: row.secondary_position ?? undefined,
+    ...(row.is_rookie === true ? { isRookie: true as const } : {}),
   };
 }
 
@@ -275,6 +285,7 @@ function tournamentRosterEntryToDbRow(entry: TournamentRosterEntry): DbTournamen
     number: entry.number,
     position: entry.position ?? '',
     secondary_position: entry.secondaryPosition ?? null,
+    is_rookie: entry.isRookie === true,
   };
 }
 
@@ -1321,6 +1332,12 @@ export async function loadAppDataFromSupabase(
 
   const tournaments: Tournament[] = tournamentRows.map((row) => {
     const gameIds = games.filter((g) => g.tournamentId === row.id).map((g) => g.id);
+    const rookieMode =
+      row.rookie_mode === 'off' ||
+      row.rookie_mode === 'manual' ||
+      row.rookie_mode === 'auto'
+        ? row.rookie_mode
+        : undefined;
     return {
       id: row.id,
       name: row.name,
@@ -1329,6 +1346,8 @@ export async function loadAppDataFromSupabase(
       year: row.year,
       month: row.month,
       hiddenFromList: row.hidden_from_list === true ? true : undefined,
+      awardSeriesId: row.award_series_id?.trim() || undefined,
+      rookieMode,
       teams: teamsByTournament.get(row.id) ?? [],
       games: gameIds,
       standings: row.standings ?? [],
@@ -1556,6 +1575,13 @@ export async function saveAppDataToSupabase(
       standings: t.standings ?? [],
       structure: normalizeTournamentStructure(t.structure) ?? null,
       hidden_from_list: t.hiddenFromList === true,
+      award_series_id: t.awardSeriesId?.trim() || null,
+      rookie_mode:
+        t.rookieMode === 'off' ||
+        t.rookieMode === 'manual' ||
+        t.rookieMode === 'auto'
+          ? t.rookieMode
+          : null,
     };
     if (t.icon !== undefined) row.icon = t.icon ?? null;
     if (t.description !== undefined) row.description = t.description ?? null;

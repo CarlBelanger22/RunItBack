@@ -14,6 +14,11 @@ export interface TournamentRosterEntry {
   number: number;
   position: string;
   secondaryPosition?: string;
+  /**
+   * Manual ROTY tag when tournament.rookieMode === 'manual'.
+   * Omit / false = not marked rookie.
+   */
+  isRookie?: boolean;
 }
 
 export function tournamentRosterEntryKey(entry: TournamentRosterEntry): string {
@@ -618,6 +623,41 @@ export function upsertTournamentRosterEntry(
   const key = tournamentRosterEntryKey(entry);
   const without = rosters.filter((r) => tournamentRosterEntryKey(r) !== key);
   return [...without, entry];
+}
+
+/** Toggle / set manual rookie flag on one tournament roster row. */
+export function setTournamentRosterRookieFlag(
+  rosters: TournamentRosterEntry[],
+  input: {
+    tournamentId: string;
+    teamId: string;
+    playerId: string;
+    isRookie: boolean;
+  }
+): TournamentRosterEntry[] {
+  let found = false;
+  const next = rosters.map((row) => {
+    if (
+      row.tournamentId !== input.tournamentId ||
+      row.teamId !== input.teamId ||
+      row.playerId !== input.playerId
+    ) {
+      return row;
+    }
+    found = true;
+    if (input.isRookie) {
+      return { ...row, isRookie: true };
+    }
+    const { isRookie: _drop, ...rest } = row;
+    return rest;
+  });
+  return found ? next : rosters;
+}
+
+export function isTournamentRosterRookie(
+  entry: Pick<TournamentRosterEntry, 'isRookie'> | null | undefined
+): boolean {
+  return entry?.isRookie === true;
 }
 
 /** Find a player profile across club teams (and optional orphans). */

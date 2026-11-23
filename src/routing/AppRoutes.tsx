@@ -118,6 +118,8 @@ function TournamentDetailRoute({
   onDeleteTournament,
   onGamesUpdate,
   onResumeGame,
+  onUpdateTournamentRosters,
+  onFlushTournamentRosterSave,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -160,6 +162,7 @@ function TournamentDetailRoute({
   return (
     <TournamentPage
       tournament={tournament}
+      tournaments={tournaments}
       teams={teams}
       games={games}
       tournamentRosters={tournamentRosters}
@@ -198,6 +201,8 @@ function TournamentDetailRoute({
       onUpdateTournament={onUpdateTournament}
       onDeleteTournament={onDeleteTournament}
       onGamesUpdate={onGamesUpdate}
+      onUpdateTournamentRosters={onUpdateTournamentRosters}
+      onFlushTournamentRosterSave={onFlushTournamentRosterSave}
     />
   );
 }

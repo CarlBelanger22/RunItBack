@@ -211,6 +211,14 @@ export function toSnapshotTournaments(tournaments: Tournament[]): Tournament[] {
     ...(tournament.hiddenFromList === true
       ? { hiddenFromList: true as const }
       : {}),
+    ...(tournament.awardSeriesId?.trim()
+      ? { awardSeriesId: tournament.awardSeriesId.trim() }
+      : {}),
+    ...(tournament.rookieMode === 'off' ||
+    tournament.rookieMode === 'manual' ||
+    tournament.rookieMode === 'auto'
+      ? { rookieMode: tournament.rookieMode }
+      : {}),
   }));
 }
 

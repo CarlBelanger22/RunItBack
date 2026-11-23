@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { TournamentForm } from './forms/TournamentForm';
+import { TournamentForm, type TournamentFormSubmitData } from './forms/TournamentForm';
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from './ui/dialog';
@@ -28,6 +28,7 @@ import {
   isScheduledTournamentGame,
 } from '../utils/scheduledGames';
 import { useAuthCapabilities } from '../lib/auth/useAuthCapabilities';
+import { withAwardSeriesFields } from '../utils/tournamentAwardSeries';
 
 interface TournamentManagerProps {
   tournaments: Tournament[];
@@ -55,31 +56,56 @@ export function TournamentManager({
   const [editingTournament, setEditingTournament] = useState<Tournament | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
 
-  const handleFormSubmit = useCallback((data: {
-    name: string;
-    description: string;
-    year: number;
-    month: string;
-    teams: string[];
-    icon?: string;
-  }) => {
-    if (editingTournament) {
+  const handleFormSubmit = useCallback((data: TournamentFormSubmitData) => {
+    if (
+      data.bootstrapSeriesOntoTournamentId &&
+      data.awardSeriesId
+    ) {
+      const priorId = data.bootstrapSeriesOntoTournamentId;
+      const seriesId = data.awardSeriesId;
+      const mode = data.rookieMode;
       onUpdateTournament({
-        ...editingTournament,
-        name: data.name,
-        description: data.description,
-        year: data.year,
-        month: data.month,
-        teams: data.teams,
-        icon: data.icon,
+        id: priorId,
+        patch: (prev) =>
+          withAwardSeriesFields(prev, {
+            awardSeriesId: seriesId,
+            rookieMode: mode,
+          }),
       });
+    }
+
+    if (editingTournament) {
+      onUpdateTournament(
+        withAwardSeriesFields(
+          {
+            ...editingTournament,
+            name: data.name,
+            description: data.description,
+            year: data.year,
+            month: data.month,
+            teams: data.teams,
+            icon: data.icon,
+          },
+          data
+        )
+      );
       setEditingTournament(null);
     } else {
-      onCreateTournament({
-        ...data,
-        games: [],
-        standings: [],
-      });
+      onCreateTournament(
+        withAwardSeriesFields(
+          {
+            name: data.name,
+            description: data.description,
+            year: data.year,
+            month: data.month,
+            teams: data.teams,
+            icon: data.icon,
+            games: [],
+            standings: [],
+          },
+          data
+        )
+      );
       setIsCreateDialogOpen(false);
     }
   }, [editingTournament, onUpdateTournament, onCreateTournament]);
@@ -158,6 +184,7 @@ export function TournamentManager({
             </DialogHeader>
             <TournamentForm
               teams={teams}
+              tournaments={tournaments}
               onSubmit={handleFormSubmit}
               onCancel={handleFormCancel}
               isEditing={false}
@@ -192,9 +219,12 @@ export function TournamentManager({
                 month: editingTournament.month,
                 selectedTeams: editingTournament.teams,
                 icon: editingTournament.icon,
+                awardSeriesId: editingTournament.awardSeriesId,
+                rookieMode: editingTournament.rookieMode,
               }}
               tournamentId={editingTournament.id}
               teams={teams}
+              tournaments={tournaments}
               onSubmit={handleFormSubmit}
               onCancel={handleFormCancel}
               isEditing={true}
