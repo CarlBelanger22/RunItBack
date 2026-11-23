@@ -1,7 +1,7 @@
 /**
  * Admin-only tournament Awards tab: individual + All-Teams + All-Defensive.
  */
-import { useCallback, useMemo, useState } from 'react';
+import { startTransition, useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, HelpCircle, Pencil } from 'lucide-react';
 import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
@@ -700,10 +700,14 @@ export function TournamentAwardsTab({
   onTournamentRosterEditModeChange,
 }: TournamentAwardsTabProps) {
   const [eligibilityOpen, setEligibilityOpen] = useState(false);
-  /** While Eligibility is open, Awards rankings use this frozen roster snapshot. */
+  /** While Eligibility is open (and briefly after close), Awards use this frozen roster snapshot. */
   const [awardsRosterSnapshot, setAwardsRosterSnapshot] = useState<
     TournamentRosterEntry[] | null
   >(null);
+  const [eligibilitySaveStatus, setEligibilitySaveStatus] = useState<
+    'idle' | 'saving' | 'saved' | 'error'
+  >('idle');
+  const eligibilitySaveGenRef = useRef(0);
   const showMarkRookies =
     !!tournament?.awardSeriesId &&
     tournament.rookieMode === 'manual' &&
@@ -715,23 +719,70 @@ export function TournamentAwardsTab({
     ).length;
   }, [showMarkRookies, tournamentRosters, tournamentId]);
 
+  const thawAwardsRankings = useCallback(() => {
+    const run = () => {
+      startTransition(() => {
+        setAwardsRosterSnapshot(null);
+      });
+    };
+    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+      window.requestIdleCallback(() => run(), { timeout: 1500 });
+    } else {
+      window.setTimeout(run, 0);
+    }
+  }, []);
+
   const handleEligibilityOpenChange = useCallback(
     (open: boolean) => {
       if (open) {
+        eligibilitySaveGenRef.current += 1;
         onTournamentRosterEditModeChange?.(true);
         setAwardsRosterSnapshot(tournamentRosters);
+        setEligibilitySaveStatus('idle');
         setEligibilityOpen(true);
         return;
       }
+
+      // Close immediately — do not rebuild Awards or flush on this tick.
       setEligibilityOpen(false);
-      setAwardsRosterSnapshot(null);
-      onTournamentRosterEditModeChange?.(false);
-      void onFlushTournamentRosterSave?.();
+      setEligibilitySaveStatus('saving');
+      const gen = ++eligibilitySaveGenRef.current;
+
+      window.setTimeout(() => {
+        void (async () => {
+          let ok = true;
+          try {
+            if (onFlushTournamentRosterSave) {
+              ok = (await onFlushTournamentRosterSave()) !== false;
+            } else {
+              onTournamentRosterEditModeChange?.(false);
+            }
+          } catch (err) {
+            console.error('Eligibility roster save failed:', err);
+            ok = false;
+            onTournamentRosterEditModeChange?.(false);
+          }
+
+          if (eligibilitySaveGenRef.current !== gen) return;
+
+          setEligibilitySaveStatus(ok ? 'saved' : 'error');
+          thawAwardsRankings();
+
+          if (ok) {
+            window.setTimeout(() => {
+              if (eligibilitySaveGenRef.current === gen) {
+                setEligibilitySaveStatus('idle');
+              }
+            }, 2500);
+          }
+        })();
+      }, 0);
     },
     [
       tournamentRosters,
       onTournamentRosterEditModeChange,
       onFlushTournamentRosterSave,
+      thawAwardsRankings,
     ]
   );
 
@@ -810,21 +861,36 @@ export function TournamentAwardsTab({
           </p>
         </div>
         {showMarkRookies ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="shrink-0"
-            onClick={() => handleEligibilityOpenChange(true)}
-          >
-            <Pencil className="h-3.5 w-3.5 mr-1.5" />
-            Eligibility
-            {taggedRookieCount > 0 ? (
-              <span className="ml-1.5 text-muted-foreground tabular-nums">
-                ({taggedRookieCount})
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={eligibilitySaveStatus === 'saving'}
+              onClick={() => handleEligibilityOpenChange(true)}
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+              Eligibility
+              {taggedRookieCount > 0 ? (
+                <span className="ml-1.5 text-muted-foreground tabular-nums">
+                  ({taggedRookieCount})
+                </span>
+              ) : null}
+            </Button>
+            {eligibilitySaveStatus === 'saving' ? (
+              <span className="text-[11px] text-muted-foreground">
+                Saving eligibility…
               </span>
             ) : null}
-          </Button>
+            {eligibilitySaveStatus === 'saved' ? (
+              <span className="text-[11px] text-muted-foreground">Saved</span>
+            ) : null}
+            {eligibilitySaveStatus === 'error' ? (
+              <span className="text-[11px] text-destructive">
+                Save failed — tags kept locally
+              </span>
+            ) : null}
+          </div>
         ) : null}
       </div>
 
@@ -833,7 +899,8 @@ export function TournamentAwardsTab({
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-base">Rookie eligibility</DialogTitle>
             <DialogDescription className="text-xs">
-              Tag first-year players for ROTY. Saves when you close.
+              Tag first-year players for ROTY. Closes instantly; saves in the
+              background.
             </DialogDescription>
           </DialogHeader>
           {eligibilityOpen && showMarkRookies ? (
