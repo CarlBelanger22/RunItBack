@@ -772,16 +772,16 @@ export function TournamentAwardsTab({
       </div>
 
       <Dialog open={eligibilityOpen} onOpenChange={setEligibilityOpen}>
-        <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Rookie eligibility</DialogTitle>
-            <DialogDescription>
-              Mark who counts for Rookie of the Year in this series season.
-              Changes save as you check.
+        <DialogContent className="sm:max-w-sm gap-3 p-4">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-base">Rookie eligibility</DialogTitle>
+            <DialogDescription className="text-xs">
+              Tag first-year players for ROTY. Saves as you check.
             </DialogDescription>
           </DialogHeader>
-          {showMarkRookies ? (
+          {eligibilityOpen && showMarkRookies ? (
             <MarkRookiesCard
+              key="rookie-eligibility"
               embedded
               tournamentId={tournamentId}
               teams={teams}
