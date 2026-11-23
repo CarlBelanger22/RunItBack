@@ -426,12 +426,12 @@ function ContenderTable({
                     {jersey}
                   </TableCell>
                   <TableCell className="font-medium">
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-0.5">
                       {c.player.name}
                       {prior ? (
                         <button
                           type="button"
-                          className="inline-flex shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                          className="inline-flex size-3 shrink-0 items-center justify-center rounded-sm p-0 text-muted-foreground hover:bg-muted hover:text-foreground"
                           aria-expanded={priorOpen}
                           aria-label={
                             priorOpen
@@ -444,9 +444,17 @@ function ContenderTable({
                           }}
                         >
                           {priorOpen ? (
-                            <ChevronUp className="h-[0.4375rem] w-[0.4375rem]" aria-hidden />
+                            <ChevronUp
+                              className="size-3 origin-center scale-[0.45]"
+                              strokeWidth={2.5}
+                              aria-hidden
+                            />
                           ) : (
-                            <ChevronDown className="h-[0.4375rem] w-[0.4375rem]" aria-hidden />
+                            <ChevronDown
+                              className="size-3 origin-center scale-[0.45]"
+                              strokeWidth={2.5}
+                              aria-hidden
+                            />
                           )}
                         </button>
                       ) : null}
