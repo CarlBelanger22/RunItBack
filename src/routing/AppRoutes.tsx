@@ -120,6 +120,7 @@ function TournamentDetailRoute({
   onResumeGame,
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
+  onTournamentRosterEditModeChange,
 }: AppRoutesProps) {
   const { slugId } = useParams<{ slugId: string }>();
   const [searchParams] = useSearchParams();
@@ -203,6 +204,7 @@ function TournamentDetailRoute({
       onGamesUpdate={onGamesUpdate}
       onUpdateTournamentRosters={onUpdateTournamentRosters}
       onFlushTournamentRosterSave={onFlushTournamentRosterSave}
+      onTournamentRosterEditModeChange={onTournamentRosterEditModeChange}
     />
   );
 }

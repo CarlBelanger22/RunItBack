@@ -1,7 +1,7 @@
 /**
  * Admin-only tournament Awards tab: individual + All-Teams + All-Defensive.
  */
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, HelpCircle, Pencil } from 'lucide-react';
 import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
@@ -72,6 +72,8 @@ interface TournamentAwardsTabProps {
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
   onFlushTournamentRosterSave?: () => Promise<boolean>;
+  /** Same as Team Edit Players — defer TR autosave while Eligibility is open. */
+  onTournamentRosterEditModeChange?: (editing: boolean) => void;
 }
 
 function formatPct(made: number, attempted: number): string {
@@ -695,8 +697,13 @@ export function TournamentAwardsTab({
   onNavigateToPlayer,
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
+  onTournamentRosterEditModeChange,
 }: TournamentAwardsTabProps) {
   const [eligibilityOpen, setEligibilityOpen] = useState(false);
+  /** While Eligibility is open, Awards rankings use this frozen roster snapshot. */
+  const [awardsRosterSnapshot, setAwardsRosterSnapshot] = useState<
+    TournamentRosterEntry[] | null
+  >(null);
   const showMarkRookies =
     !!tournament?.awardSeriesId &&
     tournament.rookieMode === 'manual' &&
@@ -707,41 +714,91 @@ export function TournamentAwardsTab({
       (r) => r.tournamentId === tournamentId && r.isRookie === true
     ).length;
   }, [showMarkRookies, tournamentRosters, tournamentId]);
-  const sections = buildTournamentAwardsForGames({
-    tournamentId,
-    games,
-    teams,
-    tournamentRosters,
-    structure,
-    tournament: tournament
-      ? {
-          id: tournament.id ?? tournamentId,
-          year: tournament.year ?? 0,
-          createdAt: tournament.createdAt,
-          awardSeriesId: tournament.awardSeriesId,
-          rookieMode: tournament.rookieMode,
-          structure: tournament.structure ?? structure,
-        }
-      : undefined,
-    allTournaments,
-    allGames: allGames ?? games,
-  });
-  const allTeams = buildAllTournamentTeamsForGames({
-    tournamentId,
-    tournamentName,
-    games,
-    teams,
-    tournamentRosters,
-    structure,
-  });
-  const allDefensive = buildAllDefensiveTeamsForGames({
-    tournamentId,
-    tournamentName,
-    games,
-    teams,
-    tournamentRosters,
-    structure,
-  });
+
+  const handleEligibilityOpenChange = useCallback(
+    (open: boolean) => {
+      if (open) {
+        onTournamentRosterEditModeChange?.(true);
+        setAwardsRosterSnapshot(tournamentRosters);
+        setEligibilityOpen(true);
+        return;
+      }
+      setEligibilityOpen(false);
+      setAwardsRosterSnapshot(null);
+      onTournamentRosterEditModeChange?.(false);
+      void onFlushTournamentRosterSave?.();
+    },
+    [
+      tournamentRosters,
+      onTournamentRosterEditModeChange,
+      onFlushTournamentRosterSave,
+    ]
+  );
+
+  const rostersForAwards = awardsRosterSnapshot ?? tournamentRosters;
+
+  const tournamentMeta = useMemo(
+    () =>
+      tournament
+        ? {
+            id: tournament.id ?? tournamentId,
+            year: tournament.year ?? 0,
+            createdAt: tournament.createdAt,
+            awardSeriesId: tournament.awardSeriesId,
+            rookieMode: tournament.rookieMode,
+            structure: tournament.structure ?? structure,
+          }
+        : undefined,
+    [tournament, tournamentId, structure]
+  );
+
+  const sections = useMemo(
+    () =>
+      buildTournamentAwardsForGames({
+        tournamentId,
+        games,
+        teams,
+        tournamentRosters: rostersForAwards,
+        structure,
+        tournament: tournamentMeta,
+        allTournaments,
+        allGames: allGames ?? games,
+      }),
+    [
+      tournamentId,
+      games,
+      teams,
+      rostersForAwards,
+      structure,
+      tournamentMeta,
+      allTournaments,
+      allGames,
+    ]
+  );
+  const allTeams = useMemo(
+    () =>
+      buildAllTournamentTeamsForGames({
+        tournamentId,
+        tournamentName,
+        games,
+        teams,
+        tournamentRosters: rostersForAwards,
+        structure,
+      }),
+    [tournamentId, tournamentName, games, teams, rostersForAwards, structure]
+  );
+  const allDefensive = useMemo(
+    () =>
+      buildAllDefensiveTeamsForGames({
+        tournamentId,
+        tournamentName,
+        games,
+        teams,
+        tournamentRosters: rostersForAwards,
+        structure,
+      }),
+    [tournamentId, tournamentName, games, teams, rostersForAwards, structure]
+  );
 
   return (
     <div className="space-y-6">
@@ -758,7 +815,7 @@ export function TournamentAwardsTab({
             variant="outline"
             size="sm"
             className="shrink-0"
-            onClick={() => setEligibilityOpen(true)}
+            onClick={() => handleEligibilityOpenChange(true)}
           >
             <Pencil className="h-3.5 w-3.5 mr-1.5" />
             Eligibility
@@ -771,12 +828,12 @@ export function TournamentAwardsTab({
         ) : null}
       </div>
 
-      <Dialog open={eligibilityOpen} onOpenChange={setEligibilityOpen}>
+      <Dialog open={eligibilityOpen} onOpenChange={handleEligibilityOpenChange}>
         <DialogContent className="w-[min(100%-2rem,20rem)] max-w-[20rem] sm:max-w-[20rem] gap-3 p-4">
           <DialogHeader className="space-y-1">
             <DialogTitle className="text-base">Rookie eligibility</DialogTitle>
             <DialogDescription className="text-xs">
-              Tag first-year players for ROTY. Saves as you check.
+              Tag first-year players for ROTY. Saves when you close.
             </DialogDescription>
           </DialogHeader>
           {eligibilityOpen && showMarkRookies ? (
@@ -787,7 +844,6 @@ export function TournamentAwardsTab({
               teams={teams}
               tournamentRosters={tournamentRosters}
               onUpdateTournamentRosters={onUpdateTournamentRosters!}
-              onFlushTournamentRosterSave={onFlushTournamentRosterSave}
             />
           ) : null}
         </DialogContent>

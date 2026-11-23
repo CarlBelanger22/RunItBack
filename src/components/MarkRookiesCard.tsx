@@ -22,7 +22,6 @@ interface MarkRookiesCardProps {
       | TournamentRosterEntry[]
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
-  onFlushTournamentRosterSave?: () => Promise<boolean>;
   /** Dialog body: no outer card chrome / duplicate title. */
   embedded?: boolean;
 }
@@ -37,7 +36,6 @@ export function MarkRookiesCard({
   teams,
   tournamentRosters,
   onUpdateTournamentRosters,
-  onFlushTournamentRosterSave,
   embedded = false,
 }: MarkRookiesCardProps) {
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
@@ -84,6 +82,7 @@ export function MarkRookiesCard({
 
   const handleToggle = useCallback(
     (entry: TournamentRosterEntry, checked: boolean) => {
+      // Local only while Eligibility dialog is open — parent flushes once on close.
       onUpdateTournamentRosters((prev) =>
         setTournamentRosterRookieFlag(prev, {
           tournamentId: entry.tournamentId,
@@ -92,9 +91,8 @@ export function MarkRookiesCard({
           isRookie: checked,
         })
       );
-      void onFlushTournamentRosterSave?.();
     },
-    [onUpdateTournamentRosters, onFlushTournamentRosterSave]
+    [onUpdateTournamentRosters]
   );
 
   if (groups.length === 0) {

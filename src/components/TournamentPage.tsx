@@ -155,6 +155,7 @@ interface TournamentPageProps {
       | ((prev: TournamentRosterEntry[]) => TournamentRosterEntry[])
   ) => void;
   onFlushTournamentRosterSave?: () => Promise<boolean>;
+  onTournamentRosterEditModeChange?: (editing: boolean) => void;
 }
 
 export function TournamentPage({ 
@@ -179,6 +180,7 @@ export function TournamentPage({
   onDeleteTournament,
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
+  onTournamentRosterEditModeChange,
   onGamesUpdate,
 }: TournamentPageProps) {
   const { canViewDetailedStats, canEditLeague } = useAuthCapabilities();
@@ -2098,6 +2100,7 @@ export function TournamentPage({
               onNavigateToPlayer={onNavigateToPlayer}
               onUpdateTournamentRosters={onUpdateTournamentRosters}
               onFlushTournamentRosterSave={onFlushTournamentRosterSave}
+              onTournamentRosterEditModeChange={onTournamentRosterEditModeChange}
             />
           </TabsContent>
         )}
