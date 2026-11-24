@@ -52,17 +52,19 @@ export const ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS = [
   '2P%',
 ] as const;
 
-/** Designer lock 2026-11-24 — tournament Team Stats Defensive view. */
+/**
+ * Designer lock 2026-11-24 (reorg): scoring allowed → shot prevention →
+ * disruption → glass/discipline. Stocks dropped (SPG+BPG repeat).
+ */
 export const DEFENSIVE_TOURNAMENT_TEAM_STATS_FIELDS = [
   'GP',
   'Opp PPG',
+  'DRtg',
   'Opp FG%',
   'Opp 3P%',
   'Opp eFG%',
-  'DRtg',
   'SPG',
   'BPG',
-  'Stocks',
   'DRPG',
   'FPG',
 ] as const;
@@ -162,11 +164,6 @@ export function defaultSortOrderForTeamField(
   return 'desc';
 }
 
-/** (STL + BLK) per game from derived rates. */
-export function teamStocksPerGame(row: TournamentTeamSeasonRow): number {
-  return row.derived.spg + row.derived.bpg;
-}
-
 function ratioToPct(ratio: number | null | undefined): number | null {
   if (ratio == null || !Number.isFinite(ratio)) return null;
   return ratio * 100;
@@ -252,8 +249,6 @@ function sortValue(
       return ratioToPct(row.defense?.oppEfg);
     case 'DRtg':
       return row.defense?.drtg ?? null;
-    case 'Stocks':
-      return teamStocksPerGame(row);
     default:
       return null;
   }
@@ -349,13 +344,12 @@ export function formatDefensiveTournamentTeamStatsRow(
   return [
     String(row.gamesPlayed),
     fmt(row.papg),
+    fmt(defense?.drtg),
     fmtPct(ratioToPct(defense?.oppFgPct)),
     fmtPct(ratioToPct(defense?.oppTpp)),
     fmtPct(ratioToPct(defense?.oppEfg)),
-    fmt(defense?.drtg),
     fmt(derived.spg),
     fmt(derived.bpg),
-    fmt(teamStocksPerGame(row)),
     fmt(perGame.drb),
     fmt(derived.fpg),
   ];
@@ -565,13 +559,12 @@ export function formatDefensiveLeagueAverageTournamentTeamStatsRow(
   return [
     NO_STAT, // GP
     fmt(meanOf(sample.map((r) => r.papg))),
+    fmt(meanOf(withDef.map((r) => r.defense!.drtg))),
     fmtPct(oppFgPct),
     fmtPct(oppTpp),
     fmtPct(oppEfgPct),
-    fmt(meanOf(withDef.map((r) => r.defense!.drtg))),
     fmt(meanOf(sample.map((r) => r.derived.spg))),
     fmt(meanOf(sample.map((r) => r.derived.bpg))),
-    fmt(meanOf(sample.map((r) => teamStocksPerGame(r)))),
     fmt(meanOf(sample.map((r) => r.perGame.drb))),
     fmt(meanOf(sample.map((r) => r.derived.fpg))),
   ];
