@@ -72,6 +72,11 @@ import {
   isRektS3DemotedTeam,
   rektS3StandingsFootnote,
 } from '../utils/rektS3StandingsOverrides';
+import {
+  applyNbl2025StandingsOrder,
+  isNbl2025DemotedTeam,
+  nbl2025StandingsFootnote,
+} from '../utils/nbl2025StandingsOverrides';
 import { resolvePlacingBasePlace } from '../utils/tournamentProgression';
 import { GroupH2hDetailsDialog } from './GroupH2hDetailsDialog';
 import { MetricsCalculator } from './MetricsCalculator';
@@ -387,14 +392,18 @@ export function TournamentPage({
       tournament.structure
     );
   
-  const standings = applyRektS3StandingsOrder(
-    tournament.id,
-    calculateStandings()
-  );
-  const homeStandings = applyRektS3StandingsOrder(
-    tournament.id,
-    calculateHomeStandings()
-  );
+  const applyStandingsPresentationOrder = <T extends { team: { id: string } }>(
+    rows: T[]
+  ): T[] =>
+    applyNbl2025StandingsOrder(
+      tournament.id,
+      applyRektS3StandingsOrder(tournament.id, rows)
+    );
+  const isStandingsDemotedTeam = (teamId: string | undefined | null) =>
+    isRektS3DemotedTeam(tournament.id, teamId) ||
+    isNbl2025DemotedTeam(tournament.id, teamId);
+  const standings = applyStandingsPresentationOrder(calculateStandings());
+  const homeStandings = applyStandingsPresentationOrder(calculateHomeStandings());
   const homeStandingRows = buildHomeStandingDisplayRows({
     structure: tournament.structure,
     games: tournamentGames,
@@ -402,8 +411,7 @@ export function TournamentPage({
     standings: homeStandings,
   });
   const leaders = getTournamentLeaders();
-  const extendedStandings = applyRektS3StandingsOrder(
-    tournament.id,
+  const extendedStandings = applyStandingsPresentationOrder(
     calculateStandingsWithExtendedStats()
   );
   const groupStandingsTables = buildGroupStandingsTables(
@@ -412,9 +420,11 @@ export function TournamentPage({
     tournamentGames
   ).map((table) => ({
     ...table,
-    standings: applyRektS3StandingsOrder(tournament.id, table.standings),
+    standings: applyStandingsPresentationOrder(table.standings),
   }));
-  const s3StandingsFootnote = rektS3StandingsFootnote(tournament.id);
+  const s3StandingsFootnote =
+    rektS3StandingsFootnote(tournament.id) ??
+    nbl2025StandingsFootnote(tournament.id);
   
   // Team dialogs (hoisted outside tab components to avoid remount on keystroke)
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
@@ -613,10 +623,7 @@ export function TournamentPage({
                     : standing.medal
                       ? 'home-standings-row--medal'
                       : '';
-                const withdrawn = isRektS3DemotedTeam(
-                  tournament.id,
-                  standing.team.id
-                );
+                const withdrawn = isStandingsDemotedTeam(standing.team.id);
                 return (
                   <div
                     key={standing.team.id}
@@ -1027,10 +1034,7 @@ export function TournamentPage({
       <TableBody>
         {rows.map((standing, index) => {
           const seedPlaceholder = isSeedPlaceholderTeamId(standing.team.id);
-          const withdrawn = isRektS3DemotedTeam(
-            tournament.id,
-            standing.team.id
-          );
+          const withdrawn = isStandingsDemotedTeam(standing.team.id);
           return (
           <TableRow
             key={standing.team.id}
@@ -1227,7 +1231,7 @@ export function TournamentPage({
                       ) : null}
                       {s3StandingsFootnote &&
                       groupRows.some((r) =>
-                        isRektS3DemotedTeam(tournament.id, r.team.id)
+                        isStandingsDemotedTeam(r.team.id)
                       ) ? (
                         <p className="mt-3 text-xs text-muted-foreground">
                           {s3StandingsFootnote}
