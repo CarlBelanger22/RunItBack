@@ -257,6 +257,10 @@ export function collectTournamentJerseyUpdates(
  * Option B: when tournament rows exist, club = latest tournament jersey (draft),
  * ignoring clubNumbers draft. Otherwise fall back to club draft / group.clubNumber.
  * `groups.tournaments` must already be sorted newest-first.
+ *
+ * Do not cascade a silent tournament `#0` over a non-zero club number unless the
+ * user explicitly drafted that tournament jersey to `0` (key present in
+ * `tournamentNumbers`). Real #0 edits still win when drafted.
  */
 export function resolveClubJerseyByTeamId(
   groups: PlayerJerseyEditorTeamGroup[],
@@ -268,9 +272,23 @@ export function resolveClubJerseyByTeamId(
     if (group.tournaments.length > 0) {
       const latest = group.tournaments[0];
       const key = `${group.team.id}:${latest.tournamentId}`;
-      const raw = tournamentNumbers[key] ?? String(latest.number);
+      const hasTournamentDraft = Object.prototype.hasOwnProperty.call(
+        tournamentNumbers,
+        key
+      );
+      const raw = hasTournamentDraft
+        ? tournamentNumbers[key]
+        : String(latest.number);
       const parsed = parseInt(raw, 10);
       if (Number.isFinite(parsed) && parsed >= 0 && parsed <= 99) {
+        if (
+          parsed === 0 &&
+          !hasTournamentDraft &&
+          (group.clubNumber ?? 0) > 0
+        ) {
+          result[group.team.id] = group.clubNumber;
+          continue;
+        }
         result[group.team.id] = parsed;
       }
       continue;

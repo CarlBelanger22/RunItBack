@@ -80,6 +80,7 @@ import {
   mergeLocalAndCloudTournamentRosters,
   mergeTournamentRosterAckBaseline,
   planRookieFlagOnlyFlush,
+  preserveNonZeroJerseysFromTrusted,
   remapTournamentRosterDeletes,
   resolvePostRevalidateSaveGate,
   sanitizeTournamentRostersForCloud,
@@ -116,6 +117,7 @@ import {
   cascadePlayerPositionToTournamentRosters,
   reconcileTournamentRostersFromGames,
   syncTournamentRosterPositionsFromProfiles,
+  tournamentRosterEntryKey,
   upsertTournamentRosterEntry,
   type TournamentRosterEntry,
 } from './utils/tournamentRosters';
@@ -1132,6 +1134,8 @@ export default function App() {
   const pendingTournamentRosterDeletesRef = useRef<TournamentRosterDelete[]>(
     []
   );
+  /** Explicit user edits to jersey #0 — preserve guard must not restore baseline. */
+  const explicitJerseyZeroKeysRef = useRef<Set<string>>(new Set());
 
   const [currentGame, setCurrentGame] = useState<Game | null>(null);
   const currentGameRef = useRef<Game | null>(null);
@@ -1336,7 +1340,7 @@ export default function App() {
         });
       }
 
-      const rostersToSave = reconcileTournamentRostersFromGames(
+      let rostersToSave = reconcileTournamentRostersFromGames(
         gamesToSave,
         teamsToSave,
         sanitizedRosters.entries
@@ -1354,11 +1358,28 @@ export default function App() {
         ]);
       }
 
+      // Cloud-acked baseline (not UI dirty ref) so reconcile≠local does not dirty all rows.
+      const rosterBaseline = ackedTournamentRostersCloudRef.current;
+      const jerseyPreserve = preserveNonZeroJerseysFromTrusted(
+        rostersToSave,
+        rosterBaseline,
+        { allowZeroForKeys: explicitJerseyZeroKeysRef.current }
+      );
+      if (jerseyPreserve.restoredCount > 0) {
+        if (import.meta.env.DEV) {
+          console.warn(
+            '[RunItBack] Restored non-zero tournament jerseys wiped to 0 by reconcile',
+            { restoredCount: jerseyPreserve.restoredCount }
+          );
+        }
+        rostersToSave = jerseyPreserve.entries;
+        tournamentRostersRef.current = rostersToSave;
+        setTournamentRosters(rostersToSave);
+      }
+
       const tournamentRosterDeletesAfterSanitize = remapTournamentRosterDeletes([
         ...pendingTournamentRosterDeletesRef.current,
       ]);
-      // Cloud-acked baseline (not UI dirty ref) so reconcile≠local does not dirty all rows.
-      const rosterBaseline = ackedTournamentRostersCloudRef.current;
 
       return enqueueCloudSave(
         async () => {
@@ -1380,6 +1401,7 @@ export default function App() {
                     }
                   : {}),
                 baseline: rosterBaseline,
+                allowZeroForKeys: explicitJerseyZeroKeysRef.current,
               }
             );
             pendingTournamentRosterDeletesRef.current =
@@ -1742,11 +1764,26 @@ export default function App() {
             teams: mergedTeams,
             games: mergedGames,
           });
-          const reconciledMerged = reconcileTournamentRostersFromGames(
+          let reconciledMerged = reconcileTournamentRostersFromGames(
             mergedGames,
             mergedTeams,
             sanitizedMerged.entries
           );
+          const cloudRostersSnapshot = processed.tournamentRosters;
+          const mergedJerseyPreserve = preserveNonZeroJerseysFromTrusted(
+            reconciledMerged,
+            cloudRostersSnapshot,
+            { allowZeroForKeys: explicitJerseyZeroKeysRef.current }
+          );
+          if (mergedJerseyPreserve.restoredCount > 0) {
+            if (import.meta.env.DEV) {
+              console.warn(
+                '[RunItBack] Restored non-zero tournament jerseys on cloud merge',
+                { restoredCount: mergedJerseyPreserve.restoredCount }
+              );
+            }
+            reconciledMerged = mergedJerseyPreserve.entries;
+          }
           if (
             sanitizedMerged.changed ||
             !tournamentRosterSetsEqual(reconciledMerged, mergedRosters)
@@ -1764,7 +1801,6 @@ export default function App() {
             }
             mergedRosters = reconciledMerged;
           }
-          const cloudRostersSnapshot = processed.tournamentRosters;
           const rostersAheadOfCloud = !tournamentRosterSetsEqual(
             mergedRosters,
             cloudRostersSnapshot
@@ -3039,6 +3075,18 @@ export default function App() {
               row.teamId === update.teamId &&
               row.playerId === playerId
           );
+          const key = tournamentRosterEntryKey({
+            tournamentId: update.tournamentId,
+            teamId: update.teamId,
+            playerId,
+            number: update.number,
+            position: '',
+          });
+          if (update.number === 0) {
+            explicitJerseyZeroKeysRef.current.add(key);
+          } else {
+            explicitJerseyZeroKeysRef.current.delete(key);
+          }
           next = upsertTournamentRosterEntry(next, {
             tournamentId: update.tournamentId,
             teamId: update.teamId,

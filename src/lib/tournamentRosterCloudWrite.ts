@@ -394,23 +394,64 @@ export function mergeTournamentRosterAckBaseline(
 }
 
 /**
+ * Restore jersey numbers when next has silent `0` but trusted (cloud/baseline)
+ * still has a non-zero. `0` is overloaded (real #0 vs default) — never treat a
+ * reconcile/default 0 as authority over a known non-zero unless the key is in
+ * `allowZeroForKeys` (explicit user edit to #0).
+ */
+export function preserveNonZeroJerseysFromTrusted(
+  next: TournamentRosterEntry[],
+  trusted: TournamentRosterEntry[] | null | undefined,
+  options?: { allowZeroForKeys?: ReadonlySet<string> }
+): { entries: TournamentRosterEntry[]; restoredCount: number } {
+  if (!trusted || trusted.length === 0) {
+    return { entries: next, restoredCount: 0 };
+  }
+  const trustedByKey = new Map(
+    trusted.map((row) => [tournamentRosterEntryKey(row), row])
+  );
+  const allow = options?.allowZeroForKeys;
+  let restoredCount = 0;
+  const entries = next.map((row) => {
+    const key = tournamentRosterEntryKey(row);
+    if (allow?.has(key)) return row;
+    if ((row.number ?? 0) !== 0) return row;
+    const prev = trustedByKey.get(key);
+    if (!prev || (prev.number ?? 0) === 0) return row;
+    restoredCount += 1;
+    return { ...row, number: prev.number };
+  });
+  return { entries, restoredCount };
+}
+
+/**
  * Upsert client rows; delete only explicit removals.
  * Never plan a tournament-scoped wipe of rows the client does not hold.
  *
  * When `baseline` is provided (last successfully acked cloud set), only upsert
  * rows that are new or changed — avoids full-league rewrite on small edits.
  * Pass `forceFullUpsert: true` (or omit baseline) for a full sync.
+ *
+ * Also restores silent `0` jerseys from baseline before planning (unless
+ * `allowZeroForKeys`), so idle reconcile cannot write non-zero → 0.
  */
 export function planTournamentRosterCloudWrite(args: {
   clientRows: TournamentRosterEntry[];
   pendingDeletes?: TournamentRosterDelete[];
   baseline?: TournamentRosterEntry[] | null;
   forceFullUpsert?: boolean;
+  /** Keys (`tournamentId:teamId:playerId`) where user explicitly set jersey #0. */
+  allowZeroForKeys?: ReadonlySet<string>;
 }): TournamentRosterCloudWritePlan {
   const pendingDeletes = args.pendingDeletes ?? [];
   const deleteKeys = new Set(pendingDeletes.map(tournamentRosterDeleteKey));
-  const candidates = args.clientRows.filter(
+  const filtered = args.clientRows.filter(
     (row) => !deleteKeys.has(tournamentRosterEntryKey(row))
+  );
+  const { entries: candidates } = preserveNonZeroJerseysFromTrusted(
+    filtered,
+    args.baseline,
+    { allowZeroForKeys: args.allowZeroForKeys }
   );
 
   if (args.forceFullUpsert || args.baseline == null) {

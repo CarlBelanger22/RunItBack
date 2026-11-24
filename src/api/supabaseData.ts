@@ -569,6 +569,8 @@ async function persistTournamentRosterEntries(
     /** Last successfully persisted set — enables delta upsert. */
     baseline?: TournamentRosterEntry[] | null;
     forceFullUpsert?: boolean;
+    /** Keys where user explicitly set jersey #0 — do not restore from baseline. */
+    allowZeroForKeys?: ReadonlySet<string>;
   }
 ): Promise<void> {
   if (!supabase) return;
@@ -612,6 +614,7 @@ async function persistTournamentRosterEntries(
     ]),
     baseline: options?.baseline,
     forceFullUpsert: options?.forceFullUpsert,
+    allowZeroForKeys: options?.allowZeroForKeys,
   });
   const otherTeamKeeps = collectUpsertKeepTeams(plan.upsert);
 
@@ -1489,6 +1492,7 @@ export async function saveTournamentRostersToSupabase(
     /** Last acked set — delta upsert + scoped other-team clears. */
     baseline?: TournamentRosterEntry[] | null;
     forceFullUpsert?: boolean;
+    allowZeroForKeys?: ReadonlySet<string>;
   }
 ): Promise<void> {
   if (!supabase) return;
@@ -1502,6 +1506,7 @@ export async function saveTournamentRostersToSupabase(
     {
       baseline: options?.baseline,
       forceFullUpsert: options?.forceFullUpsert,
+      allowZeroForKeys: options?.allowZeroForKeys,
     }
   );
 }
