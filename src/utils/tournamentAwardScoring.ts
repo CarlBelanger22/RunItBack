@@ -18,10 +18,10 @@ export const DPOY_PLUS_MINUS_WEIGHT = 0.07;
 /** MVP: 65% OV (GmSc) + 35% TSI. */
 export const MVP_TSI_WEIGHT = 0.35;
 export const SIXTH_TSI_WEIGHT = 0.12;
-/** DPOY blend (Designer v2): personal DV / team prevention / TSI. */
-export const DPOY_DV_WEIGHT = 0.62;
-export const DPOY_TEAM_DEF_WEIGHT = 0.28;
-export const DPOY_TSI_WEIGHT = 0.1;
+/** DPOY blend (Designer 2026-11-24): personal DV / team prevention / TSI. */
+export const DPOY_DV_WEIGHT = 0.6;
+export const DPOY_TEAM_DEF_WEIGHT = 0.35;
+export const DPOY_TSI_WEIGHT = 0.05;
 
 /** All-Defensive: more personal than DPOY. */
 export const ALL_DEF_DV_WEIGHT = 0.7;
