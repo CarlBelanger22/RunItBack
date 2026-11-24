@@ -393,7 +393,8 @@ export function getPlayersForTeamInTournament(
   teamId: string,
   tournamentId: string,
   teams: Team[],
-  rosters: TournamentRosterEntry[]
+  rosters: TournamentRosterEntry[],
+  orphanPlayers: Player[] = []
 ): Player[] {
   const team = teams.find((t) => t.id === teamId);
   if (!team) return [];
@@ -403,9 +404,7 @@ export function getPlayersForTeamInTournament(
   );
 
   return rosterRows.map((row) => {
-    const template =
-      team.players.find((p) => p.id === row.playerId) ??
-      teams.flatMap((t) => t.players).find((p) => p.id === row.playerId);
+    const template = findPlayerProfile(row.playerId, teams, orphanPlayers);
     if (template) {
       // Profile (template) owns position; tournament row only owns jersey #.
       return {
@@ -416,6 +415,7 @@ export function getPlayersForTeamInTournament(
           template.secondaryPosition ?? row.secondaryPosition,
       };
     }
+    // Last resort — should be rare once profiles are loaded.
     return {
       id: row.playerId,
       name: row.playerId,
@@ -434,11 +434,18 @@ export function buildTeamWithTournamentRoster(
   team: Team,
   tournamentId: string,
   teams: Team[],
-  rosters: TournamentRosterEntry[]
+  rosters: TournamentRosterEntry[],
+  orphanPlayers: Player[] = []
 ): Team {
-  const players = [...getPlayersForTeamInTournament(team.id, tournamentId, teams, rosters)].sort(
-    (a, b) => a.number - b.number || a.name.localeCompare(b.name)
-  );
+  const players = [
+    ...getPlayersForTeamInTournament(
+      team.id,
+      tournamentId,
+      teams,
+      rosters,
+      orphanPlayers
+    ),
+  ].sort((a, b) => a.number - b.number || a.name.localeCompare(b.name));
   return { ...team, players };
 }
 
@@ -464,7 +471,8 @@ export function resolvePlayerTeamFromTournamentRoster(
   playerId: string,
   tournamentId: string,
   teams: Team[],
-  rosters: TournamentRosterEntry[]
+  rosters: TournamentRosterEntry[],
+  extraProfiles: Player[] = []
 ): { player: Player; team: Team } | null {
   const entry = rosters.find(
     (r) => r.tournamentId === tournamentId && r.playerId === playerId
@@ -476,7 +484,8 @@ export function resolvePlayerTeamFromTournamentRoster(
     team.id,
     tournamentId,
     teams,
-    rosters
+    rosters,
+    extraProfiles
   ).find((p) => p.id === playerId);
   if (!player) return null;
   return { player, team };

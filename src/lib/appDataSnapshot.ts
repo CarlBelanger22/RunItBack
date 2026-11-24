@@ -653,12 +653,21 @@ export function patchAppDataSnapshotTournamentRosters(
 
 export function snapshotToLoadedAppData(snapshot: AppDataSnapshot): LoadedAppData {
   const games = hydrateSnapshotGames(snapshot.games, snapshot.teams);
+  // Rebuild a profile catalog from whatever club templates the snapshot still
+  // holds. (Full league catalog arrives on cloud load.) Never return [] — that
+  // forced tournament roster stubs (name = playerId) on cache-first paint.
+  const profilesById = new Map<string, NonNullable<(typeof snapshot.teams)[number]['players']>[number]>();
+  for (const team of snapshot.teams) {
+    for (const player of team.players ?? []) {
+      if (player?.id) profilesById.set(player.id, player);
+    }
+  }
   return {
     teams: snapshot.teams,
     tournaments: snapshot.tournaments,
     games,
     darkMode: snapshot.darkMode,
-    orphanPlayers: [],
+    orphanPlayers: [...profilesById.values()],
     tournamentRosters: snapshot.tournamentRosters ?? [],
   };
 }

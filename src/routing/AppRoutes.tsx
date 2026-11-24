@@ -113,6 +113,7 @@ function TournamentDetailRoute({
   teams,
   games,
   tournamentRosters,
+  orphanPlayers,
   currentGame,
   onCreateTeam,
   onAddTeamToTournament,
@@ -170,6 +171,7 @@ function TournamentDetailRoute({
       teams={teams}
       games={games}
       tournamentRosters={tournamentRosters}
+      orphanPlayers={orphanPlayers}
       activeTab={tab}
       onTabChange={handleTabChange}
       onBack={() => navigateBack(navigate, location, paths.tournaments)}

@@ -17,7 +17,7 @@ import {
   AlertDialogTitle,
 } from './ui/alert-dialog';
 import { Tournament, Team, Game, CreateTeamOptions } from '../App';
-import type { TournamentUpdate } from '../App';
+import type { Player, TournamentUpdate } from '../App';
 import { TournamentAwardsTab } from './TournamentAwardsTab';
 import type { TournamentTab } from '../routing/tabs';
 import { PlayerStatsTable } from './PlayerStatsTable';
@@ -134,6 +134,8 @@ interface TournamentPageProps {
   teams: Team[];
   games: Game[];
   tournamentRosters: TournamentRosterEntry[];
+  /** Profiles not on any club roster — needed so TR rows resolve real names. */
+  orphanPlayers?: Player[];
   activeTab: TournamentTab;
   onTabChange: (tab: TournamentTab) => void;
   onBack: () => void;
@@ -167,6 +169,7 @@ export function TournamentPage({
   teams, 
   games,
   tournamentRosters,
+  orphanPlayers = [],
   activeTab, 
   onTabChange, 
   onBack,
@@ -240,7 +243,8 @@ export function TournamentPage({
           stat.playerId,
           tournament.id,
           teams,
-          tournamentRosters
+          tournamentRosters,
+          orphanPlayers
         );
         const fromGame = fromRoster
           ? null
@@ -1430,6 +1434,7 @@ export function TournamentPage({
     const playersData = aggregatePlayerSeasonStats(tournamentGames, tournamentTeams, {
       tournamentId: tournament.id,
       tournamentRosters,
+      orphanPlayers,
     });
     const shotDataCoverage = getShotDataCoverage(tournamentGames);
     const foulStatCoverage = getFoulStatCoverage(tournamentGames);

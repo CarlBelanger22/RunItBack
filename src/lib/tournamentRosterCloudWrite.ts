@@ -52,14 +52,21 @@ export function collectKnownPlayerIdsFromTeams(
 }
 
 /**
- * Remap known merged aliases, drop roster rows whose player is not on any
- * club roster (avoids tournament_rosters_player_id_fkey), drop cross-club
- * leftovers with no games for that team in that tournament, then dedupe keys.
+ * Remap known merged aliases, drop roster rows that cannot exist in DB, then
+ * dedupe keys.
+ *
+ * Keep rules (important):
+ * - Always keep players who appear in completed game_stats for that
+ *   tournament on a game involving `row.teamId` — even if the in-memory club
+ *   template is thin (snapshot / under-merge). Dropping those caused id-as-name
+ *   stubs and cloud TR wipes (NBL 2025).
+ * - Still drop true garbage: no club membership AND never appeared for that
+ *   team in the tournament (avoids FK / cross-club leftovers).
  */
 export function sanitizeTournamentRostersForCloud(args: {
   entries: TournamentRosterEntry[];
   teams: Array<{ id?: string; players?: Array<{ id: string }> }>;
-  /** When set, cross-club roster rows are kept if the player has stats for that team. */
+  /** When set, rows are kept if the player has stats on that team in that tournament. */
   games?: Game[];
   aliases?: Readonly<Record<string, string>>;
 }): {
@@ -80,11 +87,30 @@ export function sanitizeTournamentRostersForCloud(args: {
   }
 
   const clubByTeam = buildClubRosterByTeam(args.teams as Team[]);
+  /** tournamentId:teamId:playerId — side resolved via club/starters when possible. */
   const playedForTeam = new Set<string>();
+  /**
+   * tournamentId:teamId:playerId — player has box stats in a completed game
+   * where this team is home or away (does not require club template membership).
+   */
+  const appearedOnTeamGame = new Set<string>();
+
   for (const game of args.games ?? []) {
     if (!game.isCompleted || !game.tournamentId) continue;
+    const homeId = game.homeTeamId || game.homeTeam?.id;
+    const awayId = game.awayTeamId || game.awayTeam?.id;
     for (const stat of game.gameStats ?? []) {
       if (!stat.playerId) continue;
+      if (homeId) {
+        appearedOnTeamGame.add(
+          `${game.tournamentId}:${homeId}:${stat.playerId}`
+        );
+      }
+      if (awayId) {
+        appearedOnTeamGame.add(
+          `${game.tournamentId}:${awayId}:${stat.playerId}`
+        );
+      }
       const side = resolvePlayerTeamSideInGame(
         stat.playerId,
         game,
@@ -109,17 +135,20 @@ export function sanitizeTournamentRostersForCloud(args: {
 
   const byKey = new Map<string, TournamentRosterEntry>();
   for (const row of rewritten) {
-    if (!known.has(row.playerId)) {
+    const appearedKey = `${row.tournamentId}:${row.teamId}:${row.playerId}`;
+    const keptByAppearance =
+      appearedOnTeamGame.has(appearedKey) || playedForTeam.has(appearedKey);
+
+    // Unknown to thin in-memory clubs: still keep if they played for this team.
+    if (!known.has(row.playerId) && !keptByAppearance) {
       droppedPlayerIds.push(row.playerId);
       continue;
     }
+
     const clubIds = clubPlayerIdsByTeam.get(row.teamId);
-    if (clubIds && !clubIds.has(row.playerId)) {
-      const playedKey = `${row.tournamentId}:${row.teamId}:${row.playerId}`;
-      if (!playedForTeam.has(playedKey)) {
-        droppedPlayerIds.push(row.playerId);
-        continue;
-      }
+    if (clubIds && !clubIds.has(row.playerId) && !keptByAppearance) {
+      droppedPlayerIds.push(row.playerId);
+      continue;
     }
     byKey.set(tournamentRosterEntryKey(row), row);
   }

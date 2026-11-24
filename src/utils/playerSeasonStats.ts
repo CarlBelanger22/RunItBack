@@ -3,6 +3,7 @@ import { isScoreOnlyTeam, type TeamSide } from './gameDisplay';
 import {
   buildClubRosterByTeam,
   buildTournamentRosterTeamByPlayer,
+  findPlayerProfile,
   getPlayersForTeamInTournament,
   resolvePlayerTeamSideInGame,
   type TournamentRosterEntry,
@@ -383,9 +384,12 @@ export function aggregatePlayerSeasonStats(
     /** When set with tournamentRosters, list only tournament-roster players (not full club rosters). */
     tournamentId?: string;
     tournamentRosters?: TournamentRosterEntry[];
+    /** Profiles not currently on any club roster — still resolve names/positions. */
+    orphanPlayers?: Player[];
   }
 ): PlayerSeasonRow[] {
   const safeTeams = teams ?? [];
+  const orphans = options?.orphanPlayers ?? [];
   const scopeTeams = options?.restrictTeamId
     ? safeTeams.filter((t) => t.id === options.restrictTeamId)
     : safeTeams;
@@ -421,6 +425,10 @@ export function aggregatePlayerSeasonStats(
         ({ player, team }) => player.id === playerId && team.id === sideId
       );
       if (rosterMatch) return rosterMatch.team;
+      // Dual-club / missing club template: still attribute to the game side.
+      if (sideTeam && findPlayerProfile(playerId, safeTeams, orphans)) {
+        return sideTeam;
+      }
     }
 
     if (options?.restrictTeamId) return null;
@@ -438,14 +446,10 @@ export function aggregatePlayerSeasonStats(
     (game.gameStats ?? []).forEach((stat) => {
       const playerTeam = resolveStatTeam(stat.playerId, game);
       if (!playerTeam) return;
-      const player = playerTeam.players.find((p) => p.id === stat.playerId);
-      if (!player) {
-        // TR team may not have club template copy yet — pull profile from any club.
-        const any = rosterEntries.find((e) => e.player.id === stat.playerId);
-        if (!any) return;
-        allPlayerStats.push({ player: any.player, team: playerTeam, stats: stat });
-        return;
-      }
+      const player =
+        playerTeam.players.find((p) => p.id === stat.playerId) ??
+        findPlayerProfile(stat.playerId, safeTeams, orphans);
+      if (!player) return;
       allPlayerStats.push({ player, team: playerTeam, stats: stat });
     });
   });
@@ -509,7 +513,8 @@ export function aggregatePlayerSeasonStats(
         team.id,
         options.tournamentId,
         safeTeams,
-        options.tournamentRosters
+        options.tournamentRosters,
+        orphans
       );
       for (const player of rosterPlayers) {
         rosterPlayerIds.add(player.id);

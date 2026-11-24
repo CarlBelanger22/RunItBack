@@ -123,7 +123,12 @@ export interface LoadedAppData {
   tournaments: Tournament[];
   games: Game[];
   darkMode: boolean;
-  /** League player profiles not linked to any team roster. */
+  /**
+   * Full league player profile catalog (every `players` row).
+   * App derives "orphans" (not on current in-memory club templates) via filter.
+   * Passing the full catalog lets tournament rosters resolve names when a thin
+   * snapshot/club merge omitted team_players links.
+   */
   orphanPlayers: Player[];
   /** Tournament-season roster membership (authoritative for games in that tournament). */
   tournamentRosters: TournamentRosterEntry[];
@@ -1118,8 +1123,19 @@ export async function loadAppDataFromSupabase(
     prefsRes,
     teamPlayersCountRes,
     tournamentRostersCountRes,
+    playersCountRes,
+    gamesCountRes,
   ] = await Promise.all([
-    supabase.from('players').select('*').eq('league_id', leagueId),
+    // League has >1000 players — must page or later ids never join club templates
+    // (NBL 2025 stubs: Shengyu/Teo/etc. sat past the default 1000 cap).
+    fetchAllPaged<LegacyDbPlayer>((from, to) =>
+      supabase
+        .from('players')
+        .select('*')
+        .eq('league_id', leagueId)
+        .order('id')
+        .range(from, to)
+    ),
     teamIds.length > 0
       ? fetchAllPaged<DbTeamPlayer>((from, to) =>
           supabase
@@ -1141,7 +1157,15 @@ export async function loadAppDataFromSupabase(
         .order('player_id')
         .range(from, to)
     ),
-    supabase.from('games').select('*').eq('league_id', leagueId),
+    // Same PostgREST 1000-row cap — page before league games cross it (~693 now).
+    fetchAllPaged<DbGame>((from, to) =>
+      supabase
+        .from('games')
+        .select('*')
+        .eq('league_id', leagueId)
+        .order('id')
+        .range(from, to)
+    ),
     supabase.from('app_preferences').select('dark_mode').eq('league_id', leagueId).maybeSingle(),
     teamIds.length > 0
       ? supabase
@@ -1152,6 +1176,14 @@ export async function loadAppDataFromSupabase(
     supabase
       .from('tournament_rosters')
       .select('*', { count: 'exact', head: true }),
+    supabase
+      .from('players')
+      .select('*', { count: 'exact', head: true })
+      .eq('league_id', leagueId),
+    supabase
+      .from('games')
+      .select('*', { count: 'exact', head: true })
+      .eq('league_id', leagueId),
   ]);
 
   phases.parallelQueries = performance.now() - phaseStart;
@@ -1159,7 +1191,9 @@ export async function loadAppDataFromSupabase(
 
   let playersRes = playersResInitial;
   if (playersRes.error || (playersRes.data ?? []).length === 0) {
-    const legacyPlayersRes = await supabase.from('players').select('*');
+    const legacyPlayersRes = await fetchAllPaged<LegacyDbPlayer>((from, to) =>
+      supabase.from('players').select('*').order('id').range(from, to)
+    );
     if (!legacyPlayersRes.error && (legacyPlayersRes.data ?? []).length > 0) {
       playersRes = legacyPlayersRes;
     }
@@ -1196,6 +1230,13 @@ export async function loadAppDataFromSupabase(
   const leagueTournamentIds = new Set(tournamentRows.map((t) => t.id));
 
   if (import.meta.env.DEV) {
+    if (!playersCountRes.error) {
+      warnIfUnderfetched(
+        'players',
+        playerRows.length,
+        playersCountRes.count
+      );
+    }
     if (!teamPlayersCountRes.error) {
       warnIfUnderfetched(
         'team_players',
@@ -1209,6 +1250,9 @@ export async function loadAppDataFromSupabase(
         tournamentRosterRows.length,
         tournamentRostersCountRes.count
       );
+    }
+    if (!gamesCountRes.error) {
+      warnIfUnderfetched('games', gameRows.length, gamesCountRes.count);
     }
   }
 
@@ -1286,24 +1330,9 @@ export async function loadAppDataFromSupabase(
   const teams = dedupeTeamsById(teamsMeasured);
   const teamById = new Map(teams.map((t) => [t.id, t]));
 
-  const rosterPlayerIds = new Set<string>();
-  if (useLegacyRoster) {
-    for (const row of playerRows) {
-      if (row.team_id && teamIdSet.has(row.team_id)) {
-        rosterPlayerIds.add(row.id);
-      }
-    }
-  } else {
-    for (const row of teamPlayerRows) {
-      if (teamIdSet.has(row.team_id)) {
-        rosterPlayerIds.add(row.player_id);
-      }
-    }
-  }
-
+  // Full profile catalog (not only unrostered). App filters to "not on teams[]".
   const orphanPlayers: Player[] = [];
-  for (const [id, profile] of profileById) {
-    if (rosterPlayerIds.has(id)) continue;
+  for (const [, profile] of profileById) {
     orphanPlayers.push(dbPlayerToPlayer(profile));
   }
   orphanPlayers.sort((a, b) => a.name.localeCompare(b.name));
