@@ -95,7 +95,7 @@ export function iubitClassificationBracketForStage(
             slot(sfAd, 'A2 vs D2'),
             slot(sfBc, 'B2 vs C2'),
           ]),
-          round('iubit-r-5-8-place', 'Placement', [
+          round('iubit-r-5-8-place', 'Finals', [
             slot('iubit-slot-5-8-5th', '5th Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
@@ -125,7 +125,7 @@ export function iubitClassificationBracketForStage(
             slot(sfAd, 'A3 vs D3'),
             slot(sfBc, 'B3 vs C3'),
           ]),
-          round('iubit-r-9-12-place', 'Placement', [
+          round('iubit-r-9-12-place', 'Finals', [
             slot('iubit-slot-9-12-9th', '9th Place', {
               homeFromSlotId: sfAd,
               awayFromSlotId: sfBc,
@@ -149,7 +149,7 @@ export function iubitClassificationBracketForStage(
     case 'iubit-stage-13-14':
       return {
         rounds: [
-          round('iubit-r-13-14', 'Placement', [
+          round('iubit-r-13-14', 'Round 1', [
             slot('iubit-slot-13-14', 'C4 vs D4', {
               winnerPlace: 13,
               loserPlace: 14,

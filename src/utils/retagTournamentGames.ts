@@ -2,7 +2,7 @@
  * LE-95 — Assign stageId / groupId on games from tournament structure.
  * Group games: both teams in the same RR group.
  * Classification: both teams finished the same place in their groups
- * (1st → Semis & Finals, 2nd → 5th–8th Placement, …).
+ * (1st → Finals, 2nd → 5th - 8th Placing, …).
  */
 
 import type { Game } from '../App';

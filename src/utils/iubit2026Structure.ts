@@ -25,15 +25,16 @@ export const IUBIT_2026_GROUPS: {
   },
 ];
 
+/** Display names match live IUBIT / RunItBack Placing convention (2026-11-25). */
 export const IUBIT_2026_CLASSIFICATION_STAGES: {
   id: string;
   name: string;
   order: number;
 }[] = [
-  { id: 'iubit-stage-1-4', name: 'Semis & Finals', order: 2 },
-  { id: 'iubit-stage-5-8', name: '5th–8th Placement', order: 3 },
-  { id: 'iubit-stage-9-12', name: '9th–12th Placement', order: 4 },
-  { id: 'iubit-stage-13-14', name: '13th–14th Placement', order: 5 },
+  { id: 'iubit-stage-1-4', name: 'Finals', order: 2 },
+  { id: 'iubit-stage-5-8', name: '5th - 8th Placing', order: 3 },
+  { id: 'iubit-stage-9-12', name: '9th - 12th Placing', order: 4 },
+  { id: 'iubit-stage-13-14', name: '13th - 14th Placing', order: 5 },
 ];
 
 export function buildIubit2026Structure(
@@ -83,12 +84,30 @@ export function canBuildIubit2026Structure(
   return buildIubit2026Structure(teams) != null;
 }
 
-/** Legacy short titles that should be upgraded once to current display names. */
+/** Legacy titles that should be upgraded once to current display names. */
 const IUBIT_CLASSIFICATION_LEGACY_NAMES: Record<string, readonly string[]> = {
-  'iubit-stage-1-4': ['1–4', '1-4', '1/4'],
-  'iubit-stage-5-8': ['5–8', '5-8', '5/8'],
-  'iubit-stage-9-12': ['9–12', '9-12', '9/12'],
-  'iubit-stage-13-14': ['13–14', '13-14', '13/14'],
+  'iubit-stage-1-4': ['1–4', '1-4', '1/4', 'Semis & Finals'],
+  'iubit-stage-5-8': [
+    '5–8',
+    '5-8',
+    '5/8',
+    '5th–8th Placement',
+    '5th-8th Placement',
+  ],
+  'iubit-stage-9-12': [
+    '9–12',
+    '9-12',
+    '9/12',
+    '9th–12th Placement',
+    '9th-12th Placement',
+  ],
+  'iubit-stage-13-14': [
+    '13–14',
+    '13-14',
+    '13/14',
+    '13th–14th Placement',
+    '13th-14th Placement',
+  ],
 };
 
 /**

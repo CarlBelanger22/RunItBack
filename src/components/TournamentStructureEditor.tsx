@@ -123,7 +123,7 @@ export function TournamentStructureEditor({
   const stages = structure?.stages ?? [];
   const groupStageLocked = structure?.groupStageLocked === true;
 
-  // Rename legacy IUBIT "1–4" labels → Semis & Finals, etc. (by stable stage id).
+  // Rename legacy IUBIT "1–4" / old Placement titles → Finals / Placing (by stable stage id).
   useEffect(() => {
     if (!structure || !canBuildIubit2026Structure(teams)) return;
     const renamed = applyIubitClassificationDisplayNames(structure);
@@ -547,7 +547,7 @@ export function TournamentStructureEditor({
                 <Label htmlFor="stage-name">Name</Label>
                 <Input
                   id="stage-name"
-                  placeholder="e.g. Group stage, Semis & Finals"
+                  placeholder="e.g. Group stage, Finals, 5th - 8th Placing"
                   value={newStageName}
                   onChange={(e) => setNewStageName(e.target.value)}
                 />
