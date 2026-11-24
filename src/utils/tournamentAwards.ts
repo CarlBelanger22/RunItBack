@@ -376,7 +376,7 @@ export function buildTeamDefMultiplierMap(
 
 /**
  * Per-game defensive box blend (legacy helper / tests).
- * (1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP. No +/− in DV (v2).
+ * (1.25×STL + 2.00×BLK + 0.15×DRB − 0.25×PF) / GP. No +/− in DV (v2).
  */
 export function dpoyBoxPerGame(
   row: AwardPlayerAggregate,
@@ -609,7 +609,7 @@ export function buildTournamentAwardSections(
     title: 'Defensive Player',
     tooltip:
       `62% defense box (scaled 0–100% vs eligible min/max; ` +
-      `(1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP) ` +
+      `(1.25×STL + 2.00×BLK + 0.15×DRB − 0.25×PF) / GP) ` +
       `+ 28% team prevention (60% opponent eFG% rank + 40% DRtg rank) ` +
       `+ 10% team success index. ` +
       `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +

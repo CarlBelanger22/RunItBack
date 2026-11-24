@@ -279,7 +279,7 @@ export function buildAllDefensiveTeams(input: {
   const tooltip =
     `Stats-only All-Defensive (more personal than Defensive Player): ` +
     `70% defense box (scaled 0–100% vs eligible min/max; ` +
-    `(1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP) ` +
+    `(1.25×STL + 2.00×BLK + 0.15×DRB − 0.25×PF) / GP) ` +
     `+ 25% team prevention (60% opponent eFG% + 40% DRtg) ` +
     `+ 5% team success index. ` +
     `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +

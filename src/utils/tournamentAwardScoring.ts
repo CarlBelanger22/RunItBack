@@ -69,11 +69,11 @@ export const TEAM_DEF_STOCKS_WEIGHT = 0;
 /** @deprecated Removed from TeamDef blend (v2). */
 export const TEAM_DEF_DRB_WEIGHT = 0;
 
-/** Personal DV coefficients (Designer v2). */
+/** Personal DV coefficients (Designer v2.1 — BLK premium, softer PF). */
 export const DPOY_DV_STL_COEFF = 1.25;
-export const DPOY_DV_BLK_COEFF = 1.75;
+export const DPOY_DV_BLK_COEFF = 2.0;
 export const DPOY_DV_DRB_COEFF = 0.15;
-export const DPOY_DV_PF_COEFF = 0.35;
+export const DPOY_DV_PF_COEFF = 0.25;
 
 /** Soft-prefer band on the 0–100 score scale (±2 points). */
 export const FIRST_TEAM_SOFT_PREFER_EPS = 2;
@@ -142,7 +142,7 @@ export function gmscPerGameRaw(row: AwardRateRow): number {
 
 /**
  * Personal defensive box value per game.
- * `(1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP`.
+ * `(1.25×STL + 2.00×BLK + 0.15×DRB − 0.25×PF) / GP`.
  * `includePlusMinus` is ignored (v2 — no +/− in DV).
  */
 export function defenseValueRaw(
