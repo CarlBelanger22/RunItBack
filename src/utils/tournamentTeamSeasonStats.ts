@@ -1,6 +1,7 @@
 /**
  * Tournament-scoped team season rows for the Team Stats table.
  * Box averages via aggregateTeamSeasonAverages; W-L / DIFF / Opp PPG from final scores.
+ * Defensive view prevention rates via buildTeamDefenseBoxMetrics (same as awards TeamDef).
  */
 import type { Game, Team } from '../App';
 import {
@@ -10,6 +11,10 @@ import {
   type TeamSeasonDerivedStats,
   type TeamSeasonStatBucket,
 } from './gameDisplay';
+import {
+  buildTeamDefenseBoxMetrics,
+  type TeamDefenseBoxMetrics,
+} from './tournamentAwardScoring';
 import { calculateTeamStandings } from './tournamentStandings';
 
 export const STANDARD_TOURNAMENT_TEAM_STATS_FIELDS = [
@@ -47,16 +52,35 @@ export const ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS = [
   '2P%',
 ] as const;
 
+/** Designer lock 2026-11-24 — tournament Team Stats Defensive view. */
+export const DEFENSIVE_TOURNAMENT_TEAM_STATS_FIELDS = [
+  'GP',
+  'Opp PPG',
+  'Opp FG%',
+  'Opp 3P%',
+  'Opp eFG%',
+  'DRtg',
+  'SPG',
+  'BPG',
+  'Stocks',
+  'DRPG',
+  'FPG',
+] as const;
+
 export type StandardTournamentTeamStatsField =
   (typeof STANDARD_TOURNAMENT_TEAM_STATS_FIELDS)[number];
 
 export type AdvancedTournamentTeamStatsField =
   (typeof ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS)[number];
 
+export type DefensiveTournamentTeamStatsField =
+  (typeof DEFENSIVE_TOURNAMENT_TEAM_STATS_FIELDS)[number];
+
 export type TournamentTeamStatsSortField =
   | 'Team'
   | StandardTournamentTeamStatsField
-  | AdvancedTournamentTeamStatsField;
+  | AdvancedTournamentTeamStatsField
+  | DefensiveTournamentTeamStatsField;
 
 export interface TournamentTeamSeasonRow {
   team: Team;
@@ -72,6 +96,8 @@ export interface TournamentTeamSeasonRow {
   totals: TeamSeasonStatBucket;
   perGame: TeamSeasonStatBucket;
   derived: TeamSeasonDerivedStats;
+  /** Opponent shooting + DRtg from box games; null if no box sample. */
+  defense: TeamDefenseBoxMetrics | null;
 }
 
 export function aggregateTournamentTeamSeasonStats(
@@ -80,6 +106,7 @@ export function aggregateTournamentTeamSeasonStats(
 ): TournamentTeamSeasonRow[] {
   const standings = calculateTeamStandings(teams, games);
   const byId = new Map(standings.map((s) => [s.team.id, s]));
+  const defenseById = buildTeamDefenseBoxMetrics(games, teams);
 
   return teams.map((team) => {
     const standing = byId.get(team.id);
@@ -111,16 +138,38 @@ export function aggregateTournamentTeamSeasonStats(
       totals: agg.totals,
       perGame: agg.perGame,
       derived,
+      defense: defenseById.get(team.id) ?? null,
     };
   });
 }
+
+/** Lower-is-better prevention fields default ascending. */
+const DEFENSIVE_ASC_SORT_FIELDS = new Set<TournamentTeamStatsSortField>([
+  'Opp PPG',
+  'Opp FG%',
+  'Opp 3P%',
+  'Opp eFG%',
+  'DRtg',
+  'FPG',
+]);
 
 export function defaultSortOrderForTeamField(
   field: TournamentTeamStatsSortField
 ): 'asc' | 'desc' {
   if (field === 'Team') return 'asc';
+  if (DEFENSIVE_ASC_SORT_FIELDS.has(field)) return 'asc';
   // W-L sorts by win% — default best records first
   return 'desc';
+}
+
+/** (STL + BLK) per game from derived rates. */
+export function teamStocksPerGame(row: TournamentTeamSeasonRow): number {
+  return row.derived.spg + row.derived.bpg;
+}
+
+function ratioToPct(ratio: number | null | undefined): number | null {
+  if (ratio == null || !Number.isFinite(ratio)) return null;
+  return ratio * 100;
 }
 
 function pct(made: number, attempted: number): number | null {
@@ -195,6 +244,16 @@ function sortValue(
       return derived.efgPct;
     case '2P%':
       return derived.twoPtPct;
+    case 'Opp FG%':
+      return ratioToPct(row.defense?.oppFgPct);
+    case 'Opp 3P%':
+      return ratioToPct(row.defense?.oppTpp);
+    case 'Opp eFG%':
+      return ratioToPct(row.defense?.oppEfg);
+    case 'DRtg':
+      return row.defense?.drtg ?? null;
+    case 'Stocks':
+      return teamStocksPerGame(row);
     default:
       return null;
   }
@@ -280,6 +339,25 @@ export function formatAdvancedTournamentTeamStatsRow(
     fmtPct(derived.tsPct),
     fmtPct(derived.efgPct),
     fmtPct(derived.twoPtPct),
+  ];
+}
+
+export function formatDefensiveTournamentTeamStatsRow(
+  row: TournamentTeamSeasonRow
+): string[] {
+  const { derived, perGame, defense } = row;
+  return [
+    String(row.gamesPlayed),
+    fmt(row.papg),
+    fmtPct(ratioToPct(defense?.oppFgPct)),
+    fmtPct(ratioToPct(defense?.oppTpp)),
+    fmtPct(ratioToPct(defense?.oppEfg)),
+    fmt(defense?.drtg),
+    fmt(derived.spg),
+    fmt(derived.bpg),
+    fmt(teamStocksPerGame(row)),
+    fmt(perGame.drb),
+    fmt(derived.fpg),
   ];
 }
 
@@ -450,6 +528,52 @@ export function formatAdvancedLeagueAverageTournamentTeamStatsRow(
     fmtPct(tsPct),
     fmtPct(efgPct),
     fmtPct(twoPtPct),
+  ];
+}
+
+/**
+ * League average cells for Defensive Team Stats.
+ * GP always `—`. Opp FG% / Opp 3P% / Opp eFG% = volume-weighted from summed opp box.
+ * DRtg / rates = equal-weight mean of teams with GP > 0 (and finite values).
+ */
+export function formatDefensiveLeagueAverageTournamentTeamStatsRow(
+  rows: TournamentTeamSeasonRow[]
+): string[] {
+  const sample = teamsWithGames(rows);
+  if (sample.length === 0) {
+    return DEFENSIVE_TOURNAMENT_TEAM_STATS_FIELDS.map(() => NO_STAT);
+  }
+
+  const withDef = sample.filter((r) => r.defense && r.defense.boxGames > 0);
+  const oppFgPct = volumePct(
+    withDef.map((r) => r.defense!.oppFgm),
+    withDef.map((r) => r.defense!.oppFga)
+  );
+  const oppTpp = volumePct(
+    withDef.map((r) => r.defense!.oppTpm),
+    withDef.map((r) => r.defense!.oppTpa)
+  );
+  const oppEfgPct =
+    (() => {
+      const fga = sumOf(withDef.map((r) => r.defense!.oppFga));
+      if (fga <= 0) return null;
+      const fgm = sumOf(withDef.map((r) => r.defense!.oppFgm));
+      const tpm = sumOf(withDef.map((r) => r.defense!.oppTpm));
+      return ((fgm + 0.5 * tpm) / fga) * 100;
+    })();
+
+  return [
+    NO_STAT, // GP
+    fmt(meanOf(sample.map((r) => r.papg))),
+    fmtPct(oppFgPct),
+    fmtPct(oppTpp),
+    fmtPct(oppEfgPct),
+    fmt(meanOf(withDef.map((r) => r.defense!.drtg))),
+    fmt(meanOf(sample.map((r) => r.derived.spg))),
+    fmt(meanOf(sample.map((r) => r.derived.bpg))),
+    fmt(meanOf(sample.map((r) => teamStocksPerGame(r)))),
+    fmt(meanOf(sample.map((r) => r.perGame.drb))),
+    fmt(meanOf(sample.map((r) => r.derived.fpg))),
   ];
 }
 

@@ -10,16 +10,26 @@ import {
   TableRow,
 } from './ui/table';
 import { Button } from './ui/button';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Target, TrendingUp } from 'lucide-react';
+import {
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+  Shield,
+  Target,
+  TrendingUp,
+} from 'lucide-react';
 import { TeamBadge } from './TeamBadge';
 import { NoStatRecorded } from './StatDisplay';
 import {
   ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS,
+  DEFENSIVE_TOURNAMENT_TEAM_STATS_FIELDS,
   STANDARD_TOURNAMENT_TEAM_STATS_FIELDS,
   TOURNAMENT_TEAM_STATS_NO_VALUE,
   defaultSortOrderForTeamField,
   formatAdvancedLeagueAverageTournamentTeamStatsRow,
   formatAdvancedTournamentTeamStatsRow,
+  formatDefensiveLeagueAverageTournamentTeamStatsRow,
+  formatDefensiveTournamentTeamStatsRow,
   formatStandardLeagueAverageTournamentTeamStatsRow,
   formatStandardTournamentTeamStatsRow,
   sortTournamentTeamSeasonRows,
@@ -27,7 +37,7 @@ import {
   type TournamentTeamStatsSortField,
 } from '../utils/tournamentTeamSeasonStats';
 
-type StatsView = 'standard' | 'advanced';
+type StatsView = 'standard' | 'advanced' | 'defensive';
 
 interface TeamStatsTableProps {
   rows: TournamentTeamSeasonRow[];
@@ -88,10 +98,54 @@ const numericCellClass = 'text-center text-sm font-mono tabular-nums';
 const tableLinkButtonClass =
   'text-sm font-normal text-left hover:text-primary hover:underline cursor-pointer';
 
+function fieldsForView(view: StatsView) {
+  if (view === 'standard') return STANDARD_TOURNAMENT_TEAM_STATS_FIELDS;
+  if (view === 'advanced') return ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS;
+  return DEFENSIVE_TOURNAMENT_TEAM_STATS_FIELDS;
+}
+
+function formatRowForView(view: StatsView, row: TournamentTeamSeasonRow): string[] {
+  if (view === 'standard') return formatStandardTournamentTeamStatsRow(row);
+  if (view === 'advanced') return formatAdvancedTournamentTeamStatsRow(row);
+  return formatDefensiveTournamentTeamStatsRow(row);
+}
+
+function formatLeagueAverageForView(
+  view: StatsView,
+  rows: TournamentTeamSeasonRow[]
+): string[] {
+  if (view === 'standard') {
+    return formatStandardLeagueAverageTournamentTeamStatsRow(rows);
+  }
+  if (view === 'advanced') {
+    return formatAdvancedLeagueAverageTournamentTeamStatsRow(rows);
+  }
+  return formatDefensiveLeagueAverageTournamentTeamStatsRow(rows);
+}
+
 export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) {
   const [view, setView] = useState<StatsView>('standard');
   const [sortField, setSortField] = useState<TournamentTeamStatsSortField>('PPG');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
+
+  const selectView = useCallback((next: StatsView) => {
+    setView(next);
+    const nextFields = fieldsForView(next);
+    setSortField((prev) => {
+      if (next === 'defensive') {
+        // NBA-like team defense leaderboard feel
+        setSortOrder(defaultSortOrderForTeamField('DRtg'));
+        return 'DRtg';
+      }
+      if (prev === 'Team' || (nextFields as readonly string[]).includes(prev)) {
+        return prev;
+      }
+      const fallback: TournamentTeamStatsSortField =
+        next === 'standard' ? 'PPG' : 'eFG%';
+      setSortOrder(defaultSortOrderForTeamField(fallback));
+      return fallback;
+    });
+  }, []);
 
   const handleSort = useCallback((field: TournamentTeamStatsSortField) => {
     setSortField((prev) => {
@@ -110,17 +164,11 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
   );
 
   const leagueAverageValues = useMemo(
-    () =>
-      view === 'standard'
-        ? formatStandardLeagueAverageTournamentTeamStatsRow(rows)
-        : formatAdvancedLeagueAverageTournamentTeamStatsRow(rows),
+    () => formatLeagueAverageForView(view, rows),
     [rows, view]
   );
 
-  const activeFields =
-    view === 'standard'
-      ? STANDARD_TOURNAMENT_TEAM_STATS_FIELDS
-      : ADVANCED_TOURNAMENT_TEAM_STATS_FIELDS;
+  const activeFields = fieldsForView(view);
 
   const cellHighlight = (field: TournamentTeamStatsSortField) =>
     sortField === field ? 'bg-muted/40' : '';
@@ -153,12 +201,12 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <Button
           type="button"
           size="sm"
           variant={view === 'standard' ? 'default' : 'outline'}
-          onClick={() => setView('standard')}
+          onClick={() => selectView('standard')}
         >
           <Target className="w-3.5 h-3.5 mr-1.5" />
           Standard
@@ -167,10 +215,19 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
           type="button"
           size="sm"
           variant={view === 'advanced' ? 'default' : 'outline'}
-          onClick={() => setView('advanced')}
+          onClick={() => selectView('advanced')}
         >
           <TrendingUp className="w-3.5 h-3.5 mr-1.5" />
           Advanced
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={view === 'defensive' ? 'default' : 'outline'}
+          onClick={() => selectView('defensive')}
+        >
+          <Shield className="w-3.5 h-3.5 mr-1.5" />
+          Defensive
         </Button>
       </div>
 
@@ -213,10 +270,7 @@ export function TeamStatsTable({ rows, onNavigateToTeam }: TeamStatsTableProps) 
                   </TableRow>
                 ) : (
                   sorted.map((row) => {
-                    const values =
-                      view === 'standard'
-                        ? formatStandardTournamentTeamStatsRow(row)
-                        : formatAdvancedTournamentTeamStatsRow(row);
+                    const values = formatRowForView(view, row);
                     return (
                       <TableRow key={row.team.id}>
                         <TableCell

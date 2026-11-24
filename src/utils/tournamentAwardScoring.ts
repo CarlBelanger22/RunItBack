@@ -318,6 +318,7 @@ type TeamDefBoxAgg = {
   oppFgm: number;
   oppFga: number;
   oppTpm: number;
+  oppTpa: number;
   /** 0.5 × (own poss + opp poss) summed across games. */
   possEst: number;
 };
@@ -331,35 +332,81 @@ function possessionEstimate(input: {
   return input.fga - input.orb + input.tov + 0.4 * input.fta;
 }
 
+/** Raw per-team prevention metrics (shared by TeamDef01 + Team Stats Defensive view). */
+export type TeamDefenseBoxMetrics = {
+  boxGames: number;
+  pointsAgainst: number;
+  /** Points against / boxGames; null if no box games. */
+  papg: number | null;
+  oppFgm: number;
+  oppFga: number;
+  oppTpm: number;
+  oppTpa: number;
+  /** Opp FGM / FGA; null if no FGA. */
+  oppFgPct: number | null;
+  /** Opp (FGM + 0.5·3PM) / FGA; null if no FGA. */
+  oppEfg: number | null;
+  /** Opp 3PM / 3PA; null if no 3PA sample. */
+  oppTpp: number | null;
+  possEst: number;
+  /** 100 × pointsAgainst / possessions; null if no box games. */
+  drtg: number | null;
+};
+
+function emptyTeamDefBoxAgg(): TeamDefBoxAgg {
+  return {
+    boxGames: 0,
+    fga: 0,
+    orb: 0,
+    tov: 0,
+    fta: 0,
+    pointsAgainst: 0,
+    oppFgm: 0,
+    oppFga: 0,
+    oppTpm: 0,
+    oppTpa: 0,
+    possEst: 0,
+  };
+}
+
+function metricsFromAgg(a: TeamDefBoxAgg): TeamDefenseBoxMetrics {
+  const oppFgPct = a.oppFga > 0 ? a.oppFgm / a.oppFga : null;
+  const oppEfg =
+    a.oppFga > 0 ? (a.oppFgm + 0.5 * a.oppTpm) / a.oppFga : null;
+  const oppTpp = a.oppTpa > 0 ? a.oppTpm / a.oppTpa : null;
+  const papg = a.boxGames > 0 ? a.pointsAgainst / a.boxGames : null;
+  const poss = a.possEst > 0 ? a.possEst : a.boxGames;
+  const drtg = a.boxGames > 0 && poss > 0 ? (a.pointsAgainst / poss) * 100 : null;
+  return {
+    boxGames: a.boxGames,
+    pointsAgainst: a.pointsAgainst,
+    papg,
+    oppFgm: a.oppFgm,
+    oppFga: a.oppFga,
+    oppTpm: a.oppTpm,
+    oppTpa: a.oppTpa,
+    oppFgPct,
+    oppEfg,
+    oppTpp,
+    possEst: a.possEst,
+    drtg,
+  };
+}
+
 /**
- * TeamDef01 ∈ [0,1] among teams with box data:
- * 0.60·OppEfg01 + 0.40·DRtg01 (prevention only).
- * Lower opp eFG / DRtg better. No box → 0.5.
+ * Aggregate opponent shooting + DRtg inputs from completed games with box scores.
+ * Teams with no box sample are omitted from the map.
  */
-export function buildTeamDef01Map(
+export function buildTeamDefenseBoxMetrics(
   games: Game[],
   teams: Team[]
-): Map<string, number> {
+): Map<string, TeamDefenseBoxMetrics> {
   const completed = games.filter(isGameCompleted);
-  const map = new Map<string, number>();
-  for (const t of teams) map.set(t.id, 0.5);
-
   const aggs = new Map<string, TeamDefBoxAgg>();
   const ensure = (teamId: string): TeamDefBoxAgg => {
     let a = aggs.get(teamId);
     if (!a) {
-      a = {
-        boxGames: 0,
-        fga: 0,
-        orb: 0,
-        tov: 0,
-        fta: 0,
-        pointsAgainst: 0,
-        oppFgm: 0,
-        oppFga: 0,
-        oppTpm: 0,
-        possEst: 0,
-      };
+      a = emptyTeamDefBoxAgg();
       aggs.set(teamId, a);
     }
     return a;
@@ -378,7 +425,6 @@ export function buildTeamDef01Map(
     let homePlayed = false;
     let awayPlayed = false;
 
-    // Per-game accumulators for possession split
     const homeBox = { fga: 0, orb: 0, tov: 0, fta: 0 };
     const awayBox = { fga: 0, orb: 0, tov: 0, fta: 0 };
 
@@ -394,6 +440,7 @@ export function buildTeamDef01Map(
         awayAgg.oppFgm += s.fg_made || 0;
         awayAgg.oppFga += s.fg_attempted || 0;
         awayAgg.oppTpm += s.three_made || 0;
+        awayAgg.oppTpa += s.three_attempted || 0;
         homePlayed = true;
       } else if (team.id === awayId) {
         awayBox.fga += s.fg_attempted || 0;
@@ -403,6 +450,7 @@ export function buildTeamDef01Map(
         homeAgg.oppFgm += s.fg_made || 0;
         homeAgg.oppFga += s.fg_attempted || 0;
         homeAgg.oppTpm += s.three_made || 0;
+        homeAgg.oppTpa += s.three_attempted || 0;
         awayPlayed = true;
       }
     }
@@ -432,7 +480,28 @@ export function buildTeamDef01Map(
     }
   }
 
-  const withBox = [...aggs.entries()].filter(([, a]) => a.boxGames > 0);
+  const out = new Map<string, TeamDefenseBoxMetrics>();
+  for (const [id, a] of aggs) {
+    if (a.boxGames <= 0) continue;
+    out.set(id, metricsFromAgg(a));
+  }
+  return out;
+}
+
+/**
+ * TeamDef01 ∈ [0,1] among teams with box data:
+ * 0.60·OppEfg01 + 0.40·DRtg01 (prevention only).
+ * Lower opp eFG / DRtg better. No box → 0.5.
+ */
+export function buildTeamDef01Map(
+  games: Game[],
+  teams: Team[]
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const t of teams) map.set(t.id, 0.5);
+
+  const metrics = buildTeamDefenseBoxMetrics(games, teams);
+  const withBox = [...metrics.entries()];
   if (withBox.length === 0) return map;
   if (withBox.length === 1) {
     map.set(withBox[0][0], 1);
@@ -440,18 +509,16 @@ export function buildTeamDef01Map(
   }
 
   const oppEfg01 = percentileById(
-    withBox.map(([id, a]) => {
-      const efg =
-        a.oppFga > 0 ? (a.oppFgm + 0.5 * a.oppTpm) / a.oppFga : 0.5;
-      return { id, value: -efg };
-    })
+    withBox.map(([id, m]) => ({
+      id,
+      value: -(m.oppEfg ?? 0.5),
+    }))
   );
   const drtg01 = percentileById(
-    withBox.map(([id, a]) => {
-      const poss = a.possEst > 0 ? a.possEst : a.boxGames;
-      const drtg = (a.pointsAgainst / poss) * 100;
-      return { id, value: -drtg };
-    })
+    withBox.map(([id, m]) => ({
+      id,
+      value: -(m.drtg ?? 0),
+    }))
   );
 
   for (const [id] of withBox) {
