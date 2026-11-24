@@ -22,6 +22,12 @@ import { TournamentAwardsTab } from './TournamentAwardsTab';
 import type { TournamentTab } from '../routing/tabs';
 import { PlayerStatsTable } from './PlayerStatsTable';
 import { TeamStatsTable } from './TeamStatsTable';
+import { CheckboxMultiFilter } from './CheckboxMultiFilter';
+import { Label } from './ui/label';
+import {
+  PLAYER_STATS_POSITIONS,
+  filterPlayerSeasonRows,
+} from '../utils/filterPlayerSeasonRows';
 import { TournamentStructureEditor } from './TournamentStructureEditor';
 import { TournamentClassificationBracket } from './TournamentClassificationBracket';
 import { ClassificationVisualEditor } from './ClassificationVisualEditor';
@@ -443,6 +449,13 @@ export function TournamentPage({
     'all' | 'completed' | 'live' | 'upcoming'
   >('all');
   const [gamesFilterStageId, setGamesFilterStageId] = useState<string>('all');
+  // Same hoist for Player Stats team/position multi-filters
+  const [playerStatsTeamIds, setPlayerStatsTeamIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [playerStatsPositions, setPlayerStatsPositions] = useState<Set<string>>(
+    () => new Set()
+  );
 
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
 
@@ -1440,6 +1453,17 @@ export function TournamentPage({
       tournamentRosters,
       orphanPlayers,
     });
+    const filteredPlayersData = filterPlayerSeasonRows(playersData, {
+      teamIds: playerStatsTeamIds,
+      positions: playerStatsPositions,
+    });
+    const teamFilterOptions = [...tournamentTeams]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((t) => ({ id: t.id, label: t.name }));
+    const positionFilterOptions = PLAYER_STATS_POSITIONS.map((p) => ({
+      id: p,
+      label: p,
+    }));
     const shotDataCoverage = getShotDataCoverage(tournamentGames);
     const foulStatCoverage = getFoulStatCoverage(tournamentGames);
     const plusMinusCoverage = getPlusMinusCoverage(tournamentGames);
@@ -1448,13 +1472,55 @@ export function TournamentPage({
 
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-lg font-medium">Player Stats</h3>
-          <Badge variant="secondary">{playersData.length} Players</Badge>
+          <Badge variant="secondary">
+            {filteredPlayersData.length}
+            {filteredPlayersData.length !== playersData.length
+              ? ` / ${playersData.length}`
+              : ''}{' '}
+            Players
+          </Badge>
+        </div>
+
+        <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="min-w-[10rem] flex-1 sm:max-w-[16rem]">
+              <Label
+                htmlFor="player-stats-team-filter"
+                className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Team
+              </Label>
+              <CheckboxMultiFilter
+                id="player-stats-team-filter"
+                options={teamFilterOptions}
+                value={playerStatsTeamIds}
+                onChange={setPlayerStatsTeamIds}
+                allLabel="All teams"
+                emptyLabel="No teams"
+              />
+            </div>
+            <div className="min-w-[8rem] flex-1 sm:max-w-[12rem]">
+              <Label
+                htmlFor="player-stats-position-filter"
+                className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
+              >
+                Position
+              </Label>
+              <CheckboxMultiFilter
+                id="player-stats-position-filter"
+                options={positionFilterOptions}
+                value={playerStatsPositions}
+                onChange={setPlayerStatsPositions}
+                allLabel="All positions"
+              />
+            </div>
+          </div>
         </div>
 
         <PlayerStatsTable
-          rows={playersData}
+          rows={filteredPlayersData}
           showTeamColumn
           shotDataCoverage={shotDataCoverage}
           foulStatCoverage={foulStatCoverage}
