@@ -36,13 +36,20 @@ export interface StandingRow {
 export interface ExtendedStandingRow extends StandingRow {
   rpg: number;
   apg: number;
-  /** null when no FG attempts were tracked among non-walkover games, or partial coverage */
+  /** null when shooting coverage is below STANDINGS_SHOOTING_COVERAGE_MIN */
   fgPct: number | null;
-  /** null when no 3PA tracked */
+  /** null when shooting coverage is below STANDINGS_SHOOTING_COVERAGE_MIN */
   threePct: number | null;
-  /** null when no FTA tracked */
+  /** null when shooting coverage is below STANDINGS_SHOOTING_COVERAGE_MIN */
   ftPct: number | null;
 }
+
+/**
+ * Minimum fraction of non-walkover scored games that must have tracked
+ * shooting before standings FG%/3P%/FT% (and RPG/APG) are published.
+ * Percentages are computed from tracked games only.
+ */
+export const STANDINGS_SHOOTING_COVERAGE_MIN = 0.75;
 
 export interface GroupStandingsTable {
   stage: TournamentStage;
@@ -384,17 +391,15 @@ export function withExtendedShootingStats(
       assists: 0,
     };
 
-    // Only publish shooting % when every non-walkover scored game has tracked
-    // shooting — partial coverage would understate/overstate FG% vs true season.
-    // Walkovers/forfeits count in W–L but are exempt from this gate (LE-131).
+    // Publish shooting % / RPG / APG when enough non-walkover scored games have
+    // tracked shooting (≥ STANDINGS_SHOOTING_COVERAGE_MIN). Stats are summed
+    // from tracked games only. Walkovers/forfeits stay exempt (LE-131).
     const shootingSample = scoredGames.filter((g) => !isWalkoverOrForfeit(g));
-    let allGamesTracked = shootingSample.length > 0;
+    let trackedGames = 0;
     for (const game of shootingSample) {
       const chunk = shootingTotalsForTeamGame(game, standing.team);
-      if (!chunk) {
-        allGamesTracked = false;
-        break;
-      }
+      if (!chunk) continue;
+      trackedGames += 1;
       teamTotalStats.fg_made += chunk.fg_made;
       teamTotalStats.fg_attempted += chunk.fg_attempted;
       teamTotalStats.three_made += chunk.three_made;
@@ -406,23 +411,27 @@ export function withExtendedShootingStats(
       teamTotalStats.assists += chunk.assists;
     }
 
+    const coverageOk =
+      shootingSample.length > 0 &&
+      trackedGames / shootingSample.length >= STANDINGS_SHOOTING_COVERAGE_MIN;
+
     return {
       ...standing,
       rpg:
-        allGamesTracked && standing.gamesPlayed > 0
+        coverageOk && standing.gamesPlayed > 0
           ? (teamTotalStats.orb + teamTotalStats.drb) / standing.gamesPlayed
           : 0,
       apg:
-        allGamesTracked && standing.gamesPlayed > 0
+        coverageOk && standing.gamesPlayed > 0
           ? teamTotalStats.assists / standing.gamesPlayed
           : 0,
-      fgPct: allGamesTracked
+      fgPct: coverageOk
         ? pctOrNull(teamTotalStats.fg_made, teamTotalStats.fg_attempted)
         : null,
-      threePct: allGamesTracked
+      threePct: coverageOk
         ? pctOrNull(teamTotalStats.three_made, teamTotalStats.three_attempted)
         : null,
-      ftPct: allGamesTracked
+      ftPct: coverageOk
         ? pctOrNull(teamTotalStats.ft_made, teamTotalStats.ft_attempted)
         : null,
     };
