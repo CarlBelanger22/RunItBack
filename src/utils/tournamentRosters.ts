@@ -318,6 +318,20 @@ export function findTournamentPlayerTeamConflict(
 }
 
 /**
+ * Prefer a real jersey over a silent `0`. `0` is overloaded (real #0 vs default);
+ * a stale local/snapshot 0 must not beat a known non-zero from cloud/games.
+ */
+export function coalesceJerseyNumber(
+  preferred: number | undefined,
+  fallback: number | undefined
+): number {
+  const p = preferred ?? 0;
+  const f = fallback ?? 0;
+  if (p === 0 && f !== 0) return f;
+  return preferred ?? fallback ?? 0;
+}
+
+/**
  * Union stored DB/manual rows with game-derived membership.
  * Game-derived rows always included; stored jersey/position overlay same triple;
  * manual-only rows kept unless they conflict with another team in the same tournament.
@@ -338,12 +352,13 @@ export function mergeTournamentRosters(
     const key = tournamentRosterEntryKey(entry);
     const existing = byKey.get(key);
     if (existing) {
-      // Jersey/position: stored overlays game/cloud row.
+      // Jersey/position: stored overlays game/cloud row, but silent 0 loses to
+      // a known non-zero (stale snapshot must not wipe cloud jerseys).
       // isRookie: OR — either side tagged stays tagged. Stale local snapshots
       // without the flag must not wipe cloud tags on reopen (Carl 2026-11-23).
       const merged: TournamentRosterEntry = {
         ...existing,
-        number: entry.number ?? existing.number,
+        number: coalesceJerseyNumber(entry.number, existing.number),
         position: entry.position || existing.position,
         secondaryPosition: entry.secondaryPosition ?? existing.secondaryPosition,
       };

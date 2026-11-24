@@ -142,7 +142,11 @@ export function resolveLatestJerseyNumber(
     compareTournamentRowsForPlayer(a, b, playerId, teamId, tournaments, games, teams)
   );
 
-  return sorted[0]?.number ?? clubFallback;
+  const latest = sorted[0]?.number;
+  if (latest == null) return clubFallback;
+  // Silent tournament #0 must not become the club display when club has a real #.
+  if (latest === 0 && (clubFallback ?? 0) > 0) return clubFallback;
+  return latest;
 }
 
 /** Distinct (team, number) pairs for profile jersey icons — tournament rows drive icons. */
