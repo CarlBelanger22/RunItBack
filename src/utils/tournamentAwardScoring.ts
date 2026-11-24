@@ -9,21 +9,24 @@ import { isGameCompleted } from './scheduledGames';
 import { calculateTeamStandings } from './tournamentStandings';
 import type { TeamProgressionPlace } from './tournamentProgression';
 
-/** Same weight as legacy DPOY box (+/− term). */
+/**
+ * @deprecated DV no longer includes +/− (Designer DPOY v2, 2026-11-24).
+ * Kept so old imports/tests do not break.
+ */
 export const DPOY_PLUS_MINUS_WEIGHT = 0.07;
 
 /** MVP: 65% OV (GmSc) + 35% TSI. */
 export const MVP_TSI_WEIGHT = 0.35;
 export const SIXTH_TSI_WEIGHT = 0.12;
-/** DPOY + All-Defensive shared blend. */
-export const DPOY_DV_WEIGHT = 0.5;
-export const DPOY_TEAM_DEF_WEIGHT = 0.4;
+/** DPOY blend (Designer v2): personal DV / team prevention / TSI. */
+export const DPOY_DV_WEIGHT = 0.62;
+export const DPOY_TEAM_DEF_WEIGHT = 0.28;
 export const DPOY_TSI_WEIGHT = 0.1;
 
-/** @deprecated Same as DPOY_* — kept for All-Defensive call sites. */
-export const ALL_DEF_DV_WEIGHT = DPOY_DV_WEIGHT;
-export const ALL_DEF_TEAM_DEF_WEIGHT = DPOY_TEAM_DEF_WEIGHT;
-export const ALL_DEF_TSI_WEIGHT = DPOY_TSI_WEIGHT;
+/** All-Defensive: more personal than DPOY. */
+export const ALL_DEF_DV_WEIGHT = 0.7;
+export const ALL_DEF_TEAM_DEF_WEIGHT = 0.25;
+export const ALL_DEF_TSI_WEIGHT = 0.05;
 
 /** Minimal row shape for rate helpers (avoids circular imports). */
 export type AwardRateRow = {
@@ -55,17 +58,22 @@ export const TSI_NO_PLACE_WIN_PCT_WEIGHT = 0.55;
 export const TSI_NO_PLACE_NET_WEIGHT = 0.45;
 
 /**
- * TeamDef01 blend P (DPOY + All-Defensive). Revised Designer 2026-10-29.
- * Prevention (eFG + DRtg) + activity (stocks + DRB). No team +/− / net (those are TSI).
- * Weights: 0.35·OppEfg + 0.25·DRtg + 0.25·Stocks + 0.15·DRB.
+ * TeamDef01 (DPOY + All-Defensive). Designer v2 2026-11-24: prevention only.
+ * No team stocks/DRB (those live in personal DV — avoid double-count).
+ * Weights: 0.60·OppEfg + 0.40·DRtg.
  */
-export const TEAM_DEF_OPP_EFG_WEIGHT = 0.35;
-export const TEAM_DEF_DRTG_WEIGHT = 0.25;
-export const TEAM_DEF_STOCKS_WEIGHT = 0.25;
-export const TEAM_DEF_DRB_WEIGHT = 0.15;
+export const TEAM_DEF_OPP_EFG_WEIGHT = 0.6;
+export const TEAM_DEF_DRTG_WEIGHT = 0.4;
+/** @deprecated Removed from TeamDef blend (v2). */
+export const TEAM_DEF_STOCKS_WEIGHT = 0;
+/** @deprecated Removed from TeamDef blend (v2). */
+export const TEAM_DEF_DRB_WEIGHT = 0;
 
-/** Personal DV DRB coefficient inside defenseValueRaw (STL/BLK stay 1.5). */
-export const DPOY_DV_DRB_COEFF = 0.3;
+/** Personal DV coefficients (Designer v2). */
+export const DPOY_DV_STL_COEFF = 1.25;
+export const DPOY_DV_BLK_COEFF = 1.75;
+export const DPOY_DV_DRB_COEFF = 0.15;
+export const DPOY_DV_PF_COEFF = 0.35;
 
 /** Soft-prefer band on the 0–100 score scale (±2 points). */
 export const FIRST_TEAM_SOFT_PREFER_EPS = 2;
@@ -132,23 +140,25 @@ export function gmscPerGameRaw(row: AwardRateRow): number {
   return MetricsCalculator.calculateGameScore(row.totalStats) / row.gamesPlayed;
 }
 
+/**
+ * Personal defensive box value per game.
+ * `(1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP`.
+ * `includePlusMinus` is ignored (v2 — no +/− in DV).
+ */
 export function defenseValueRaw(
   row: AwardRateRow,
-  includePlusMinus: boolean
+  _includePlusMinus?: boolean
 ): number {
   const gp = row.gamesPlayed;
   if (gp <= 0) return 0;
   const s = row.totalStats;
-  let raw =
-    (1.5 * s.steals +
-      1.5 * s.blocks +
+  return (
+    (DPOY_DV_STL_COEFF * s.steals +
+      DPOY_DV_BLK_COEFF * s.blocks +
       DPOY_DV_DRB_COEFF * s.drb -
-      0.25 * s.fouls) /
-    gp;
-  if (includePlusMinus && row.plusMinusGames > 0) {
-    raw += DPOY_PLUS_MINUS_WEIGHT * (row.plusMinusTotal / row.plusMinusGames);
-  }
-  return raw;
+      DPOY_DV_PF_COEFF * s.fouls) /
+    gp
+  );
 }
 
 /**
@@ -299,9 +309,6 @@ export function tsiFromWinAndProgression(input: {
 
 type TeamDefBoxAgg = {
   boxGames: number;
-  stl: number;
-  blk: number;
-  drb: number;
   /** Own FGA/ORB/TO/FTA for possession estimate. */
   fga: number;
   orb: number;
@@ -326,9 +333,8 @@ function possessionEstimate(input: {
 
 /**
  * TeamDef01 ∈ [0,1] among teams with box data:
- * 0.35·OppEfg01 + 0.25·DRtg01 + 0.25·Stocks01 + 0.15·DRB01.
- * Lower opp eFG / DRtg better; higher stocks / DRB better.
- * No box → 0.5.
+ * 0.60·OppEfg01 + 0.40·DRtg01 (prevention only).
+ * Lower opp eFG / DRtg better. No box → 0.5.
  */
 export function buildTeamDef01Map(
   games: Game[],
@@ -344,9 +350,6 @@ export function buildTeamDef01Map(
     if (!a) {
       a = {
         boxGames: 0,
-        stl: 0,
-        blk: 0,
-        drb: 0,
         fga: 0,
         orb: 0,
         tov: 0,
@@ -384,9 +387,6 @@ export function buildTeamDef01Map(
       const team = resolvePlayerTeamInGame(s.playerId, game, teams);
       if (!team) continue;
       if (team.id === homeId) {
-        homeAgg.stl += s.steals || 0;
-        homeAgg.blk += s.blocks || 0;
-        homeAgg.drb += s.drb || 0;
         homeBox.fga += s.fg_attempted || 0;
         homeBox.orb += s.orb || 0;
         homeBox.tov += s.turnovers || 0;
@@ -396,9 +396,6 @@ export function buildTeamDef01Map(
         awayAgg.oppTpm += s.three_made || 0;
         homePlayed = true;
       } else if (team.id === awayId) {
-        awayAgg.stl += s.steals || 0;
-        awayAgg.blk += s.blocks || 0;
-        awayAgg.drb += s.drb || 0;
         awayBox.fga += s.fg_attempted || 0;
         awayBox.orb += s.orb || 0;
         awayBox.tov += s.turnovers || 0;
@@ -456,25 +453,11 @@ export function buildTeamDef01Map(
       return { id, value: -drtg };
     })
   );
-  const stocks01 = percentileById(
-    withBox.map(([id, a]) => ({
-      id,
-      value: (a.stl + a.blk) / a.boxGames,
-    }))
-  );
-  const drb01 = percentileById(
-    withBox.map(([id, a]) => ({
-      id,
-      value: a.drb / a.boxGames,
-    }))
-  );
 
   for (const [id] of withBox) {
     const blended =
       TEAM_DEF_OPP_EFG_WEIGHT * (oppEfg01.get(id) ?? 0.5) +
-      TEAM_DEF_DRTG_WEIGHT * (drtg01.get(id) ?? 0.5) +
-      TEAM_DEF_STOCKS_WEIGHT * (stocks01.get(id) ?? 0.5) +
-      TEAM_DEF_DRB_WEIGHT * (drb01.get(id) ?? 0.5);
+      TEAM_DEF_DRTG_WEIGHT * (drtg01.get(id) ?? 0.5);
     map.set(id, Math.min(1, Math.max(0, blended)));
   }
   return map;
@@ -553,13 +536,17 @@ export function dpoyScoreFromParts(
   );
 }
 
-/** All-Defensive uses the same 50/40/10 blend as DPOY. */
+/** All-Defensive: 70% DV + 25% TeamDef + 5% TSI (more personal than DPOY). */
 export function allDefScoreFromParts(
   dv01: number,
   teamDef01: number,
   tsi: number
 ): number {
-  return dpoyScoreFromParts(dv01, teamDef01, tsi);
+  return toAwardPoints(
+    ALL_DEF_DV_WEIGHT * dv01 +
+      ALL_DEF_TEAM_DEF_WEIGHT * teamDef01 +
+      ALL_DEF_TSI_WEIGHT * tsi
+  );
 }
 
 export function allTeamTierScore(

@@ -376,11 +376,11 @@ export function buildTeamDefMultiplierMap(
 
 /**
  * Per-game defensive box blend (legacy helper / tests).
- * (1.5×STL + 1.5×BLK + 0.3×DRB − 0.25×PF) / GP [+ 0.07×+/− when tracked].
+ * (1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP. No +/− in DV (v2).
  */
 export function dpoyBoxPerGame(
   row: AwardPlayerAggregate,
-  includePlusMinus: boolean
+  includePlusMinus: boolean = false
 ): number {
   return defenseValueRaw(row, includePlusMinus);
 }
@@ -580,13 +580,10 @@ export function buildTournamentAwardSections(
     }),
   });
 
-  const dpoyPmNote = options.includePlusMinus
-    ? ' When +/− is tracked, add 0.07 × +/− per game into the defense box.'
-    : '';
   const dv01 = minmax01ById(
     majors.map((r) => ({
       id: r.playerId,
-      value: defenseValueRaw(r, options.includePlusMinus),
+      value: defenseValueRaw(r, false),
     }))
   );
   const teamDef01 = options.teamDef01ByTeamId ?? new Map<string, number>();
@@ -611,9 +608,9 @@ export function buildTournamentAwardSections(
     id: 'dpoy',
     title: 'Defensive Player',
     tooltip:
-      `NBA-style: 50% defense box (scaled 0–100% vs eligible min/max; ` +
-      `(1.5×STL + 1.5×BLK + 0.3×DRB − 0.25×PF) / GP)${dpoyPmNote} ` +
-      `+ 40% team defense (35% opponent eFG% rank + 25% DRtg rank + 25% team steals+blocks/g + 15% team DRB/g) ` +
+      `62% defense box (scaled 0–100% vs eligible min/max; ` +
+      `(1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP) ` +
+      `+ 28% team prevention (60% opponent eFG% rank + 40% DRtg rank) ` +
       `+ 10% team success index. ` +
       `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
       `Eligible: ≥55% of team games. Ties: more STL+BLK/g, then fewer PF/g.`,

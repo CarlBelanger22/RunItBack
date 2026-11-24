@@ -1,7 +1,7 @@
 /**
  * Stats-only All-Defensive 1st / 2nd Team (+ 5 HM).
- * Score: same as DPOY — 50% DV01 + 40% TeamDef01 + 10% TSI.
- * TeamDef01 = Blend P: 0.35·opp eFG + 0.25·DRtg + 0.20·stocks + 0.20·DRB.
+ * Score: 70% DV01 + 25% TeamDef01 + 5% TSI (more personal than DPOY).
+ * TeamDef01 = prevention only: 0.60·opp eFG + 0.40·DRtg.
  */
 import type { Game, Team } from '../App';
 import { MetricsCalculator } from '../components/MetricsCalculator';
@@ -218,12 +218,10 @@ export function buildAllDefensiveTeams(input: {
     input.nTeamsForProgression ??
       new Set(eligible.map((r) => r.team.id)).size
   );
-  const includePm = input.includePlusMinus ?? false;
-
   const dv01 = minmax01ById(
     eligible.map((r) => ({
       id: r.playerId,
-      value: defenseValueRaw(r, includePm),
+      value: defenseValueRaw(r, false),
     }))
   );
 
@@ -243,7 +241,7 @@ export function buildAllDefensiveTeams(input: {
     }
   }
 
-  // Same score for 1st / 2nd / HM (All-Def 70/20/10) so table scores are comparable.
+  // Same score for 1st / 2nd / HM (All-Def 70/25/5) so table scores are comparable.
   const scores = buildAllDefScoreMap(
     eligible,
     dv01,
@@ -279,12 +277,11 @@ export function buildAllDefensiveTeams(input: {
     });
 
   const tooltip =
-    `Stats-only All-Defensive (same formula as Defensive Player): ` +
-    `50% defense box (scaled 0–100% vs eligible min/max; ` +
-    `(1.5×STL + 1.5×BLK + 0.3×DRB − 0.25×PF) / GP` +
-    (includePm ? `; + 0.07×+/−/g when tracked` : '') +
-    `) + 40% team defense (35% opponent eFG% + 25% DRtg + 25% steals+blocks/g + 15% DRB/g) ` +
-    `+ 10% team success index. ` +
+    `Stats-only All-Defensive (more personal than Defensive Player): ` +
+    `70% defense box (scaled 0–100% vs eligible min/max; ` +
+    `(1.25×STL + 1.75×BLK + 0.15×DRB − 0.35×PF) / GP) ` +
+    `+ 25% team prevention (60% opponent eFG% + 40% DRtg) ` +
+    `+ 5% team success index. ` +
     `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
     `Each team is the top 5 eligible by Score (no position seats). ` +
     `Max 2 from the same club per 1st/2nd Team; max 3 across both (overflow spills to honourable mentions). ` +
