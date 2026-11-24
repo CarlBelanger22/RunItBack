@@ -57,14 +57,15 @@ export function CheckboxMultiFilter({
           id={id}
           type="button"
           variant="outline"
+          size="sm"
           role="combobox"
           className={cn(
-            'h-9 w-full min-w-[10rem] max-w-full justify-between bg-background font-normal shadow-sm',
+            'w-full min-w-[10rem] max-w-full justify-between bg-background',
             className
           )}
         >
           <span className="truncate">{label}</span>
-          <ChevronsUpDown className="ml-2 size-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="size-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-[min(100vw-2rem,18rem)] p-0" align="end">

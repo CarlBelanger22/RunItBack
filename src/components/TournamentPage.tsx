@@ -1471,8 +1471,8 @@ export function TournamentPage({
     const personalFoulsCoverage = getPersonalFoulsCoverage(tournamentGames);
 
     return (
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-3">
           <h3 className="text-lg font-medium">Player Stats</h3>
           <Badge variant="secondary">
             {filteredPlayersData.length}
@@ -1481,42 +1481,6 @@ export function TournamentPage({
               : ''}{' '}
             Players
           </Badge>
-        </div>
-
-        <div className="rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
-          <div className="flex flex-wrap items-end gap-4">
-            <div className="min-w-[10rem] flex-1 sm:max-w-[16rem]">
-              <Label
-                htmlFor="player-stats-team-filter"
-                className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
-              >
-                Team
-              </Label>
-              <CheckboxMultiFilter
-                id="player-stats-team-filter"
-                options={teamFilterOptions}
-                value={playerStatsTeamIds}
-                onChange={setPlayerStatsTeamIds}
-                allLabel="All teams"
-                emptyLabel="No teams"
-              />
-            </div>
-            <div className="min-w-[8rem] flex-1 sm:max-w-[12rem]">
-              <Label
-                htmlFor="player-stats-position-filter"
-                className="mb-1.5 block text-xs font-medium uppercase tracking-wide text-muted-foreground"
-              >
-                Position
-              </Label>
-              <CheckboxMultiFilter
-                id="player-stats-position-filter"
-                options={positionFilterOptions}
-                value={playerStatsPositions}
-                onChange={setPlayerStatsPositions}
-                allLabel="All positions"
-              />
-            </div>
-          </div>
         </div>
 
         <PlayerStatsTable
@@ -1529,6 +1493,33 @@ export function TournamentPage({
           personalFoulsCoverage={personalFoulsCoverage}
           onNavigateToPlayer={onNavigateToPlayer}
           onNavigateToTeam={onNavigateToTeam}
+          toolbarExtra={
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Label htmlFor="player-stats-team-filter" className="sr-only">
+                Team
+              </Label>
+              <CheckboxMultiFilter
+                id="player-stats-team-filter"
+                options={teamFilterOptions}
+                value={playerStatsTeamIds}
+                onChange={setPlayerStatsTeamIds}
+                allLabel="All teams"
+                emptyLabel="No teams"
+                className="min-w-[7.5rem] w-auto max-w-[11rem]"
+              />
+              <Label htmlFor="player-stats-position-filter" className="sr-only">
+                Position
+              </Label>
+              <CheckboxMultiFilter
+                id="player-stats-position-filter"
+                options={positionFilterOptions}
+                value={playerStatsPositions}
+                onChange={setPlayerStatsPositions}
+                allLabel="All positions"
+                className="min-w-[6.5rem] w-auto max-w-[9rem]"
+              />
+            </div>
+          }
         />
       </div>
     );

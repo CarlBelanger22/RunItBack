@@ -101,6 +101,8 @@ interface PlayerStatsTableProps {
   teams?: Team[];
   onExportPdf?: () => void;
   exportDisabled?: boolean;
+  /** Extra controls on the Standard / Advanced toolbar row (e.g. team/position filters). */
+  toolbarExtra?: React.ReactNode;
 }
 
 function SortIcon({
@@ -208,6 +210,7 @@ export function PlayerStatsTable({
   teams: leagueTeamsProp,
   onExportPdf,
   exportDisabled = false,
+  toolbarExtra,
 }: PlayerStatsTableProps) {
   const isBreakdown = layout === 'tournament-breakdown';
   const leagueTeamsForAbbrev = useMemo(
@@ -311,14 +314,14 @@ export function PlayerStatsTable({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant={view === 'standard' ? 'default' : 'outline'}
             size="sm"
             onClick={() => switchView('standard')}
           >
-            <Target className="w-4 h-4 mr-2" />
+            <Target className="w-4 h-4" />
             Standard
           </Button>
           <Button
@@ -326,9 +329,10 @@ export function PlayerStatsTable({
             size="sm"
             onClick={() => switchView('advanced')}
           >
-            <TrendingUp className="w-4 h-4 mr-2" />
+            <TrendingUp className="w-4 h-4" />
             Advanced
           </Button>
+          {toolbarExtra}
         </div>
         {onExportPdf && (
           <Button

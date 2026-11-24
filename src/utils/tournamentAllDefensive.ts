@@ -31,6 +31,7 @@ import {
   allTournamentShortName,
   buildTeamWinPctMap,
   positionToAllTeamBucket,
+  type AllTeamBucket,
   type AllTeamMember,
   type AllTeamMultiplierSource,
 } from './tournamentAllTeams';
@@ -47,6 +48,9 @@ export interface AllDefensiveTeamsResult {
 
 const HONORABLE_MENTION_N = 5;
 const SQUAD_SIZE = 5;
+/** Named All-Defensive squad seat targets (steal across buckets if dry). */
+export const ALL_DEF_GUARD_SEATS = 2;
+export const ALL_DEF_FORWARD_SEATS = 3;
 /** Max players from one club on a single named squad (1st/2nd). */
 const MAX_PER_SQUAD = 2;
 /** Max players from one club across 1st + 2nd combined. HM uncapped. */
@@ -87,7 +91,7 @@ function compareDefCandidates(
 
 function toMember(
   row: AwardPlayerAggregate,
-  opts: { meta: ScoreMeta }
+  opts: { meta: ScoreMeta; seat?: AllTeamBucket }
 ): AllTeamMember {
   const gp = row.gamesPlayed;
   const minutes = row.totalStats.minutes_played;
@@ -116,13 +120,45 @@ function toMember(
     multiplierSource: opts.meta.source,
     progressionPlace: opts.meta.progressionPlace,
     naturalBucket,
-    seat: naturalBucket,
+    seat: opts.seat ?? naturalBucket,
   };
 }
 
+function clubAllows(
+  clubId: string,
+  clubOnSquad: Map<string, number>,
+  clubAcrossNamed: Map<string, number>,
+  maxAcrossNamed: number
+): boolean {
+  const onSquad = clubOnSquad.get(clubId) ?? 0;
+  const across = clubAcrossNamed.get(clubId) ?? 0;
+  return onSquad < MAX_PER_SQUAD && across < maxAcrossNamed;
+}
+
+function pickIntoSquad(
+  row: AwardPlayerAggregate,
+  seat: AllTeamBucket,
+  scores: Map<string, ScoreMeta>,
+  squad: AllTeamMember[],
+  pickedIds: Set<string>,
+  clubOnSquad: Map<string, number>,
+  clubAcrossNamed: Map<string, number>,
+  open: { G: number; F: number }
+): void {
+  const clubId = row.team.id;
+  squad.push(
+    toMember(row, { meta: scores.get(row.playerId)!, seat })
+  );
+  pickedIds.add(row.playerId);
+  clubOnSquad.set(clubId, (clubOnSquad.get(clubId) ?? 0) + 1);
+  clubAcrossNamed.set(clubId, (clubAcrossNamed.get(clubId) ?? 0) + 1);
+  open[seat] -= 1;
+}
+
 /**
- * Top N by Score with club caps (no G/F seats).
- * Rejected players stay in remaining for lower tiers / HM.
+ * Top 5 by Score with club caps + 2G / 3F seats.
+ * Phase 1 fills natural buckets; phase 2 steals into leftover seats.
+ * Display order remains Score desc. Rejected stay in remaining.
  */
 function fillOneSquad(
   pool: AwardPlayerAggregate[],
@@ -139,18 +175,67 @@ function fillOneSquad(
   const squad: AllTeamMember[] = [];
   const pickedIds = new Set<string>();
   const clubOnSquad = new Map<string, number>();
+  const open = { G: ALL_DEF_GUARD_SEATS, F: ALL_DEF_FORWARD_SEATS };
 
+  // Phase 1 — natural bucket seats only
   for (const row of ranked) {
     if (squad.length >= SQUAD_SIZE) break;
-    const clubId = row.team.id;
-    const onSquad = clubOnSquad.get(clubId) ?? 0;
-    const across = clubAcrossNamed.get(clubId) ?? 0;
-    if (onSquad >= MAX_PER_SQUAD || across >= maxAcrossNamed) continue;
-    squad.push(toMember(row, { meta: scores.get(row.playerId)! }));
-    pickedIds.add(row.playerId);
-    clubOnSquad.set(clubId, onSquad + 1);
-    clubAcrossNamed.set(clubId, across + 1);
+    const natural = positionToAllTeamBucket(row.player.position);
+    if (open[natural] <= 0) continue;
+    if (!clubAllows(row.team.id, clubOnSquad, clubAcrossNamed, maxAcrossNamed)) {
+      continue;
+    }
+    pickIntoSquad(
+      row,
+      natural,
+      scores,
+      squad,
+      pickedIds,
+      clubOnSquad,
+      clubAcrossNamed,
+      open
+    );
   }
+
+  // Phase 2 — steal: fill leftover seats from either bucket by Score
+  if (squad.length < SQUAD_SIZE && open.G + open.F > 0) {
+    for (const row of ranked) {
+      if (squad.length >= SQUAD_SIZE || open.G + open.F <= 0) break;
+      if (pickedIds.has(row.playerId)) continue;
+      if (!clubAllows(row.team.id, clubOnSquad, clubAcrossNamed, maxAcrossNamed)) {
+        continue;
+      }
+      const natural = positionToAllTeamBucket(row.player.position);
+      const seat: AllTeamBucket =
+        open[natural] > 0 ? natural : open.G > 0 ? 'G' : 'F';
+      if (open[seat] <= 0) continue;
+      pickIntoSquad(
+        row,
+        seat,
+        scores,
+        squad,
+        pickedIds,
+        clubOnSquad,
+        clubAcrossNamed,
+        open
+      );
+    }
+  }
+
+  squad.sort((a, b) => {
+    const d = b.allTeamScore - a.allTeamScore;
+    if (d !== 0) return d;
+    const stocksA =
+      a.gamesPlayed > 0
+        ? (a.totalStats.steals + a.totalStats.blocks) / a.gamesPlayed
+        : 0;
+    const stocksB =
+      b.gamesPlayed > 0
+        ? (b.totalStats.steals + b.totalStats.blocks) / b.gamesPlayed
+        : 0;
+    if (stocksB !== stocksA) return stocksB - stocksA;
+    return a.player.name.localeCompare(b.player.name);
+  });
 
   return {
     squad,
@@ -283,11 +368,11 @@ export function buildAllDefensiveTeams(input: {
     `+ 25% team prevention (60% opponent eFG% + 40% DRtg) ` +
     `+ 5% team success index. ` +
     `Then miss wither: −2% / −4% / −3% (recurring) of Score per team game missed (multiplicative). ` +
-    `Each team is the top 5 eligible by Score (no position seats). ` +
+    `Each 1st/2nd Team targets 2 guards (PG/SG/G) + 3 forwards/centers; ` +
+    `if a bucket runs short, leftover seats fill from the other bucket by Score. ` +
     `Max 2 from the same club per 1st/2nd Team; max 3 across both (overflow spills to honourable mentions). ` +
-    `Honourable mentions uncapped. ` +
+    `Honourable mentions = next 5 by Score (no seat rule; uncapped by club). ` +
     `Eligible: ≥55% of team games. ` +
-    `Honourable mentions = next 5 by Score who missed 1st/2nd. ` +
     `Independent of All-${shortName} (players may appear on both).`;
 
   return {
