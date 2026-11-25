@@ -1061,20 +1061,52 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
   });
 }
 
+/** PostgREST `.in(id, …)` URL length — keep chunks small (same as PBP preserve). */
+const GAME_ID_IN_CHUNK = 80;
+
+function dedupeGameIds(gameIds: string[]): string[] {
+  return [...new Set(gameIds.filter(Boolean))];
+}
+
+/**
+ * Chunked games column fetch. Avoids 400 Bad Request when preserving stats/PBP
+ * across a full-league id list in one `.in(...)` filter.
+ */
+async function fetchGamesRowsByIds(
+  gameIds: string[],
+  select: string,
+  errorLabel: string
+): Promise<Record<string, unknown>[]> {
+  if (!supabase || gameIds.length === 0) return [];
+
+  const ids = dedupeGameIds(gameIds);
+  const rows: Record<string, unknown>[] = [];
+  for (let i = 0; i < ids.length; i += GAME_ID_IN_CHUNK) {
+    const chunk = ids.slice(i, i + GAME_ID_IN_CHUNK);
+    const { data, error } = await supabase
+      .from('games')
+      .select(select)
+      .in('id', chunk);
+
+    if (error) throw new Error(`${errorLabel}: ${error.message}`);
+    for (const row of data ?? []) {
+      rows.push(row as Record<string, unknown>);
+    }
+  }
+  return rows;
+}
+
 async function loadExistingStartTimesById(
   gameIds: string[]
 ): Promise<Map<string, string>> {
   const map = new Map<string, string>();
-  if (!supabase || gameIds.length === 0) return map;
+  const data = await fetchGamesRowsByIds(
+    gameIds,
+    'id, team_stats',
+    'games fetch for startTime preserve'
+  );
 
-  const { data, error } = await supabase
-    .from('games')
-    .select('id, team_stats')
-    .in('id', gameIds);
-
-  if (error) throw new Error(`games fetch for startTime preserve: ${error.message}`);
-
-  for (const row of data ?? []) {
+  for (const row of data) {
     const startTime = (row.team_stats as PersistedTeamStats | null)?.[TEAM_STATS_META_KEY]
       ?.startTime;
     const trimmed = typeof startTime === 'string' ? startTime.trim() : '';
@@ -1087,16 +1119,13 @@ async function loadExistingGameStatsById(
   gameIds: string[]
 ): Promise<Map<string, GameStats[]>> {
   const map = new Map<string, GameStats[]>();
-  if (!supabase || gameIds.length === 0) return map;
+  const data = await fetchGamesRowsByIds(
+    gameIds,
+    'id, game_stats',
+    'games fetch for stats preserve'
+  );
 
-  const { data, error } = await supabase
-    .from('games')
-    .select('id, game_stats')
-    .in('id', gameIds);
-
-  if (error) throw new Error(`games fetch for stats preserve: ${error.message}`);
-
-  for (const row of data ?? []) {
+  for (const row of data) {
     const stats = (row.game_stats ?? []) as GameStats[];
     map.set(row.id as string, stats);
   }
@@ -1112,25 +1141,18 @@ async function loadExistingGamePbpById(
     string,
     { events: unknown; shots: unknown; lineup_stints: unknown }
   >();
-  if (!supabase || gameIds.length === 0) return map;
+  const data = await fetchGamesRowsByIds(
+    gameIds,
+    'id, events, shots, lineup_stints',
+    'games fetch for PBP preserve'
+  );
 
-  const chunkSize = 80;
-  for (let i = 0; i < gameIds.length; i += chunkSize) {
-    const chunk = gameIds.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('games')
-      .select('id, events, shots, lineup_stints')
-      .in('id', chunk);
-
-    if (error) throw new Error(`games fetch for PBP preserve: ${error.message}`);
-
-    for (const row of data ?? []) {
-      map.set(row.id as string, {
-        events: row.events ?? [],
-        shots: row.shots ?? [],
-        lineup_stints: row.lineup_stints ?? [],
-      });
-    }
+  for (const row of data) {
+    map.set(row.id as string, {
+      events: row.events ?? [],
+      shots: row.shots ?? [],
+      lineup_stints: row.lineup_stints ?? [],
+    });
   }
   return map;
 }
