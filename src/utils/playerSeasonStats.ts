@@ -11,6 +11,7 @@ import {
 import { MetricsCalculator } from '../components/MetricsCalculator';
 import {
   gameHasShotChartData,
+  buildPaintFastbreakByPlayer,
   getPlayerPaintAndFastbreakPoints,
 } from './gameDisplay';
 import {
@@ -493,15 +494,13 @@ export function aggregatePlayerSeasonStats(
 
   (games ?? []).forEach((game) => {
     if (!gameHasShotChartData(game)) return;
+    const paintFb = buildPaintFastbreakByPlayer(game);
     (game.gameStats ?? []).forEach((stat) => {
       const row = playerTotals.get(stat.playerId);
       if (!row) return;
-      const { paintPoints, fastbreakPoints } = getPlayerPaintAndFastbreakPoints(
-        game,
-        stat.playerId
-      );
-      row.paintPointsTotal += paintPoints ?? 0;
-      row.fastbreakPointsTotal += fastbreakPoints ?? 0;
+      const pts = paintFb.get(stat.playerId);
+      row.paintPointsTotal += pts?.paintPoints ?? 0;
+      row.fastbreakPointsTotal += pts?.fastbreakPoints ?? 0;
       row.gamesWithShotData += 1;
     });
   });

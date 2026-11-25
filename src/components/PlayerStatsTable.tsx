@@ -532,6 +532,11 @@ export function PlayerStatsTable({
                           ? 'border-t-2 border-border bg-muted/40 hover:bg-muted/40'
                           : 'hover:bg-muted/50'
                       }
+                      style={{
+                        // Browser skips layout/paint for off-screen rows (sticky cols stay intact).
+                        contentVisibility: 'auto',
+                        containIntrinsicSize: 'auto 40px',
+                      }}
                     >
                       {!isBreakdown && (
                         <TableCell className={stickyRankCellClass(isSummaryRow)}>

@@ -102,45 +102,108 @@ function clonePlayerStats(stats: GameStats[]): Record<string, GameStats> {
   return out;
 }
 
-/** Replay all events once and capture cumulative stats after each event. */
-export function buildPbpStatSnapshots(
+export type PbpSnapshotCache = {
+  homeTeamId: string;
+  awayTeamId: string;
+  eventIds: string[];
+  snapshots: Map<string, PbpEventSnapshot>;
+  game: Game;
+};
+
+function applyPbpEventToReplay(game: Game, event: GameEvent): Game {
+  let next = game;
+  if (event.type === 'shot_attempt' && event.playerId) {
+    const d = event.details;
+    const shot: Shot = {
+      id: `shot-${event.id}`,
+      playerId: event.playerId,
+      x: typeof d.x === 'number' ? d.x : 50,
+      y: typeof d.y === 'number' ? d.y : 50,
+      made: !!d.made,
+      isThree: !!d.isThree,
+      timestamp: event.timestamp,
+      assistedBy: d.assistedBy,
+      blockedBy: d.blockedBy,
+      isTransition: d.isTransition,
+      inPaint: d.inPaint,
+      period: event.period,
+      gameTime: event.gameTime,
+    };
+    next = { ...next, shots: [...next.shots, shot] };
+  }
+  return GameLogic.recordEvent(next, event);
+}
+
+/**
+ * Replay events and capture cumulative stats after each.
+ * Pass prior cache to append-only extend (live scoring) — identical snapshots
+ * to a full rebuild when the event prefix is unchanged.
+ */
+export function buildOrExtendPbpStatSnapshots(
   homeTeam: Team,
   awayTeam: Team,
-  events: GameEvent[]
-): Map<string, PbpEventSnapshot> {
-  const snapshots = new Map<string, PbpEventSnapshot>();
-  let game = createReplayGame(homeTeam, awayTeam);
+  events: GameEvent[],
+  prev: PbpSnapshotCache | null = null
+): PbpSnapshotCache {
+  const canExtend =
+    !!prev &&
+    prev.homeTeamId === homeTeam.id &&
+    prev.awayTeamId === awayTeam.id &&
+    events.length >= prev.eventIds.length &&
+    prev.eventIds.every((id, i) => events[i]?.id === id);
 
-  for (const event of events) {
-    if (event.type === 'shot_attempt' && event.playerId) {
-      const d = event.details;
-      const shot: Shot = {
-        id: `shot-${event.id}`,
-        playerId: event.playerId,
-        x: typeof d.x === 'number' ? d.x : 50,
-        y: typeof d.y === 'number' ? d.y : 50,
-        made: !!d.made,
-        isThree: !!d.isThree,
-        timestamp: event.timestamp,
-        assistedBy: d.assistedBy,
-        blockedBy: d.blockedBy,
-        isTransition: d.isTransition,
-        inPaint: d.inPaint,
-        period: event.period,
-        gameTime: event.gameTime,
-      };
-      game = { ...game, shots: [...game.shots, shot] };
+  if (!canExtend) {
+    const snapshots = new Map<string, PbpEventSnapshot>();
+    let game = createReplayGame(homeTeam, awayTeam);
+    const eventIds: string[] = [];
+    for (const event of events) {
+      game = applyPbpEventToReplay(game, event);
+      eventIds.push(event.id);
+      snapshots.set(event.id, {
+        players: clonePlayerStats(game.gameStats),
+        home: { ...game.teamStats.home },
+        away: { ...game.teamStats.away },
+      });
     }
+    return {
+      homeTeamId: homeTeam.id,
+      awayTeamId: awayTeam.id,
+      eventIds,
+      snapshots,
+      game,
+    };
+  }
 
-    game = GameLogic.recordEvent(game, event);
+  const snapshots = new Map(prev.snapshots);
+  let game = prev.game;
+  const eventIds = prev.eventIds.slice();
+  for (let i = prev.eventIds.length; i < events.length; i++) {
+    const event = events[i];
+    game = applyPbpEventToReplay(game, event);
+    eventIds.push(event.id);
     snapshots.set(event.id, {
       players: clonePlayerStats(game.gameStats),
       home: { ...game.teamStats.home },
       away: { ...game.teamStats.away },
     });
   }
+  return {
+    homeTeamId: homeTeam.id,
+    awayTeamId: awayTeam.id,
+    eventIds,
+    snapshots,
+    game,
+  };
+}
 
-  return snapshots;
+/** Replay all events once and capture cumulative stats after each event. */
+export function buildPbpStatSnapshots(
+  homeTeam: Team,
+  awayTeam: Team,
+  events: GameEvent[]
+): Map<string, PbpEventSnapshot> {
+  return buildOrExtendPbpStatSnapshots(homeTeam, awayTeam, events, null)
+    .snapshots;
 }
 
 /** First name labels; disambiguate duplicates with last initial. */

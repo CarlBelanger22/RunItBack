@@ -230,9 +230,35 @@ interface DbGame {
   away_starters: string[];
   game_stats: Game['gameStats'];
   team_stats: Game['teamStats'];
-  shots: Game['shots'];
-  events: Game['events'];
-  lineup_stints: Game['lineupStints'];
+  /** Omitted on list bootstrap (Batch 3). */
+  shots?: Game['shots'];
+  events?: Game['events'];
+  lineup_stints?: Game['lineupStints'];
+}
+
+/** List/bootstrap columns — keep box + meta; omit PBP blobs (lazy-fetch). */
+export const GAME_LIST_SELECT = [
+  'id',
+  'league_id',
+  'tournament_id',
+  'home_team_id',
+  'away_team_id',
+  'date',
+  'current_period',
+  'current_game_time',
+  'track_both_teams',
+  'is_active',
+  'is_completed',
+  'final_score_home',
+  'final_score_away',
+  'home_starters',
+  'away_starters',
+  'game_stats',
+  'team_stats',
+].join(', ');
+
+export function gameNeedsPbpHydration(game: Pick<Game, 'pbpHydrated'>): boolean {
+  return game.pbpHydrated === false;
 }
 
 function dbPlayerToPlayer(
@@ -525,6 +551,25 @@ async function deleteTournamentRosterRows(
   deletes: TournamentRosterDelete[]
 ): Promise<void> {
   if (!supabase || deletes.length === 0) return;
+
+  // Prefer Batch 3 RPC (017); fall back to per-row deletes if not migrated yet.
+  const payload = deletes.map((row) => ({
+    tournament_id: row.tournamentId,
+    team_id: row.teamId,
+    player_id: row.playerId,
+  }));
+  const { error: rpcError } = await supabase.rpc(
+    'delete_tournament_roster_rows',
+    { p_rows: payload }
+  );
+  if (!rpcError) return;
+  if (import.meta.env.DEV) {
+    console.warn(
+      '[RunItBack] delete_tournament_roster_rows RPC unavailable; using row deletes:',
+      rpcError.message
+    );
+  }
+
   await runPool(deletes, 10, async (row) => {
     const { error } = await supabase!
       .from('tournament_rosters')
@@ -545,6 +590,24 @@ async function deleteOtherTeamTournamentRosterRows(
   keeps: Array<{ tournamentId: string; playerId: string; keepTeamId: string }>
 ): Promise<void> {
   if (!supabase || keeps.length === 0) return;
+
+  const payload = keeps.map((row) => ({
+    tournament_id: row.tournamentId,
+    player_id: row.playerId,
+    keep_team_id: row.keepTeamId,
+  }));
+  const { error: rpcError } = await supabase.rpc(
+    'clear_other_team_tournament_rosters',
+    { p_keeps: payload }
+  );
+  if (!rpcError) return;
+  if (import.meta.env.DEV) {
+    console.warn(
+      '[RunItBack] clear_other_team_tournament_rosters RPC unavailable; using row deletes:',
+      rpcError.message
+    );
+  }
+
   await runPool(keeps, 10, async (row) => {
     const { error } = await supabase!
       .from('tournament_rosters')
@@ -970,6 +1033,11 @@ function dbGameToGame(row: DbGame, teamById: Map<string, Team>): Game {
     shots: row.shots ?? [],
     events: row.events ?? [],
     lineupStints: row.lineup_stints ?? [],
+    // PostgREST omits unselected columns → undefined ⇒ list load without PBP.
+    pbpHydrated:
+      row.events !== undefined ||
+      row.shots !== undefined ||
+      row.lineup_stints !== undefined,
     currentPeriod: row.current_period,
     currentGameTime: row.current_game_time,
     homeStarters: row.home_starters ?? [],
@@ -1046,21 +1114,69 @@ async function loadExistingGamePbpById(
   >();
   if (!supabase || gameIds.length === 0) return map;
 
-  const { data, error } = await supabase
-    .from('games')
-    .select('id, events, shots, lineup_stints')
-    .in('id', gameIds);
+  const chunkSize = 80;
+  for (let i = 0; i < gameIds.length; i += chunkSize) {
+    const chunk = gameIds.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('games')
+      .select('id, events, shots, lineup_stints')
+      .in('id', chunk);
 
-  if (error) throw new Error(`games fetch for PBP preserve: ${error.message}`);
+    if (error) throw new Error(`games fetch for PBP preserve: ${error.message}`);
 
-  for (const row of data ?? []) {
-    map.set(row.id as string, {
-      events: row.events ?? [],
-      shots: row.shots ?? [],
-      lineup_stints: row.lineup_stints ?? [],
-    });
+    for (const row of data ?? []) {
+      map.set(row.id as string, {
+        events: row.events ?? [],
+        shots: row.shots ?? [],
+        lineup_stints: row.lineup_stints ?? [],
+      });
+    }
   }
   return map;
+}
+
+export type GamePbpPayload = {
+  events: Game['events'];
+  shots: Game['shots'];
+  lineupStints: Game['lineupStints'];
+};
+
+/** Lazy-fetch PBP blobs for game ids (Batch 3). Chunked `.in` queries. */
+export async function fetchGamesPbpByIds(
+  gameIds: string[]
+): Promise<Map<string, GamePbpPayload>> {
+  const raw = await loadExistingGamePbpById(gameIds);
+  const out = new Map<string, GamePbpPayload>();
+  for (const [id, row] of raw) {
+    out.set(id, {
+      events: (row.events as Game['events']) ?? [],
+      shots: (row.shots as Game['shots']) ?? [],
+      lineupStints: (row.lineup_stints as Game['lineupStints']) ?? [],
+    });
+  }
+  return out;
+}
+
+/** Merge fetched PBP onto in-memory games; marks pbpHydrated. */
+export function mergeGamesPbp(
+  games: Game[],
+  pbpById: Map<string, GamePbpPayload>
+): Game[] {
+  if (pbpById.size === 0) return games;
+  let changed = false;
+  const next = games.map((g) => {
+    const pbp = pbpById.get(g.id);
+    if (!pbp) return g;
+    changed = true;
+    return {
+      ...g,
+      events: pbp.events,
+      shots: pbp.shots,
+      lineupStints: pbp.lineupStints,
+      pbpHydrated: true,
+    };
+  });
+  return changed ? next : games;
 }
 
 async function upsertChunks<T extends Record<string, unknown>>(
@@ -1164,7 +1280,7 @@ export async function loadAppDataFromSupabase(
     fetchAllPaged<DbGame>((from, to) =>
       supabase
         .from('games')
-        .select('*')
+        .select(GAME_LIST_SELECT)
         .eq('league_id', leagueId)
         .order('id')
         .range(from, to)

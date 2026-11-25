@@ -13,7 +13,9 @@ import {
   meetsTournamentMajorAwardGamesFloor,
 } from './tournamentLeaders';
 import {
-  resolvePlayerTeamFromTournamentRoster,
+  buildRosterLookupIndex,
+  findRosterEntryIndexed,
+  resolvePlayerTeamFromTournamentRosterIndexed,
   type TournamentRosterEntry,
 } from './tournamentRosters';
 import { resolvePlayerTeamInGame } from './rosterPlayers';
@@ -250,6 +252,15 @@ export function aggregateTournamentAwardPlayers(input: {
   }
 
   const byPlayer = new Map<string, AwardPlayerAggregate>();
+  const rosterIndex = buildRosterLookupIndex(
+    tournamentId,
+    teams,
+    tournamentRosters
+  );
+  const resolveOpts = {
+    clubRosterByTeam: rosterIndex.clubRosterByTeam,
+    teamById: rosterIndex.teamById,
+  };
 
   for (const game of completed) {
     const recordsPm = gameRecordsStat(game, 'plus_minus');
@@ -258,15 +269,20 @@ export function aggregateTournamentAwardPlayers(input: {
     for (const stat of game.gameStats ?? []) {
       if (!stat?.playerId) continue;
 
-      const fromRoster = resolvePlayerTeamFromTournamentRoster(
+      const fromRoster = resolvePlayerTeamFromTournamentRosterIndexed(
         stat.playerId,
-        tournamentId,
-        teams,
-        tournamentRosters
+        rosterIndex
       );
+      // Match prior call site: no tournamentRosters on game fallback.
       const fromGame = fromRoster
         ? null
-        : resolvePlayerTeamInGame(stat.playerId, game, teams);
+        : resolvePlayerTeamInGame(
+            stat.playerId,
+            game,
+            teams,
+            undefined,
+            resolveOpts
+          );
       const player =
         fromRoster?.player ??
         fromGame?.players.find((p) => p.id === stat.playerId);
@@ -275,11 +291,10 @@ export function aggregateTournamentAwardPlayers(input: {
 
       let row = byPlayer.get(stat.playerId);
       if (!row) {
-        const rosterEntry = tournamentRosters.find(
-          (r) =>
-            r.tournamentId === tournamentId &&
-            r.playerId === stat.playerId &&
-            r.teamId === team.id
+        const rosterEntry = findRosterEntryIndexed(
+          rosterIndex,
+          stat.playerId,
+          team.id
         );
         const clubPlayer = team.players.find((p) => p.id === stat.playerId);
         const playerForRow: Player = {
@@ -756,6 +771,77 @@ function buildTsiMapForTournamentGames(input: {
   });
 }
 
+/** Cross-call cache for prior-season MIP/ROTY boxes (ref-equality invalidation). */
+type PriorSeriesAggCache = {
+  allGames: Game[];
+  teams: Team[];
+  tournamentRosters: TournamentRosterEntry[];
+  byTournamentId: Map<
+    string,
+    { agg: AwardPlayerAggregate[]; tsi: Map<string, number> }
+  >;
+};
+let priorSeriesAggCache: PriorSeriesAggCache | null = null;
+
+function getOrBuildPriorSeriesAggregates(input: {
+  earlier: Tournament[];
+  allGames: Game[];
+  teams: Team[];
+  tournamentRosters: TournamentRosterEntry[];
+}): {
+  priorAggByTournament: Map<string, AwardPlayerAggregate[]>;
+  priorTsiByTournament: Map<string, Map<string, number>>;
+} {
+  const canReuse =
+    priorSeriesAggCache &&
+    priorSeriesAggCache.allGames === input.allGames &&
+    priorSeriesAggCache.teams === input.teams &&
+    priorSeriesAggCache.tournamentRosters === input.tournamentRosters;
+
+  const priorAggByTournament = new Map<string, AwardPlayerAggregate[]>();
+  const priorTsiByTournament = new Map<string, Map<string, number>>();
+  const nextById = new Map<
+    string,
+    { agg: AwardPlayerAggregate[]; tsi: Map<string, number> }
+  >();
+
+  for (const prior of input.earlier) {
+    const hit = canReuse
+      ? priorSeriesAggCache!.byTournamentId.get(prior.id)
+      : undefined;
+    if (hit) {
+      priorAggByTournament.set(prior.id, hit.agg);
+      priorTsiByTournament.set(prior.id, hit.tsi);
+      nextById.set(prior.id, hit);
+      continue;
+    }
+    const priorGames = filterGamesForTournament(prior, input.allGames);
+    const agg = aggregateTournamentAwardPlayers({
+      tournamentId: prior.id,
+      games: priorGames,
+      teams: input.teams,
+      tournamentRosters: input.tournamentRosters,
+    });
+    const tsi = buildTsiMapForTournamentGames({
+      games: priorGames,
+      teams: input.teams,
+      structure: prior.structure,
+    });
+    priorAggByTournament.set(prior.id, agg);
+    priorTsiByTournament.set(prior.id, tsi);
+    nextById.set(prior.id, { agg, tsi });
+  }
+
+  priorSeriesAggCache = {
+    allGames: input.allGames,
+    teams: input.teams,
+    tournamentRosters: input.tournamentRosters,
+    byTournamentId: nextById,
+  };
+
+  return { priorAggByTournament, priorTsiByTournament };
+}
+
 /**
  * ROTY + MIP sections (after Sixth Man). Empty when standalone / off / no pool.
  */
@@ -797,28 +883,26 @@ export function buildRookieAndMostImprovedSections(input: {
       .map((r) => r.playerId)
   );
 
-  const priorAggByTournament = new Map<string, AwardPlayerAggregate[]>();
-  const priorTsiByTournament = new Map<string, Map<string, number>>();
-  for (const prior of earlier) {
-    const priorGames = filterGamesForTournament(prior, input.allGames);
-    priorAggByTournament.set(
-      prior.id,
-      aggregateTournamentAwardPlayers({
-        tournamentId: prior.id,
-        games: priorGames,
-        teams: input.teams,
-        tournamentRosters: input.tournamentRosters,
-      })
-    );
-    priorTsiByTournament.set(
-      prior.id,
-      buildTsiMapForTournamentGames({
-        games: priorGames,
-        teams: input.teams,
-        structure: prior.structure,
-      })
-    );
+  const { priorAggByTournament, priorTsiByTournament } =
+    getOrBuildPriorSeriesAggregates({
+      earlier,
+      allGames: input.allGames,
+      teams: input.teams,
+      tournamentRosters: input.tournamentRosters,
+    });
+
+  const priorAggByPlayerId = new Map<
+    string,
+    Map<string, AwardPlayerAggregate>
+  >();
+  for (const [tid, rows] of priorAggByTournament) {
+    const byPlayer = new Map<string, AwardPlayerAggregate>();
+    for (const row of rows) byPlayer.set(row.playerId, row);
+    priorAggByPlayerId.set(tid, byPlayer);
   }
+  const currentByPlayerId = new Map(
+    input.currentPlayers.map((p) => [p.playerId, p])
+  );
 
   const playerSeasonGpCache = new Map<
     string,
@@ -828,15 +912,15 @@ export function buildRookieAndMostImprovedSections(input: {
     let map = playerSeasonGpCache.get(playerId);
     if (map) return map;
     map = new Map();
-    const cur = input.currentPlayers.find((p) => p.playerId === playerId);
+    const cur = currentByPlayerId.get(playerId);
     if (cur) {
       map.set(input.current.id, {
         gamesPlayed: cur.gamesPlayed,
         teamGames: cur.teamGames,
       });
     }
-    for (const [tid, rows] of priorAggByTournament) {
-      const row = rows.find((p) => p.playerId === playerId);
+    for (const [tid, byPlayer] of priorAggByPlayerId) {
+      const row = byPlayer.get(playerId);
       if (row) {
         map.set(tid, {
           gamesPlayed: row.gamesPlayed,
@@ -902,9 +986,7 @@ export function buildRookieAndMostImprovedSections(input: {
         playerSeasonGp: gpMap,
       });
       if (!prior) continue;
-      const priorRow = priorAggByTournament
-        .get(prior.id)
-        ?.find((p) => p.playerId === r.playerId);
+      const priorRow = priorAggByPlayerId.get(prior.id)?.get(r.playerId);
       if (!priorRow) continue;
       const priorGp = gpMap.get(prior.id);
       const eligible = isMostImprovedEligible({
@@ -962,7 +1044,7 @@ export function buildRookieAndMostImprovedSections(input: {
   return sections;
 }
 
-function spliceAfterSixthMan(
+export function spliceAfterSixthMan(
   sections: TournamentAwardSection[],
   extra: TournamentAwardSection[]
 ): TournamentAwardSection[] {

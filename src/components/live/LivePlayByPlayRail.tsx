@@ -3,12 +3,13 @@ import type { GameEvent, Team } from '../../App';
 import { getLiveTeamColor, liveTeamTint, LIVE_SEMANTIC } from './liveEntryTheme';
 import {
   buildFirstNameLabels,
+  buildOrExtendPbpStatSnapshots,
   buildPbpRows,
-  buildPbpStatSnapshots,
   formatPbpAction,
   formatPbpScoreAfter,
   pbpRowSourceEvent,
   type PbpRow,
+  type PbpSnapshotCache,
 } from '../../liveEntry/pbpDisplay';
 
 export { buildPbpRows, pbpRowSourceEvent } from '../../liveEntry/pbpDisplay';
@@ -133,16 +134,23 @@ export function LivePlayByPlayRail({
   subtitle,
 }: LivePlayByPlayRailProps) {
   const logRef = useRef<HTMLDivElement>(null);
+  const snapshotCacheRef = useRef<PbpSnapshotCache | null>(null);
 
   const labels = useMemo(
     () => buildFirstNameLabels(homeTeam, awayTeam),
     [homeTeam, awayTeam]
   );
 
-  const snapshots = useMemo(
-    () => buildPbpStatSnapshots(homeTeam, awayTeam, events),
-    [events, homeTeam, awayTeam]
-  );
+  const snapshots = useMemo(() => {
+    const next = buildOrExtendPbpStatSnapshots(
+      homeTeam,
+      awayTeam,
+      events,
+      snapshotCacheRef.current
+    );
+    snapshotCacheRef.current = next;
+    return next.snapshots;
+  }, [events, homeTeam, awayTeam]);
 
   const displayRows = useMemo(
     () => buildPbpRows(events.slice(-maxEvents), homeTeam, awayTeam).reverse(),

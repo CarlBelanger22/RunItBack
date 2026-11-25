@@ -7,12 +7,16 @@ interface LiveCourtOverlayShellProps {
 }
 
 export function LiveCourtOverlayShell({ children, className }: LiveCourtOverlayShellProps) {
+  // pointer-events-auto only while mounted — parent must unmount on idle/error
+  // so a stuck phase cannot leave an invisible click trap over the court.
   return (
     <div
       className={cn(
         'absolute inset-0 z-50 flex items-center justify-center pointer-events-auto',
         className
       )}
+      data-live-court-overlay="true"
+      role="presentation"
     >
       <div
         className="absolute inset-0 rounded-xl bg-background/60 pointer-events-none"

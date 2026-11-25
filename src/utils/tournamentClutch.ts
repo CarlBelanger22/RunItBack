@@ -109,8 +109,22 @@ export function lastHalfChronological<T>(items: readonly T[]): T[] {
   return items.slice(Math.floor(items.length / 2));
 }
 
+function byTimestampAsc(a: GameEvent, b: GameEvent): number {
+  if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+  return 0;
+}
+
+/** True when timestamps are already non-decreasing (common for live PBP). */
+function isAlreadyTimestampSorted(events: readonly GameEvent[]): boolean {
+  for (let i = 1; i < events.length; i++) {
+    if (events[i].timestamp < events[i - 1].timestamp) return false;
+  }
+  return true;
+}
+
 /**
  * Clutch-window action events for one game (margin already applied).
+ * Filter-then-sort (same event set/order as sorting all events first).
  */
 export function selectClutchEventsForGame(game: Game): GameEvent[] {
   const events = game.events ?? [];
@@ -119,18 +133,19 @@ export function selectClutchEventsForGame(game: Game): GameEvent[] {
   if (!homeTeamId) return [];
   const reg = resolveGameClockSettings(game).regulationPeriods;
 
-  const sorted = [...events].sort((a, b) => {
-    if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-    return 0;
-  });
-
-  const q4Action = sorted.filter(
+  const q4ActionRaw = events.filter(
     (e) => e.period === reg && isClutchActionType(e.type)
   );
-  const q4Half = lastHalfChronological(q4Action);
-  const otAction = sorted.filter(
+  const otActionRaw = events.filter(
     (e) => e.period > reg && isClutchActionType(e.type)
   );
+  const q4Action = isAlreadyTimestampSorted(q4ActionRaw)
+    ? q4ActionRaw
+    : [...q4ActionRaw].sort(byTimestampAsc);
+  const otAction = isAlreadyTimestampSorted(otActionRaw)
+    ? otActionRaw
+    : [...otActionRaw].sort(byTimestampAsc);
+  const q4Half = lastHalfChronological(q4Action);
 
   return [...q4Half, ...otAction].filter((e) =>
     meetsClutchMargin(e, homeTeamId)

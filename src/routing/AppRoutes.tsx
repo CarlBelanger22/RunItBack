@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { ErrorBoundary } from '../components/ErrorBoundary';
@@ -165,6 +165,7 @@ function TournamentDetailRoute({
   const returnTo = currentLocationPath(location);
 
   return (
+    <ErrorBoundary>
     <TournamentPage
       tournament={tournament}
       tournaments={tournaments}
@@ -211,6 +212,7 @@ function TournamentDetailRoute({
       onFlushTournamentRosterSave={onFlushTournamentRosterSave}
       onTournamentRosterEditModeChange={onTournamentRosterEditModeChange}
     />
+    </ErrorBoundary>
   );
 }
 
@@ -390,18 +392,51 @@ function GameSummaryRoute({
   teams,
   tournaments,
   onGameUpdate,
+  onGamesUpdate,
   onDeleteActiveGame,
 }: Pick<
   AppRoutesProps,
-  'games' | 'teams' | 'tournaments' | 'onGameUpdate' | 'onDeleteActiveGame'
+  | 'games'
+  | 'teams'
+  | 'tournaments'
+  | 'onGameUpdate'
+  | 'onGamesUpdate'
+  | 'onDeleteActiveGame'
 >) {
   const { gameId } = useParams<{ gameId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
   const game = gameId ? games.find((g) => g.id === gameId) : undefined;
+  const [pbpReady, setPbpReady] = useState(
+    () => !game || game.pbpHydrated !== false
+  );
+
+  useEffect(() => {
+    if (!gameId || !game) return;
+    if (game.pbpHydrated !== false) {
+      setPbpReady(true);
+      return;
+    }
+    let cancelled = false;
+    setPbpReady(false);
+    void import('../utils/ensureGamePbp').then(({ ensureGamesPbpHydrated }) =>
+      ensureGamesPbpHydrated(games, [gameId], onGamesUpdate).then(() => {
+        if (!cancelled) setPbpReady(true);
+      })
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [gameId, game?.id, game?.pbpHydrated, games, onGamesUpdate]);
 
   if (!gameId || !game) {
     return <NotFound />;
+  }
+
+  if (!pbpReady) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">Loading game…</div>
+    );
   }
 
   const returnTo = currentLocationPath(location);
@@ -459,6 +494,7 @@ function LiveGameRoute({
   currentGame,
   setCurrentGame,
   onGameUpdate,
+  onGamesUpdate,
   onGameComplete,
   onDeleteActiveGame,
   onPauseGame,
@@ -475,6 +511,39 @@ function LiveGameRoute({
     currentGame?.id === gameId && currentGame && isGameInProgress(currentGame)
       ? currentGame
       : persistedActive;
+
+  const [pbpReady, setPbpReady] = useState(
+    () => !rawLiveGame || rawLiveGame.pbpHydrated !== false
+  );
+
+  useEffect(() => {
+    if (!gameId || !rawLiveGame) return;
+    if (rawLiveGame.pbpHydrated !== false) {
+      setPbpReady(true);
+      return;
+    }
+    let cancelled = false;
+    setPbpReady(false);
+    void import('../utils/ensureGamePbp').then(({ ensureGamesPbpHydrated }) =>
+      ensureGamesPbpHydrated(games, [gameId], (next) => {
+        onGamesUpdate(next);
+        const hydrated = next.find((g) => g.id === gameId);
+        if (hydrated) setCurrentGame(hydrated);
+      }).then(() => {
+        if (!cancelled) setPbpReady(true);
+      })
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    gameId,
+    rawLiveGame?.id,
+    rawLiveGame?.pbpHydrated,
+    games,
+    onGamesUpdate,
+    setCurrentGame,
+  ]);
 
   const liveGame = useMemo(() => {
     if (!rawLiveGame) return undefined;
@@ -495,10 +564,14 @@ function LiveGameRoute({
     }
   }, [persistedActive, currentGame?.id, gameId, setCurrentGame]);
 
-  if (!gameId || !liveGame) {
+  if (!gameId || !liveGame || !pbpReady) {
     return (
       <div className="space-y-4">
-        <p className="text-muted-foreground">Live game session not found or expired.</p>
+        <p className="text-muted-foreground">
+          {!liveGame
+            ? 'Live game session not found or expired.'
+            : 'Loading live session…'}
+        </p>
         <Button variant="outline" onClick={() => navigate(paths.home)}>
           Back to dashboard
         </Button>
@@ -690,6 +763,7 @@ export function AppRoutes(props: AppRoutesProps) {
             teams={teams}
             tournaments={tournaments}
             onGameUpdate={onGameUpdate}
+            onGamesUpdate={onGamesUpdate}
             onDeleteActiveGame={onDeleteActiveGame}
           />
         }
@@ -735,7 +809,9 @@ export function AppRoutes(props: AppRoutesProps) {
         path="/live/:gameId"
         element={
           <RequireAdmin>
-            <LiveGameRoute {...props} />
+            <ErrorBoundary>
+              <LiveGameRoute {...props} />
+            </ErrorBoundary>
           </RequireAdmin>
         }
       />

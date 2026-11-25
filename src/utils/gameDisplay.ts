@@ -1238,6 +1238,29 @@ export function getPlayerPaintAndFastbreakPoints(
   return { paintPoints, fastbreakPoints };
 }
 
+/**
+ * Single pass over game.shots → per-player paint/fastbreak totals.
+ * Same rules as getPlayerPaintAndFastbreakPoints (made only; 2/3 pts).
+ */
+export function buildPaintFastbreakByPlayer(
+  game: Game
+): Map<string, { paintPoints: number; fastbreakPoints: number }> {
+  const map = new Map<string, { paintPoints: number; fastbreakPoints: number }>();
+  if (!gameHasShotChartData(game)) return map;
+  for (const shot of game.shots) {
+    if (!shot.playerId || !shot.made) continue;
+    const pts = shot.isThree ? 3 : 2;
+    let row = map.get(shot.playerId);
+    if (!row) {
+      row = { paintPoints: 0, fastbreakPoints: 0 };
+      map.set(shot.playerId, row);
+    }
+    if (shot.inPaint) row.paintPoints += pts;
+    if (shot.isTransition) row.fastbreakPoints += pts;
+  }
+  return map;
+}
+
 export function formatPlayerOptionalCount(value: number | null): string {
   if (value === null) return '-';
   return String(value);

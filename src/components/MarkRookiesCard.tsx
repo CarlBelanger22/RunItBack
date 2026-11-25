@@ -12,7 +12,7 @@ import {
 import type { Game, Team, Tournament } from '../App';
 import type { TournamentRosterEntry } from '../utils/tournamentRosters';
 import {
-  findPlayerProfile,
+  buildRosterLookupIndex,
   setTournamentRosterRookieFlag,
 } from '../utils/tournamentRosters';
 import {
@@ -126,6 +126,11 @@ export function MarkRookiesCard({
     tournamentRosters,
   ]);
 
+  const profileById = useMemo(
+    () => buildRosterLookupIndex(tournamentId, teams, tournamentRosters).profileById,
+    [tournamentId, teams, tournamentRosters]
+  );
+
   const groups = useMemo((): TeamGroup[] => {
     const teamById = new Map(teams.map((t) => [t.id, t]));
     const byTeam = new Map<string, TournamentRosterEntry[]>();
@@ -141,16 +146,14 @@ export function MarkRookiesCard({
       if (!team) continue;
       const sorted = [...entries].sort((a, b) => {
         if (a.number !== b.number) return a.number - b.number;
-        const na =
-          findPlayerProfile(a.playerId, teams)?.name ?? a.playerId;
-        const nb =
-          findPlayerProfile(b.playerId, teams)?.name ?? b.playerId;
+        const na = profileById.get(a.playerId)?.name ?? a.playerId;
+        const nb = profileById.get(b.playerId)?.name ?? b.playerId;
         return na.localeCompare(nb);
       });
       out.push({ team, entries: sorted });
     }
     return out.sort((a, b) => a.team.name.localeCompare(b.team.name));
-  }, [tournamentId, tournamentRosters, teams]);
+  }, [tournamentId, tournamentRosters, teams, profileById]);
 
   const taggedCount = useMemo(
     () =>
@@ -222,7 +225,7 @@ export function MarkRookiesCard({
         </div>
         <ul className="rounded-md border divide-y max-h-[50vh] overflow-y-auto">
           {selectedGroup.entries.map((entry) => {
-            const player = findPlayerProfile(entry.playerId, teams);
+            const player = profileById.get(entry.playerId);
             const name = player?.name ?? entry.playerId;
             const lock = locksByPlayer.get(entry.playerId);
             const locked = !!lock;

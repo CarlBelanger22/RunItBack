@@ -1,4 +1,11 @@
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, {
+  useState,
+  useCallback,
+  useMemo,
+  useEffect,
+  useRef,
+  useDeferredValue,
+} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 // TypeScript declarations for requestIdleCallback (not in all type definitions)
@@ -433,6 +440,11 @@ export interface Game {
   shots: Shot[];
   events: GameEvent[]; // Complete event log
   lineupStints: LineupStint[]; // For tracking minutes and plus/minus
+  /**
+   * Batch 3: false when bootstrap omitted PBP blobs (events/shots/lineups).
+   * true after lazy-fetch, live session, or full-row load. Undefined = treat as hydrated (legacy).
+   */
+  pbpHydrated?: boolean;
   currentPeriod: number;
   currentGameTime: string;
   homeStarters: string[]; // Player IDs of starting 5
@@ -1153,6 +1165,7 @@ export default function App() {
   const tournamentRostersRef = useRef(tournamentRosters);
   tournamentRostersRef.current = tournamentRosters;
   const [searchQuery, setSearchQuery] = useState('');
+  const deferredSearchQuery = useDeferredValue(searchQuery);
   const navigate = useNavigate();
   const location = useLocation();
   const isDashboard = location.pathname === paths.home;
@@ -2039,14 +2052,14 @@ export default function App() {
     }
 
     const checkAndSave = () => {
-      const teamsChanged = JSON.stringify(prevTeamsRef.current) !== JSON.stringify(teams);
-      const tournamentsChanged =
-        JSON.stringify(prevTournamentsRef.current) !== JSON.stringify(tournaments);
-      const gamesChanged = JSON.stringify(prevGamesRef.current) !== JSON.stringify(games);
+      // Reference equality — avoid JSON.stringify of full league (PBP blobs) on every tick.
+      // Callers must use immutable updates (new array/object refs) when data changes.
+      const teamsChanged = prevTeamsRef.current !== teams;
+      const tournamentsChanged = prevTournamentsRef.current !== tournaments;
+      const gamesChanged = prevGamesRef.current !== games;
       const darkModeChanged = prevDarkModeRef.current !== darkMode;
       const tournamentRostersChanged =
-        JSON.stringify(prevTournamentRostersRef.current) !==
-        JSON.stringify(tournamentRosters);
+        prevTournamentRostersRef.current !== tournamentRosters;
 
       if (
         !teamsChanged &&
@@ -3302,15 +3315,15 @@ export default function App() {
     [teams, games, tournamentRosters, darkMode]
   );
 
-  // Search functionality
+  // Search functionality — defer heavy scoring so typing stays responsive
   const searchResults = useMemo(() => {
-    return buildGlobalSearchResults(searchQuery, {
+    return buildGlobalSearchResults(deferredSearchQuery, {
       tournaments,
       teams,
       games,
       orphanPlayers,
     });
-  }, [searchQuery, tournaments, teams, games, orphanPlayers]);
+  }, [deferredSearchQuery, tournaments, teams, games, orphanPlayers]);
 
   const sessionBrowseLookup = useMemo((): EntityLookup => {
     const tournamentById = new Map(tournaments.map((t) => [t.id, t.name]));

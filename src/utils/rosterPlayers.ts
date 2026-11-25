@@ -273,20 +273,30 @@ export function getPlayerRosterEntries(
   }));
 }
 
+export type ResolvePlayerTeamInGameOpts = {
+  /** Hoist once per aggregate — avoids rebuilding club maps per box row. */
+  clubRosterByTeam?: Map<string, Set<string>>;
+  tournamentTeamByPlayer?: Map<string, string>;
+  teamById?: Map<string, Team>;
+};
+
 /** Which side the player was on for a completed game. */
 export function resolvePlayerTeamInGame(
   playerId: string,
   game: Game,
   teams: Team[],
-  tournamentRosters?: TournamentRosterEntry[]
+  tournamentRosters?: TournamentRosterEntry[],
+  opts?: ResolvePlayerTeamInGameOpts
 ): Team | null {
   const sideId = resolvePlayerTeamSideInGame(
     playerId,
     game,
-    buildClubRosterByTeam(teams),
-    buildTournamentRosterTeamByPlayer(game.tournamentId, tournamentRosters)
+    opts?.clubRosterByTeam ?? buildClubRosterByTeam(teams),
+    opts?.tournamentTeamByPlayer ??
+      buildTournamentRosterTeamByPlayer(game.tournamentId, tournamentRosters)
   );
   if (!sideId) return null;
+  if (opts?.teamById) return opts.teamById.get(sideId) ?? null;
   return teams.find((t) => t.id === sideId) ?? null;
 }
 

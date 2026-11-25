@@ -5,6 +5,7 @@ import {
   Fragment,
   startTransition,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -24,21 +25,19 @@ import {
   DialogTitle,
 } from './ui/dialog';
 import {
-  buildTournamentAwardsForGames,
   type AwardContender,
   type MipPriorSeasonSnapshot,
   type TournamentAwardSection,
 } from '../utils/tournamentAwards';
+import { buildTournamentAwardsBundle } from '../utils/tournamentAwardsBundle';
 import {
   allTeamTierTitle,
-  buildAllTournamentTeamsForGames,
   type AllTeamMember,
   type AllTeamTier,
   type AllTournamentTeamsResult,
 } from '../utils/tournamentAllTeams';
 import {
   allDefensiveTierTitle,
-  buildAllDefensiveTeamsForGames,
   type AllDefensiveTeamsResult,
   type AllDefensiveTier,
 } from '../utils/tournamentAllDefensive';
@@ -86,6 +85,8 @@ interface TournamentAwardsTabProps {
   }) => Promise<boolean>;
   /** Same as Team Edit Players — defer TR autosave while Eligibility is open. */
   onTournamentRosterEditModeChange?: (editing: boolean) => void;
+  /** Batch 3: merge lazy-fetched PBP into league games (clutch awards). */
+  onGamesUpdate?: (games: Game[]) => void;
 }
 
 function formatPct(made: number, attempted: number): string {
@@ -809,8 +810,32 @@ export function TournamentAwardsTab({
   onUpdateTournamentRosters,
   onFlushTournamentRosterSave,
   onTournamentRosterEditModeChange,
+  onGamesUpdate,
 }: TournamentAwardsTabProps) {
   const [eligibilityOpen, setEligibilityOpen] = useState(false);
+  const [pbpReady, setPbpReady] = useState(false);
+
+  // Clutch (and shot-dependent surfaces) need events/shots — hydrate list-stripped PBP.
+  useEffect(() => {
+    const leagueGames = allGames ?? games;
+    const ids = games.map((g) => g.id);
+    let cancelled = false;
+    setPbpReady(false);
+    void import('../utils/ensureGamePbp')
+      .then(({ ensureGamesPbpHydrated }) =>
+        ensureGamesPbpHydrated(leagueGames, ids, onGamesUpdate)
+      )
+      .then(() => {
+        if (!cancelled) setPbpReady(true);
+      })
+      .catch((err) => {
+        console.error('Awards PBP hydrate failed:', err);
+        if (!cancelled) setPbpReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [games, allGames, onGamesUpdate]);
   /** While Eligibility is open (and briefly after close), Awards use this frozen roster snapshot. */
   const [awardsRosterSnapshot, setAwardsRosterSnapshot] = useState<
     TournamentRosterEntry[] | null
@@ -830,6 +855,31 @@ export function TournamentAwardsTab({
     ).length;
   }, [showMarkRookies, tournamentRosters, tournamentId]);
 
+  const thawIdleHandleRef = useRef<number | null>(null);
+  const statusResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const flushTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (thawIdleHandleRef.current != null) {
+        if ('cancelIdleCallback' in window) {
+          window.cancelIdleCallback(thawIdleHandleRef.current);
+        }
+        thawIdleHandleRef.current = null;
+      }
+      if (statusResetTimeoutRef.current) {
+        clearTimeout(statusResetTimeoutRef.current);
+        statusResetTimeoutRef.current = null;
+      }
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current);
+        flushTimeoutRef.current = null;
+      }
+    };
+  }, []);
+
   const thawAwardsRankings = useCallback(() => {
     const run = () => {
       startTransition(() => {
@@ -838,9 +888,11 @@ export function TournamentAwardsTab({
     };
     // Long idle — never thaw on the same turn as flush (Aw Snap risk).
     if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
-      window.requestIdleCallback(() => run(), { timeout: 12000 });
+      thawIdleHandleRef.current = window.requestIdleCallback(() => run(), {
+        timeout: 12000,
+      });
     } else {
-      window.setTimeout(run, 8000);
+      thawIdleHandleRef.current = window.setTimeout(run, 8000) as unknown as number;
     }
   }, []);
 
@@ -860,7 +912,7 @@ export function TournamentAwardsTab({
       setEligibilitySaveStatus('saving');
       const gen = ++eligibilitySaveGenRef.current;
 
-      window.setTimeout(() => {
+      flushTimeoutRef.current = window.setTimeout(() => {
         void (async () => {
           let ok = true;
           try {
@@ -885,7 +937,7 @@ export function TournamentAwardsTab({
           // Rankings stay frozen until long idle / leaving Awards tab.
           if (ok) {
             thawAwardsRankings();
-            window.setTimeout(() => {
+            statusResetTimeoutRef.current = window.setTimeout(() => {
               if (eligibilitySaveGenRef.current === gen) {
                 setEligibilitySaveStatus('idle');
               }
@@ -920,53 +972,42 @@ export function TournamentAwardsTab({
     [tournament, tournamentId, structure]
   );
 
-  const sections = useMemo(
-    () =>
-      buildTournamentAwardsForGames({
-        tournamentId,
-        games,
-        teams,
-        tournamentRosters: rostersForAwards,
-        structure,
-        tournament: tournamentMeta,
-        allTournaments,
-        allGames: allGames ?? games,
-      }),
-    [
+  const awardsBundle = useMemo(() => {
+    if (!pbpReady) return null;
+    return buildTournamentAwardsBundle({
       tournamentId,
+      tournamentName,
       games,
       teams,
-      rostersForAwards,
+      tournamentRosters: rostersForAwards,
       structure,
-      tournamentMeta,
+      tournament: tournamentMeta,
       allTournaments,
-      allGames,
-    ]
-  );
-  const allTeams = useMemo(
-    () =>
-      buildAllTournamentTeamsForGames({
-        tournamentId,
-        tournamentName,
-        games,
-        teams,
-        tournamentRosters: rostersForAwards,
-        structure,
-      }),
-    [tournamentId, tournamentName, games, teams, rostersForAwards, structure]
-  );
-  const allDefensive = useMemo(
-    () =>
-      buildAllDefensiveTeamsForGames({
-        tournamentId,
-        tournamentName,
-        games,
-        teams,
-        tournamentRosters: rostersForAwards,
-        structure,
-      }),
-    [tournamentId, tournamentName, games, teams, rostersForAwards, structure]
-  );
+      allGames: allGames ?? games,
+    });
+  }, [
+    pbpReady,
+    tournamentId,
+    tournamentName,
+    games,
+    teams,
+    rostersForAwards,
+    structure,
+    tournamentMeta,
+    allTournaments,
+    allGames,
+  ]);
+  const sections = awardsBundle?.sections ?? [];
+  const allTeams = awardsBundle?.allTeams;
+  const allDefensive = awardsBundle?.allDefensive;
+
+  if (!pbpReady || !awardsBundle || !allTeams || !allDefensive) {
+    return (
+      <div className="text-sm text-muted-foreground py-6">
+        Loading awards…
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -115,7 +115,11 @@ function buildHorizontalThreePointPath(
   return { path, arcMeetX };
 }
 
-function HorizontalCourtMarkers({ markers }: { markers: HorizontalCourtMarker[] }) {
+const HorizontalCourtMarkers = React.memo(function HorizontalCourtMarkers({
+  markers,
+}: {
+  markers: HorizontalCourtMarker[];
+}) {
   return (
     <>
       {markers.map((m, i) => {
@@ -155,7 +159,7 @@ function HorizontalCourtMarkers({ markers }: { markers: HorizontalCourtMarker[] 
       })}
     </>
   );
-}
+});
 
 export function FigmaHorizontalCourtSvg({
   className,

@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Button } from './ui/button';
@@ -41,7 +41,8 @@ import { LoginRequiredPanel } from './LoginRequiredPanel';
 import { aggregatePlayerSeasonStats, getFoulStatCoverage, getShotDataCoverage, getPlusMinusCoverage, getFoulsDrawnCoverage, getPersonalFoulsCoverage } from '../utils/playerSeasonStats';
 import { aggregateTournamentTeamSeasonStats } from '../utils/tournamentTeamSeasonStats';
 import {
-  resolvePlayerTeamFromTournamentRoster,
+  buildRosterLookupIndex,
+  resolvePlayerTeamFromTournamentRosterIndexed,
   type TournamentRosterEntry,
 } from '../utils/tournamentRosters';
 import { resolvePlayerTeamInGame } from '../utils/rosterPlayers';
@@ -248,19 +249,35 @@ export function TournamentPage({
 
     const allPlayerStats: Array<{ player: Player; team: Team; stats: GameStats }> = [];
 
+    const rosterIndex = buildRosterLookupIndex(
+      tournament.id,
+      teams,
+      tournamentRosters,
+      orphanPlayers
+    );
+    const resolveOpts = {
+      clubRosterByTeam: rosterIndex.clubRosterByTeam,
+      teamById: rosterIndex.teamById,
+    };
+
     leaderGames.forEach((game) => {
       (game.gameStats ?? []).forEach((stat) => {
-        const fromRoster = resolvePlayerTeamFromTournamentRoster(
+        const fromRoster = resolvePlayerTeamFromTournamentRosterIndexed(
           stat.playerId,
-          tournament.id,
-          teams,
-          tournamentRosters,
-          orphanPlayers
+          rosterIndex
         );
         const fromGame = fromRoster
           ? null
-          : resolvePlayerTeamInGame(stat.playerId, game, teams);
-        const player = fromRoster?.player ?? fromGame?.players.find((p) => p.id === stat.playerId);
+          : resolvePlayerTeamInGame(
+              stat.playerId,
+              game,
+              teams,
+              undefined,
+              resolveOpts
+            );
+        const player =
+          fromRoster?.player ??
+          fromGame?.players.find((p) => p.id === stat.playerId);
         const playerTeam = fromRoster?.team ?? fromGame;
 
         if (player && playerTeam) {
@@ -388,11 +405,11 @@ export function TournamentPage({
     };
   };
 
-  // Calculate additional team stats for standings
+  // Calculate additional team stats for standings (uses fresh RR standings, not memo).
   const calculateStandingsWithExtendedStats = () =>
     orderStandingsBySeedSnapshot(
       withExtendedShootingStats(
-        standings,
+        applyStandingsPresentationOrder(calculateStandings()),
         filterRoundRobinGames(tournamentGames, tournament.structure)
       ),
       tournament.structure
@@ -408,30 +425,10 @@ export function TournamentPage({
   const isStandingsDemotedTeam = (teamId: string | undefined | null) =>
     isRektS3DemotedTeam(tournament.id, teamId) ||
     isNbl2025DemotedTeam(tournament.id, teamId);
-  const standings = applyStandingsPresentationOrder(calculateStandings());
-  const homeStandings = applyStandingsPresentationOrder(calculateHomeStandings());
-  const homeStandingRows = buildHomeStandingDisplayRows({
-    structure: tournament.structure,
-    games: tournamentGames,
-    teams: tournamentTeams,
-    standings: homeStandings,
-  });
-  const leaders = getTournamentLeaders();
-  const extendedStandings = applyStandingsPresentationOrder(
-    calculateStandingsWithExtendedStats()
-  );
-  const groupStandingsTables = buildGroupStandingsTables(
-    tournament.structure,
-    tournamentTeams,
-    tournamentGames
-  ).map((table) => ({
-    ...table,
-    standings: applyStandingsPresentationOrder(table.standings),
-  }));
   const s3StandingsFootnote =
     rektS3StandingsFootnote(tournament.id) ??
     nbl2025StandingsFootnote(tournament.id);
-  
+
   // Team dialogs (hoisted outside tab components to avoid remount on keystroke)
   const [isCreateTeamDialogOpen, setIsCreateTeamDialogOpen] = useState(false);
   const [isAddTeamDialogOpen, setIsAddTeamDialogOpen] = useState(false);
@@ -456,6 +453,134 @@ export function TournamentPage({
   const [playerStatsPositions, setPlayerStatsPositions] = useState<Set<string>>(
     () => new Set()
   );
+
+  const needHomeStandings = activeTab === 'home' || activeTab === 'standings';
+  const needLeaders = activeTab === 'home';
+  const needStandingsTables = activeTab === 'standings';
+  const needPlayerSeason = activeTab === 'players';
+  const needTeamSeason = activeTab === 'teams';
+
+  const standings = useMemo(() => {
+    if (!needHomeStandings) return [];
+    return applyStandingsPresentationOrder(calculateStandings());
+  }, [
+    needHomeStandings,
+    tournamentTeams,
+    tournamentGames,
+    tournament.structure,
+    tournament.id,
+  ]);
+
+  const homeStandings = useMemo(() => {
+    if (!needHomeStandings) return [];
+    return applyStandingsPresentationOrder(calculateHomeStandings());
+  }, [
+    needHomeStandings,
+    tournamentTeams,
+    tournamentGames,
+    tournament.structure,
+    tournament.id,
+  ]);
+
+  const homeStandingRows = useMemo(() => {
+    if (activeTab !== 'home') return [];
+    return buildHomeStandingDisplayRows({
+      structure: tournament.structure,
+      games: tournamentGames,
+      teams: tournamentTeams,
+      standings: homeStandings,
+    });
+  }, [
+    activeTab,
+    tournament.structure,
+    tournamentGames,
+    tournamentTeams,
+    homeStandings,
+  ]);
+
+  const leaders = useMemo(() => {
+    if (!needLeaders) {
+      return {
+        points: [],
+        rebounds: [],
+        assists: [],
+        steals: [],
+        blocks: [],
+        threes: [],
+        fgPercentage: [],
+        threePercentage: [],
+        ftPercentage: [],
+        efficiency: [],
+      };
+    }
+    return getTournamentLeaders();
+  }, [
+    needLeaders,
+    tournamentGames,
+    tournament.id,
+    teams,
+    tournamentRosters,
+    orphanPlayers,
+  ]);
+
+  const extendedStandings = useMemo(() => {
+    if (!needStandingsTables) return [];
+    return applyStandingsPresentationOrder(calculateStandingsWithExtendedStats());
+  }, [
+    needStandingsTables,
+    tournamentTeams,
+    tournamentGames,
+    tournament.structure,
+    tournament.id,
+  ]);
+
+  const groupStandingsTables = useMemo(() => {
+    if (!needStandingsTables) return [];
+    return buildGroupStandingsTables(
+      tournament.structure,
+      tournamentTeams,
+      tournamentGames
+    ).map((table) => ({
+      ...table,
+      standings: applyStandingsPresentationOrder(table.standings),
+    }));
+  }, [
+    needStandingsTables,
+    tournament.structure,
+    tournamentTeams,
+    tournamentGames,
+    tournament.id,
+  ]);
+
+  const playersSeasonData = useMemo(() => {
+    if (!needPlayerSeason) return [];
+    return aggregatePlayerSeasonStats(tournamentGames, tournamentTeams, {
+      tournamentId: tournament.id,
+      tournamentRosters,
+      orphanPlayers,
+    });
+  }, [
+    needPlayerSeason,
+    tournamentGames,
+    tournamentTeams,
+    tournament.id,
+    tournamentRosters,
+    orphanPlayers,
+  ]);
+
+  const filteredPlayersSeasonData = useMemo(
+    () =>
+      filterPlayerSeasonRows(playersSeasonData, {
+        teamIds: playerStatsTeamIds,
+        positions: playerStatsPositions,
+      }),
+    [playersSeasonData, playerStatsTeamIds, playerStatsPositions]
+  );
+
+  const teamSeasonRows = useMemo(() => {
+    if (!needTeamSeason) return [];
+    return aggregateTournamentTeamSeasonStats(tournamentTeams, tournamentGames);
+  }, [needTeamSeason, tournamentTeams, tournamentGames]);
 
   const takenAbbreviations = teams.map((t) => t.abbreviation).filter(Boolean);
 
@@ -875,11 +1000,6 @@ export function TournamentPage({
   );
 
   const TeamStatsTab = () => {
-    const teamSeasonRows = aggregateTournamentTeamSeasonStats(
-      tournamentTeams,
-      tournamentGames
-    );
-
     return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -1448,15 +1568,8 @@ export function TournamentPage({
   };
 
   const PlayersTab = () => {
-    const playersData = aggregatePlayerSeasonStats(tournamentGames, tournamentTeams, {
-      tournamentId: tournament.id,
-      tournamentRosters,
-      orphanPlayers,
-    });
-    const filteredPlayersData = filterPlayerSeasonRows(playersData, {
-      teamIds: playerStatsTeamIds,
-      positions: playerStatsPositions,
-    });
+    const playersData = playersSeasonData;
+    const filteredPlayersData = filteredPlayersSeasonData;
     const teamFilterOptions = [...tournamentTeams]
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((t) => ({ id: t.id, label: t.name }));
@@ -2170,6 +2283,7 @@ export function TournamentPage({
               onUpdateTournamentRosters={onUpdateTournamentRosters}
               onFlushTournamentRosterSave={onFlushTournamentRosterSave}
               onTournamentRosterEditModeChange={onTournamentRosterEditModeChange}
+              onGamesUpdate={onGamesUpdate}
             />
           </TabsContent>
         )}

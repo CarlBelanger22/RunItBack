@@ -707,6 +707,110 @@ export function findPlayerProfile(
 }
 
 /**
+ * Hot-path indexes for award/leader aggregates (same resolution rules as
+ * resolvePlayerTeamFromTournamentRoster + findPlayerProfile, O(1) lookup).
+ */
+export type RosterLookupIndex = {
+  profileById: Map<string, Player>;
+  teamById: Map<string, Team>;
+  /** First roster row per player (matches rosters.find order). */
+  rosterByPlayerId: Map<string, TournamentRosterEntry>;
+  /** playerId + teamId → roster row */
+  rosterByPlayerTeam: Map<string, TournamentRosterEntry>;
+  clubRosterByTeam: Map<string, Set<string>>;
+};
+
+function rosterPlayerTeamKey(playerId: string, teamId: string): string {
+  return `${playerId}\0${teamId}`;
+}
+
+export function buildRosterLookupIndex(
+  tournamentId: string,
+  teams: Team[],
+  rosters: TournamentRosterEntry[],
+  orphanPlayers: Player[] = []
+): RosterLookupIndex {
+  const profileById = new Map<string, Player>();
+  const teamById = new Map<string, Team>();
+  for (const team of teams) {
+    teamById.set(team.id, team);
+    for (const p of team.players ?? []) {
+      if (!profileById.has(p.id)) profileById.set(p.id, p);
+    }
+  }
+  for (const p of orphanPlayers) {
+    if (!profileById.has(p.id)) profileById.set(p.id, p);
+  }
+
+  const rosterByPlayerId = new Map<string, TournamentRosterEntry>();
+  const rosterByPlayerTeam = new Map<string, TournamentRosterEntry>();
+  for (const row of rosters) {
+    if (row.tournamentId !== tournamentId) continue;
+    if (!rosterByPlayerId.has(row.playerId)) {
+      rosterByPlayerId.set(row.playerId, row);
+    }
+    const ptKey = rosterPlayerTeamKey(row.playerId, row.teamId);
+    if (!rosterByPlayerTeam.has(ptKey)) {
+      rosterByPlayerTeam.set(ptKey, row);
+    }
+  }
+
+  return {
+    profileById,
+    teamById,
+    rosterByPlayerId,
+    rosterByPlayerTeam,
+    clubRosterByTeam: buildClubRosterByTeam(teams),
+  };
+}
+
+/** Same player construction as getPlayersForTeamInTournament for one roster row. */
+export function playerFromRosterEntry(
+  entry: TournamentRosterEntry,
+  profileById: Map<string, Player>
+): Player {
+  const template = profileById.get(entry.playerId);
+  if (template) {
+    return {
+      ...template,
+      number: entry.number,
+      position: template.position || entry.position,
+      secondaryPosition:
+        template.secondaryPosition ?? entry.secondaryPosition,
+    };
+  }
+  return {
+    id: entry.playerId,
+    name: entry.playerId,
+    number: entry.number,
+    position: entry.position,
+    secondaryPosition: entry.secondaryPosition,
+    height: '',
+    weight: '',
+    age: 0,
+  };
+}
+
+export function resolvePlayerTeamFromTournamentRosterIndexed(
+  playerId: string,
+  index: RosterLookupIndex
+): { player: Player; team: Team } | null {
+  const entry = index.rosterByPlayerId.get(playerId);
+  if (!entry) return null;
+  const team = index.teamById.get(entry.teamId);
+  if (!team) return null;
+  return { player: playerFromRosterEntry(entry, index.profileById), team };
+}
+
+export function findRosterEntryIndexed(
+  index: RosterLookupIndex,
+  playerId: string,
+  teamId: string
+): TournamentRosterEntry | undefined {
+  return index.rosterByPlayerTeam.get(rosterPlayerTeamKey(playerId, teamId));
+}
+
+/**
  * Position/secondary always come from the player profile (global SoT).
  * Jersey number stays on the tournament_rosters row.
  */

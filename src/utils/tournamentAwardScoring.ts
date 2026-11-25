@@ -8,6 +8,7 @@ import { resolvePlayerTeamInGame } from './rosterPlayers';
 import { isGameCompleted } from './scheduledGames';
 import { calculateTeamStandings } from './tournamentStandings';
 import type { TeamProgressionPlace } from './tournamentProgression';
+import { buildClubRosterByTeam } from './tournamentRosters';
 
 /**
  * @deprecated DV no longer includes +/− (Designer DPOY v2, 2026-11-24).
@@ -412,6 +413,10 @@ export function buildTeamDefenseBoxMetrics(
     return a;
   };
 
+  const clubRosterByTeam = buildClubRosterByTeam(teams);
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const resolveOpts = { clubRosterByTeam, teamById };
+
   for (const game of completed) {
     const stats = game.gameStats || [];
     if (stats.length === 0) continue;
@@ -430,7 +435,13 @@ export function buildTeamDefenseBoxMetrics(
 
     for (const s of stats) {
       if (!s?.playerId) continue;
-      const team = resolvePlayerTeamInGame(s.playerId, game, teams);
+      const team = resolvePlayerTeamInGame(
+        s.playerId,
+        game,
+        teams,
+        undefined,
+        resolveOpts
+      );
       if (!team) continue;
       if (team.id === homeId) {
         homeBox.fga += s.fg_attempted || 0;
